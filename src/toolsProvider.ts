@@ -1,0 +1,210 @@
+/**
+ * Tools Provider - Complete Implementation of all ~45 tools across 6 categories
+ */
+
+import type { Tool, ToolsProviderController } from '@lmstudio/sdk';
+
+// Import existing modules
+import type { PluginConfig } from './config';
+import { DEFAULT_CONFIG, isToolEnabled, isExecutionToolEnabled } from './config';
+import { StateManager } from './stateManager';
+import { BackgroundCommandManager } from './backgroundCommands';
+
+// Import category-specific tool modules
+import { registerFileSystemTools } from './tools/fileSystemTools';
+import { registerWebResearchTools } from './tools/webResearchTools';
+import { registerGitTools } from './tools/gitGithubTools';
+import { registerBrowserTools } from './tools/browserAutomationTools';
+import { registerDatabaseTools } from './tools/databaseTools';
+import { registerBackgroundCommandTools } from './tools/backgroundCommandTools';
+import { registerExecutionTools } from './tools/executionTools';
+import { registerUtilityTools } from './tools/utilityTools';
+import { registerImageProcessingTools } from './tools/imageProcessingTools';
+import { registerHttpClientTools } from './tools/httpClientTools';
+import { registerRagTools } from './tools/vectorRagTools';
+import { registerUiGenerationTools } from './tools/uiGenerationTools';
+import { registerContextManagementTools } from './tools/contextManagementTools';
+
+// ==================== TYPES ====================
+
+export interface ToolCategory {
+  name: string;
+  tools: Tool[];
+}
+
+/** Extended tool type with typed implementation for safe access */
+type TypedTool = Tool & {
+  implementation: (params: Record<string, unknown>, ctx?: unknown) => Promise<unknown>;
+};
+
+/**
+ * Central registry for all available tools.
+ * Tools are created once at module load time and reused across provider calls.
+ */
+class ToolRegistry {
+  private toolMap = new Map<string, TypedTool>();
+
+  registerAll(config: PluginConfig, stateManager: StateManager, backgroundCommandManager: BackgroundCommandManager): void {
+    if (config.godMode || isToolEnabled(config, 'fileSystem')) {
+      registerFileSystemTools(config, stateManager).forEach(t => this.toolMap.set(t.name, t as TypedTool));
+    }
+    if (config.godMode || isToolEnabled(config, 'webSearch')) {
+      registerWebResearchTools(config).forEach(t => this.toolMap.set(t.name, t as TypedTool));
+    }
+    if (config.godMode || isToolEnabled(config, 'browserAutomation')) {
+      registerBrowserTools(config).forEach(t => this.toolMap.set(t.name, t as TypedTool));
+    }
+    if (config.godMode || isToolEnabled(config, 'gitOperations')) {
+      registerGitTools(config).forEach(t => this.toolMap.set(t.name, t as TypedTool));
+    }
+    if (config.godMode || isToolEnabled(config, 'databaseQueries')) {
+      registerDatabaseTools(config).forEach(t => this.toolMap.set(t.name, t as TypedTool));
+    }
+    if (config.godMode || isToolEnabled(config, 'backgroundCommands')) {
+      registerBackgroundCommandTools(config, backgroundCommandManager).forEach(t => this.toolMap.set(t.name, t as TypedTool));
+    }
+
+    // ── 🆕 NEW TOOL CATEGORIES ──────────────────────────────────────
+    if (config.godMode || isToolEnabled(config, 'imageProcessing')) {
+      registerImageProcessingTools(config).forEach(t => this.toolMap.set(t.name, t as TypedTool));
+    }
+    if (config.godMode || isToolEnabled(config, 'httpClient')) {
+      registerHttpClientTools(config).forEach(t => this.toolMap.set(t.name, t as TypedTool));
+    }
+    if (config.godMode || isToolEnabled(config, 'vectorRAG')) {
+      registerRagTools(config).forEach(t => this.toolMap.set(t.name, t as TypedTool));
+    if (config.godMode || isToolEnabled(config, 'uiGeneration')) {
+      registerUiGenerationTools(config).forEach(t => this.toolMap.set(t.name, t as TypedTool));
+    }
+    if (config.godMode || isToolEnabled(config, 'contextManagement')) {
+      registerContextManagementTools(config).forEach(t => this.toolMap.set(t.name, t as TypedTool));
+    }
+    }
+    
+    // Execution tools — registered once, filtered by enabled tool types
+    const execConfig = { ...config };
+    const allExecTools = registerExecutionTools(execConfig);
+    
+    if (isExecutionToolEnabled(execConfig, 'javascript')) {
+      const jsTool = allExecTools.find(t => t.name === 'run_javascript');
+      if (jsTool) this.toolMap.set(jsTool.name, jsTool as TypedTool);
+    }
+    if (isExecutionToolEnabled(execConfig, 'python')) {
+      const pyTool = allExecTools.find(t => t.name === 'run_python');
+      if (pyTool) this.toolMap.set(pyTool.name, pyTool as TypedTool);
+    }
+    if (isExecutionToolEnabled(execConfig, 'terminal')) {
+      const termTool = allExecTools.find(t => t.name === 'run_in_terminal');
+      if (termTool) this.toolMap.set(termTool.name, termTool as TypedTool);
+    }
+    if (isExecutionToolEnabled(execConfig, 'shell')) {
+      const shellTool = allExecTools.find(t => t.name === 'execute_command');
+      if (shellTool) this.toolMap.set(shellTool.name, shellTool as TypedTool);
+    }
+    
+    // Utility tools are always registered (no specific config flag)
+    const getEnabledTools = () => Array.from(this.toolMap.keys());
+    registerUtilityTools(config, stateManager, getEnabledTools).forEach(t => this.toolMap.set(t.name, t as TypedTool));
+  }
+
+  getAll(): Tool[] {
+    return Array.from(this.toolMap.values());
+  }
+
+  get(name: string): TypedTool | undefined {
+    return this.toolMap.get(name);
+  }
+
+  has(name: string): boolean {
+    return this.toolMap.has(name);
+  }
+}
+
+/**
+ * Manages tool execution and state updates.
+ */
+export class ToolsProvider {
+  private config: PluginConfig;
+  private stateManager: StateManager;
+  private backgroundCommandManager: BackgroundCommandManager;
+  private registry: ToolRegistry;
+
+  constructor(config?: PluginConfig) {
+    this.config = config || DEFAULT_CONFIG;
+    this.stateManager = new StateManager(this.config);
+    this.backgroundCommandManager = new BackgroundCommandManager(this.config);
+    this.registry = new ToolRegistry();
+    this.registry.registerAll(this.config, this.stateManager, this.backgroundCommandManager);
+  }
+
+  /**
+   * Execute a tool by name with parameters.
+   */
+  async executeTool(toolName: string, params: Record<string, unknown>): Promise<unknown> {
+    const tool = this.registry.get(toolName);
+    if (!tool) {
+      return { success: false, error: `Tool '${toolName}' not found` };
+    }
+
+    try {
+      // Safe access via typed wrapper (C4 fix)
+      const impl = tool.implementation;
+      const result = await impl(params);
+      
+      // Update state with execution result
+      this.stateManager.set(`last_${toolName}`, result);
+      
+      return result;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { success: false, error: `Tool execution failed: ${message}` };
+    }
+  }
+
+  /**
+   * Get all available tools filtered by config.
+   */
+  getAvailableTools(): Tool[] {
+    return this.registry.getAll();
+  }
+
+  /**
+   * Get the state manager instance.
+   */
+  getStateManager(): StateManager {
+    return this.stateManager;
+  }
+
+  /**
+   * Get the current configuration.
+   */
+  getConfig(): PluginConfig {
+    return this.config;
+  }
+}
+
+/**
+ * Factory function to create a ToolsProvider with default config.
+ */
+export function createToolsProvider(config?: PluginConfig): ToolsProvider {
+  return new ToolsProvider(config);
+}
+
+// ==================== SDK PROVIDER FUNCTION ====================
+
+/**
+ * Main tools provider function for LM Studio SDK.
+ * This is the entry point that gets called by LM Studio.
+ * 
+ * IMPORTANT: The LM Studio SDK automatically registers all Tool objects
+ * returned from this provider function. No manual ctl.add() calls needed -
+ * just return the array directly and the SDK handles registration.
+ * 
+ * NOTE: Must be async — SDK type requires Promise<Tool[]>.
+ */
+export async function toolsProvider(_ctl: ToolsProviderController): Promise<Tool[]> {
+  const provider = createToolsProvider();
+  
+  // Return all available tools - SDK automatically registers them
+  return provider.getAvailableTools();
+}

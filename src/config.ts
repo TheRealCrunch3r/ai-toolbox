@@ -1,0 +1,659 @@
+import { z } from 'zod';
+
+import { createConfigSchematics } from '@lmstudio/sdk';
+
+
+
+// ==================== Zod Schema (validation) ====================
+
+
+
+export const ConfigSchema = z.object({
+
+  // Tool Gating (enable/disable individual tools)
+
+  fileSystem: z.boolean().default(true),
+
+  webSearch: z.boolean().default(true),
+
+  browserAutomation: z.boolean().default(false),
+
+  gitOperations: z.boolean().default(false),
+
+  databaseQueries: z.boolean().default(false),
+
+  documentParsing: z.boolean().default(true),
+
+  backgroundCommands: z.boolean().default(false),
+
+
+
+  // ── 🆕 NEW TOOL CATEGORIES ──────────────────────────────────────
+
+  imageProcessing: z.boolean().default(true).describe('Enable image OCR, screenshot, and comparison tools'),
+
+  httpClient: z.boolean().default(false).describe('Enable generic HTTP client for REST API calls'),
+
+  vectorRAG: z.boolean().default(true).describe('Enable semantic search with vector embeddings'),
+  uiGeneration: z.boolean().default(false).describe('Enable interactive UI generation and rendering tools'),
+  contextManagement: z.boolean().default(true).describe('Enable automatic context tracking and memory management'),
+
+
+
+  // ── ⚠️ GOD MODE (Enable ALL tools at once) ──────────────────────
+
+  godMode: z.boolean().default(false).describe('⚠️ WARNING: Enables every tool category. Use with caution.'),
+
+
+
+  // ── 📚 DOCUMENT RAG / CHAT WITH FILES ───────────────────────────
+
+  documentRAG: z.boolean().default(false).describe('Enable file indexing and semantic search for chat'),
+
+  retrievalLimit: z.number().min(1).max(20).default(5).describe('Maximum number of relevant chunks to retrieve'),
+
+  retrievalAffinityThreshold: z.number().min(0.0).max(1.0).default(0.5).describe('Minimum similarity score for a chunk to be considered relevant (0-1)'),
+
+  // Execution tools — individual toggles (granular control)
+
+  executionJavaScript: z.boolean().default(false).describe('Allow run_javascript tool'),
+
+  executionPython: z.boolean().default(false).describe('Allow run_python tool'),
+
+  executionTerminal: z.boolean().default(false).describe('Allow run_in_terminal tool'),
+
+  executionShell: z.boolean().default(false).describe('Allow execute_command tool'),
+
+
+
+  // ── Web Search Settings ───────────────────────────────────────
+
+  searchFallbackChain: z.enum(['ddg-api', 'ddg-fetch', 'google', 'bing']).default('ddg-api').describe('Primary search engine (auto-fallback to others)'),
+
+  maxSearchResults: z.number().min(1).max(50).default(10),
+
+  safesearch: z.enum(['0', '1', '2']).default('1'),
+
+
+
+  // ── Browser Settings ──────────────────────────────────────────
+
+  browserTimeout: z.number().min(1000).max(30000).default(5000),
+
+  headlessMode: z.boolean().default(true),
+
+
+
+  // Git Settings
+
+  gitAutoCommit: z.boolean().default(false),
+
+  defaultBranch: z.string().default('main'),
+
+
+
+  // Security Settings
+
+  pathValidationEnabled: z.boolean().default(true),
+
+  binaryFileDetection: z.boolean().default(true),
+
+  regexReDoSProtection: z.boolean().default(true),
+
+  maxRegexLength: z.number().min(1).max(1000).default(500),
+
+
+
+  // State Management
+
+  statePersistenceEnabled: z.boolean().default(true),
+
+  stateMaxSize: z.number().min(1024).max(1048576).default(10240),
+
+
+
+  // i18n Settings
+
+  language: z.enum(['en', 'de', 'zh-CN', 'zh-TW']).default('en'),
+
+
+
+  // Notification Settings
+
+  notificationsEnabled: z.boolean().default(true),
+
+});
+
+
+
+export type PluginConfig = z.infer<typeof ConfigSchema>;
+
+
+
+/**
+
+ * Default configuration object
+
+ */
+
+export const DEFAULT_CONFIG: PluginConfig = {
+
+  fileSystem: true,
+
+  webSearch: true,
+
+  browserAutomation: false,
+
+  gitOperations: false,
+
+  databaseQueries: false,
+
+  documentParsing: true,
+
+  backgroundCommands: false,
+
+
+
+  // ⚠️ GOD MODE (Enable ALL tools at once) ⚠️
+
+  godMode: false,
+
+
+
+  // ── 🆕 NEW TOOL CATEGORIES ──────────────────────────────────────
+
+  imageProcessing: true,
+
+  httpClient: false,
+
+  vectorRAG: true,
+  uiGeneration: false,
+  contextManagement: true,
+
+
+
+  // ⚠️ GOD MODE (Enable ALL tools at once) ⚠️
+
+  documentRAG: false,
+
+  retrievalLimit: 5,
+
+  retrievalAffinityThreshold: 0.5,
+
+
+
+  // Execution tools — all disabled by default (dangerous!)
+
+  executionJavaScript: false,
+
+  executionPython: false,
+
+  executionTerminal: false,
+
+  executionShell: false,
+
+
+
+  searchFallbackChain: 'ddg-api',
+
+  maxSearchResults: 10,
+
+  safesearch: '1',
+
+  browserTimeout: 5000,
+
+  headlessMode: true,
+
+  gitAutoCommit: false,
+
+  defaultBranch: 'main',
+
+  pathValidationEnabled: true,
+
+  binaryFileDetection: true,
+
+  regexReDoSProtection: true,
+
+  maxRegexLength: 500,
+
+  statePersistenceEnabled: true,
+
+  stateMaxSize: 10240,
+
+  language: 'en',
+
+  notificationsEnabled: true,
+
+};
+
+
+
+/**
+
+ * Validate and sanitize config input
+
+ */
+
+export function validateConfig(input: unknown): PluginConfig {
+
+  const result = ConfigSchema.safeParse(input);
+
+  if (!result.success) {
+
+    throw new Error(`Invalid configuration: ${result.error.message}`);
+
+  }
+
+}
+
+
+/**
+ * Check if a tool category is enabled in config
+ */
+export function isToolEnabled(config: PluginConfig, category: keyof Pick<PluginConfig, 'fileSystem' | 'webSearch' | 'browserAutomation' | 'gitOperations' | 'databaseQueries' | 'documentParsing' | 'backgroundCommands' | 'imageProcessing' | 'httpClient' | 'vectorRAG' | 'uiGeneration' | 'contextManagement'>): boolean {
+  return config[category] === true;
+}
+
+
+
+
+/**
+
+ * Check if a specific execution tool is enabled (granular)
+
+ */
+
+export function isExecutionToolEnabled(config: PluginConfig, tool: 'javascript' | 'python' | 'terminal' | 'shell'): boolean {
+
+  switch (tool) {
+
+    case 'javascript': return config.executionJavaScript === true;
+
+    case 'python':     return config.executionPython === true;
+
+    case 'terminal':   return config.executionTerminal === true;
+
+    case 'shell':      return config.executionShell === true;
+
+  }
+
+}
+
+
+
+/**
+
+ * Get the execution tool key from a tool name
+
+ */
+
+export function getExecutionToolKey(toolName: string): 'javascript' | 'python' | 'terminal' | 'shell' | null {
+
+  switch (toolName) {
+
+    case 'run_javascript': return 'javascript';
+
+    case 'run_python':     return 'python';
+
+    case 'run_in_terminal': return 'terminal';
+
+    case 'execute_command': return 'shell';
+
+    default:               return null;
+
+  }
+
+}
+
+
+
+/**
+
+ * Check if ANY execution tool is enabled (legacy compatibility)
+
+ */
+
+export function hasAnyExecutionTool(config: PluginConfig): boolean {
+
+  return config.executionJavaScript || config.executionPython || 
+
+         config.executionTerminal || config.executionShell;
+
+}
+
+
+
+// ==================== LM Studio UI Schematics ====================
+
+// These define the toggle switches that appear in LM Studio's settings panel.
+
+
+
+export const configSchematics = createConfigSchematics()
+
+
+
+  // ⚠️ GOD MODE - TOP PRIORITY WARNING TOGGLE ⚠️
+
+  .field('godMode', 'boolean', { 
+
+    displayName: '⚡⚠️ GOD MODE - Enable ALL Tools ⚠️⚡',
+
+    subtitle: 'WARNING: Activates every tool category instantly. Use with caution.',
+
+    hint: 'When enabled, ALL individual toggles are bypassed and every tool is activated regardless of settings.',
+
+  }, DEFAULT_CONFIG.godMode)
+
+
+
+  // 🎛️ TOOL GATING (Hauptschalter) 🎛️
+
+  .field('fileSystem', 'boolean', { displayName: '📁 File System Tools', hint: 'Enable file read/write/search operations' }, DEFAULT_CONFIG.fileSystem)
+
+  .field('webSearch', 'boolean', { displayName: '🌐 Web & Research Tools', hint: 'Enable DuckDuckGo/Wikipedia search' }, DEFAULT_CONFIG.webSearch)
+
+  // 🐙 GIT & GITHUB TOOLS (visuelle Gruppierung) 🐙
+
+  .field('gitOperations', 'boolean', { 
+
+    displayName: '🐙 Git & GitHub Tools', 
+
+    subtitle: 'Version Control & API',
+
+    hint: 'Enable git operations and GitHub API access.',
+
+  }, DEFAULT_CONFIG.gitOperations)
+
+  .field('gitAutoCommit', 'boolean', { 
+
+    displayName: '💾 Git Auto-Commit', 
+
+    subtitle: '⚙️ Teil der Git & GitHub Tools',
+
+    hint: 'Automatically commit changes after operations',
+
+  }, DEFAULT_CONFIG.gitAutoCommit)
+
+  .field('defaultBranch', 'string', { 
+
+    displayName: '🌿 Default Branch', 
+
+    placeholder: 'main',
+
+    subtitle: '⚙️ Teil der Git & GitHub Tools',
+
+    hint: 'Branch name for new repositories and git operations',
+
+  }, DEFAULT_CONFIG.defaultBranch)
+
+
+
+  .field('databaseQueries', 'boolean', { displayName: '🗄️ Database Queries', hint: 'Enable read-only SQLite queries' }, DEFAULT_CONFIG.databaseQueries)
+
+  .field('documentParsing', 'boolean', { displayName: '📄 Document Parsing', hint: 'Enable PDF/DOCX document reading' }, DEFAULT_CONFIG.documentParsing)
+
+  .field('backgroundCommands', 'boolean', { displayName: '⏳ Background Commands', hint: 'Enable long-running process tracking' }, DEFAULT_CONFIG.backgroundCommands)
+
+
+
+  // 🆕‍❀ NEW TOOL CATEGORIES 🆕‍❀
+
+  .field('imageProcessing', 'boolean', { 
+
+    displayName: '🖼️ Image Processing Tools', 
+
+    subtitle: 'OCR, Screenshots & Comparison',
+
+    hint: 'Enable image OCR (Tesseract.js), screenshot capture, and image comparison tools.',
+
+  }, DEFAULT_CONFIG.imageProcessing)
+
+  
+
+  .field('httpClient', 'boolean', { 
+
+    displayName: '🔌 HTTP Client Tools', 
+
+    subtitle: 'Generic REST API Client',
+
+    hint: 'Enable generic HTTP client for making requests to any REST API (GET, POST, PUT, DELETE).',
+
+  }, DEFAULT_CONFIG.httpClient)
+
+  
+
+  .field('vectorRAG', 'boolean', { 
+
+    displayName: '📊 Vector RAG / Semantic Search', 
+
+    subtitle: 'Semantic Document Search',
+
+    hint: 'Enable semantic search with vector embeddings for intelligent document retrieval.',
+
+  }, DEFAULT_CONFIG.vectorRAG)
+  .field('uiGeneration', 'boolean', { 
+    displayName: '🎨 Interactive UI Generation Tools', 
+    subtitle: 'Generate and render interactive UI components',
+    hint: 'Enable tools for generating HTML/CSS/JS components (buttons, forms, charts, dashboards) and rendering them in the browser.',
+  }, DEFAULT_CONFIG.uiGeneration)
+  .field('contextManagement', 'boolean', { 
+    displayName: '🧠 Auto-Context Management Tools', 
+    subtitle: 'Automatic session tracking and memory management',
+    hint: 'Enable tools for automatically saving important decisions, patterns, and configurations to persistent memory.',
+  }, DEFAULT_CONFIG.contextManagement)
+
+
+
+  // 📚 DOCUMENT RAG / CHAT WITH FILES 📚
+
+  .field('documentRAG', 'boolean', { 
+
+    displayName: '📚 Document RAG / Chat with Files', 
+
+    subtitle: 'Enable file indexing and semantic search for chat',
+
+    hint: 'Attach documents to your chat messages. The plugin will automatically retrieve relevant content from attached files using semantic search.',
+
+  }, DEFAULT_CONFIG.documentRAG)
+
+  
+
+  .field('retrievalLimit', 'numeric', { 
+
+    displayName: '🔢 Retrieval Limit', 
+
+    subtitle: 'Max chunks to return per query',
+
+    min: 1, max: 20, int: true,
+
+    hint: 'Maximum number of relevant document chunks to retrieve for each query.',
+
+  }, DEFAULT_CONFIG.retrievalLimit)
+
+  
+
+  .field('retrievalAffinityThreshold', 'numeric', { 
+
+    displayName: '🎯 Retrieval Affinity Threshold', 
+
+    subtitle: 'Minimum relevance score (0-1)',
+
+    min: 0.0, max: 1.0, step: 0.01,
+
+    hint: 'Chunks below this similarity score will be filtered out. Lower = more results but potentially less relevant.',
+
+  }, DEFAULT_CONFIG.retrievalAffinityThreshold)
+
+  // ⚡ EXECUTION TOOLS (Gefährlich!) ⚡
+
+  .field('executionJavaScript', 'boolean', {
+
+    displayName: '⚡ JavaScript-Ausführung erlauben',
+
+    subtitle: "Aktiviert das 'run_javascript'-Tool",
+
+    hint: 'GEFAHR: Code läuft auf Ihrem Rechner.',
+
+  }, DEFAULT_CONFIG.executionJavaScript)
+
+  .field('executionPython', 'boolean', {
+
+    displayName: '🐍 Python-Ausführung erlauben',
+
+    subtitle: "Aktiviert das 'run_python'-Tool",
+
+    hint: 'GEFAHR: Code läuft auf Ihrem Rechner.',
+
+  }, DEFAULT_CONFIG.executionPython)
+
+  .field('executionTerminal', 'boolean', {
+
+    displayName: '💻 Terminal-Ausführung erlauben',
+
+    subtitle: "Aktiviert das 'run_in_terminal'-Tool",
+
+    hint: 'Öffnet echte Terminal-Fenster.',
+
+  }, DEFAULT_CONFIG.executionTerminal)
+
+  .field('executionShell', 'boolean', {
+
+    displayName: '🔧 Shell-Befehlsausführung erlauben',
+
+    subtitle: "Aktiviert das 'execute_command'-Tool",
+
+    hint: 'GEFAHR: Befehle laufen auf Ihrem Rechner.',
+
+  }, DEFAULT_CONFIG.executionShell)
+
+
+
+  // 🔍 SEARCH SETTINGS 🔍
+
+  .field('searchFallbackChain', 'select', {
+
+    displayName: '🔍 Search Fallback Chain',
+
+    hint: 'Primary search engine. Auto-falls back to others if unavailable.',
+
+    options: [
+
+      { value: 'ddg-api', displayName: 'DuckDuckGo API' },
+
+      { value: 'ddg-fetch', displayName: 'DuckDuckGo Fetch' },
+
+      { value: 'google', displayName: 'Google' },
+
+      { value: 'bing', displayName: 'Bing' },
+
+    ],
+
+  }, DEFAULT_CONFIG.searchFallbackChain)
+
+  .field('maxSearchResults', 'numeric', { min: 1, max: 50, int: true }, DEFAULT_CONFIG.maxSearchResults)
+
+  .field('safesearch', 'select', {
+
+    displayName: '🛡️ Safe Search',
+
+    options: [
+
+      { value: '0', displayName: 'Off' },
+
+      { value: '1', displayName: 'Moderate' },
+
+      { value: '2', displayName: 'Strict' },
+
+    ],
+
+  }, DEFAULT_CONFIG.safesearch)
+
+
+
+  // 🖥️ BROWSER AUTOMATION TOOLS 🖥️
+
+  .field('browserAutomation', 'boolean', { 
+
+    displayName: '🖥️ Browser Automation Tools', 
+
+    subtitle: 'Headless browser control & automation',
+
+    hint: 'Enable Puppeteer-based headless browser automation for web scraping, testing, and UI interaction.',
+
+  }, DEFAULT_CONFIG.browserAutomation)
+
+  
+
+  .field('browserTimeout', 'numeric', { 
+
+    displayName: '⏱️ Browser Timeout', 
+
+    subtitle: '⚙️ Teil der Browser Automation Tools',
+
+    min: 1000, max: 30000, int: true,
+
+    hint: 'Maximum time (ms) to wait for browser operations before timing out.',
+
+  }, DEFAULT_CONFIG.browserTimeout)
+
+  
+
+  .field('headlessMode', 'boolean', { 
+
+    displayName: '👻 Headless Mode', 
+
+    subtitle: '⚙️ Teil der Browser Automation Tools',
+
+    hint: 'Run browser without GUI (recommended for automation).',
+
+  }, DEFAULT_CONFIG.headlessMode)
+
+
+
+  // 🔒 SECURITY SETTINGS 🔒
+
+  .field('pathValidationEnabled', 'boolean', { displayName: '🔒 Path Validation', hint: 'Prevent directory traversal attacks' }, DEFAULT_CONFIG.pathValidationEnabled)
+
+  .field('binaryFileDetection', 'boolean', { displayName: '📁 Binary File Detection', hint: 'Detect binary files via null byte check' }, DEFAULT_CONFIG.binaryFileDetection)
+
+  .field('regexReDoSProtection', 'boolean', { displayName: '🛡️ ReDoS Protection', hint: 'Protect against regex denial-of-service' }, DEFAULT_CONFIG.regexReDoSProtection)
+
+  .field('maxRegexLength', 'numeric', { min: 1, max: 1000, int: true }, DEFAULT_CONFIG.maxRegexLength)
+
+
+
+  // 💽 STATE MANAGEMENT 💽
+
+  .field('statePersistenceEnabled', 'boolean', { displayName: '💽 State Persistence', hint: 'Persist tool execution state between sessions' }, DEFAULT_CONFIG.statePersistenceEnabled)
+
+  .field('stateMaxSize', 'numeric', { min: 1024, max: 1048576, int: true }, DEFAULT_CONFIG.stateMaxSize)
+
+
+
+  // 🌐 LANGUAGE & NOTIFICATIONS 🌐
+
+  .field('language', 'select', {
+
+    displayName: '🌐 Language',
+
+    options: [
+
+      { value: 'en', displayName: 'English' },
+
+      { value: 'de', displayName: 'Deutsch (German)' },
+
+      { value: 'zh-CN', displayName: 'Simplified Chinese' },
+
+      { value: 'zh-TW', displayName: 'Traditional Chinese' },
+
+    ],
+
+  }, DEFAULT_CONFIG.language)
+
+
+
+  .field('notificationsEnabled', 'boolean', { displayName: '🔔 Desktop Notifications', hint: 'Show system notifications' }, DEFAULT_CONFIG.notificationsEnabled)
+
+  .build();
+
