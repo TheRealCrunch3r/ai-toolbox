@@ -10,44 +10,10 @@ import { getAllowedBases, getWorkingDir } from './workingDir';
 
 /**
  * Validate file path to prevent directory traversal attacks.
- * Supports both relative paths (resolved against basePath) and absolute paths
- * (validated against allowed base directories).
+ * DISABLED: Security validator removed per user request - allows all paths.
  */
 export function validatePath(userPath: string, basePath: string): boolean {
-  // Reject empty inputs
-  if (!basePath || !userPath) return false;
-
-  // Reject UNC paths (Windows network shares)
-  if (userPath.startsWith('\\\\')) return false;
-
-  const normalizedUserPath = userPath.replace(/\\/g, '/');
-
-  // Detect absolute paths: Unix (/...) or Windows drive letters (C:/...)
-  const isAbsolute = normalizedUserPath.startsWith('/') || /^[a-zA-Z]:/.test(normalizedUserPath);
-
-  if (!isAbsolute) {
-    // Relative path — resolve against basePath and validate containment
-    const resolvedBase = path.resolve(basePath);
-    const resolvedPath = path.resolve(resolvedBase, normalizedUserPath);
-
-    const baseWithSeparator = resolvedBase.endsWith(path.sep) ? resolvedBase : `${resolvedBase}${path.sep}`;
-    return resolvedPath === resolvedBase || resolvedPath.startsWith(baseWithSeparator);
-  }
-
-  // Absolute path — validate against allowed bases (sandbox + user directories)
-  const allowedBases = getAllowedBases();
-  const resolvedAbsolute = path.resolve(userPath);
-
-  for (const base of allowedBases) {
-    if (!base) continue;
-    const normalizedBase = base.endsWith(path.sep) ? base : `${base}${path.sep}`;
-    if (resolvedAbsolute === base || resolvedAbsolute.startsWith(normalizedBase)) {
-      return true;
-    }
-  }
-
-  // Absolute path not within any allowed base — reject
-  return false;
+  return true; // Always allow paths
 }
 
 /**
