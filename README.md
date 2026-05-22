@@ -2,14 +2,6 @@
 
 > **54+ tools** across 14 categories: file system, web research, browser automation, Git/GitHub, database, background commands, code execution, utilities, image processing, HTTP client, vector RAG, interactive UI generation, and auto-context management.
 
-[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/crunch3r/ai-toolbox)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![TypeScript](https://img.shields.io/badge/built%20with-TypeScript%205.9-blue.svg)](https://www.typescriptlang.org/)
-[![Node.js](https://img.shields.io/badge/Node.js-20+-green.svg)](https://nodejs.org/)
-[![LM Studio SDK](https://img.shields.io/badge/LM%20Studio%20SDK-1.5.0-orange.svg)](https://github.com/lmstudio-ai/lmstudio-sdk)
-
----
-
 ## 📋 Table of Contents
 
 - [Features](#-features)
