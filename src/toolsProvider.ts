@@ -24,6 +24,7 @@ import { registerHttpClientTools } from './tools/httpClientTools';
 import { registerRagTools } from './tools/vectorRagTools';
 import { registerUiGenerationTools } from './tools/uiGenerationTools';
 import { registerContextManagementTools } from './tools/contextManagementTools';
+import { registerDocumentTools } from './tools/documentTools';
 
 // ==================== TYPES ====================
 
@@ -60,6 +61,9 @@ class ToolRegistry {
     if (config.godMode || isToolEnabled(config, 'databaseQueries')) {
       registerDatabaseTools(config).forEach(t => this.toolMap.set(t.name, t as TypedTool));
     }
+    if (config.godMode || isToolEnabled(config, 'documentParsing')) {
+      registerDocumentTools(config).forEach(t => this.toolMap.set(t.name, t as TypedTool));
+    }
     if (config.godMode || isToolEnabled(config, 'backgroundCommands')) {
       registerBackgroundCommandTools(config, backgroundCommandManager).forEach(t => this.toolMap.set(t.name, t as TypedTool));
     }
@@ -73,12 +77,12 @@ class ToolRegistry {
     }
     if (config.godMode || isToolEnabled(config, 'vectorRAG')) {
       registerRagTools(config).forEach(t => this.toolMap.set(t.name, t as TypedTool));
+    }
     if (config.godMode || isToolEnabled(config, 'uiGeneration')) {
       registerUiGenerationTools(config).forEach(t => this.toolMap.set(t.name, t as TypedTool));
     }
     if (config.godMode || isToolEnabled(config, 'contextManagement')) {
       registerContextManagementTools(config).forEach(t => this.toolMap.set(t.name, t as TypedTool));
-    }
     }
     
     // Execution tools — registered once, filtered by enabled tool types

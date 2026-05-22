@@ -604,66 +604,6 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
     },
   }));
 
-  // read_document tool - IMPLEMENTED (was stub)
-  // FIXED: Relaxed path validation to allow reading LM Studio attached files from temp directories
-  tools.push(tool({
-    name: 'read_document',
-    description: 'Read content from PDF or DOCX files.',
-    parameters: {
-      file_path: z.string().describe('Path to the PDF or DOCX file'),
-    },
-    implementation: async ({ file_path }: ReadDocumentParams) => { // C5 FIX: typed params
-      try {
-        // Relaxed validation: Block traversal attacks but allow absolute paths for attached files
-        if (file_path.includes('..')) {
-          return { success: false, error: 'Invalid path: directory traversal detected' };
-        }
-        
-        const fullPath = path.resolve(file_path);
-        
-        // Check if file exists
-        if (!fs.existsSync(fullPath)) {
-          return { success: false, error: `File does not exist: ${file_path}` };
-        }
-
-        const ext = path.extname(file_path).toLowerCase();
-        
-        if (ext === '.pdf') {
-          // Use pdf-parse library for PDF extraction — dynamic import to avoid ESM issues
-          const pdfParseModule = await import('pdf-parse');
-          const dataBuffer = fs.readFileSync(fullPath);
-          const pdfData = await pdfParseModule.default(dataBuffer);
-          
-          return {
-            success: true,
-            data: {
-              file: fullPath, // ✅ FULL PATH
-              type: 'PDF',
-              pages: pdfData.numpages,
-              content: pdfData.text.substring(0, 10000), // Limit output size
-            },
-          };
-        } else if (ext === '.docx') {
-          // Use mammoth library for DOCX extraction — dynamic import to avoid ESM issues
-          const mammothModule = await import('mammoth');
-          const result = await mammothModule.default.extractRawText({ buffer: fs.readFileSync(fullPath) });
-          
-          return {
-            success: true,
-            data: {
-              file: fullPath, // ✅ FULL PATH
-              type: 'DOCX',
-              content: result.value.substring(0, 10000), // Limit output size
-            },
-          };
-        } else {
-          return { success: false, error: `Unsupported document format: ${ext}. Only PDF and DOCX are supported.` };
-        }
-      } catch (error) {
-        return handleError(error);
-      }
-    },
-  }));
 
   // analyze_project tool — Comprehensive TypeScript Performance & Linting Analysis
   tools.push(tool({
