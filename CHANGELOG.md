@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [1.2.1] — 2026-05-24
 
+### 🔒 Security Fixes
+
+#### 🛡️ S6 — Tool Toggle Bypass Prevention (CRITICAL)
+- **Fixed**: Commands could bypass individual tool-category toggles (e.g., using `duckduckgo` when Web Research was disabled)
+- **Root Cause**: `sanitizeCommand()` only blocked dangerous patterns but didn't enforce tool-category configuration
+- **Fix**: Added **Layer 2** to command sanitization pipeline:
+  - `classifyCommand()` detects tool categories in the command string (e.g., `duckduckgo` → `webSearch`)
+  - Blocks execution if the detected category is disabled in config (unless God Mode is active)
+- **Blocked Bypass Vectors**:
+  - `duckduckgo / google / bing` → `webSearch`
+  - `puppeteer / playwright / chromium` → `browserAutomation`
+  - `sqlite3 / mysql / psql` → `databaseQueries`
+  - `curl / wget / http` → `httpClient`
+  - `nohup / disown / &` → `backgroundCommands`
+  - `git * / api.github.com` → `gitOperations`
+
 ### 🐛 Bug Fixes & Improvements
 
 #### ✨ `read_document` — TXT Support for Disk Paths

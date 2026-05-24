@@ -200,18 +200,11 @@ All settings are accessible through LM Studio's plugin settings panel.
 
 ## 🔒 Security
 
-### Path Validation
-All file operations validate paths against allowed base directories to prevent directory traversal attacks. UNC paths and paths outside allowed bases are rejected.
+The plugin uses a **2-Layer Command Sanitization Pipeline** to prevent dangerous operations and enforce tool-category toggles:
+1. **Layer 1**: Blocks dangerous patterns (`rm -rf`, `sudo`, injection, etc.)
+2. **Layer 2 (S6)**: Classifies commands by tool category (e.g., `duckduckgo` → Web Search) and blocks them if the category is disabled in config (bypassed only by God Mode).
 
-### Binary File Detection
-Files are checked for null bytes in the first 8KB to detect binary content before processing.
-
-### Command Sanitization
-Shell commands are validated against dangerous patterns including:
-- `rm -rf`, `sudo`, `shred`, `wget --post-file`
-- Command substitution (`$()`, backticks)
-- IFS tampering, null byte injection
-- Multiple semicolons or excessive pipes
+Additional protections include path containment, binary file detection, SQL validation, and JavaScript sandboxing.
 
 ### SQL Validation
 Database queries are restricted to `SELECT` and `PRAGMA` statements only. Dangerous keywords (`DROP`, `DELETE`, `UPDATE`, `INSERT`, `ALTER`, `CREATE`) are blocked.

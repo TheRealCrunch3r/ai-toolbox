@@ -290,13 +290,37 @@ User Path Input
 ```
 Command String
     │
+    ▼
+Layer 1: Dangerous Pattern Blocking
+    │
     ├── Null byte injection ─────────► Reject
     ├── IFS tampering ───────────────► Reject
     ├── Dangerous patterns (rm -rf, sudo, etc.) ─► Reject
     ├── Too many pipes (>2) ─────────► Reject
     ├── Multiple semicolons (>1) ─────► Reject
     ├── Command substitution ($(), ``) ─► Reject
-    └── Environment modification ─────► Reject
+    ├── Environment modification ─────► Reject
+    │
+    ▼
+Layer 2: Tool-Category Enforcement (S6)
+    │
+    ├── classifyCommand() → Set<string>
+    │       │
+    │       ├── git * / api.github.com → 'gitOperations'
+    │       ├── duckduckgo / google / bing → 'webSearch'
+    │       ├── puppeteer / playwright / chromium → 'browserAutomation'
+    │       ├── sqlite3 / mysql / psql → 'databaseQueries'
+    │       ├── curl / wget / http → 'httpClient'
+    │       └── nohup / disown / & → 'backgroundCommands'
+    │       │
+    │       ▼
+    │   Check against config toggles
+    │       │
+    │       ├── Category disabled + !godMode ─► Reject
+    │       └── Category enabled or godMode ──► Allow
+    │
+    ▼
+    Allow Execution
 ```
 
 ### Code Sandboxing (JavaScript)

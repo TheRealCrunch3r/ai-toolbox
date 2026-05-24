@@ -64,9 +64,26 @@ function isBinaryFile(content: string): boolean {
 
 ### 3. Command Sanitization (`sanitizeCommand`)
 
-**Purpose**: Prevent shell injection and dangerous command execution.
+**Purpose**: Prevent shell injection and dangerous command execution while enforcing tool-category toggles.
 
-**Blocked Patterns**:
+**2-Layer Architecture**:
+| Layer | Function | Purpose |
+|-------|----------|---------|
+| **Layer 1** | Dangerous Pattern Blocking | Blocks `rm -rf`, `sudo`, injection, etc. |
+| **Layer 2 (S6)** | Tool-Category Enforcement | Classifies commands and blocks them if the category is disabled in config |
+
+**Layer 2 Implementation (`classifyCommand`)**:
+Detects tool categories in the command string and checks against config toggles:
+| Category | Detection Patterns |
+|----------|-------------------|
+| `webSearch` | `duckduckgo`, `google`, `bing` |
+| `browserAutomation` | `puppeteer`, `playwright`, `chromium` |
+| `databaseQueries` | `sqlite3`, `mysql`, `psql` |
+| `httpClient` | `curl`, `wget`, `http` |
+| `backgroundCommands` | `nohup`, `disown`, `&` |
+| `gitOperations` | `git *`, `api.github.com` |
+
+**Blocked Patterns (Layer 1)**:
 
 | Category | Patterns |
 |----------|----------|
