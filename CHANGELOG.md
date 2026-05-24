@@ -9,7 +9,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased] — 2026-05-24
 
+### 🐛 Bug Fixes & Improvements
+
+#### ✨ `read_document` — TXT Support for Disk Paths
+- **Now supports `.txt` files from disk paths** (previously only supported attachments)
+- Added text extraction and preview for local `.txt` files
+
+#### 🖼️ `screenshot_desktop` — Windows Fix
+- **Fixed**: Windows screenshot was creating a blank 1920x1080 bitmap instead of capturing the screen
+- Now uses Win32 API via PowerShell to capture actual desktop content
+
+#### 🖼️ `compare_images` — Multi-Format Support
+- **Now supports JPEG, BMP, and other formats** (previously crashed on non-PNG files)
+- Integrated `sharp` library for robust image decoding before comparison
+
+#### 📦 Dependencies
+- Added `sharp@^0.33.2` for multi-format image processing support
+
+---
+
 ### 🔄 Merged `up_to_date` Plugin
+### 🔧 Major Improvements
+
+#### ✨ `execute_command` — Full Shell Support
+- **Now uses `shell: true`** for complete shell interpretation (pipes, redirects, environment variables)
+- Removed manual command parsing and Windows-specific handling
+- Security maintained through `sanitizeCommand()` which blocks dangerous patterns before execution
+- Supports complex commands like `npm run build && echo "Done!" > output.txt`
+
+#### 🐛 Critical Bug Fix — Configuration System
+- **Fixed**: ToolsProvider was always using hardcoded defaults instead of user settings
+- Added global config state that updates when `main()` runs
+- All execution tool toggles (`executionJavaScript`, `executionPython`, `executionTerminal`, `executionShell`) now properly respect UI settings
+- Removed broken `context.getConfig()` call that caused TS2339 compilation errors
+
+#### 🛠️ Logger Enhancement
+- Added missing `logger.warn()` method to index.ts (was causing build failures)
 
 #### ✨ Added — Temporal Awareness
 - **Automatic Date/Time Injection** — Every user message now receives the current date/time appended at the end.

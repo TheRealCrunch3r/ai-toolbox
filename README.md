@@ -26,12 +26,12 @@
 | 🐙 **Git & GitHub** | Full Git operations + GitHub API integration |
 | 🗄️ **Database** | Read-only SQLite queries with SQL validation |
 | ⏳ **Background Commands** | Long-running process management |
-| ⚡ **Code Execution** | Sandboxed JavaScript/Python execution |
+| ⚡ **Code Execution** | Sandboxed JS/Python + full shell commands (pipes, redirects, env vars) |
 | 🔧 **Utilities** | Clipboard, notifications, system info, memory |
-| 🖼️ **Image Processing** | OCR (Tesseract.js), screenshots, image comparison |
+| 🖼️ **Image Processing** | OCR (Tesseract.js), screenshots (Win32 API), image comparison (JPEG/BMP/PNG via Sharp) |
 | 🔌 **HTTP Client** | REST API client with SSRF protection |
 | 📊 **Vector RAG** | Semantic search with local embeddings |
-| 📚 **Document RAG** | Chat with attached files (PDF, DOCX) |
+| 📚 **Document RAG** | Chat with attached files or disk paths (PDF, DOCX, TXT) |
 | 🎨 **Interactive UI Generation** | Generate and render HTML/CSS/JS components (buttons, forms, charts, dashboards) |
 | 🧠 **Auto-Context Management** | Automatic session tracking, decision logging, and persistent memory retrieval |
 | ⏰ **Temporal Awareness** | Injects current date/time into every message for accurate time-sensitive tasks (merged from `up_to_date`) |
@@ -372,6 +372,7 @@ ai_toolbox/
 | `pdf-parse` | ^1.1.1 | PDF text extraction |
 | `mammoth` | ^1.6.0 | DOCX text extraction |
 | `pixelmatch` | ^7.2.0 | Image pixel comparison |
+| `sharp` | ^0.33.2 | Multi-format image processing (JPEG, BMP, etc.) |
 | `pngjs` | ^7.0.0 | PNG image processing |
 | `node-notifier` | ^10.0.1 | Desktop notifications |
 | `zod` | ^3.25.0 | Schema validation |

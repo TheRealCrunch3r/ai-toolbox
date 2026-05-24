@@ -86,10 +86,24 @@ async function readDocument({ file_path }: ReadDocumentParams): Promise<unknown>
         return await readPDF(file_path);
       case '.docx':
         return await readDOCX(file_path);
+      case '.txt': {
+        const text = fs.readFileSync(file_path, 'utf-8');
+        return {
+          success: true,
+          data: {
+            file_path: file_path,
+            format: 'TXT',
+            word_count: text.split(/\s+/).filter(w => w.length > 0).length,
+            size: `${(fs.statSync(file_path).size / 1024).toFixed(1)} KB`,
+            text_preview: text.substring(0, 500) + (text.length > 500 ? '...' : ''),
+            full_text: text,
+          },
+        };
+      }
       default:
         return { 
           success: false, 
-          error: `Unsupported file format: ${ext}. Only .pdf and .docx are supported.` 
+          error: `Unsupported file format: ${ext}. Only .pdf, .docx, and .txt are supported.` 
         };
     }
   } catch (error) {

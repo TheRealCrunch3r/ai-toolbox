@@ -642,17 +642,34 @@ Kill a running background command.
 
 ### ⚠️ `execute_command`
 
-⚠️ **DANGEROUS** — Execute shell commands. **Disabled by default.**
+⚠️ **DANGEROUS** — Execute shell commands with full shell interpretation (pipes, redirects, env vars). **Disabled by default.**
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `command` | `string` | Yes | Shell command |
-| `timeout_seconds` | `number` | No | Timeout (default: 5, max: 60) |
-| `input` | `string` | No | Stdin input |
+| `command` | `string` | Yes | Shell command (supports pipes, redirects, variables) |
+| `timeout_seconds` | `number` | No | Timeout in seconds (default: 60, max: 300) |
+| `input` | `string` | No | Stdin input to pipe to the command |
 
-**Returns**: `{ success: true, data: { stdout, stderr } }`
+**Returns**: `{ success: true, data: { stdout, stderr, output } }`
 
-**Sanitized**: Blocks `rm -rf`, `sudo`, command substitution, excessive pipes.
+**Shell Features**: Full shell interpretation enabled (`shell: true`). Supports pipes (`|`), redirects (`>`, `>>`), environment variables, and subshells.
+
+**Security**: Command is sanitized through `sanitizeCommand()` which blocks dangerous patterns before execution. Blocked patterns include `rm -rf`, `sudo`, command substitution, excessive pipes, and more.
+
+**Examples**:
+```json
+// Simple command
+{"command": "npm run build", "timeout_seconds": 120}
+
+// With pipe
+{"command": "ls -la | grep \".ts\""}
+
+// With redirect
+{"command": "echo \"Build complete!\" > output.txt"}
+
+// With stdin input
+{"command": "cat", "input": "Hello World!"}
+```
 
 ---
 

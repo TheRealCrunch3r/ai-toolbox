@@ -150,7 +150,7 @@ async function screenshotDesktop({
         args = [
           '-NoProfile',
           '-Command',
-          `[System.Drawing.Bitmap]::new(1920, 1080).Save('${tempPath}', [System.Drawing.Imaging.ImageFormat]::Png)`,
+          `$screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds; $bitmap = New-Object Drawing.Bitmap($screen.Width, $screen.Height); $graphics = [Drawing.Graphics]::FromImage($bitmap); $graphics.CopyFromScreen(0, 0, 0, 0, $bitmap.Size); $bitmap.Save('${tempPath}', [System.Drawing.Imaging.ImageFormat]::Png)`,
         ];
         break;
       case 'darwin':
@@ -223,12 +223,14 @@ async function compareImages({ image1Path, image2Path }: CompareImagesParams): P
     const PNG = (await import('pngjs')).PNG;
     const fs = require('fs');
 
-    // Read and decode images
-    const img1Data = fs.readFileSync(image1Path);
-    const img2Data = fs.readFileSync(image2Path);
+    // Read and decode images using sharp for format support (JPEG, BMP, etc.)
+    const sharp = (await import('sharp')).default;
+    
+    const img1Buffer = await sharp(image1Path).png().toBuffer();
+    const img2Buffer = await sharp(image2Path).png().toBuffer();
 
-    const img1 = PNG.sync.decode(img1Data);
-    const img2 = PNG.sync.decode(img2Data);
+    const img1 = PNG.sync.decode(img1Buffer);
+    const img2 = PNG.sync.decode(img2Buffer);
 
     // Resize to same dimensions for comparison
     const width = Math.min(img1.width, img2.width);

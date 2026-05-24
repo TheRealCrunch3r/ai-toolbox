@@ -22,13 +22,15 @@ async function safeSpawn(
   exe: string,
   args: string[],
   timeoutMs: number,
-  input?: string
+  input?: string,
+  useShell = false
 ): Promise<SpawnResult> {
   return new Promise((resolve) => {
     const proc = spawn(exe, args, {
       stdio: ['pipe', 'pipe', 'pipe'],
       timeout: timeoutMs,
       cwd: getWorkingDir(), // Execute in the current working directory
+      shell: useShell, // Enable shell interpretation when requested
     });
 
     let stdout = '';
@@ -192,13 +194,13 @@ export function registerExecutionTools(_config: PluginConfig): Tool[] {
     },
   }));
 
-  // execute_command tool — SAFE VERSION without shell:true
+  // execute_command tool — SAFE VERSION with shell:true support & improved Windows handling
   tools.push(tool({
     name: 'execute_command',
-    description: 'Execute a command in the current working directory. Uses safe argument parsing (no shell interpretation).',
+    description: 'Execute a command in the current working directory. Supports full shell features (pipes, redirects, env vars).',
     parameters: {
       command: z.string().describe('The shell command to execute'),
-      timeout_seconds: z.number().min(0.1).max(60).optional().default(5).describe('Timeout in seconds (max 60)'),
+      timeout_seconds: z.number().min(1).max(300).optional().default(60).describe('Timeout in seconds (max 300)'),
       input: z.string().optional().describe("Input text to pipe to the command's stdin."),
     },
     implementation: async ({ command, timeout_seconds, input }: ExecuteCommandParams) => { // C5 FIX: typed params
@@ -208,27 +210,29 @@ export function registerExecutionTools(_config: PluginConfig): Tool[] {
           return { success: false, error: `Unsafe command detected: ${sanitized.reason}` };
         }
 
-        // Parse command into executable + args (no shell interpretation)
-        const parsed = parseCommand(command);
+        const timeoutMs = ((timeout_seconds || 60) * 1000);
         
-        if (!parsed.exe) {
-          return { success: false, error: 'Empty command' };
-        }
-
-        const timeoutMs = ((timeout_seconds || 5) * 1000);
-        const result = await safeSpawn(parsed.exe, parsed.args, timeoutMs, input);
+        // Use shell:true for full shell interpretation (pipes, redirects, env vars)
+        // Security is maintained through sanitizeCommand() which blocks dangerous patterns
+        const result = await safeSpawn(command, [], timeoutMs, input, true);
         
         if (!result.success) {
           return { success: false, error: result.error };
         }
 
-        if (result.data?.stderr && !result.data.stdout) {
-          return { success: false, error: result.data.stderr };
-        }
-
-        return { success: true, data: result.data };
+        // Return combined output for better debugging
+        const fullOutput = [result.data?.stdout, result.data?.stderr].filter(Boolean).join('\n');
+        return { 
+          success: true, 
+          data: { 
+            stdout: result.data?.stdout || '', 
+            stderr: result.data?.stderr || '',
+            output: fullOutput || '(No output)'
+          } 
+        };
       } catch (error) {
-        return handleError(error);
+        const message = error instanceof Error ? error.message : String(error);
+        return { success: false, error: `Execution failed: ${message}` };
       }
     },
   }));

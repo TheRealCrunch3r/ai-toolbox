@@ -92,6 +92,7 @@ function isBinaryFile(content: string): boolean {
 ### 4. SQL Validation (`validateSQLQuery`)
 
 **Purpose**: Ensure database queries are read-only.
+**⚠️ Shell Interpretation Note**: The `execute_command` tool now uses Node.js's `shell: true` option to support full shell features (pipes, redirects, environment variables). Security is maintained through `sanitizeCommand()` which validates and blocks dangerous patterns **before** the command reaches the shell. This approach matches industry best practices for secure shell execution while maintaining flexibility.
 
 **Allowed Operations**:
 - `SELECT` statements

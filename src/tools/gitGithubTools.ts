@@ -25,11 +25,40 @@ async function createGit() {
 }
 
 /**
- * Shared helper: Extract GitHub repo name from git remote URL
+ * Extract GitHub repo name from git remote URL or environment variable.
+ * Tries multiple sources in order of reliability.
  */
-function getRepoName(): string | null {
-  const repoMatch = process.env.GITHUB_REPOSITORY?.match(/github\.com[:/]([^/]+\/[^/]+)\.git$/);
-  return repoMatch?.[1] || null;
+async function getRepoName(): Promise<string | null> {
+  // Priority 1: Environment variable (GitHub Actions, CI/CD)
+  if (process.env.GITHUB_REPOSITORY) {
+    return process.env.GITHUB_REPOSITORY;
+  }
+
+  // Priority 2: Git remote URL parsing
+  try {
+    const git = await createGit();
+    const remotes = await git.listRemote(['--get-url', 'origin']);
+    const remoteUrl = remotes.trim();
+    
+    if (remoteUrl) {
+      // Handle SSH format: git@github.com:user/repo.git
+      const sshMatch = remoteUrl.match(/git@github\.com[:/]([^/]+\/[^/]+)\.git$/);
+      if (sshMatch) return sshMatch[1];
+      
+      // Handle HTTPS format: https://github.com/user/repo.git
+      const httpsMatch = remoteUrl.match(/https:\/\/github\.com\/([^/]+\/[^/]+)\.git$/);
+      if (httpsMatch) return httpsMatch[1];
+    }
+  } catch {
+    // Git remote not available, continue to next priority
+  }
+
+  // Priority 3: Environment variable GITHUB_REPO as fallback
+  if (process.env.GITHUB_REPO) {
+    return process.env.GITHUB_REPO;
+  }
+
+  return null;
 }
 
 /**
@@ -82,7 +111,7 @@ export function registerGitTools(_config: PluginConfig): Tool[] {
     parameters: {},
     implementation: async (_params: GitStatusParams) => { // C5 FIX: typed params
       try {
-        const git = createGit();
+        const git = await createGit();
         const statusResult = await git.status() as Record<string, unknown>;
         return { success: true, data: statusResult };
       } catch (error) {
@@ -102,7 +131,7 @@ export function registerGitTools(_config: PluginConfig): Tool[] {
     },
     implementation: async ({ file_path, cached }: GitDiffParams) => { // C5 FIX: typed params
       try {
-        const git = createGit();
+        const git = await createGit();
         let diff = '';
         if (file_path) {
           diff = await git.diff([file_path]);
@@ -126,7 +155,7 @@ export function registerGitTools(_config: PluginConfig): Tool[] {
     },
     implementation: async ({ message }: GitCommitParams) => { // C5 FIX: typed params
       try {
-        const git = createGit();
+        const git = await createGit();
         await git.commit(message);
         return { success: true, data: { committed: true } };
       } catch (error) {
@@ -145,7 +174,7 @@ export function registerGitTools(_config: PluginConfig): Tool[] {
     },
     implementation: async ({ max_count }: GitLogParams) => { // C5 FIX: typed params
       try {
-        const git = createGit();
+        const git = await createGit();
         const count = max_count || 10;
         const log = await git.log(count);
         return { success: true, data: { commits: log.all } };
@@ -165,7 +194,7 @@ export function registerGitTools(_config: PluginConfig): Tool[] {
     },
     implementation: async ({ paths }: GitAddParams) => { // C5 FIX: typed params
       try {
-        const git = createGit();
+        const git = await createGit();
         if (paths && paths.length > 0) {
           await git.add(paths);
         } else {
@@ -189,7 +218,7 @@ export function registerGitTools(_config: PluginConfig): Tool[] {
     },
     implementation: async ({ branch_name, create_new }: GitCheckoutParams) => { // C5 FIX: typed params
       try {
-        const git = createGit();
+        const git = await createGit();
         if (create_new) {
           await git.checkoutLocalBranch(branch_name);
         } else {
@@ -213,7 +242,7 @@ export function registerGitTools(_config: PluginConfig): Tool[] {
         const githubToken = process.env.GITHUB_TOKEN;
         
         if (!githubToken) {
-          return { success: false, error: 'GITHUB_TOKEN environment variable is not set' };
+          return { success: false, error: 'GITHUB_TOKEN environment variable is not set. Please set it to use GitHub API tools.' };
         }
         
         await ghApiRequest('GET', '/user');
@@ -236,8 +265,8 @@ export function registerGitTools(_config: PluginConfig): Tool[] {
     },
     implementation: async ({ title, body, labels }: GhCreateIssueParams) => { // C5 FIX: typed params
       try {
-        const repoName = getRepoName();
-        if (!repoName) throw new Error('Could not determine repository name from GITHUB_REPOSITORY env');
+        const repoName = await getRepoName();
+        if (!repoName) throw new Error('Could not determine repository name. Ensure GITHUB_REPOSITORY env is set or git remote "origin" points to a GitHub repo.');
 
         await ghApiRequest('POST', `/repos/${repoName}/issues`, { title, body, labels });
         return { success: true, data: { created: true } };
@@ -259,8 +288,8 @@ export function registerGitTools(_config: PluginConfig): Tool[] {
     },
     implementation: async ({ state, labels, limit }: GhListIssuesParams) => { // C5 FIX: typed params
       try {
-        const repoName = getRepoName();
-        if (!repoName) throw new Error('Could not determine repository name');
+        const repoName = await getRepoName();
+        if (!repoName) throw new Error('Could not determine repository name.');
 
         let query = `state=${state}`;
         if (labels && labels.length > 0) {
@@ -286,8 +315,8 @@ export function registerGitTools(_config: PluginConfig): Tool[] {
     },
     implementation: async ({ number, type }: GhViewCommentsParams) => { // C5 FIX: typed params
       try {
-        const repoName = getRepoName();
-        if (!repoName) throw new Error('Could not determine repository name');
+        const repoName = await getRepoName();
+        if (!repoName) throw new Error('Could not determine repository name.');
 
         const comments = await ghApiRequest('GET', `/repos/${repoName}/${type === 'pr' ? 'pulls' : 'issues'}/${number}/comments`);
         return { success: true, data: { comments } };
@@ -310,8 +339,8 @@ export function registerGitTools(_config: PluginConfig): Tool[] {
     },
     implementation: async ({ title, body, head_branch, base_branch }: GhCreatePrParams) => { // C5 FIX: typed params
       try {
-        const repoName = getRepoName();
-        if (!repoName) throw new Error('Could not determine repository name');
+        const repoName = await getRepoName();
+        if (!repoName) throw new Error('Could not determine repository name.');
 
         const pr = await ghApiRequest('POST', `/repos/${repoName}/pulls`, { title, body, head: head_branch, base: base_branch });
         return { success: true, data: { created: true, url: (pr as Record<string, unknown>).html_url } };
@@ -332,8 +361,8 @@ export function registerGitTools(_config: PluginConfig): Tool[] {
     },
     implementation: async ({ state, limit }: GhListPrsParams) => { // C5 FIX: typed params
       try {
-        const repoName = getRepoName();
-        if (!repoName) throw new Error('Could not determine repository name');
+        const repoName = await getRepoName();
+        if (!repoName) throw new Error('Could not determine repository name.');
 
         const prs = await ghApiRequest('GET', `/repos/${repoName}/pulls?state=${state}&per_page=${limit || 10}`);
         return { success: true, data: { prs } };
@@ -353,8 +382,8 @@ export function registerGitTools(_config: PluginConfig): Tool[] {
     },
     implementation: async ({ number }: GhViewPrDiffParams) => { // C5 FIX: typed params
       try {
-        const repoName = getRepoName();
-        if (!repoName) throw new Error('Could not determine repository name');
+        const repoName = await getRepoName();
+        if (!repoName) throw new Error('Could not determine repository name.');
 
         const response = await fetch(`https://api.github.com/repos/${repoName}/pulls/${number}/diff`, {
           headers: { 'Authorization': `Bearer ${process.env.GITHUB_TOKEN}` }
@@ -380,7 +409,7 @@ export function registerGitTools(_config: PluginConfig): Tool[] {
     },
     implementation: async ({ branch }: GhPushParams) => { // C5 FIX: typed params
       try {
-        const git = createGit();
+        const git = await createGit();
         await git.push(branch || 'origin', 'HEAD');
         return { success: true, data: { pushed: true } };
       } catch (error) {

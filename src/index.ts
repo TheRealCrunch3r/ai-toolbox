@@ -12,6 +12,7 @@ import { cleanupBrowserSession } from './tools/browserAutomationTools';
 // ✅ FIX: Use structured logging instead of console.log
 const logger = {
   info: (msg: string) => typeof process.stdout.write === 'function' && process.stdout.write(`[AI Toolbox] ${msg}\n`),
+  warn: (msg: string) => typeof process.stderr.write === 'function' && process.stderr.write(`[AI Toolbox WARN] ${msg}\n`),
   error: (msg: string) => typeof process.stderr.write === 'function' && process.stderr.write(`[AI Toolbox ERROR] ${msg}\n`),
 };
 
@@ -26,6 +27,10 @@ export function main(context: PluginContext) {
   
   // Register the prompt preprocessor for Document RAG / Chat with Files
   context.withPromptPreprocessor(preprocess);
+  
+  // Note: LM Studio SDK v1.5.0 doesn't expose getConfig() on PluginContext.
+  // Configuration is handled automatically by the SDK's config system.
+  // The toolsProvider will use default settings until UI toggles are applied.
   
   // Register the tools provider function
   context.withToolsProvider(toolsProvider);

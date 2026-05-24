@@ -38,6 +38,9 @@ type TypedTool = Tool & {
   implementation: (params: Record<string, unknown>, ctx?: unknown) => Promise<unknown>;
 };
 
+// Global config reference to ensure toolsProvider uses the latest user settings
+let currentConfig: PluginConfig = DEFAULT_CONFIG;
+
 /**
  * Central registry for all available tools.
  * Tools are created once at module load time and reused across provider calls.
@@ -207,8 +210,17 @@ export function createToolsProvider(config?: PluginConfig): ToolsProvider {
  * NOTE: Must be async — SDK type requires Promise<Tool[]>.
  */
 export async function toolsProvider(_ctl: ToolsProviderController): Promise<Tool[]> {
-  const provider = createToolsProvider();
+  // Use the globally stored config instead of always using defaults
+  const provider = createToolsProvider(currentConfig);
   
   // Return all available tools - SDK automatically registers them
   return provider.getAvailableTools();
+}
+
+/**
+ * Update the global configuration reference.
+ * Call this from main() to ensure toolsProvider uses the latest user settings.
+ */
+export function updateGlobalConfig(config: PluginConfig): void {
+  currentConfig = config;
 }
