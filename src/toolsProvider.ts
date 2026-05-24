@@ -6,7 +6,7 @@ import type { Tool, ToolsProviderController } from '@lmstudio/sdk';
 
 // Import existing modules
 import type { PluginConfig } from './config';
-import { DEFAULT_CONFIG, isToolEnabled, isExecutionToolEnabled } from './config';
+import { DEFAULT_CONFIG, isToolEnabled, isExecutionToolEnabled, configSchematics } from './config';
 import { StateManager } from './stateManager';
 import { BackgroundCommandManager } from './backgroundCommands';
 
@@ -209,9 +209,52 @@ export function createToolsProvider(config?: PluginConfig): ToolsProvider {
  * 
  * NOTE: Must be async — SDK type requires Promise<Tool[]>.
  */
-export async function toolsProvider(_ctl: ToolsProviderController): Promise<Tool[]> {
-  // Use the globally stored config instead of always using defaults
-  const provider = createToolsProvider(currentConfig);
+export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[]> {
+  // FIX: Read configuration dynamically from UI controller (like beledarians plugin)
+  const pluginConfig = ctl.getPluginConfig(configSchematics);
+  
+  // Construct a live config object from the UI state
+  const liveConfig: PluginConfig = {
+    fileSystem: pluginConfig.get('fileSystem'),
+    webSearch: pluginConfig.get('webSearch'),
+    browserAutomation: pluginConfig.get('browserAutomation'),
+    gitOperations: pluginConfig.get('gitOperations'),
+    databaseQueries: pluginConfig.get('databaseQueries'),
+    documentParsing: pluginConfig.get('documentParsing'),
+    backgroundCommands: pluginConfig.get('backgroundCommands'),
+    imageProcessing: pluginConfig.get('imageProcessing'),
+    httpClient: pluginConfig.get('httpClient'),
+    vectorRAG: pluginConfig.get('vectorRAG'),
+    uiGeneration: pluginConfig.get('uiGeneration'),
+    contextManagement: pluginConfig.get('contextManagement'),
+    godMode: pluginConfig.get('godMode'),
+    documentRAG: pluginConfig.get('documentRAG'),
+    retrievalLimit: pluginConfig.get('retrievalLimit'),
+    retrievalAffinityThreshold: pluginConfig.get('retrievalAffinityThreshold'),
+    executionJavaScript: pluginConfig.get('executionJavaScript'),
+    executionPython: pluginConfig.get('executionPython'),
+    executionTerminal: pluginConfig.get('executionTerminal'),
+    executionShell: pluginConfig.get('executionShell'),
+    searchFallbackChain: pluginConfig.get('searchFallbackChain'),
+    maxSearchResults: pluginConfig.get('maxSearchResults'),
+    safesearch: pluginConfig.get('safesearch'),
+    browserTimeout: pluginConfig.get('browserTimeout'),
+    headlessMode: pluginConfig.get('headlessMode'),
+    gitAutoCommit: pluginConfig.get('gitAutoCommit'),
+    defaultBranch: pluginConfig.get('defaultBranch'),
+    pathValidationEnabled: pluginConfig.get('pathValidationEnabled'),
+    binaryFileDetection: pluginConfig.get('binaryFileDetection'),
+    regexReDoSProtection: pluginConfig.get('regexReDoSProtection'),
+    maxRegexLength: pluginConfig.get('maxRegexLength'),
+    statePersistenceEnabled: pluginConfig.get('statePersistenceEnabled'),
+    stateMaxSize: pluginConfig.get('stateMaxSize'),
+    language: pluginConfig.get('language'),
+    notificationsEnabled: pluginConfig.get('notificationsEnabled'),
+    temporalAwareness: pluginConfig.get('temporalAwareness'),
+    dateFormatStyle: pluginConfig.get('dateFormatStyle'),
+  };
+
+  const provider = createToolsProvider(liveConfig);
   
   // Return all available tools - SDK automatically registers them
   return provider.getAvailableTools();
