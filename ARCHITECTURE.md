@@ -360,6 +360,30 @@ Heavy dependencies loaded on first use:
 
 ## 📊 Data Flow
 
+### Temporal Awareness Flow (merged from `up_to_date`)
+
+```
+User Message
+    │
+    ▼
+promptPreprocessor()
+    │
+    ├── Check temporalAwareness config
+    │   │
+    │   └── Enabled?
+    │       │
+    │       ├── Yes: Get cached datetime (5min TTL)
+    │       │         │
+    │       │         ├── Format: Standard ([Zeit: ...]) or HEUTE IST Mode
+    │       │         │
+    │       │         └── Append timestamp to message end
+    │       │
+    │       └── No: Skip
+    │
+    ▼
+Final Prompt sent to LLM (with timestamp suffix)
+```
+
 ### Document RAG Flow
 
 ```
@@ -484,7 +508,8 @@ ConfigSchema (Zod)
 ├── Security Settings (4 fields)
 ├── State Management (2 fields)
 ├── i18n (1 field)
-└── Notifications (1 field)
+├── Notifications (1 field)
+└── Temporal Awareness (2 fields: temporalAwareness, dateFormatStyle)
 ```
 
 Each field maps to a UI element in LM Studio's settings panel via `createConfigSchematics()`.

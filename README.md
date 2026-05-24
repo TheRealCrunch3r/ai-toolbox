@@ -34,6 +34,7 @@
 | 📚 **Document RAG** | Chat with attached files (PDF, DOCX) |
 | 🎨 **Interactive UI Generation** | Generate and render HTML/CSS/JS components (buttons, forms, charts, dashboards) |
 | 🧠 **Auto-Context Management** | Automatic session tracking, decision logging, and persistent memory retrieval |
+| ⏰ **Temporal Awareness** | Injects current date/time into every message for accurate time-sensitive tasks (merged from `up_to_date`) |
 
 ---
 
@@ -190,6 +191,10 @@ All settings are accessible through LM Studio's plugin settings panel.
 | `notificationsEnabled` | `true` | Desktop notifications |
 | `statePersistenceEnabled` | `true` | Persist state between sessions |
 | `stateMaxSize` | `10240` | Max state size in bytes |
+
+### Temporal Awareness (merged from `up_to_date`)
+
+| Setting | Default | Description |\n|---------|---------|-------------|\n| `temporalAwareness` | `true` | Inject current date/time into every message |\n| `dateFormatStyle` | `standard` | Format style: `standard` ([Zeit: ...]) or `heuteIst` (HEUTE IST Mode) |
 
 ---
 

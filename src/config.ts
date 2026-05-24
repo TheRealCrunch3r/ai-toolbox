@@ -48,7 +48,7 @@ export const ConfigSchema = z.object({
 
   // ── 📚 DOCUMENT RAG / CHAT WITH FILES ───────────────────────────
 
-  documentRAG: z.boolean().default(false).describe('Enable file indexing and semantic search for chat'),
+  documentRAG: z.boolean().default(true).describe('Enable file indexing and semantic search for chat'),
 
   retrievalLimit: z.number().min(1).max(20).default(5).describe('Maximum number of relevant chunks to retrieve'),
 
@@ -80,7 +80,7 @@ export const ConfigSchema = z.object({
 
   browserTimeout: z.number().min(1000).max(30000).default(5000),
 
-  headlessMode: z.boolean().default(true),
+  headlessMode: z.boolean().default(false).describe('Run browser without GUI'),
 
 
 
@@ -122,6 +122,9 @@ export const ConfigSchema = z.object({
 
   notificationsEnabled: z.boolean().default(true),
 
+  // Temporal Awareness (merged from up_to_date)
+  temporalAwareness: z.boolean().default(true).describe('Enable automatic date/time injection into prompts'),
+  dateFormatStyle: z.enum(['standard', 'heuteIst']).default('standard').describe('Date format style for temporal awareness'),
 });
 
 
@@ -174,7 +177,7 @@ export const DEFAULT_CONFIG: PluginConfig = {
 
   // ⚠️ GOD MODE (Enable ALL tools at once) ⚠️
 
-  documentRAG: false,
+  documentRAG: true,
 
   retrievalLimit: 5,
 
@@ -202,7 +205,7 @@ export const DEFAULT_CONFIG: PluginConfig = {
 
   browserTimeout: 5000,
 
-  headlessMode: true,
+  headlessMode: false,
 
   gitAutoCommit: false,
 
@@ -224,13 +227,16 @@ export const DEFAULT_CONFIG: PluginConfig = {
 
   notificationsEnabled: true,
 
+  // Temporal Awareness (merged from up_to_date)
+  temporalAwareness: true,
+  dateFormatStyle: 'standard',
 };
 
 
 
 /**
 
- * Validate and sanitize config input
+ * Validate and sanitize config inp
 
  */
 
@@ -245,6 +251,7 @@ export function validateConfig(input: unknown): PluginConfig {
   }
 
 }
+
 
 
 /**
@@ -655,5 +662,18 @@ export const configSchematics = createConfigSchematics()
 
   .field('notificationsEnabled', 'boolean', { displayName: '🔔 Desktop Notifications', hint: 'Show system notifications' }, DEFAULT_CONFIG.notificationsEnabled)
 
-  .build();
+  // ⏰ TEMPORAL AWARENESS (from up_to_date)
+  .field('temporalAwareness', 'boolean', {
+    displayName: '⏰ Temporal Awareness',
+    subtitle: 'Injects current date/time into every message',
+    hint: 'Enables the AI to know the current time.',
+  }, DEFAULT_CONFIG.temporalAwareness)
+  .field('dateFormatStyle', 'select', {
+    displayName: '📅 Date Format Style',
+    options: [
+      { value: 'standard', displayName: 'Standard ([Zeit: ...])' },
+      { value: 'heuteIst', displayName: 'HEUTE IST Mode (Prominent)' },
+    ],
+  }, DEFAULT_CONFIG.dateFormatStyle)
 
+  .build();

@@ -1,11 +1,68 @@
 /**
- * Document RAG Prompt Preprocessor + Working Directory Detection
+ * Document RAG Prompt Preprocessor + Working Directory Detection + Temporal Awareness
  */
 
 import { type ChatMessage, type FileHandle, type PromptPreprocessorController } from '@lmstudio/sdk';
 import { configSchematics } from './config';
 import pdfParse from 'pdf-parse';
 import { setAttachments, listAttachments } from './attachmentManager';
+
+// --- Temporal Awareness Helpers (merged from up_to_date) ---
+interface DateTimeCache {
+  compact: string;
+  full: string;
+}
+
+let cachedDateTimeData: DateTimeCache | null = null;
+const CACHE_DURATION_MS = 5 * 60 * 1000; // Refresh every 5 minutes
+let cacheTimestamp = 0;
+
+function getCachedDateTime(): DateTimeCache {
+  const now = Date.now();
+  
+  if (cachedDateTimeData && (now - cacheTimestamp) < CACHE_DURATION_MS) {
+    return cachedDateTimeData;
+  }
+  
+  const date = new Date();
+  
+  // Compact format: DD.MM.YYYY, HH:mm
+  const compact = date.toLocaleString('de-DE', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+  
+  // Full format: Wochentag, DD. MMMM YYYY, HH:mm Uhr
+  const full = date.toLocaleString('de-DE', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  }) + ' Uhr';
+  
+  cachedDateTimeData = { compact, full };
+  cacheTimestamp = now;
+  
+  return cachedDateTimeData;
+}
+
+function getTemporalSuffix(ctl: PromptPreprocessorController): string {
+  const config = ctl.getPluginConfig(configSchematics);
+  if (!config.temporalAwareness) return '';
+  
+  const style = config.dateFormatStyle || 'standard';
+  const { compact, full } = getCachedDateTime();
+  
+  if (style === 'heuteIst') {
+    return `\n\nHEUTE IST ${full}`;
+  }
+  return `\n\n[Zeit: ${compact}]`;
+}
 
 function detectDirectoryPath(text: string): string | null {
   // Remove URLs first to avoid false positives like /medium.com from https://medium.com/...
@@ -245,7 +302,7 @@ export async function preprocess(
   // Step 1: Directory detection (highest priority)
   const detectedPath = detectDirectoryPath(userPrompt);
   if (detectedPath) {
-    return injectWorkingDirectoryPrompt(userPrompt + attachmentNotice, detectedPath);
+    return injectWorkingDirectoryPrompt(userPrompt + attachmentNotice, detectedPath) + getTemporalSuffix(ctl);
   }
   
   // Step 2: Document RAG processing (if enabled)
@@ -256,20 +313,16 @@ export async function preprocess(
   
   if (!documentRAGEnabled) {
     // If RAG is disabled, just return the message with attachment notice
-    if (attachmentNotice) {
-      return userPrompt + attachmentNotice;
-    }
-    return userMessage;
+    const base = userPrompt + attachmentNotice;
+    return base + getTemporalSuffix(ctl);
   }
 
   const newFiles = allFiles.filter(f => f.type !== 'image');
   console.log(`[RAG] Found ${newFiles.length} non-image files`);
   
   if (newFiles.length === 0) {
-    if (attachmentNotice) {
-      return userPrompt + attachmentNotice;
-    }
-    return userMessage;
+    const base = userPrompt + attachmentNotice;
+    return base + getTemporalSuffix(ctl);
   }
 
   // Separate PDF files from other file types
@@ -329,13 +382,11 @@ export async function preprocess(
       contextInjection += `\n${result.content}\n---\n`;
     }
 
-    return `${userPrompt}${attachmentNotice}\n\n--- RELEVANT DOCUMENT CONTEXT ---\n${contextInjection.trim()}`;
+    return `${userPrompt}${attachmentNotice}\n\n--- RELEVANT DOCUMENT CONTEXT ---\n${contextInjection.trim()}` + getTemporalSuffix(ctl);
   }
 
   // If no results found, return original message with attachment notice
   console.log('[RAG] No relevant results found');
-  if (attachmentNotice) {
-    return userPrompt + attachmentNotice;
-  }
-  return userMessage;
+  const base = userPrompt + attachmentNotice;
+  return base + getTemporalSuffix(ctl);
 }

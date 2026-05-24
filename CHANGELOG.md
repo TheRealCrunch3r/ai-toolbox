@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [Unreleased] — 2026-05-24
+
+### 🔄 Merged `up_to_date` Plugin
+
+#### ✨ Added — Temporal Awareness
+- **Automatic Date/Time Injection** — Every user message now receives the current date/time appended at the end.
+- **Session Caching** — Timestamp is cached for 5 minutes to ensure consistency during a conversation.
+- **Configurable Formats**:
+  - `Standard`: `[Zeit: DD.MM.YYYY, HH:mm]` (default)
+  - `HEUTE IST Mode`: `HEUTE IST Wochentag, DD. MMMM YYYY um HH:mm Uhr` (prominent for document generation)
+- **UI Configuration** — Toggle "Temporal Awareness" and select format style via LM Studio plugin settings.
+
+#### 🛠️ Modified
+- **Prompt Preprocessor** (`src/promptPreprocessor.ts`) — Integrated temporal awareness logic into the main preprocessor pipeline.
+- **Configuration Schema** (`src/config.ts`) — Added `temporalAwareness` (boolean) and `dateFormatStyle` ('standard' | 'heuteIst') fields.
+
+---
+
 ## [1.0.0] — 2026-05-22
 
 ### 🎉 Initial Release
@@ -148,6 +166,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ---
 
 ## [Unreleased]
+
+### 🐛 Fixed
+- **Attachment Reading Logic**: Fixed `attachment.read is not a function` error in `documentTools.ts` by supporting various file handle types (string paths, FileHandles, objects with path property).
+- **Build Errors**: Resolved TypeScript compilation errors caused by references to the removed `config.execution` property. Code now correctly uses granular execution toggles (`executionJavaScript`, `executionPython`, etc.).
+- **Documentation Sync**: Updated `package.json` description and changelog to reflect current tool count (54+) and category structure.
 
 ### 🆕 Added — Interactive UI Generation Tools (3 tools)
 - `generate_ui_component` — Generate HTML/CSS/JS code for interactive UI components (buttons, forms, charts, dashboards)

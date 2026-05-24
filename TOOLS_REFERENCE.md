@@ -1,6 +1,6 @@
 # Tools Reference
 
-Complete reference for all 45+ tools in the AI Toolbox plugin, organized by category.
+Complete reference for all 54+ tools in the AI Toolbox plugin, organized by category.
 
 ---
 
