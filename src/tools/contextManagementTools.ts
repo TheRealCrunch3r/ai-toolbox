@@ -32,19 +32,26 @@ class ContextStorageManager {
   
   constructor() {
     this.storagePath = path.join(getWorkingDir(), '.ai_toolbox_context.json');
+    console.log(`[ContextStorage] Initialized with storage path: ${this.storagePath}`);
   }
 
   /** Load context entries from disk */
   load(): ContextEntry[] {
     try {
-      if (fs.existsSync(this.storagePath)) {
-        const data = fs.readFileSync(this.storagePath, 'utf-8');
-        return JSON.parse(data);
+      if (!fs.existsSync(this.storagePath)) {
+        console.log(`[ContextStorage.load] File does not exist yet: ${this.storagePath}`);
+        return [];
       }
+      
+      const data = fs.readFileSync(this.storagePath, 'utf-8');
+      const entries = JSON.parse(data) as ContextEntry[];
+      console.log(`[ContextStorage.load] Loaded ${entries.length} entries from disk`);
+      return entries;
     } catch (error) {
-      console.error('Failed to load context storage:', error);
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`[ContextStorage.load] Failed to load context storage: ${message}`);
+      return [];
     }
-    return [];
   }
 
   /** Save context entries to disk */
@@ -53,14 +60,17 @@ class ContextStorageManager {
       const dir = path.dirname(this.storagePath);
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
+        console.log(`[ContextStorage.save] Created directory: ${dir}`);
       }
       
       // Write atomically (temp file + rename)
       const tempPath = this.storagePath + '.tmp';
       fs.writeFileSync(tempPath, JSON.stringify(entries, null, 2));
       fs.renameSync(tempPath, this.storagePath);
+      console.log(`[ContextStorage.save] Saved ${entries.length} entries to disk`);
     } catch (error) {
-      console.error('Failed to save context storage:', error);
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`[ContextStorage.save] Failed to save context storage: ${message}`);
     }
   }
 

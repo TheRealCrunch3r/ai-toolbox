@@ -53,10 +53,19 @@ function getCachedDateTime(): DateTimeCache {
 
 function getTemporalSuffix(ctl: PromptPreprocessorController): string {
   const config = ctl.getPluginConfig(configSchematics);
-  if (!config.temporalAwareness) return '';
   
-  const style = config.dateFormatStyle || 'standard';
+  // Use .get() method with proper defaults - more reliable than direct property access
+  const temporalAwarenessEnabled = config.get('temporalAwareness', true); // Default to true if not set
+  
+  if (!temporalAwarenessEnabled) {
+    return '';
+  }
+  
+  const style = config.get('dateFormatStyle', 'standard');
   const { compact, full } = getCachedDateTime();
+  
+  // DEBUG: Uncomment to verify what's being injected
+  console.log(`[TEMPORAL] Injecting: ${style === 'heuteIst' ? `HEUTE IST ${full}` : `[Zeit: ${compact}]`}`);
   
   if (style === 'heuteIst') {
     return `\n\nHEUTE IST ${full}`;
