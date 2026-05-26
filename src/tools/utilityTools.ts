@@ -376,3 +376,32 @@ export function registerUtilityTools(config: PluginConfig, stateManager: StateMa
 
   return tools;
 }
+
+
+// ==================== CURRENT WORKING DIRECTORY TOOL ====================
+
+/**
+ * Get the current working directory.
+ * This allows the LLM to know where relative paths will be resolved.
+ */
+type GetCurrentWorkingDirectoryParams = Record<string, never>;
+
+export function registerGetCurrentWorkingDirectoryTool(): Tool[] {
+  return [
+    tool({
+      name: 'get_current_working_directory',
+      description: 'Get the current working directory. Use this before generating file operations with relative paths to ensure you know where files will be created/modified.',
+      parameters: {},
+      implementation: async () => {
+        // Import here to avoid circular dependency
+        const { getWorkingDir } = require('../workingDir.js');
+        return {
+          success: true,
+          data: {
+            current_working_directory: getWorkingDir()
+          }
+        };
+      },
+    }),
+  ];
+}

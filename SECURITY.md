@@ -205,7 +205,7 @@ God Mode (ON)
 God Mode (OFF)
     │
     ├── Individual category toggles checked
-    │   ├── fileSystem: true    → 18 tools enabled
+    │   ├── fileSystem: true    → 17 tools enabled
     │   ├── webSearch: true     → 4 tools enabled
     │   ├── browserAutomation: false → 0 tools enabled
     │   └── ... (all categories)

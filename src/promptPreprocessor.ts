@@ -78,7 +78,9 @@ function detectDirectoryPath(text: string): string | null {
   const withoutUrls = text.replace(/https?:\/\/[^\s]+|www\.[^\s]+|file:\/\/[^\s]+/g, '');
 
   // Windows paths: C:\path or D:\folder (must start with drive letter)
-  const winMatch = withoutUrls.match(/[A-Za-z]:\\[\w\-_. ]+/);
+   const winMatch = withoutUrls.match(/[A-Za-z]:\\[\w\-_. \\]+/);
+//                                    ^^^^^^^^^^
+//                                    Backslash added ✓
   if (winMatch) return winMatch[0].trim();
 
   // Unix absolute paths: /home/user/dir, /var/log, etc.

@@ -48,7 +48,7 @@ Deep dive into the AI Toolbox plugin's system architecture, design patterns, and
 │  │  │  │              Tool Modules (14 files)            │  │  │  │
 │  │  │  │  ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ │  │  │  │
 │  │  │  │  │fileSys │ │webRes  │ │browser │ │  git   │ │  │  │  │
-│  │  │  │  │ (18)   │ │ (4)    │ │  (5)   │ │ (13)   │ │  │  │  │
+│  │  │  │  │ (17)   │ │ (4)    │ │  (5)   │ │ (14)   │ │  │  │  │
 │  │  │  │  └────────┘ └────────┘ └────────┘ └────────┘ │  │  │  │
 │  │  │  │  ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ │  │  │  │
 │  │  │  │  │ datab  │ │backgnd │ │exec    │ │ utility│ │  │  │  │
@@ -60,7 +60,7 @@ Deep dive into the AI Toolbox plugin's system architecture, design patterns, and
 │  │  │  │  └────────┘ └────────┘ └────────┘ └────────┘ │  │  │  │
 │  │  │  │  ┌────────┐                                   │  │  │  │
 │  │  │  │  │ Context │                                   │  │  │  │
-│  │  │  │  │ Mgmt(6) │                                   │  │  │  │
+│  │  │  │  │ Mgmt(7) │                                   │  │  │  │
 │  │  │  │  └────────┘                                   │  │  │  │
 │  │  │  └─────────────────────────────────────────────┘  │  │  │
 │  │  └───────────────────────────────────────────────────┘  │  │
@@ -89,7 +89,7 @@ export function main(context: PluginContext) {
   // 2. Register prompt preprocessor (Document RAG)
   context.withPromptPreprocessor(preprocess);
   
-  // 3. Register tools provider (all 54+ tools)
+  // 3. Register tools provider (all 80 tools)
   context.withToolsProvider(toolsProvider);
   
   // 4. Setup cleanup handlers
@@ -113,11 +113,12 @@ new ToolsProvider(config)
     ├── BackgroundCommandManager ──► Initialize process tracker
     └── ToolRegistry.registerAll()
             │
-            ├── registerFileSystemTools()    ──► 18 tools
+            ├── registerFileSystemTools()    ──► 17 tools
             ├── registerWebResearchTools()   ──► 4 tools
             ├── registerBrowserTools()       ──► 5 tools
-            ├── registerGitTools()           ──► 13 tools
+            ├── registerGitTools()           ──► 14 tools
             ├── registerDatabaseTools()      ──► 1 tool
+            ├── registerDocumentTools()      ──► 1 tool
             ├── registerBackgroundCommandTools() ─► 3 tools
             ├── registerExecutionTools()     ──► 4 tools (filtered)
             ├── registerUtilityTools()       ──► 7 tools
@@ -125,7 +126,7 @@ new ToolsProvider(config)
             ├── registerHttpClientTools()    ──► 3 tools
             ├── registerRagTools()           ──► 3 tools
             ├── registerUiGenerationTools()  ──► 3 tools (🆕)
-            └── registerContextManagementTools() ─► 6 tools (🆕)
+            └── registerContextManagementTools() ─► 7 tools (🆕)
             │
             ▼
         ToolRegistry.toolMap (Map<string, TypedTool>)
@@ -560,10 +561,10 @@ src/
 │   ├── zh-CN.ts
 │   └── zh-TW.ts
 ├── tools/                      # Tool category modules
-│   ├── fileSystemTools.ts      # 18 file system tools
+│   ├── fileSystemTools.ts      # 17 file system tools
 │   ├── webResearchTools.ts     # 4 web research tools
 │   ├── browserAutomationTools.ts # 5 browser tools
-│   ├── gitGithubTools.ts       # 13 Git/GitHub tools
+│   ├── gitGithubTools.ts       # 14 Git/GitHub tools
 │   ├── databaseTools.ts        # 1 database tool
 │   ├── backgroundCommandTools.ts # 3 background command tools
 │   ├── executionTools.ts       # 4 execution tools
@@ -572,7 +573,7 @@ src/
 │   ├── httpClientTools.ts      # 3 HTTP client tools
 │   ├── vectorRagTools.ts       # 3 vector RAG tools
 │   ├── uiGenerationTools.ts    # 🆕 3 UI generation tools
-│   └── contextManagementTools.ts # 🆕 6 context management tools
+│   └── contextManagementTools.ts # 🆕 7 context management tools
 └── types/                      # Type definitions
     └── types.d.ts
 

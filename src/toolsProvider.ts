@@ -18,7 +18,7 @@ import { registerBrowserTools } from './tools/browserAutomationTools';
 import { registerDatabaseTools } from './tools/databaseTools';
 import { registerBackgroundCommandTools } from './tools/backgroundCommandTools';
 import { registerExecutionTools } from './tools/executionTools';
-import { registerUtilityTools } from './tools/utilityTools';
+import { registerUtilityTools, registerGetCurrentWorkingDirectoryTool } from './tools/utilityTools';
 import { registerImageProcessingTools } from './tools/imageProcessingTools';
 import { registerHttpClientTools } from './tools/httpClientTools';
 import { registerRagTools } from './tools/vectorRagTools';
@@ -112,6 +112,9 @@ class ToolRegistry {
     // Utility tools are always registered (no specific config flag)
     const getEnabledTools = () => Array.from(this.toolMap.keys());
     registerUtilityTools(config, stateManager, getEnabledTools).forEach(t => this.toolMap.set(t.name, t as TypedTool));
+    
+    // Register current working directory query tool (always available)
+    registerGetCurrentWorkingDirectoryTool().forEach(t => this.toolMap.set(t.name, t as TypedTool));
   }
 
   getAll(): Tool[] {

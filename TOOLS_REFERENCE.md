@@ -1,10 +1,10 @@
 # Tools Reference
 
-Complete reference for all 54+ tools in the AI Toolbox plugin, organized by category.
+Complete reference for all 80 tools in the AI Toolbox plugin, organized by category.
 
 ---
 
-## 📁 File System Tools (18)
+## 📁 File System Tools (17)
 
 ### `list_directory`
 
@@ -217,20 +217,6 @@ Change the working directory for all subsequent file operations.
 
 ---
 
-### `read_document`
-
-Extract text from PDF or DOCX files.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `file_path` | `string` | Yes | Path to PDF or DOCX file |
-
-**Returns**: `{ success: true, data: { file, type: "PDF"\|"DOCX", pages?, content } }`
-
-**Limits**: Max 10,000 characters output.
-
----
-
 ### `analyze_project`
 
 Run TypeScript diagnostics, circular dependency detection, ESLint, config analysis, and import structure analysis.
@@ -376,7 +362,7 @@ Open a file or URL in the default application.
 
 ---
 
-## 🐙 Git & GitHub Tools (13)
+## 🐙 Git & GitHub Tools (14)
 
 ### `git_status`
 
@@ -565,6 +551,22 @@ Push commits to remote.
 **Returns**: `{ success: true, data: { query, results } }`
 
 **Requires**: Node.js 23+ for `node:sqlite`.
+
+---
+
+## 📄 Document Parsing Tools (1)
+
+### `read_document`
+
+Extract text from PDF, DOCX, or TXT files. Supports both disk paths and attached files.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `file_path` | `string` | Yes | Path to file (PDF/DOCX/TXT) or attachment filename |
+
+**Returns**: `{ success: true, data: { file, type: "PDF"\|"DOCX"\|"TXT", pages?, content } }`
+
+**Limits**: Max 10,000 characters output.
 
 ---
 
@@ -1010,7 +1012,7 @@ Extract structured data from HTML content (tables, forms, lists). Useful for par
 
 ---
 
-## 🧠 Auto-Context Management Tools (6)
+## 🧠 Auto-Context Management Tools (7)
 
 ### `auto_summarize_context`
 

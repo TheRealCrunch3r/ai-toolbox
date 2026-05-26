@@ -1,6 +1,6 @@
 # 🧰 AI Toolbox — LM Studio Plugin
 
-> **54+ tools** across 14 categories: file system, web research, browser automation, Git/GitHub, database, background commands, code execution, utilities, image processing, HTTP client, vector RAG, interactive UI generation, and auto-context management.
+> **80 tools** across 14 categories: file system, web research, browser automation, Git/GitHub, database, document parsing, background commands, code execution, utilities, image processing, HTTP client, vector RAG, interactive UI generation, and auto-context management.
 
 ## 📋 Table of Contents
 
@@ -40,8 +40,8 @@
 
 ## 🗂️ Tool Categories
 
-### File System (18 tools)
-`list_directory` · `read_file` · `save_file` · `replace_text_in_file` · `insert_at_line` · `append_file` · `delete_lines_in_file` · `make_directory` · `move_file` · `copy_file` · `delete_path` · `delete_files_by_pattern` · `find_files` · `fuzzy_find_local_files` · `get_file_metadata` · `change_directory` · `read_document` · `analyze_project`
+### File System (17 tools)
+`list_directory` · `read_file` · `save_file` · `replace_text_in_file` · `insert_at_line` · `append_file` · `delete_lines_in_file` · `make_directory` · `move_file` · `copy_file` · `delete_path` · `delete_files_by_pattern` · `find_files` · `fuzzy_find_local_files` · `get_file_metadata` · `change_directory`
 
 ### Web Research (4 tools)
 `web_search` · `wikipedia_search` · `fetch_web_content` · `rag_web_content`
@@ -49,11 +49,14 @@
 ### Browser Automation (5 tools)
 `browser_open_page` · `browser_session_control` · `browser_session_close` · `preview_html` · `open_file`
 
-### Git & GitHub (13 tools)
+### Git & GitHub (14 tools)
 `git_status` · `git_diff` · `git_commit` · `git_log` · `git_add` · `git_checkout` · `gh_auth` · `gh_create_issue` · `gh_list_issues` · `gh_view_comments` · `gh_create_pr` · `gh_list_prs` · `gh_view_pr_diff` · `gh_push`
 
 ### Database (1 tool)
 `query_database`
+
+### Document Parsing (1 tool)
+`read_document`
 
 ### Background Commands (3 tools)
 `run_background_command` · `check_background_command` · `cancel_background_command`
@@ -76,8 +79,8 @@
 ### Interactive UI Generation (3 tools)
 `generate_ui_component` · `render_and_preview_ui` · `extract_ui_data`
 
-### Auto-Context Management (6 tools)
-`auto_summarize_context` · `get_context_memory` · `search_context` · `context_summary` · `delete_context_entry` · `track_important_event`
+### Auto-Context Management (7 tools)
+`auto_summarize_context` · `get_context_memory` · `search_context` · `context_summary` · `delete_context_entry` · `track_important_event` · `clear_context_memory`
 
 ---
 

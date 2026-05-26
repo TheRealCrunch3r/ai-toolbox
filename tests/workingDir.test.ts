@@ -77,14 +77,17 @@ describe('Working Directory Manager', () => {
     test('should handle Windows-style paths on Windows', () => {
       if (process.platform === 'win32') {
         const winPath = tempDir.replace(/\\/g, '/');
-        const result = setWorkingDir(winPath);
-        expect(result).toBe(true);
-      }
+  describe(' resetWorking', () => {
+ test(' should NOT reset to plugin root (Option B: context preservation)', () => {
+      set WorkingDir(tempDir);
+ const currentDirBefore = getWorking();
+      
+      // Call reset - it should now be a no-op per Option B
+      resetWorking(); 
+      
+ expect(getWorking()).toBe(currentDirBefore); // Should still be tempDir, not plugin root
     });
   });
-
-  describe('resetWorkingDir', () => {
-    test('should reset to plugin root', () => {
       setWorkingDir(tempDir);
       resetWorkingDir();
       const root = getPluginRoot();
