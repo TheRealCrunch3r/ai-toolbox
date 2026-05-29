@@ -5,6 +5,7 @@
 import { type ChatMessage, type FileHandle, type PromptPreprocessorController } from '@lmstudio/sdk';
 import { configSchematics } from './config';
 import pdfParse from 'pdf-parse';
+import { ContextGuard } from './contextGuard';
 import { setAttachments, listAttachments } from './attachmentManager';
 
 // --- Temporal Awareness Helpers (merged from up_to_date) ---
@@ -15,6 +16,13 @@ interface DateTimeCache {
 
 let cachedDateTimeData: DateTimeCache | null = null;
 const CACHE_DURATION_MS = 5 * 60 * 1000; // Refresh every 5 minutes
+
+// ContextGuard integration
+let contextGuard: ContextGuard | null = null;
+
+export function setContextGuard(guard: ContextGuard | null): void {
+  contextGuard = guard;
+}
 let cacheTimestamp = 0;
 
 function getCachedDateTime(): DateTimeCache {
@@ -55,13 +63,13 @@ function getTemporalSuffix(ctl: PromptPreprocessorController): string {
   const config = ctl.getPluginConfig(configSchematics);
   
   // Use .get() method with proper defaults - more reliable than direct property access
-  const temporalAwarenessEnabled = config.get('temporalAwareness', true); // Default to true if not set
+  const temporalAwarenessEnabled = config.get('temporalAwareness') ?? true;
   
   if (!temporalAwarenessEnabled) {
     return '';
   }
   
-  const style = config.get('dateFormatStyle', 'standard');
+  const style = config.get('dateFormatStyle') ?? 'standard';
   const { compact, full } = getCachedDateTime();
   
   // DEBUG: Uncomment to verify what's being injected
@@ -130,7 +138,7 @@ ${originalMessage}
 
 async function extractPdfText(fileHandle: FileHandle): Promise<string> {
   try {
-    const buffer = await fileHandle.read();
+    const buffer = await (fileHandle as any).readFile ? await (fileHandle as any).readFile() : Buffer.from(await (fileHandle as any).read());
     const data = await pdfParse(buffer);
     return data.text.trim();
   } catch (error) {
@@ -241,8 +249,8 @@ async function retrieveFromPdfs(
     for (let i = 0; i < chunks.length; i += batchSize) {
       console.log(`[RAG] Generating embeddings batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(chunks.length / batchSize)}...`);
       const batch = chunks.slice(i, i + batchSize).map(c => c.chunk);
-      const embeddings = await model.embed(batch, ctl.abortSignal);
-      allEmbeddings.push(...embeddings);
+      const embeddingsResult = await model.embed(batch);
+      allEmbeddings.push(...(embeddingsResult as any[]).map((e: any) => e.embedding));
     }
   } catch (error) {
     console.error('[RAG] Error generating embeddings:', error);
@@ -262,7 +270,8 @@ async function retrieveFromPdfs(
 
   let queryEmbedding;
   try {
-    queryEmbedding = (await queryModel.embed([query], ctl.abortSignal))[0];
+    const queryResult = await queryModel.embed([query]);
+    queryEmbedding = queryResult[0].embedding;
   } catch (error) {
     console.error('[RAG] Error generating query embedding:', error);
     throw new Error(`Query embedding failed: ${error}`);
@@ -298,6 +307,29 @@ export async function preprocess(
   userMessage: ChatMessage
 ): Promise<string | ChatMessage> {
   const userPrompt = userMessage.getText();
+  
+  // Step 0.5: ContextGuard auto-compression (before any processing)
+  if (contextGuard) {
+    try {
+      const history = await ctl.pullHistory();
+      history.append(userMessage);
+      const messages = history.getMessagesArray();
+      const tokenCount = await contextGuard.countTokens(messages);
+      const threshold = contextGuard.getThreshold();
+      if (tokenCount > threshold) {
+        console.log(`[ContextGuard] Token count ${tokenCount} exceeds threshold ${threshold}, compressing...`);
+        const compressedMessages = await contextGuard.compressHistory(messages);
+        // Clear history by popping all messages
+        while (history.getLength() > 0) {
+          history.pop();
+        }
+        compressedMessages.forEach(msg => history.append(msg));
+        contextGuard.resetTokenCache();
+      }
+    } catch (e) {
+      console.warn('[ContextGuard] Auto-compression failed:', e);
+    }
+  }
   
   // Step 0: Always register attachments so tools can access them by name
   const allFiles = userMessage.getFiles(ctl.client);

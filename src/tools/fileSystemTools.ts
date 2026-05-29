@@ -6,6 +6,7 @@ import * as path from 'path';
 import { spawn } from 'child_process';
 import type { PluginConfig } from '../config.js';
 import type { StateManager } from '../stateManager.js';
+import type { ContextGuard } from '../contextGuard.js';
 import { validatePath, isSafeRegex } from '../security.js';
 import { getWorkingDir, setWorkingDir, resolvePath } from '../workingDir.js';
 import {
@@ -43,7 +44,7 @@ function handleError(error: unknown): { success: false; error: string } {
   return { success: false, error: message };
 }
 
-export function registerFileSystemTools(config: PluginConfig, _stateManager: StateManager): Tool[] {
+export function registerFileSystemTools(config: PluginConfig, _stateManager: StateManager, contextGuard: ContextGuard | null): Tool[] {
   const tools: Tool[] = [];
 
   // list_directory tool
@@ -90,6 +91,49 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
         
         const fullPath = resolvePath(file_name);
         const maxLength = max_length || 5000;
+
+        // Use ContextGuard Smart Reader if enabled
+        let smartContent = '';
+        let contentWithBudget = '';
+        let budgetString: string | undefined;
+        
+        if (contextGuard) {
+          smartContent = contextGuard.smartRead(fullPath, undefined, maxLength);  // FIX #3: Pass maxLength
+          
+          // FIX #4: Only inject budget info when token usage is significant (>50%)
+          const currentTokens = contextGuard.getCurrentTokenCount();
+          const limit = contextGuard.getTokenLimit();
+          if (currentTokens > limit * 0.5) {
+            budgetString = contextGuard.getTokenBudgetInfo();
+            contentWithBudget = `${budgetString}\n${smartContent}`;
+          } else {
+            contentWithBudget = smartContent;
+          }
+        }
+
+        // Truncate smart content if necessary and inject budget visualization
+        if (contentWithBudget.length > maxLength) {
+          return { 
+            success: true, 
+            data: { 
+              content: contentWithBudget.substring(0, maxLength),
+              filePath: fullPath,
+              truncated: true,
+              total_length: smartContent.length,
+              smartReader: !!contextGuard,
+              tokenBudgetInfo: budgetString
+            }
+          };
+        }
+        return { 
+          success: true, 
+          data: { 
+            content: contentWithBudget,
+            filePath: fullPath,
+            smartReader: !!contextGuard,
+            tokenBudgetInfo: budgetString
+          }
+        };
 
         // Early size check (Beledarian style) - prevent loading >10MB files
         let stats: fs.Stats;
@@ -970,6 +1014,41 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
       }
     },
   }));
+
+  // FIX #2: Re-RAG Tool - Allows LLM to force fresh read of compressed/truncated files
+  if (contextGuard) {
+    tools.push(tool({
+      name: 'reload_context_for_file',
+      description: 'Forces a fresh, full read of a file that was previously compressed or truncated by ContextGuard. Use when you need complete details from a file that was smart-read or summarized.',
+      parameters: {
+        file_path: z.string().describe('The path to the file to reload in full'),
+      },
+      implementation: async ({ file_path }: { file_path: string }) => {
+        try {
+          if (!validatePath(file_path, getWorkingDir())) {
+            return { success: false, error: 'Invalid path: directory traversal detected' };
+          }
+          
+          const fullPath = resolvePath(file_path);
+          const reloadMessage = contextGuard.reloadContextForFile(fullPath);
+          
+          // Actually read the file in full (bypassing smart reading)
+          const fullContent = fs.readFileSync(fullPath, 'utf-8');
+          
+          return {
+            success: true,
+            data: {
+              message: reloadMessage,
+              content: fullContent,
+              filePath: fullPath,
+            },
+          };
+        } catch (error) {
+          return handleError(error);
+        }
+      },
+    }));
+  }
 
   return tools;
 }

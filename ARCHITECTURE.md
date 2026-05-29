@@ -32,8 +32,9 @@ Deep dive into the AI Toolbox plugin's system architecture, design patterns, and
 │  │  │  │  ┌──────────┐ ┌──────────┐ ┌──────────────────┐ │   │  │  │
 │  │  │  │  │workingDir│ │performanc│ │promptPreprocessor │ │   │  │  │
 │  │  │  │  │ .ts      │ │eUtils.ts │ │     .ts          │ │   │  │  │
-│  │  │  │  │(path mgmt│ │(caching) │ │(Document RAG)     │ │   │  │  │
-│  │  │  │  └──────────┘ └──────────┘ └──────────────────┘ │   │  │  │
+│  │  │  │  │(path mgmt│ │(caching) │ │(Document RAG +    │ │   │  │  │
+│  │  │  │  └──────────┘ └──────────┘ │ ContextGuard)     │ │   │  │  │
+│  │  │  │                            └──────────────────┘ │   │  │  │
 │  │  │  └─────────────────────────────────────────────────┘   │  │  │
 │  │  │                                                        │  │  │
 │  │  │  ┌──────────────────────────────────────────────────┐  │  │  │
@@ -70,7 +71,7 @@ Deep dive into the AI Toolbox plugin's system architecture, design patterns, and
 │  │                  External Dependencies                  │  │  │
 │  │  Puppeteer │ simple-git │ Tesseract.js │ pdf-parse      │  │  │
 │  │  duck-duck-scrape │ node:sqlite │ node-notifier        │  │  │
-│  └─────────────────────────────────────────────────────────┘  │
+│  └─────────────────────────────────────────────────────────┘  │  │
 └───────────────────────────────────────────────────────────────┘
 ```
 
@@ -86,10 +87,10 @@ export function main(context: PluginContext) {
   // 1. Register config schematics (UI toggles)
   context.withConfigSchematics(configSchematics);
   
-  // 2. Register prompt preprocessor (Document RAG)
+  // 2. Register prompt preprocessor (Document RAG + ContextGuard)
   context.withPromptPreprocessor(preprocess);
   
-  // 3. Register tools provider (all 80 tools)
+  // 3. Register tools provider (all 80+ tools)
   context.withToolsProvider(toolsProvider);
   
   // 4. Setup cleanup handlers
@@ -552,7 +553,7 @@ src/
 ├── stateManager.ts             # Persistent state management
 ├── workingDir.ts               # Working directory manager
 ├── performanceUtils.ts         # Caching, async search, Levenshtein
-├── promptPreprocessor.ts       # Document RAG + directory detection
+├── promptPreprocessor.ts       # Document RAG + ContextGuard integration
 ├── backgroundCommands.ts       # Background process manager
 ├── fuzzySearch.ts              # Fuzzy file search implementation
 ├── locales/                    # i18n translation files

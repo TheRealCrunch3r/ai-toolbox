@@ -7,6 +7,70 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.3.2] — 2026-05-29
+
+### 🔒 Security Improvements
+
+#### ⚠️ `execute_command` Disabled by Default
+- **Changed**: Shell execution tool (`execute_command`) is now disabled by default for improved security posture
+- **Reason**: Arbitrary shell command execution poses significant risk if misused or bypassed
+- **Impact**: Users must explicitly enable `executionShell` toggle in plugin settings to use this tool
+- **Note**: God Mode still overrides all individual toggles
+
+---
+
+## [1.3.1] — 2026-05-29
+
+### 🐛 Critical Bug Fixes
+
+#### 🔧 ContextGuard Module Restructuring (CRITICAL)
+- **Fixed**: `src/contextGuard.ts` had severe structural syntax errors causing 15+ TypeScript compilation failures
+- **Root Cause**: The `compressHistory()` method body was incomplete and interleaved with other methods (`getTokenLimit()`, `getCurrentTokenCount()`), breaking the entire class structure
+- **Fix**: Reconstructed proper class structure with all methods in correct order, fixed malformed template literal in `countTokens()`
+
+#### 📄 Document RAG Embedding API Updates
+- **Fixed**: `src/promptPreprocessor.ts` embedding calls no longer accept abort signals (SDK v1.5.0+)
+- **Changed**: `model.embed(batch, ctl.abortSignal)` → `model.embed(batch)` with result extraction via `.embedding` property
+- **Impact**: PDF RAG retrieval now works correctly with current LM Studio SDK
+
+#### 📄 FileHandle API Migration
+- **Fixed**: `fileHandle.read()` deprecated in favor of `fileHandle.readFile()`
+- **Updated**: All PDF extraction calls to use new API signature
+
+#### 🔧 Configuration Schema Fixes
+- **Fixed**: `config.get()` no longer accepts default arguments (SDK v1.5.0+)
+- **Changed**: `config.get('key', defaultValue)` → `config.get('key') ?? defaultValue`
+- **Affected**: Temporal awareness settings (`temporalAwareness`, `dateFormatStyle`)
+
+#### 📄 Document Tools Type Safety
+- **Fixed**: Implicit `any` types in filter callbacks for word counting
+- **Changed**: `.filter(w => ...)` → `.filter((w: string) => ...)` across all document parsing functions
+
+### 🔧 Improvements
+
+#### 🛡️ Security Hardening
+- Added explicit type annotations to prevent implicit `any` usage
+- Improved error handling in attachment reading logic
+- Enhanced PNG module compatibility with `@ts-ignore` for untyped `pngjs` package
+
+---
+
+## [1.3.0] — 2026-05-29
+
+### ✨ New Features
+
+#### 🛡️ ContextGuard (Infinite Context Management)
+- **Smart Reader**: Heuristic keyword-grep for large files to provide exact code snippets instead of full file loads.
+- **Threshold-Based Compression**: Automatically summarizes older conversation history when token usage reaches 90% of the configured limit.
+- **Terminal Output Filtering**: Truncates large terminal outputs to save context.
+- **Re-RAG Trigger**: Added `reload_context_for_file` tool to force fresh reads of compressed files.
+- **Token Budget Visualization**: Shows current token usage in file read outputs.
+- **Configuration**: Added `contextGuard`, `tokenLimit`, `smartReading`, `summaryModel`, `terminalFilterEnabled`, and `terminalFilterLength` settings to `config.ts`.
+
+### 🔧 Improvements
+- Updated `README.md` to reflect the new feature set and fixed formatting issues.
+
+
 ## [1.2.1] — 2026-05-24
 
 ### 🔒 Security Fixes

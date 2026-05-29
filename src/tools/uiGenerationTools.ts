@@ -145,7 +145,7 @@ export function registerUiGenerationTools(_config: PluginConfig): Tool[] {
               return { success: false, error: 'Dashboard component requires at least one title' };
             }
             const content = dashboard_titles.map((title, index) => ({
-              type: index % 2 === 0 ? 'chart' : 'text',
+              type: (index % 2 === 0 ? 'chart' : 'text') as 'chart' | 'text',
               data: index % 2 === 0 ? [{ label: 'A', value: Math.floor(Math.random() * 100) }, { label: 'B', value: Math.floor(Math.random() * 100) }] : undefined,
             }));
             html = generateDashboardHtml(dashboard_titles, content);

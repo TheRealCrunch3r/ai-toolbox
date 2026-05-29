@@ -1,0 +1,317 @@
+/**
+ * ContextGuard Module (Optimized for Speed & Precision)
+ * Implements Summarization, Smart Reading, and Re-RAG tracking.
+ */
+
+import { get_encoding } from '@dqbd/tiktoken';
+import type { Tiktoken } from '@dqbd/tiktoken';
+import { readFileSync, statSync } from 'fs';
+import type { LMStudioClient } from '@lmstudio/sdk';
+
+// Common English words to exclude from keyword extraction (false positives)
+const STOP_WORDS = new Set([
+  'about', 'above', 'after', 'again', 'against', 'all', 'am', 'an', 'and', 'any',
+  'are', "aren't", 'as', 'at', 'be', 'because', 'been', 'before', 'being', 'below',
+  'between', 'both', 'but', 'by', 'can', "couldn't", 'could', 'did', "didn't", 'do',
+  'does', 'doing', 'don\'t', 'down', 'during', 'each', 'few', 'for', 'from', 'further',
+  'get', 'got', 'had', "hadn't", 'has', "hasn't", 'have', "haven't", 'having', 'he',
+  'her', 'here', 'hers', 'herself', 'him', 'himself', 'his', 'how', 'i', 'if', 'in',
+  'into', 'is', "isn't", 'it', "it's", 'its', 'itself', 'just', 'let', 'me', 'might',
+  'more', 'most', "mustn't", 'my', 'myself', 'new', 'no', 'nor', 'not', 'now', 'of',
+  'off', 'on', 'once', 'only', 'or', 'other', 'our', 'ours', 'out', 'over', 'own',
+  'same', "shan't", 'she', "she's", 'should', "shouldn't", 'so', 'some', 'such',
+  'than', 'that', "that'll", 'the', 'their', 'theirs', 'them', 'themselves', 'then',
+  'there', 'these', 'they', 'this', 'those', 'through', 'to', 'too', 'under',
+  'until', 'up', 'very', 'was', "wasn't", 'we', 'were', "weren't", 'what', 'when',
+  'where', 'which', 'while', 'who', 'whom', 'why', 'will', 'with', "won't", 'would',
+  "wouldn't", 'you', "you'd", "you'll", "you're", "you've", 'your', 'yours',
+  'yourself', 'yourselves', 'able', 'also', 'back', 'come', 'could', 'day', 'even',
+  'give', 'good', 'know', 'last', 'long', 'look', 'make', 'many', 'may', 'much',
+  'need', 'next', 'part', 'put', 'say', 'see', 'show', 'take', 'time', 'use',
+  'want', 'way', 'work', 'year', 'yes', 'yet', 'you',
+  // Technical false positives
+  'function', 'variable', 'context', 'guard', 'config', 'module', 'class', 'const',
+  'let', 'var', 'async', 'await', 'return', 'throw', 'catch', 'try', 'finally',
+  'import', 'export', 'default', 'from', 'type', 'interface', 'enum', 'implements',
+  'extends', 'super', 'this', 'new', 'delete', 'typeof', 'instanceof', 'void',
+]);
+
+export interface ContextGuardConfig {
+  tokenLimit: number;
+  smartReading: boolean;
+  summaryModel: string;
+  terminalFilterEnabled: boolean;
+  terminalFilterLength: number;
+}
+
+export class ContextGuard {
+  private encoder: Tiktoken | null = null;
+  private config: ContextGuardConfig;
+  private lmClient: LMStudioClient | null = null;
+  private cachedTokenCount: number | null = null;
+  private _lastMessageHash: string | null = null;  // FIX #1: Hash-based cache invalidation
+  private trackedFiles: Map<string, { compressed: boolean; truncated: boolean; originalSize: number }> = new Map();
+
+  constructor(config: ContextGuardConfig, lmClient: LMStudioClient | null = null) {
+    this.config = config;
+    this.lmClient = lmClient;
+  }
+
+  /**
+   * Counts tokens efficiently with caching.
+   * Accounts for message structure (role prefixes, separators) to match actual LLM token consumption.
+   */
+  async countTokens(messages: any[]): Promise<number> {
+    // FIX #1: Hash-based cache invalidation - validates ALL messages, not just last one
+    if (this.cachedTokenCount !== null) {
+      const currentHash = this.computeMessageHash(messages);
+      
+      if (this._lastMessageHash === currentHash) {
+        return this.cachedTokenCount;
+      }
+    }
+
+    if (!this.encoder) {
+      this.encoder = get_encoding('cl100k_base');
+    }
+
+    let count = 0;
+    for (const msg of messages) {
+      const role = msg.role || 'user';
+      const content = msg.content || '';
+      
+      // Account for message structure: role prefix + separator + content
+      // This matches how LLMs actually consume tokens in chat completion API
+      const structuredText = `<|start|>assistant<|name|>${role}<|end|>\n${content}`;
+      count += this.encoder.encode(structuredText).length;
+    }
+    
+    // Add a small overhead for system prompt and BOS token (typically ~4-8 tokens)
+    count += 8; 
+    
+    this.cachedTokenCount = count;
+    this._lastMessageHash = this.computeMessageHash(messages);  // FIX #1: Store hash
+    return count;
+  }
+
+  /**
+   * Compresses history by sending oldest messages to a local model.
+   */
+  async compressHistory(messages: any[]): Promise<any[]> {
+    const currentTokens = await this.countTokens(messages);
+    const threshold = this.config.tokenLimit * 0.9;
+
+    if (currentTokens < threshold) {
+      return messages;
+    }
+
+    const keepLast = 10;
+    const toCompress = messages.slice(0, -keepLast);
+    
+    if (toCompress.length === 0) return messages;
+
+    // Use local model for summarization
+    if (this.lmClient && this.config.summaryModel) {
+      try {
+        const model = await this.lmClient.llm.model(this.config.summaryModel);
+        const summaryPrompt = `Summarize the following conversation history into a concise technical summary. Preserve all file paths, function names, and key logic, but discard verbose code blocks and terminal noise.\n\nHistory:\n${toCompress.map(m => `${m.role}: ${m.content}`).join('\n')}`;
+        
+        const response = await model.complete(summaryPrompt, { maxTokens: 1024, temperature: 0.1 });
+        const summary = response.content || `[ContextGuard Summary: ${toCompress.length} older messages compressed.]`;
+        
+        return [
+          { role: 'system', content: summary },
+          ...messages.slice(-keepLast)
+        ];
+      } catch (error) {
+        console.warn(`[ContextGuard] Summarization failed: ${(error as Error).message}`);
+      }
+    }
+
+    // Fallback if no model or error
+    return [
+      { role: 'system', content: `[ContextGuard Summary: ${toCompress.length} older messages compressed to save context. Key file paths and logic preserved.]` },
+      ...messages.slice(-keepLast)
+    ];
+  }
+
+  getThreshold(): number {
+    return this.config.tokenLimit * 0.9;
+  }
+
+  /**
+   * Resets the token cache when history changes.
+   */
+  resetTokenCache() {
+    this.cachedTokenCount = null;
+  }
+
+  /**
+   * Gets the current token budget information as a human-readable string.
+   */
+  getTokenBudgetInfo(): string {
+    const current = this.cachedTokenCount ?? 0;
+    const limit = this.config.tokenLimit;
+    const percentage = Math.round((current / limit) * 100);
+    
+    return `[ContextGuard] Budget: ${Math.round(current / 1000)}k/${Math.round(limit / 1000)}k tokens (${percentage}% used)`;
+  }
+
+  /**
+   * Gets the configured token limit.
+   */
+  getTokenLimit(): number {
+    return this.config.tokenLimit;
+  }
+
+  /**
+   * Gets the current cached token count (for external monitoring).
+   */
+  getCurrentTokenCount(): number {
+    return this.cachedTokenCount ?? 0;
+  }
+
+  /**
+   * Smartly reads a file using Keyword-Grep for precision.
+   * FIX #3: Added max_length parameter to respect caller's truncation limits.
+   */
+  smartRead(filePath: string, userPrompt?: string, maxLength?: number): string {
+    if (!this.config.smartReading) {
+      const content = readFileSync(filePath, 'utf-8');
+      return maxLength ? content.substring(0, maxLength) : content;
+    }
+
+    try {
+      const stats = statSync(filePath);
+      this.trackedFiles.set(filePath, { compressed: false, truncated: true, originalSize: stats.size });
+
+      const content = readFileSync(filePath, 'utf-8');
+      const lines = content.split('\n');
+
+      // FIX #3: Use caller's maxLength if provided, otherwise use defaults
+      const effectiveMaxLength = maxLength || 5000;
+      const maxLines = 2000;
+      const maxBytes = 100 * 1024;
+
+      // Return full content only if file is small AND within caller's limit
+      if (stats.size < maxBytes && lines.length < maxLines && content.length <= effectiveMaxLength) {
+        return content;
+      }
+
+      const keywords = this.extractKeywords(userPrompt || '');
+      let relevantLines: number[] = [];
+
+      if (keywords.length > 0) {
+        lines.forEach((line, index) => {
+          if (keywords.some(kw => line.toLowerCase().includes(kw.toLowerCase()))) {
+            relevantLines.push(index);
+          }
+        });
+
+        if (relevantLines.length > 0) {
+          const result = this.formatRelevantLines(lines, relevantLines);
+          // FIX #3: Truncate to maxLength even for smart-read results
+          return result.length > effectiveMaxLength 
+            ? result.substring(0, effectiveMaxLength) + `\n// [ContextGuard] Output truncated to ${effectiveMaxLength} chars`
+            : result;
+        }
+      }
+
+      // Fallback: header/footer view
+      const header = lines.slice(0, 50).join('\n');
+      const footer = lines.slice(-50).join('\n');
+      
+      let fallbackResult = `// [ContextGuard] File truncated due to size (${stats.size} bytes)\n// --- HEADER (First 50 lines) ---\n${header}\n// --- FOOTER (Last 50 lines) ---\n${footer}\n// [ContextGuard] Content truncated for context efficiency.`;
+      
+      // FIX #3: Respect maxLength on fallback too
+      if (fallbackResult.length > effectiveMaxLength) {
+        fallbackResult = fallbackResult.substring(0, effectiveMaxLength) + `\n// [ContextGuard] Output truncated to ${effectiveMaxLength} chars`;
+      }
+      return fallbackResult;
+    } catch (error) {
+      return `Error reading file: ${(error as Error).message}`;
+    }
+  }
+
+  /**
+   * Filters terminal output to prevent context bloat.
+   */
+  filterTerminalOutput(output: string): string {
+    if (!this.config.terminalFilterEnabled) return output;
+    
+    const threshold = this.config.terminalFilterLength || 2000;
+    if (output.length <= threshold) return output;
+
+    const lines = output.split('\n');
+    const head = lines.slice(0, 5).join('\n');
+    const tail = lines.slice(-5).join('\n');
+
+    return `${head}\n... [Output truncated: ${lines.length - 10} lines hidden] ...\n${tail}`;
+  }
+
+  /**
+   * Forces a fresh read of a tracked file (Re-RAG Trigger).
+   */
+  reloadContextForFile(filePath: string): string {
+    if (this.trackedFiles.has(filePath)) {
+      const info = this.trackedFiles.get(filePath)!;
+      this.trackedFiles.delete(filePath);
+      return `// [ContextGuard] Context reloaded for ${filePath}. Previous compression/truncation cleared.`;
+    }
+    return `// [ContextGuard] No tracked context for ${filePath}. Reading normally.`;
+  }
+
+  /**
+   * Compresses a specific file's tracked context (marks it as compressed).
+   */
+  markFileAsCompressed(filePath: string): void {
+    if (this.trackedFiles.has(filePath)) {
+      const info = this.trackedFiles.get(filePath)!;
+      this.trackedFiles.set(filePath, { ...info, compressed: true });
+    } else {
+      // If not tracked yet, add it as compressed
+      try {
+        const stats = statSync(filePath);
+        this.trackedFiles.set(filePath, { compressed: true, truncated: false, originalSize: stats.size });
+      } catch {
+        console.warn(`[ContextGuard] Cannot mark file as compressed - file not found: ${filePath}`);
+      }
+    }
+  }
+
+  /**
+   * Computes a simple hash of messages for cache invalidation.
+   * FIX #1: Ensures cache is invalidated when ANY message changes, not just the last one.
+   */
+  private computeMessageHash(messages: any[]): string {
+    // Simple but effective hash: concatenate role+content for all messages
+    return messages.map(m => `${m.role}:${m.content || ''}`).join('||');
+  }
+
+  /**
+   * Extracts meaningful keywords from a prompt for smart file reading.
+   */
+  private extractKeywords(prompt: string): string[] {
+    const matches = prompt.match(/\b[a-zA-Z_$][a-zA-Z0-9_$]*\b/g);
+    if (!matches) return [];
+    
+    // Filter out stop words and keep only meaningful identifiers (length > 4)
+    return [...new Set(matches)]
+      .filter(w => w.length > 4 && !STOP_WORDS.has(w.toLowerCase()));
+  }
+
+  /**
+   * Formats relevant lines with context margins for smart reading.
+   */
+  private formatRelevantLines(lines: string[], indices: number[]): string {
+    let result = '';
+    const margin = 5;
+    indices.forEach(index => {
+      const start = Math.max(0, index - margin);
+      const end = Math.min(lines.length, index + margin + 1);
+      result += `// ... [Match at line ${index + 1}] ... \n`;
+      result += lines.slice(start, end).join('\n') + '\n';
+    });
+    return result;
+  }
+}

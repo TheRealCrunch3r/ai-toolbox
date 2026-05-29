@@ -5,6 +5,7 @@ import { spawn } from 'child_process';
 import type { PluginConfig } from '../config.js';
 import { sanitizeCommand } from '../security.js';
 import { getWorkingDir } from '../workingDir.js';
+import type { ContextGuard } from '../contextGuard.js';
 
 // ==================== Shared Spawn Helper ====================
 
@@ -81,7 +82,7 @@ function handleError(error: unknown): { success: false; error: string } {
 
 // ==================== Execution Tools ====================
 
-export function registerExecutionTools(_config: PluginConfig): Tool[] {
+export function registerExecutionTools(_config: PluginConfig, contextGuard?: ContextGuard | null): Tool[] {
   const tools: Tool[] = [];
 
   // run_javascript tool — SANDBOXED with deno (if available) or node with strict restrictions
@@ -222,12 +223,20 @@ export function registerExecutionTools(_config: PluginConfig): Tool[] {
 
         // Return combined output for better debugging
         const fullOutput = [result.data?.stdout, result.data?.stderr].filter(Boolean).join('\n');
+        
+        // Apply terminal filtering if ContextGuard is enabled
+        let filteredOutput = fullOutput;
+        if (contextGuard) {
+          filteredOutput = contextGuard.filterTerminalOutput(fullOutput);
+        }
+        
         return { 
           success: true, 
           data: { 
             stdout: result.data?.stdout || '', 
             stderr: result.data?.stderr || '',
-            output: fullOutput || '(No output)'
+            output: filteredOutput || '(No output)',
+            terminalFiltered: !!contextGuard
           } 
         };
       } catch (error) {

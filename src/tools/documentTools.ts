@@ -52,7 +52,7 @@ async function readDocument({ file_path }: ReadDocumentParams): Promise<unknown>
     const attachment = getAttachment(file_path);
     if (attachment) {
       console.log(`[AI Toolbox] Reading attached file: ${file_path}`);
-      const buffer = await attachment.read();
+      const buffer = await (attachment as any).readFile();
       const ext = path.extname(file_path).toLowerCase();
       
       if (ext === '.pdf') {
@@ -93,7 +93,7 @@ async function readDocument({ file_path }: ReadDocumentParams): Promise<unknown>
           data: {
             file_path: file_path,
             format: 'TXT',
-            word_count: text.split(/\s+/).filter(w => w.length > 0).length,
+            word_count: text.split(/\s+/).filter((w: string) => w.length > 0).length,
             size: `${(fs.statSync(file_path).size / 1024).toFixed(1)} KB`,
             text_preview: text.substring(0, 500) + (text.length > 500 ? '...' : ''),
             full_text: text,
@@ -131,7 +131,7 @@ async function readPDF(filePath: string): Promise<unknown> {
         file_path: filePath,
         format: 'PDF',
         pages: result.numpages,
-        word_count: result.text.split(/\s+/).filter(w => w.length > 0).length,
+        word_count: result.text.split(/\s+/).filter((w: string) => w.length > 0).length,
         size: `${(fs.statSync(filePath).size / 1024).toFixed(1)} KB`,
         text_preview: result.text.substring(0, 500) + (result.text.length > 500 ? '...' : ''),
         full_text: result.text,
@@ -161,7 +161,7 @@ async function readPDFFromBuffer(buffer: Buffer, fileName: string): Promise<unkn
         file_path: fileName,
         format: 'PDF',
         pages: result.numpages,
-        word_count: result.text.split(/\s+/).filter(w => w.length > 0).length,
+        word_count: result.text.split(/\s+/).filter((w: string) => w.length > 0).length,
         size: `${(buffer.length / 1024).toFixed(1)} KB`,
         text_preview: result.text.substring(0, 500) + (result.text.length > 500 ? '...' : ''),
         full_text: result.text,
@@ -183,10 +183,10 @@ async function readDOCX(filePath: string): Promise<unknown> {
     console.log(`[AI Toolbox] Reading DOCX from disk: ${filePath}`);
     
     const dataBuffer = fs.readFileSync(filePath);
-    const result = await mammoth.extractRawText({ buffer: dataBuffer });
+    const result = await (mammoth as any).extractRawText({ buffer: dataBuffer });
     
     const text = result.value;
-    const warnings = result.messages.map(m => m.message).join('\n');
+    const warnings = (result.messages as Array<{message: string}>).map(m => m.message).join('\n');
     
     console.log(`[AI Toolbox] DOCX read complete: ${(text.length / 1024).toFixed(1)}KB`);
     
@@ -195,7 +195,7 @@ async function readDOCX(filePath: string): Promise<unknown> {
       data: {
         file_path: filePath,
         format: 'DOCX',
-        word_count: text.split(/\s+/).filter(w => w.length > 0).length,
+        word_count: text.split(/\s+/).filter((w: string) => w.length > 0).length,
         size: `${(fs.statSync(filePath).size / 1024).toFixed(1)} KB`,
         text_preview: text.substring(0, 500) + (text.length > 500 ? '...' : ''),
         full_text: text,
@@ -216,10 +216,10 @@ async function readDOCXFromBuffer(buffer: Buffer, fileName: string): Promise<unk
     
     console.log(`[AI Toolbox] Reading DOCX from attachment: ${fileName}`);
     
-    const result = await mammoth.extractRawText({ buffer });
+    const result = await (mammoth as any).extractRawText({ buffer });
     
     const text = result.value;
-    const warnings = result.messages.map(m => m.message).join('\n');
+    const warnings = (result.messages as Array<{message: string}>).map(m => m.message).join('\n');
     
     console.log(`[AI Toolbox] DOCX read complete: ${(text.length / 1024).toFixed(1)}KB`);
     
@@ -228,7 +228,7 @@ async function readDOCXFromBuffer(buffer: Buffer, fileName: string): Promise<unk
       data: {
         file_path: fileName,
         format: 'DOCX',
-        word_count: text.split(/\s+/).filter(w => w.length > 0).length,
+        word_count: text.split(/\s+/).filter((w: string) => w.length > 0).length,
         size: `${(buffer.length / 1024).toFixed(1)} KB`,
         text_preview: text.substring(0, 500) + (text.length > 500 ? '...' : ''),
         full_text: text,
@@ -257,7 +257,7 @@ async function readTXTFromBuffer(buffer: Buffer, fileName: string): Promise<unkn
       data: {
         file_path: fileName,
         format: 'TXT',
-        word_count: text.split(/\s+/).filter(w => w.length > 0).length,
+        word_count: text.split(/\s+/).filter((w: string) => w.length > 0).length,
         size: `${(buffer.length / 1024).toFixed(1)} KB`,
         text_preview: text.substring(0, 500) + (text.length > 500 ? '...' : ''),
         full_text: text,

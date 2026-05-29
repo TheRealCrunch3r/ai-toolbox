@@ -1,6 +1,6 @@
 # Tools Reference
 
-Complete reference for all 80 tools in the AI Toolbox plugin, organized by category.
+Complete reference for all 80+ tools in the AI Toolbox plugin, organized by category.
 
 ---
 
@@ -937,6 +937,7 @@ All tools return a structured result:
 | Image Processing | ✅ Enabled | Low |
 | HTTP Client | ❌ Disabled | Medium |
 | Vector RAG | ✅ Enabled | Low |
+
 ---
 
 ## 🎨 Interactive UI Generation Tools (3)

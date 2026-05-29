@@ -37,7 +37,7 @@ async function getRepoName(): Promise<string | null> {
   // Priority 2: Git remote URL parsing
   try {
     const git = await createGit();
-    const remotes = await git.listRemote(['--get-url', 'origin']);
+    const remotes = await git.raw(['ls-remote', '--get-url', 'origin']);
     const remoteUrl = remotes.trim();
     
     if (remoteUrl) {

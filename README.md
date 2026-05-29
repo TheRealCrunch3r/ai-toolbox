@@ -1,6 +1,6 @@
 # 🧰 AI Toolbox — LM Studio Plugin
 
-> **80 tools** across 14 categories: file system, web research, browser automation, Git/GitHub, database, document parsing, background commands, code execution, utilities, image processing, HTTP client, vector RAG, interactive UI generation, and auto-context management.
+> **80+ tools** across 14 categories: file system, web research, browser automation, Git/GitHub, database, document parsing, background commands, code execution, utilities, image processing, HTTP client, vector RAG, interactive UI generation, auto-context management, and **ContextGuard** (infinite context management).
 
 ## 📋 Table of Contents
 
@@ -34,7 +34,13 @@
 | 📚 **Document RAG** | Chat with attached files or disk paths (PDF, DOCX, TXT) |
 | 🎨 **Interactive UI Generation** | Generate and render HTML/CSS/JS components (buttons, forms, charts, dashboards) |
 | 🧠 **Auto-Context Management** | Automatic session tracking, decision logging, and persistent memory retrieval |
-| ⏰ **Temporal Awareness** | Injects current date/time into every message for accurate time-sensitive tasks (merged from `up_to_date`) |
+| ⏰ **Temporal Awareness** | Injects current date/time into every message for accurate time-sensitive tasks |
+| 🛡️ **ContextGuard** | **New!** Dynamic context window management with four key refinements: |
+| | **1. Smart Reader**: Heuristic keyword-grep for large files |
+| | **2. Threshold-Based Compression**: Automatically summarizes older history when token usage reaches 90% of limit |
+| | **3. Terminal Output Filtering**: Truncates large terminal outputs to save context |
+| | **4. Re-RAG Trigger**: `reload_context_for_file` tool to force fresh reads of compressed files |
+| | **5. Token Budget Visualization**: Shows current token usage in file read outputs |
 
 ---
 
@@ -97,7 +103,7 @@ The plugin is installed as an LM Studio plugin. Ensure you have:
 
 1. **Load the plugin** in LM Studio's plugin settings
 2. **Configure tool access** — individual tool categories can be toggled on/off
-3. **Start a chat** and the LLM can now use any of the 54+ tools
+3. **Start a chat** and the LLM can now use any of the 80+ tools
 
 ### Example: Search the Web
 
@@ -133,225 +139,44 @@ All settings are accessible through LM Studio's plugin settings panel.
 |---------|---------|-------------|
 | `godMode` | `false` | ⚠️ Enables ALL tools at once |
 | `fileSystem` | `true` | File read/write/search operations |
-| `webSearch` | `true` | DuckDuckGo/Wikipedia search |
-| `browserAutomation` | `false` | Puppeteer headless browser |
-| `gitOperations` | `false` | Git + GitHub API access |
-| `databaseQueries` | `false` | Read-only SQLite queries |
-| `documentParsing` | `true` | PDF/DOCX document reading |
-| `backgroundCommands` | `false` | Long-running process tracking |
-| `imageProcessing` | `true` | OCR, screenshots, comparison |
-| `httpClient` | `false` | Generic REST API client |
-| `vectorRAG` | `true` | Semantic search with embeddings |
-| `uiGeneration` | `false` | Interactive UI generation tools |
-| `contextManagement` | `true` | Auto-context tracking and memory management |
+| `webSearch` | `true` | Web research tools |
+| `contextGuard` | `false` | **New!** Enable ContextGuard for infinite context management |
 
-### Execution Tools (disabled by default ⚠️)
+### ContextGuard Settings
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `executionJavaScript` | `false` | Allow `run_javascript` |
-| `executionPython` | `false` | Allow `run_python` |
-| `executionTerminal` | `false` | Allow `run_in_terminal` |
-| `executionShell` | `false` | Allow `execute_command` |
-
-### Search Settings
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `searchFallbackChain` | `ddg-api` | Primary search engine |
-| `maxSearchResults` | `10` | Max results per search |
-| `safesearch` | `1` | Safe search level (0-2) |
-
-### Document RAG
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `documentRAG` | `false` | Enable Chat with Files |
-| `retrievalLimit` | `5` | Max chunks per query |
-| `retrievalAffinityThreshold` | `0.5` | Min similarity score (0-1) |
-
-### Browser Settings
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `browserTimeout` | `5000` | Browser operation timeout (ms) |
-| `headlessMode` | `true` | Run browser without GUI |
-
-### Security Settings
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `pathValidationEnabled` | `true` | Prevent directory traversal |
-| `binaryFileDetection` | `true` | Detect binary files |
-| `regexReDoSProtection` | `true` | Protect against ReDoS |
-| `maxRegexLength` | `500` | Max regex pattern length |
-
-### Other Settings
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `language` | `en` | UI language (en/de/zh-CN/zh-TW) |
-| `notificationsEnabled` | `true` | Desktop notifications |
-| `statePersistenceEnabled` | `true` | Persist state between sessions |
-| `stateMaxSize` | `10240` | Max state size in bytes |
-
-### Temporal Awareness (merged from `up_to_date`)
-
-| Setting | Default | Description |\n|---------|---------|-------------|\n| `temporalAwareness` | `true` | Inject current date/time into every message |\n| `dateFormatStyle` | `standard` | Format style: `standard` ([Zeit: ...]) or `heuteIst` (HEUTE IST Mode) |
+| Setting Name | Type | Default | Description |
+|--------------|------|---------|-------------|
+| `contextGuard` | `boolean` | `false` | Enable the ContextGuard module. |
+| `tokenLimit` | `number` | `110,000` | The maximum token count before compression triggers. |
+| `smartReading` | `boolean` | `true` | Enable heuristic keyword-grep for file reads. |
+| `summaryModel` | `string` | `gemma-2b` | The model used to summarize older history. |
 
 ---
 
 ## 🔒 Security
 
-The plugin uses a **2-Layer Command Sanitization Pipeline** to prevent dangerous operations and enforce tool-category toggles:
-1. **Layer 1**: Blocks dangerous patterns (`rm -rf`, `sudo`, injection, etc.)
-2. **Layer 2 (S6)**: Classifies commands by tool category (e.g., `duckduckgo` → Web Search) and blocks them if the category is disabled in config (bypassed only by God Mode).
-
-Additional protections include path containment, binary file detection, SQL validation, and JavaScript sandboxing.
-
-### SQL Validation
-Database queries are restricted to `SELECT` and `PRAGMA` statements only. Dangerous keywords (`DROP`, `DELETE`, `UPDATE`, `INSERT`, `ALTER`, `CREATE`) are blocked.
-
-### SSRF Protection
-HTTP client tools block requests to:
-- Private IP ranges (127.x, 10.x, 172.16-31.x, 192.168.x)
-- `file:` and `data:` protocols
-- localhost
-
-### Code Sandboxing
-JavaScript and Python execution tools block dangerous imports:
-- **JS**: `require()`, `eval()`, `fs`, `child_process`, `Function()`
-- **Python**: `os`, `subprocess`, `shutil`, `__import__()`, `eval()`, `exec()`
-
-### ReDoS Protection
-Regex patterns are analyzed for dangerous structures (nested quantifiers, repetition of repetition, alternation with repetition).
+Comprehensive documentation of security features, threat models, and responsible disclosure for the AI Toolbox plugin. See [SECURITY.md](SECURITY.md) for details.
 
 ---
 
 ## 🏗️ Architecture
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                    LM Studio Plugin                      │
-│                                                         │
-│  ┌─────────────┐    ┌──────────────┐    ┌────────────┐ │
-│  │   index.ts   │───▶│toolsProvider │───▶│ToolRegistry│ │
-│  │  (entry pt)  │    │   (factory)  │    │  (central) │ │
-│  └─────────────┘    └──────────────┘    └─────┬──────┘ │
-│                                               │        │
-│    ┌──────────────────────────────────────────┼────────┐│
-│    │              Tool Modules                │        ││
-│    │  ┌──────────┐  ┌──────────┐  ┌────────┐ │        ││
-│    │  │fileSystem│  │webSearch │  │browser │ │        ││
-│    │  │  (18)    │  │  (4)     │  │ (5)    │ │        ││
-│    │  └──────────┘  └──────────┘  └────────┘ │        ││
-│    │  ┌──────────┐  ┌──────────┐  ┌────────┐ │        ││
-│    │  │    git   │  │database  │  │execution│ │        ││
-│    │  │  (13)    │  │  (1)     │  │  (4)   │ │        ││
-│    │  └──────────┘  └──────────┘  └────────┘ │        ││
-│    │  ┌──────────┐  ┌──────────┐  ┌────────┐ │        ││
-│    │  │  utility │  │   image  │  │  http  │ │        ││
-│    │  │  (7)     │  │  (4)     │  │  (3)   │ │        ││
-│    │  └──────────┘  └──────────┘  └────────┘ │        ││
-│    │  ┌──────────┐  ┌──────────┐  ┌────────┐ │        ││
-│    │  │backgndCmd│  │ vectorRAG│  │   UI   │ │        ││
-│    │  │  (3)     │  │  (3)     │  │ Gen(3) │ │        ││
-│    │  └──────────┘  └──────────┘  └────────┘ │        ││
-│    │  ┌──────────┐                          │        ││
-│    │  │ Context  │                          │        ││
-│    │  │ Mgmt(6)  │                          │        ││
-│    │  └──────────┘                          │        ││
-│    └──────────────────────────────────────────┴────────┘│
-│                                                         │
-│  ┌─────────────┐    ┌──────────────┐    ┌────────────┐ │
-│  │  config.ts   │    │  security.ts │    │stateManager│ │
-│  │ (Zod schema) │    │  (validators)│    │ (persistence│ │
-│  └─────────────┘    └──────────────┘    │  JSON file) │ │
-│                                         └────────────┘ │
-│                                                         │
-│  ┌──────────────┐    ┌───────────────┐                  │
-│  │promptPreproc │    │performanceUtils│                  │
-│  │(Document RAG)│    │(caching, async)│                  │
-│  └──────────────┘    └───────────────┘                  │
-└─────────────────────────────────────────────────────────┘
-```
-
-### Key Design Patterns
-
-- **Singleton** — `BrowserSessionManager` for Puppeteer browser reuse
-- **Lazy Loading** — Heavy dependencies (Puppeteer, Tesseract, SQLite) loaded on first use
-- **Tool Registry** — Central `ToolRegistry` class manages all tool instances
-- **Debounced Persistence** — State saved to disk with 500ms debounce
-- **Caching** — Fuzzy search results and web requests cached with TTL
-- **Async Concurrency** — File searches use batched async operations
+Deep dive into the AI Toolbox plugin's system architecture, design patterns, and internal workflows. See [ARCHITECTURE.md](ARCHITECTURE.md) for details.
 
 ---
 
-## 🛠️ Development
+## 👩‍💻 Development
 
 ### Prerequisites
 
-- Node.js 20+
-- TypeScript 5.9+
+- **Node.js 20+**
+- **npm**
 
 ### Setup
 
 ```bash
 npm install
-```
-
-### Build
-
-```bash
-npm run build          # Build with tsup
-npm run typecheck      # TypeScript type checking
-npm run lint           # ESLint
-npm run lint:fix       # ESLint auto-fix
-```
-
-### Test
-
-```bash
-npm test               # Run Jest tests
-```
-
-### Project Structure
-
-```
-ai_toolbox/
-├── src/
-│   ├── index.ts                 # Plugin entry point
-│   ├── toolsProvider.ts         # Tool registration factory
-│   ├── config.ts                # Zod schema + UI schematics
-│   ├── security.ts              # Path/SQL/command validators
-│   ├── stateManager.ts          # Persistent state management
-│   ├── workingDir.ts            # Working directory manager
-│   ├── performanceUtils.ts      # Caching, async search, Levenshtein
-│   ├── promptPreprocessor.ts    # Document RAG + dir detection
-│   ├── backgroundCommands.ts    # Background process manager
-│   ├── fuzzySearch.ts           # Fuzzy file search
-│   ├── locales/                 # i18n translations
-│   ├── tools/                   # Tool category modules
-│   │   ├── fileSystemTools.ts
-│   │   ├── webResearchTools.ts
-│   │   ├── browserAutomationTools.ts
-│   │   ├── gitGithubTools.ts
-│   │   ├── databaseTools.ts
-│   │   ├── backgroundCommandTools.ts
-│   │   ├── executionTools.ts
-│   │   ├── utilityTools.ts
-│   │   ├── imageProcessingTools.ts
-│   │   ├── httpClientTools.ts
-│   │   ├── vectorRagTools.ts
-│   │   ├── uiGenerationTools.ts      # 🆕 Interactive UI Generation
-│   │   └── contextManagementTools.ts # 🆕 Auto-Context Management
-│   └── types/                   # Type definitions
-├── tests/                       # Jest test files
-├── dist/                        # Build output
-├── package.json
-├── tsconfig.json
-├── tsup.config.ts
-└── eslint.config.mjs
+npm run build
 ```
 
 ---
@@ -360,25 +185,15 @@ ai_toolbox/
 
 | Package | Version | Purpose |
 |---------|---------|---------|
-| `@lmstudio/sdk` | ^1.5.0 | LM Studio plugin framework |
-| `duck-duck-scrape` | ^2.2.7 | DuckDuckGo search |
-| `puppeteer` | ^24.0.0 | Headless browser automation |
+| `@lmstudio/sdk` | ^1.5.0 | Core SDK for LM Studio plugin development |
+| `@dqbd/tiktoken` | latest | Accurate token counting for ContextGuard |
+| `puppeteer` | ^24.0.0 | Browser automation |
 | `simple-git` | ^3.22.0 | Git operations |
-| `tesseract.js` | ^7.0.0 | OCR text recognition |
-| `pdf-parse` | ^1.1.1 | PDF text extraction |
-| `mammoth` | ^1.6.0 | DOCX text extraction |
-| `pixelmatch` | ^7.2.0 | Image pixel comparison |
-| `sharp` | ^0.33.2 | Multi-format image processing (JPEG, BMP, etc.) |
-| `pngjs` | ^7.0.0 | PNG image processing |
-| `node-notifier` | ^10.0.1 | Desktop notifications |
-| `zod` | ^3.25.0 | Schema validation |
-| `html-to-text` | ^9.0.5 | HTML to text conversion |
-| `open` | ^8.4.2 | Open files/URLs |
+| `sharp` | ^0.33.5 | Image processing |
+| `tiktoken` | latest | Tokenization |
 
 ---
 
 ## 📄 License
 
-MIT License — See [LICENSE](LICENSE) for details.
-
-Copyright (c) 2026 crunch3r & AI Toolbox Contributors
+MIT License. See [LICENSE](LICENSE) for details.

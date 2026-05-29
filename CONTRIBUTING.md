@@ -317,22 +317,24 @@ src/
 ├── stateManager.ts       # State management
 ├── workingDir.ts         # Working directory management
 ├── performanceUtils.ts   # Performance utilities
-├── promptPreprocessor.ts # Document RAG
+├── promptPreprocessor.ts # Document RAG + ContextGuard integration
 ├── backgroundCommands.ts # Background process manager
+├── fuzzySearch.ts        # Fuzzy file search implementation
+├── contextGuard.ts       # ContextGuard module (infinite context management)
 ├── tools/                # ADD NEW TOOLS HERE
-│   ├── fileSystemTools.ts
-│   ├── webResearchTools.ts
-│   ├── browserAutomationTools.ts
-│   ├── gitGithubTools.ts
-│   ├── databaseTools.ts
-│   ├── backgroundCommandTools.ts
-│   ├── executionTools.ts
-│   ├── utilityTools.ts
-│   ├── imageProcessingTools.ts
-│   ├── httpClientTools.ts
-│   ├── vectorRagTools.ts
-│   ├── uiGenerationTools.ts      # 🆕 Interactive UI Generation
-│   └── contextManagementTools.ts # 🆕 Auto-Context Management
+│   ├── fileSystemTools.ts          # 17 file system tools
+│   ├── webResearchTools.ts         # 4 web research tools
+│   ├── browserAutomationTools.ts   # 5 browser tools
+│   ├── gitGithubTools.ts           # 14 Git/GitHub tools
+│   ├── databaseTools.ts            # 1 database tool
+│   ├── backgroundCommandTools.ts   # 3 background command tools
+│   ├── executionTools.ts           # 4 execution tools
+│   ├── utilityTools.ts             # 7 utility tools
+│   ├── imageProcessingTools.ts     # 4 image processing tools
+│   ├── httpClientTools.ts          # 3 HTTP client tools
+│   ├── vectorRagTools.ts           # 3 vector RAG tools
+│   ├── uiGenerationTools.ts        # 🆕 Interactive UI Generation (3 tools)
+│   └── contextManagementTools.ts   # 🆕 Auto-Context Management (7 tools)
 └── tests/                # ADD TESTS HERE
 ```
 
