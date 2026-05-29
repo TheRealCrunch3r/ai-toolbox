@@ -1,72 +1,8 @@
 {
+  "type": "plugin",
+  "runner": "node",
+  "owner": "crunch3r",
   "name": "ai-toolbox",
-  "version": "1.3.2",
-  "title": "AI Toolbox",
-  "description": "Comprehensive AI assistant plugin with 80+ tools across file system, web research, browser automation, Git/GitHub, database, document parsing, code execution, utilities, image processing, HTTP client, vector RAG, UI generation, and context management.",
-  "author": "",
-  "license": "MIT",
-  "url": "",
-  "entry": "./dist/index.js",
-  "icon": "",
-  "configSchematics": true,
-  "toolsProvider": true,
-  "promptPreprocessor": true,
-  "categories": [
-    {
-      "name": "File System",
-      "description": "Read, write, search, and manage files with path validation"
-    },
-    {
-      "name": "Web Research",
-      "description": "Multi-engine web search with automatic fallback chain"
-    },
-    {
-      "name": "Browser Automation",
-      "description": "Headless Puppeteer browser automation with persistent sessions"
-    },
-    {
-      "name": "Git & GitHub",
-      "description": "Full Git operations and GitHub API integration"
-    },
-    {
-      "name": "Database",
-      "description": "Read-only SQLite queries with SQL validation"
-    },
-    {
-      "name": "Document Parsing",
-      "description": "Extract text from PDF, DOCX, and TXT files"
-    },
-    {
-      "name": "Background Commands",
-      "description": "Long-running process management"
-    },
-    {
-      "name": "Code Execution",
-      "description": "Sandboxed JavaScript/Python execution with sanitization"
-    },
-    {
-      "name": "Utilities",
-      "description": "Clipboard, notifications, system info, and memory tools"
-    },
-    {
-      "name": "Image Processing",
-      "description": "OCR, screenshots, and image comparison"
-    },
-    {
-      "name": "HTTP Client",
-      "description": "REST API client with SSRF protection"
-    },
-    {
-      "name": "Vector RAG",
-      "description": "Semantic search with local embeddings"
-    },
-    {
-      "name": "UI Generation",
-      "description": "Generate and render HTML/CSS/JS components"
-    },
-    {
-      "name": "Context Management",
-      "description": "Automatic session tracking, decision logging, and persistent memory"
-    }
-  ]
+  "version": "1.3.3",
+  "revision": 5
 }

@@ -62,7 +62,7 @@ export const ConfigSchema = z.object({
 
   executionTerminal: z.boolean().default(false).describe('Allow run_in_terminal tool'),
 
-  executionShell: z.boolean().default(false).describe('Allow execute_command tool'),
+  executionShell: z.boolean().default(true).describe('Allow execute_command tool'),
 
 
 
@@ -125,14 +125,6 @@ export const ConfigSchema = z.object({
   // Temporal Awareness (merged from up_to_date)
   temporalAwareness: z.boolean().default(true).describe('Enable automatic date/time injection into prompts'),
   dateFormatStyle: z.enum(['standard', 'heuteIst']).default('standard').describe('Date format style for temporal awareness'),
-
-  // ── 🛡️ CONTEXT GUARD (New) ──────────────────────────────────────
-  contextGuard: z.boolean().default(false).describe('Enable ContextGuard to manage context window explosion'),
-  tokenLimit: z.number().min(10000).max(200000).default(110000).describe('Token limit before compression triggers'),
-  smartReading: z.boolean().default(true).describe('Automatically truncate large files if ContextGuard is active'),
-  summaryModel: z.enum(['gemma-2b', 'llama-3-8b', 'qwen-2.5-7b']).default('gemma-2b').describe('Model to use for summarization'),
-  terminalFilterEnabled: z.boolean().default(true).describe('Enable terminal output filtering to save context'),
-  terminalFilterLength: z.number().min(500).max(10000).default(2000).describe('Max characters for terminal output before filtering'),
 });
 
 
@@ -201,7 +193,7 @@ export const DEFAULT_CONFIG: PluginConfig = {
 
   executionTerminal: false,
 
-  executionShell: false,
+  executionShell: true,
 
 
 
@@ -234,89 +226,454 @@ export const DEFAULT_CONFIG: PluginConfig = {
   language: 'en',
 
   notificationsEnabled: true,
+
+  // Temporal Awareness (merged from up_to_date)
   temporalAwareness: true,
   dateFormatStyle: 'standard',
-  // ── 🛡️ CONTEXT GUARD (New) ──────────────────────────────────────
-  contextGuard: false,
-  tokenLimit: 110000,
-  smartReading: true,
-  summaryModel: 'gemma-2b',
-  terminalFilterEnabled: true,
-  terminalFilterLength: 2000,
 };
 
 
 
 /**
 
- * Helper to create UI schematics for LM Studio
+ * Validate and sanitize config inp
 
  */
+
+export function validateConfig(input: unknown): PluginConfig {
+
+  const result = ConfigSchema.safeParse(input);
+
+  if (!result.success) {
+
+    throw new Error(`Invalid configuration: ${result.error.message}`);
+
+  }
+
+}
+
+
+
+/**
+ * Check if a tool category is enabled in config
+ */
+export function isToolEnabled(config: PluginConfig, category: keyof Pick<PluginConfig, 'fileSystem' | 'webSearch' | 'browserAutomation' | 'gitOperations' | 'databaseQueries' | 'documentParsing' | 'backgroundCommands' | 'imageProcessing' | 'httpClient' | 'vectorRAG' | 'uiGeneration' | 'contextManagement'>): boolean {
+  return config[category] === true;
+}
+
+
+
+
+/**
+
+ * Check if a specific execution tool is enabled (granular)
+
+ */
+
+export function isExecutionToolEnabled(config: PluginConfig, tool: 'javascript' | 'python' | 'terminal' | 'shell'): boolean {
+
+  switch (tool) {
+
+    case 'javascript': return config.executionJavaScript === true;
+
+    case 'python':     return config.executionPython === true;
+
+    case 'terminal':   return config.executionTerminal === true;
+
+    case 'shell':      return config.executionShell === true;
+
+  }
+
+}
+
+
+
+/**
+
+ * Get the execution tool key from a tool name
+
+ */
+
+export function getExecutionToolKey(toolName: string): 'javascript' | 'python' | 'terminal' | 'shell' | null {
+
+  switch (toolName) {
+
+    case 'run_javascript': return 'javascript';
+
+    case 'run_python':     return 'python';
+
+    case 'run_in_terminal': return 'terminal';
+
+    case 'execute_command': return 'shell';
+
+    default:               return null;
+
+  }
+
+}
+
+
+
+/**
+
+ * Check if ANY execution tool is enabled (legacy compatibility)
+
+ */
+
+export function hasAnyExecutionTool(config: PluginConfig): boolean {
+
+  return config.executionJavaScript || config.executionPython || 
+
+         config.executionTerminal || config.executionShell;
+
+}
+
+
+
+// ==================== LM Studio UI Schematics ====================
+
+// These define the toggle switches that appear in LM Studio's settings panel.
+
+
 
 export const configSchematics = createConfigSchematics()
-  .field("fileSystem", "boolean", { displayName: "File System" }, true)
-  .field("webSearch", "boolean", { displayName: "Web Search" }, true)
-  .field("browserAutomation", "boolean", { displayName: "Browser Automation" }, false)
-  .field("gitOperations", "boolean", { displayName: "Git Operations" }, false)
-  .field("databaseQueries", "boolean", { displayName: "Database Queries" }, false)
-  .field("documentParsing", "boolean", { displayName: "Document Parsing" }, true)
-  .field("backgroundCommands", "boolean", { displayName: "Background Commands" }, false)
-  .field("imageProcessing", "boolean", { displayName: "Image Processing" }, true)
-  .field("httpClient", "boolean", { displayName: "HTTP Client" }, false)
-  .field("vectorRAG", "boolean", { displayName: "Vector RAG" }, true)
-  .field("uiGeneration", "boolean", { displayName: "UI Generation" }, false)
-  .field("contextManagement", "boolean", { displayName: "Context Management" }, true)
-  .field("godMode", "boolean", { displayName: "God Mode", hint: "Enables every tool category. Use with caution." }, false)
-  .field("documentRAG", "boolean", { displayName: "Document RAG" }, true)
-  .field("retrievalLimit", "numeric", { displayName: "Retrieval Limit", min: 1, max: 20, step: 1 }, 5)
-  .field("retrievalAffinityThreshold", "numeric", { displayName: "Retrieval Affinity Threshold", min: 0, max: 1, step: 0.01 }, 0.5)
-  .field("executionJavaScript", "boolean", { displayName: "Execution JavaScript" }, false)
-  .field("executionPython", "boolean", { displayName: "Execution Python" }, false)
-  .field("executionTerminal", "boolean", { displayName: "Execution Terminal" }, false)
-  .field("executionShell", "boolean", { displayName: "Execution Shell" }, false)
-  .field("searchFallbackChain", "string", { displayName: "Search Fallback Chain" }, "ddg-api")
-  .field("maxSearchResults", "numeric", { displayName: "Max Search Results", min: 1, max: 50, step: 1 }, 10)
-  .field("safesearch", "string", { displayName: "SafeSearch" }, "1")
-  .field("browserTimeout", "numeric", { displayName: "Browser Timeout", min: 1000, max: 30000, step: 1000 }, 5000)
-  .field("headlessMode", "boolean", { displayName: "Headless Mode" }, false)
-  .field("gitAutoCommit", "boolean", { displayName: "Git Auto Commit" }, false)
-  .field("defaultBranch", "string", { displayName: "Default Branch" }, "main")
-  .field("pathValidationEnabled", "boolean", { displayName: "Path Validation" }, true)
-  .field("binaryFileDetection", "boolean", { displayName: "Binary File Detection" }, true)
-  .field("regexReDoSProtection", "boolean", { displayName: "Regex ReDoS Protection" }, true)
-  .field("maxRegexLength", "numeric", { displayName: "Max Regex Length", min: 1, max: 1000, step: 1 }, 500)
-  .field("statePersistenceEnabled", "boolean", { displayName: "State Persistence" }, true)
-  .field("stateMaxSize", "numeric", { displayName: "State Max Size", min: 1024, max: 1048576, step: 1024 }, 10240)
-  .field("language", "string", { displayName: "Language" }, "en")
-  .field("notificationsEnabled", "boolean", { displayName: "Notifications" }, true)
-  .field("temporalAwareness", "boolean", { displayName: "Temporal Awareness" }, true)
-  .field("dateFormatStyle", "string", { displayName: "Date Format Style" }, "standard")
-  .field("contextGuard", "boolean", { displayName: "ContextGuard" }, false)
-  .field("tokenLimit", "numeric", { displayName: "Token Limit", min: 10000, max: 200000, step: 1000 }, 110000)
-  .field("smartReading", "boolean", { displayName: "Smart Reading" }, true)
-  .field("summaryModel", "string", { displayName: "Summary Model" }, "gemma-2b")
-  .field("terminalFilterEnabled", "boolean", { displayName: "Terminal Filter" }, true)
-  .field("terminalFilterLength", "numeric", { displayName: "Terminal Filter Length", min: 500, max: 10000, step: 100 }, 2000)
+
+
+
+  // ⚠️ GOD MODE - TOP PRIORITY WARNING TOGGLE ⚠️
+
+  .field('godMode', 'boolean', { 
+
+    displayName: '⚡⚠️ GOD MODE - Enable ALL Tools ⚠️⚡',
+
+    subtitle: 'WARNING: Activates every tool category instantly. Use with caution.',
+
+    hint: 'When enabled, ALL individual toggles are bypassed and every tool is activated regardless of settings.',
+
+  }, DEFAULT_CONFIG.godMode)
+
+
+
+  // 🎛️ TOOL GATING (Hauptschalter) 🎛️
+
+  .field('fileSystem', 'boolean', { displayName: '📁 File System Tools', hint: 'Enable file read/write/search operations' }, DEFAULT_CONFIG.fileSystem)
+
+  .field('webSearch', 'boolean', { displayName: '🌐 Web & Research Tools', hint: 'Enable DuckDuckGo/Wikipedia search' }, DEFAULT_CONFIG.webSearch)
+
+  // 🐙 GIT & GITHUB TOOLS (visuelle Gruppierung) 🐙
+
+  .field('gitOperations', 'boolean', { 
+
+    displayName: '🐙 Git & GitHub Tools', 
+
+    subtitle: 'Version Control & API',
+
+    hint: 'Enable git operations and GitHub API access.',
+
+  }, DEFAULT_CONFIG.gitOperations)
+
+  .field('gitAutoCommit', 'boolean', { 
+
+    displayName: '💾 Git Auto-Commit', 
+
+    subtitle: '⚙️ Teil der Git & GitHub Tools',
+
+    hint: 'Automatically commit changes after operations',
+
+  }, DEFAULT_CONFIG.gitAutoCommit)
+
+  .field('defaultBranch', 'string', { 
+
+    displayName: '🌿 Default Branch', 
+
+    placeholder: 'main',
+
+    subtitle: '⚙️ Teil der Git & GitHub Tools',
+
+    hint: 'Branch name for new repositories and git operations',
+
+  }, DEFAULT_CONFIG.defaultBranch)
+
+
+
+  .field('databaseQueries', 'boolean', { displayName: '🗄️ Database Queries', hint: 'Enable read-only SQLite queries' }, DEFAULT_CONFIG.databaseQueries)
+
+  .field('documentParsing', 'boolean', { displayName: '📄 Document Parsing', hint: 'Enable PDF/DOCX document reading' }, DEFAULT_CONFIG.documentParsing)
+
+  .field('backgroundCommands', 'boolean', { displayName: '⏳ Background Commands', hint: 'Enable long-running process tracking' }, DEFAULT_CONFIG.backgroundCommands)
+
+
+
+  // 🆕‍❀ NEW TOOL CATEGORIES 🆕‍❀
+
+  .field('imageProcessing', 'boolean', { 
+
+    displayName: '🖼️ Image Processing Tools', 
+
+    subtitle: 'OCR, Screenshots & Comparison',
+
+    hint: 'Enable image OCR (Tesseract.js), screenshot capture, and image comparison tools.',
+
+  }, DEFAULT_CONFIG.imageProcessing)
+
+  
+
+  .field('httpClient', 'boolean', { 
+
+    displayName: '🔌 HTTP Client Tools', 
+
+    subtitle: 'Generic REST API Client',
+
+    hint: 'Enable generic HTTP client for making requests to any REST API (GET, POST, PUT, DELETE).',
+
+  }, DEFAULT_CONFIG.httpClient)
+
+  
+
+  .field('vectorRAG', 'boolean', { 
+
+    displayName: '📊 Vector RAG / Semantic Search', 
+
+    subtitle: 'Semantic Document Search',
+
+    hint: 'Enable semantic search with vector embeddings for intelligent document retrieval.',
+
+  }, DEFAULT_CONFIG.vectorRAG)
+  .field('uiGeneration', 'boolean', { 
+    displayName: '🎨 Interactive UI Generation Tools', 
+    subtitle: 'Generate and render interactive UI components',
+    hint: 'Enable tools for generating HTML/CSS/JS components (buttons, forms, charts, dashboards) and rendering them in the browser.',
+  }, DEFAULT_CONFIG.uiGeneration)
+  .field('contextManagement', 'boolean', { 
+    displayName: '🧠 Auto-Context Management Tools', 
+    subtitle: 'Automatic session tracking and memory management',
+    hint: 'Enable tools for automatically saving important decisions, patterns, and configurations to persistent memory.',
+  }, DEFAULT_CONFIG.contextManagement)
+
+
+
+  // 📚 DOCUMENT RAG / CHAT WITH FILES 📚
+
+  .field('documentRAG', 'boolean', { 
+
+    displayName: '📚 Document RAG / Chat with Files', 
+
+    subtitle: 'Enable file indexing and semantic search for chat',
+
+    hint: 'Attach documents to your chat messages. The plugin will automatically retrieve relevant content from attached files using semantic search.',
+
+  }, DEFAULT_CONFIG.documentRAG)
+
+  
+
+  .field('retrievalLimit', 'numeric', { 
+
+    displayName: '🔢 Retrieval Limit', 
+
+    subtitle: 'Max chunks to return per query',
+
+    min: 1, max: 20, int: true,
+
+    hint: 'Maximum number of relevant document chunks to retrieve for each query.',
+
+  }, DEFAULT_CONFIG.retrievalLimit)
+
+  
+
+  .field('retrievalAffinityThreshold', 'numeric', { 
+
+    displayName: '🎯 Retrieval Affinity Threshold', 
+
+    subtitle: 'Minimum relevance score (0-1)',
+
+    min: 0.0, max: 1.0, step: 0.01,
+
+    hint: 'Chunks below this similarity score will be filtered out. Lower = more results but potentially less relevant.',
+
+  }, DEFAULT_CONFIG.retrievalAffinityThreshold)
+
+  // ⚡ EXECUTION TOOLS (Gefährlich!) ⚡
+
+  .field('executionJavaScript', 'boolean', {
+
+    displayName: '⚡ JavaScript-Ausführung erlauben',
+
+    subtitle: "Aktiviert das 'run_javascript'-Tool",
+
+    hint: 'GEFAHR: Code läuft auf Ihrem Rechner.',
+
+  }, DEFAULT_CONFIG.executionJavaScript)
+
+  .field('executionPython', 'boolean', {
+
+    displayName: '🐍 Python-Ausführung erlauben',
+
+    subtitle: "Aktiviert das 'run_python'-Tool",
+
+    hint: 'GEFAHR: Code läuft auf Ihrem Rechner.',
+
+  }, DEFAULT_CONFIG.executionPython)
+
+  .field('executionTerminal', 'boolean', {
+
+    displayName: '💻 Terminal-Ausführung erlauben',
+
+    subtitle: "Aktiviert das 'run_in_terminal'-Tool",
+
+    hint: 'Öffnet echte Terminal-Fenster.',
+
+  }, DEFAULT_CONFIG.executionTerminal)
+
+  .field('executionShell', 'boolean', {
+
+    displayName: '🔧 Shell-Befehlsausführung erlauben',
+
+    subtitle: "Aktiviert das 'execute_command'-Tool",
+
+    hint: 'GEFAHR: Befehle laufen auf Ihrem Rechner.',
+
+  }, DEFAULT_CONFIG.executionShell)
+
+
+
+  // 🔍 SEARCH SETTINGS 🔍
+
+  .field('searchFallbackChain', 'select', {
+
+    displayName: '🔍 Search Fallback Chain',
+
+    hint: 'Primary search engine. Auto-falls back to others if unavailable.',
+
+    options: [
+
+      { value: 'ddg-api', displayName: 'DuckDuckGo API' },
+
+      { value: 'ddg-fetch', displayName: 'DuckDuckGo Fetch' },
+
+      { value: 'google', displayName: 'Google' },
+
+      { value: 'bing', displayName: 'Bing' },
+
+    ],
+
+  }, DEFAULT_CONFIG.searchFallbackChain)
+
+  .field('maxSearchResults', 'numeric', { min: 1, max: 50, int: true }, DEFAULT_CONFIG.maxSearchResults)
+
+  .field('safesearch', 'select', {
+
+    displayName: '🛡️ Safe Search',
+
+    options: [
+
+      { value: '0', displayName: 'Off' },
+
+      { value: '1', displayName: 'Moderate' },
+
+      { value: '2', displayName: 'Strict' },
+
+    ],
+
+  }, DEFAULT_CONFIG.safesearch)
+
+
+
+  // 🖥️ BROWSER AUTOMATION TOOLS 🖥️
+
+  .field('browserAutomation', 'boolean', { 
+
+    displayName: '🖥️ Browser Automation Tools', 
+
+    subtitle: 'Headless browser control & automation',
+
+    hint: 'Enable Puppeteer-based headless browser automation for web scraping, testing, and UI interaction.',
+
+  }, DEFAULT_CONFIG.browserAutomation)
+
+  
+
+  .field('browserTimeout', 'numeric', { 
+
+    displayName: '⏱️ Browser Timeout', 
+
+    subtitle: '⚙️ Teil der Browser Automation Tools',
+
+    min: 1000, max: 30000, int: true,
+
+    hint: 'Maximum time (ms) to wait for browser operations before timing out.',
+
+  }, DEFAULT_CONFIG.browserTimeout)
+
+  
+
+  .field('headlessMode', 'boolean', { 
+
+    displayName: '👻 Headless Mode', 
+
+    subtitle: '⚙️ Teil der Browser Automation Tools',
+
+    hint: 'Run browser without GUI (recommended for automation).',
+
+  }, DEFAULT_CONFIG.headlessMode)
+
+
+
+  // 🔒 SECURITY SETTINGS 🔒
+
+  .field('pathValidationEnabled', 'boolean', { displayName: '🔒 Path Validation', hint: 'Prevent directory traversal attacks' }, DEFAULT_CONFIG.pathValidationEnabled)
+
+  .field('binaryFileDetection', 'boolean', { displayName: '📁 Binary File Detection', hint: 'Detect binary files via null byte check' }, DEFAULT_CONFIG.binaryFileDetection)
+
+  .field('regexReDoSProtection', 'boolean', { displayName: '🛡️ ReDoS Protection', hint: 'Protect against regex denial-of-service' }, DEFAULT_CONFIG.regexReDoSProtection)
+
+  .field('maxRegexLength', 'numeric', { min: 1, max: 1000, int: true }, DEFAULT_CONFIG.maxRegexLength)
+
+
+
+  // 💽 STATE MANAGEMENT 💽
+
+  .field('statePersistenceEnabled', 'boolean', { displayName: '💽 State Persistence', hint: 'Persist tool execution state between sessions' }, DEFAULT_CONFIG.statePersistenceEnabled)
+
+  .field('stateMaxSize', 'numeric', { min: 1024, max: 1048576, int: true }, DEFAULT_CONFIG.stateMaxSize)
+
+
+
+  // 🌐 LANGUAGE & NOTIFICATIONS 🌐
+
+  .field('language', 'select', {
+
+    displayName: '🌐 Language',
+
+    options: [
+
+      { value: 'en', displayName: 'English' },
+
+      { value: 'de', displayName: 'Deutsch (German)' },
+
+      { value: 'zh-CN', displayName: 'Simplified Chinese' },
+
+      { value: 'zh-TW', displayName: 'Traditional Chinese' },
+
+    ],
+
+  }, DEFAULT_CONFIG.language)
+
+
+
+  .field('notificationsEnabled', 'boolean', { displayName: '🔔 Desktop Notifications', hint: 'Show system notifications' }, DEFAULT_CONFIG.notificationsEnabled)
+
+  // ⏰ TEMPORAL AWARENESS (from up_to_date)
+  .field('temporalAwareness', 'boolean', {
+    displayName: '⏰ Temporal Awareness',
+    subtitle: 'Injects current date/time into every message',
+    hint: 'Enables the AI to know the current time.',
+  }, DEFAULT_CONFIG.temporalAwareness)
+  .field('dateFormatStyle', 'select', {
+    displayName: '📅 Date Format Style',
+    options: [
+      { value: 'standard', displayName: 'Standard ([Zeit: ...])' },
+      { value: 'heuteIst', displayName: 'HEUTE IST Mode (Prominent)' },
+    ],
+  }, DEFAULT_CONFIG.dateFormatStyle)
+
   .build();
-
-/**
- * Helper to check if a tool category is enabled
- */
-export function isToolEnabled(config: PluginConfig, toolCategory: string): boolean {
-  if (config.godMode) return true;
-  return !!config[toolCategory as keyof PluginConfig];
-}
-
-/**
- * Helper to check if an execution tool type is enabled
- */
-export function isExecutionToolEnabled(config: PluginConfig, toolType: string): boolean {
-  if (config.godMode) return true;
-  switch (toolType) {
-    case 'javascript': return config.executionJavaScript;
-    case 'python': return config.executionPython;
-    case 'terminal': return config.executionTerminal;
-    case 'shell': return config.executionShell;
-    default: return false;
-  }
-}

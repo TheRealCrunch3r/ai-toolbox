@@ -11,9 +11,9 @@ import { cleanupBrowserSession } from './tools/browserAutomationTools';
 
 // ✅ FIX: Use structured logging instead of console.log
 const logger = {
-  info: (msg: string) => ((p: any) => p.write(`[AI Toolbox] ${msg}\n`))(process.stdout),
-  warn: (msg: string) => ((p: any) => p.write(`[AI Toolbox WARN] ${msg}\n`))(process.stderr),
-  error: (msg: string) => ((p: any) => p.write(`[AI Toolbox ERROR] ${msg}\n`))(process.stderr),
+  info: (msg: string) => typeof process.stdout.write === 'function' && process.stdout.write(`[AI Toolbox] ${msg}\n`),
+  warn: (msg: string) => typeof process.stderr.write === 'function' && process.stderr.write(`[AI Toolbox WARN] ${msg}\n`),
+  error: (msg: string) => typeof process.stderr.write === 'function' && process.stderr.write(`[AI Toolbox ERROR] ${msg}\n`),
 };
 
 /**

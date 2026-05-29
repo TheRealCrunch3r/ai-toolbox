@@ -1,4 +1,3 @@
-// @ts-ignore: pngjs lacks type definitions
 import type { Tool } from '@lmstudio/sdk';
 import { tool } from '@lmstudio/sdk';
 import { z } from 'zod';
@@ -92,7 +91,7 @@ async function imageToText({ imagePath, language = 'eng' }: ImageToTextParams): 
         text: result.data.text.trim(),
         confidence: result.data.confidence,
         language,
-        words: (result.data as any).words?.length || 0,
+        words: result.data.words?.length || 0,
       },
     };
   } catch (error) {
@@ -221,8 +220,7 @@ async function compareImages({ image1Path, image2Path }: CompareImagesParams): P
 
     // Lazy-load pixelmatch for pixel-level comparison
     const pixelmatch = (await import('pixelmatch')).default;
-    // @ts-ignore: pngjs lacks type definitions
-    const PNG = (await import('pngjs')) as any;
+    const PNG = (await import('pngjs')).PNG;
     const fs = require('fs');
 
     // Read and decode images using sharp for format support (JPEG, BMP, etc.)
