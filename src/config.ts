@@ -125,6 +125,14 @@ export const ConfigSchema = z.object({
   // Temporal Awareness (merged from up_to_date)
   temporalAwareness: z.boolean().default(true).describe('Enable automatic date/time injection into prompts'),
   dateFormatStyle: z.enum(['standard', 'heuteIst']).default('standard').describe('Date format style for temporal awareness'),
+
+  // ── 🧠 CONTEXT GUARD SETTINGS ───────────────────────────────────
+  contextGuardEnabled: z.boolean().default(true).describe('Enable ContextGuard token management and history compression'),
+  contextGuardTokenLimit: z.number().min(1000).max(200000).default(80000).describe('Token limit before history compression triggers (90% threshold)'),
+  contextGuardSmartReading: z.boolean().default(true).describe('Enable keyword-based smart file reading'),
+  contextGuardSummaryModel: z.string().default('').describe('LM Studio model name for summarization (leave empty to use current chat model)'),
+  contextGuardTerminalFilterEnabled: z.boolean().default(true).describe('Enable terminal output filtering'),
+  contextGuardTerminalFilterLength: z.number().min(100).max(20000).default(2000).describe('Max chars before terminal output is filtered'),
 });
 
 
@@ -230,6 +238,14 @@ export const DEFAULT_CONFIG: PluginConfig = {
   // Temporal Awareness (merged from up_to_date)
   temporalAwareness: true,
   dateFormatStyle: 'standard',
+
+  // ── 🧠 CONTEXT GUARD SETTINGS ───────────────────────────────────
+  contextGuardEnabled: true,
+  contextGuardTokenLimit: 80000,           // ~80k tokens before compression (90% = 72k threshold)
+  contextGuardSmartReading: true,
+  contextGuardSummaryModel: '',            // Empty = use current chat model
+  contextGuardTerminalFilterEnabled: true,
+  contextGuardTerminalFilterLength: 2000,  // Filter terminal output > 2KB
 };
 
 
@@ -250,6 +266,7 @@ export function validateConfig(input: unknown): PluginConfig {
 
   }
 
+  return result.data;
 }
 
 
@@ -675,5 +692,47 @@ export const configSchematics = createConfigSchematics()
       { value: 'heuteIst', displayName: 'HEUTE IST Mode (Prominent)' },
     ],
   }, DEFAULT_CONFIG.dateFormatStyle)
+
+
+  // ── 🧠 CONTEXT GUARD SETTINGS ───────────────────────────────────
+  .field('contextGuardEnabled', 'boolean', {
+    displayName: '🧠 ContextGuard Token Management',
+    subtitle: 'Automatic history compression & smart reading',
+    hint: 'Automatically compresses chat history when token limit is reached. Enables smart file reading and terminal output filtering.',
+  }, DEFAULT_CONFIG.contextGuardEnabled)
+
+  .field('contextGuardTokenLimit', 'numeric', {
+    displayName: '📊 Token Limit Before Compression',
+    subtitle: '⚙️ ContextGuard Setting',
+    min: 1000, max: 200000, int: true,
+    hint: 'Compression triggers at 90% of this limit. Higher = more context retained but slower responses.',
+  }, DEFAULT_CONFIG.contextGuardTokenLimit)
+
+  .field('contextGuardSmartReading', 'boolean', {
+    displayName: '🔍 Smart File Reading',
+    subtitle: '⚙️ ContextGuard Setting',
+    hint: 'Extracts keywords from user queries to read only relevant portions of files. Saves tokens and speeds up responses.',
+  }, DEFAULT_CONFIG.contextGuardSmartReading)
+
+  .field('contextGuardSummaryModel', 'string', {
+    displayName: '🤖 Summary Model Name',
+    subtitle: '⚙️ ContextGuard Setting',
+    placeholder: '(leave empty for current chat model)',
+    hint: 'LM Studio model name used for history summarization. Leave empty to use your current chat model.',
+  }, DEFAULT_CONFIG.contextGuardSummaryModel)
+
+  .field('contextGuardTerminalFilterEnabled', 'boolean', {
+    displayName: '📌 Terminal Output Filtering',
+    subtitle: '⚙️ ContextGuard Setting',
+    hint: 'Automatically truncates long terminal outputs to save tokens.',
+  }, DEFAULT_CONFIG.contextGuardTerminalFilterEnabled)
+
+  .field('contextGuardTerminalFilterLength', 'numeric', {
+    displayName: '📏 Max Terminal Output Length',
+    subtitle: '⚙️ ContextGuard Setting',
+    min: 100, max: 20000, int: true,
+    hint: 'Maximum characters before terminal output is truncated and summarized.',
+  }, DEFAULT_CONFIG.contextGuardTerminalFilterLength)
+
 
   .build();

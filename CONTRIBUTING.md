@@ -361,3 +361,86 @@ src/
 ## 📜 Code of Conduct
 
 Be respectful, constructive, and inclusive. We follow the [Contributor Covenant](https://www.contributor-covenant.org/).
+
+---
+
+## 🛡️ Testing ContextGuard Features (v1.4.0)
+
+### UI Controls Verification
+
+```bash
+# 1. Open LM Studio → Plugins → AI Toolbox → ⚙️ Settings
+# 2. Scroll to "🧠 ContextGuard Token Management" section
+# 3. Verify all 6 controls are present:
+#    - [ ] 🧠 ContextGuard Token Management (toggle)
+#    - [ ] 📊 Token Limit Before Compression (numeric, 1K-200K)
+#    - [ ] 🔍 Smart File Reading (toggle)
+#    - [ ] 🤖 Summary Model Name (text input)
+#    - [ ] 📌 Terminal Output Filtering (toggle)
+#    - [ ] 📏 Max Terminal Output Length (numeric, 100-20K)
+```
+
+### Visual Indicator Testing
+
+```bash
+# 1. Set Token Limit to a low value (e.g., 10,000)
+# 2. Have a long conversation or paste large content
+# 3. When token count exceeds ~9,000 (90% of limit), compression triggers
+# 4. Verify visual indicator appears with:
+#    - [ ] 🧠 Emoji header
+#    - [ ] Number of messages compressed
+#    - [ ] Tokens before → after (e.g., "~85k → ~42k")
+#    - [ ] Percentage saved (e.g., "Saved ~43,000 tokens (~51%)")
+#    - [ ] Timestamp
+#    - [ ] Visual separator lines
+```
+
+### Smart File Reading Testing
+
+```bash
+# 1. Create a large file (>10KB) with specific keywords:
+cat > test_file.js << 'EOF'
+// Line 1-100: filler content
+function calculateTax(income) {
+  return income * 0.25;
+}
+// More filler...
+function processPayment(amount) {
+  // Payment logic
+}
+// Even more filler...
+EOF
+
+# 2. Ask the AI about "calculateTax" function
+# 3. Verify only relevant lines around that keyword are returned
+# 4. Toggle Smart File Reading OFF and verify full file is read instead
+```
+
+### Terminal Output Filtering Testing
+
+```bash
+# 1. Run a command with large output:
+npm install --verbose 2>&1 | head -n 5000
+
+# 2. Verify output is truncated to configured length (default: 2,000 chars)
+# 3. Check for truncation indicator: "... [Output truncated: X lines hidden] ..."
+# 4. Toggle Terminal Output Filtering OFF and verify full output
+```
+
+### Regression Testing Checklist
+
+After making changes to ContextGuard:
+
+- [ ] Build succeeds without errors (`npm run build`)
+- [ ] All existing tests pass (`npm test`)
+- [ ] UI controls appear in LM Studio settings
+- [ ] Compression triggers at correct threshold (90% of token limit)
+- [ ] Visual indicator displays correctly
+- [ ] Smart file reading extracts keywords properly
+- [ ] Terminal filtering truncates at configured length
+- [ ] No memory leaks during extended sessions
+- [ ] Fallback mode works when summary model unavailable
+
+---
+
+*End of Contributing Guide*

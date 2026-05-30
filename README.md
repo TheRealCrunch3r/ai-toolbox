@@ -35,12 +35,14 @@
 | 🎨 **Interactive UI Generation** | Generate and render HTML/CSS/JS components (buttons, forms, charts, dashboards) |
 | 🧠 **Auto-Context Management** | Automatic session tracking, decision logging, and persistent memory retrieval |
 | ⏰ **Temporal Awareness** | Injects current date/time into every message for accurate time-sensitive tasks |
-| 🛡️ **ContextGuard** | **New!** Dynamic context window management with four key refinements: |
-| | **1. Smart Reader**: Heuristic keyword-grep for large files |
-| | **2. Threshold-Based Compression**: Automatically summarizes older history when token usage reaches 90% of limit |
-| | **3. Terminal Output Filtering**: Truncates large terminal outputs to save context |
-| | **4. Re-RAG Trigger**: `reload_context_for_file` tool to force fresh reads of compressed files |
-| | **5. Token Budget Visualization**: Shows current token usage in file read outputs |
+| 🛡️ **ContextGuard** | **v1.4.0!** Dynamic context window management with explicit UI controls: |
+| | • **Smart Reader**: Heuristic keyword-grep for large files (toggleable) |
+| | • **Threshold-Based Compression**: Auto-summarizes history at 90% token limit (configurable 1K-200K tokens) |
+| | • **Terminal Output Filtering**: Truncates long outputs (configurable 100-20K chars) |
+| | • **Re-RAG Trigger**: `reload_context_for_file` tool for fresh reads |
+| | • **Token Budget Visualization**: Real-time token usage display |
+| | • **Visual Indicator**: Rich status display when compression activates (shows tokens saved, percentage, timestamp) |
+| | • **6 Explicit UI Controls** in LM Studio settings panel (no code changes needed!) |
 
 ---
 

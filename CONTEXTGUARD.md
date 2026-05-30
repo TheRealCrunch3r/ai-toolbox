@@ -1,8 +1,26 @@
 # ContextGuard: Infinite Context Management
 
-**Version:** 1.3.2  
+**Version:** 1.4.0  
 **Status:** Stable  
 **Component:** `src/contextGuard.ts`
+
+---
+
+## 📋 Table of Contents
+
+1. [Executive Summary](#1-executive-summary)
+2. [Key Features](#2-key-features)
+3. [Configuration (UI Controls)](#3-configuration-ui-controls)
+   - [3.1 Master Toggle](#31-master-toggle)
+   - [3.2 Token Limit Settings](#32-token-limit-settings)
+   - [3.3 Smart File Reading](#33-smart-file-reading)
+   - [3.4 Summary Model Selection](#34-summary-model-selection)
+   - [3.5 Terminal Output Filtering](#35-terminal-output-filtering)
+   - [3.6 Quick Reference Table](#36-quick-reference-table)
+4. [Visual Indicator (Compression Status)](#4-visual-indicator-compression-status)
+5. [Technical Implementation](#5-technical-implementation)
+6. [Performance Considerations](#6-performance-considerations)
+7. [Future Roadmap](#7-future-roadmap)
 
 ---
 
@@ -41,22 +59,120 @@ The **ContextGuard** module is designed to solve the "Context Window Explosion" 
 
 ---
 
-## 3. Configuration
+## 3. Configuration (UI Controls)
 
-ContextGuard is enabled via the LM Studio Plugin Settings panel.
+ContextGuard settings are accessible via **LM Studio → Plugins → AI Toolbox → ⚙️ Settings**.
 
-| Setting Name | Type | Default | Description |
-|--------------|------|---------|-------------|
-| `contextGuard` | `boolean` | `false` | Enable the ContextGuard module. |
-| `tokenLimit` | `number` | `110,000` | The maximum token count before compression triggers. |
-| `smartReading` | `boolean` | `true` | Enable heuristic keyword-grep for file reads. |
-| `summaryModel` | `string` | `gemma-2b` | The model used to summarize older history. |
-| `terminalFilterEnabled` | `boolean` | `true` | Enable terminal output filtering to save context. |
-| `terminalFilterLength` | `number` | `2000` | Max characters for terminal output before filtering. |
+Scroll down to the **🧠 ContextGuard Token Management** section:
+
+### 3.1 Master Toggle
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| **🧠 ContextGuard Token Management** | Toggle | ✅ Enabled | Master switch for all ContextGuard features (compression, smart reading, terminal filtering). |
 
 ---
 
-## 4. Technical Implementation
+### 3.2 Token Limit Settings
+
+| Setting | Type | Range | Default | Description |
+|---------|------|-------|---------|-------------|
+| **📊 Token Limit Before Compression** | Numeric | 1,000 – 200,000 | `80,000` | Maximum tokens before compression triggers. **Compression activates at 90%** of this value (e.g., 72k for 80k limit). |
+
+> 💡 **Tip**: Lower values = more frequent compression but slower responses. Higher values = less compression but risk hitting model limits.
+
+---
+
+### 3.3 Smart File Reading
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| **🔍 Smart File Reading** | Toggle | ✅ Enabled | Extracts keywords from user queries to read only relevant portions of files. Saves tokens and speeds up responses. |
+
+> 📖 **How it works**: When you ask about `calculateTax`, ContextGuard searches for that keyword in files instead of reading everything.
+
+---
+
+### 3.4 Summary Model Selection
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| **🤖 Summary Model Name** | Text Input | *(empty)* | LM Studio model name used for history summarization. Leave empty to use your current chat model. |
+
+> 🎯 **Recommended models**: `gemma-2b`, `phi-3-mini`, or any small fast model optimized for summarization tasks.
+
+---
+
+### 3.5 Terminal Output Filtering
+
+| Setting | Type | Range | Default | Description |
+|---------|------|-------|---------|-------------|
+| **📌 Terminal Output Filtering** | Toggle | ✅ Enabled | Automatically truncates long terminal outputs (npm install, stack traces) to save tokens. |
+| **📏 Max Terminal Output Length** | Numeric | 100 – 20,000 | `2,000` | Maximum characters before terminal output is truncated and summarized. |
+
+> ⚡ **Example**: An npm install output of 50,000 chars becomes ~200 chars (first/last 5 lines + summary).
+
+---
+
+### 3.6 Quick Reference Table
+
+| Config Key | UI Name | Type | Default |
+|------------|---------|------|----------|
+| `contextGuardEnabled` | 🧠 ContextGuard Token Management | Boolean | `true` |
+| `contextGuardTokenLimit` | 📊 Token Limit Before Compression | Number (1K-200K) | `80,000` |
+| `contextGuardSmartReading` | 🔍 Smart File Reading | Boolean | `true` |
+| `contextGuardSummaryModel` | 🤖 Summary Model Name | String | `""` (current chat model) |
+| `contextGuardTerminalFilterEnabled` | 📌 Terminal Output Filtering | Boolean | `true` |
+| `contextGuardTerminalFilterLength` | 📏 Max Terminal Output Length | Number (100-20K) | `2,000` |
+
+---
+
+## 4. Visual Indicator (Compression Status)
+
+When ContextGuard compresses chat history, a **visual indicator** is injected into the conversation:
+
+```
+🧠 **ContextGuard Compression Active**
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• Compressed 15 message(s) into summary
+• Tokens before: ~85k → after: ~42k
+• **Saved ~43,000 tokens (~51%)**
+• Timestamp: 19:15:32
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+### CONTEXT SUMMARY (from 15 messages)
+[Summary content here...]
+```
+
+### Indicator Components:
+
+| Element | Description |
+|---------|-------------|
+| 🧠 Emoji | Identifies the message as ContextGuard-generated |
+| Messages compressed | Number of chat turns that were summarized |
+| Token comparison | Before/after token counts (approximate) |
+| Percentage saved | Efficiency metric for compression |
+| Timestamp | When compression occurred |
+
+### Fallback Mode Indicator:
+
+If summarization fails or no model is configured:
+
+```
+🧠 **ContextGuard Compression Active (Fallback Mode)**
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• Compressed 15 message(s)
+• Estimated tokens saved: ~30,000
+• Note: Full summarization unavailable (model not configured or error occurred)
+• Timestamp: 19:15:32
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+---
+
+## 5. Technical Implementation
 
 ### Token Counting with Hash-Based Cache Invalidation
 
@@ -179,7 +295,7 @@ if (contextGuard) {
 
 ---
 
-## 5. Performance Considerations
+## 6. Performance Considerations
 
 ### Speed Optimizations
 
@@ -206,7 +322,7 @@ if (contextGuard) {
 
 ---
 
-## 6. Future Roadmap
+## 7. Future Roadmap
 
 1. **Multi-Model Summarization**: Use a larger model for summarization if the conversation is complex, and a smaller model if it is simple.
 2. **Visual Context Map**: Add a UI panel in LM Studio showing a "graph" of which files are currently active in the context.

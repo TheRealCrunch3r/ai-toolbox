@@ -7,6 +7,80 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.4.0] — 2026-05-30
+
+### ✨ New Features
+
+#### 🎛️ ContextGuard Explicit UI Controls (Major Enhancement)
+- **Added 6 new UI controls** in LM Studio plugin settings panel for full ContextGuard customization:
+  - `🧠 ContextGuard Token Management` — Master toggle (enabled by default)
+  - `📊 Token Limit Before Compression` — Configurable range: 1,000–200,000 tokens (default: 80,000)
+  - `🔍 Smart File Reading` — Toggle for keyword-based selective file reading
+  - `🤖 Summary Model Name` — Text input for dedicated summarization model (empty = current chat model)
+  - `📌 Terminal Output Filtering` — Toggle for automatic terminal output truncation
+  - `📏 Max Terminal Output Length` — Configurable range: 100–20,000 characters (default: 2,000)
+- **No code changes required** — All settings accessible via LM Studio UI
+- **Backward compatible** — Existing default values preserved
+
+#### 📊 Visual Compression Indicator
+- **Added rich status display** injected into chat when ContextGuard compresses history:
+  - Shows number of messages compressed
+  - Displays tokens before/after compression (e.g., "~85k → ~42k")
+  - Calculates and displays percentage saved (e.g., "Saved ~43,000 tokens (~51%)")
+  - Includes timestamp of compression event
+  - Visual separator lines for easy identification
+- **Fallback mode indicator** when summarization unavailable:
+  - Shows estimated tokens saved
+  - Displays warning about missing model or error condition
+- **Tracking API added**: `getLastCompressionInfo()` method returns detailed compression statistics
+
+### 🐛 Bug Fixes
+
+#### 🔧 validateConfig() Missing Return Statement
+- **Fixed**: `validateConfig()` function in `src/config.ts` was not returning validated config object
+- **Root Cause**: Function threw on validation failure but had no return path for success case
+- **Fix**: Added `return result.data;` after successful validation
+- **Impact**: Config validation now properly returns sanitized configuration objects
+
+### 📚 Documentation Updates
+
+#### CONTEXTGUARD.md Major Rewrite
+- Updated version to 1.4.0
+- Added comprehensive Table of Contents with anchor links
+- Rewrote Section 3 (Configuration) with detailed UI control documentation:
+  - Individual subsections for each setting group
+  - Tips, examples, and recommended values
+  - Quick Reference Table mapping config keys to UI names
+- Added new Section 4 (Visual Indicator):
+  - Normal mode indicator format example
+  - Fallback mode indicator format example
+  - Component descriptions table
+- Renumbered remaining sections (5-7)
+
+#### README.md Updates
+- Updated ContextGuard feature description with v1.4.0 highlights
+- Added mention of visual indicator and explicit UI controls
+- Emphasized "no code changes needed" for configuration
+
+### 🔧 Technical Details
+
+**Files Modified:**
+| File | Changes |
+|------|---------|
+| `src/config.ts` | +6 field definitions in `configSchematics`, +1 return statement fix |
+| `src/contextGuard.ts` | ~50 lines added for visual indicator & tracking API |
+| `CONTEXTGUARD.md` | ~150+ lines rewritten/added (major documentation update) |
+| `README.md` | Feature description updated |
+| `CHANGELOG.md` | This entry added |
+
+**Build Verification:**
+```bash
+npm run build
+# ✅ Build success in ~40ms
+```
+
+---
+
 ## [1.3.2] — 2026-05-29
 
 ### 🔒 Security Improvements

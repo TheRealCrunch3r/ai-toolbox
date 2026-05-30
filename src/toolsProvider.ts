@@ -48,7 +48,7 @@ let currentConfig: PluginConfig = DEFAULT_CONFIG;
 class ToolRegistry {
   private toolMap = new Map<string, TypedTool>();
 
-  registerAll(config: PluginConfig, stateManager: StateManager, backgroundCommandManager: BackgroundCommandManager): void {
+  registerAll(config: PluginConfig, stateManager: StateManager, backgroundCommandManager: BackgroundCommandManager, lmClient?: any): void {
     if (config.godMode || isToolEnabled(config, 'fileSystem')) {
       registerFileSystemTools(config, stateManager).forEach(t => this.toolMap.set(t.name, t as TypedTool));
     }
@@ -73,7 +73,7 @@ class ToolRegistry {
 
     // ── 🆕 NEW TOOL CATEGORIES ──────────────────────────────────────
     if (config.godMode || isToolEnabled(config, 'imageProcessing')) {
-      registerImageProcessingTools(config).forEach(t => this.toolMap.set(t.name, t as TypedTool));
+      registerImageProcessingTools(config, lmClient).forEach(t => this.toolMap.set(t.name, t as TypedTool));
     }
     if (config.godMode || isToolEnabled(config, 'httpClient')) {
       registerHttpClientTools(config).forEach(t => this.toolMap.set(t.name, t as TypedTool));
@@ -139,12 +139,12 @@ export class ToolsProvider {
   private backgroundCommandManager: BackgroundCommandManager;
   private registry: ToolRegistry;
 
-  constructor(config?: PluginConfig) {
+  constructor(config?: PluginConfig, lmClient?: any) {
     this.config = config || DEFAULT_CONFIG;
     this.stateManager = new StateManager(this.config);
     this.backgroundCommandManager = new BackgroundCommandManager(this.config);
     this.registry = new ToolRegistry();
-    this.registry.registerAll(this.config, this.stateManager, this.backgroundCommandManager);
+    this.registry.registerAll(this.config, this.stateManager, this.backgroundCommandManager, lmClient);
   }
 
   /**
@@ -212,7 +212,7 @@ export function createToolsProvider(config?: PluginConfig): ToolsProvider {
  * 
  * NOTE: Must be async — SDK type requires Promise<Tool[]>.
  */
-export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[]> {
+export async function toolsProvider(ctl: ToolsProviderController, lmClient?: any): Promise<Tool[]> {
   // FIX: Read configuration dynamically from UI controller (like beledarians plugin)
   const pluginConfig = ctl.getPluginConfig(configSchematics);
   

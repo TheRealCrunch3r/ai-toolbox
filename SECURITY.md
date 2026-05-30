@@ -354,3 +354,130 @@ Regularly update the plugin to get the latest security patches.
 - [CWE Directory](https://cwe.mitre.org/)
 - [Node.js Security Best Practices](https://nodejs.org/en/docs/guides/security/)
 - [Regular Expression Denial of Service (ReDoS)](https://owasp.org/www-community/attacks/Regular_Expression_Denial_of_Service_(ReDoS))
+
+---
+
+## 🛡️ ContextGuard Security Considerations (v1.4.0)
+
+### Overview
+
+ContextGuard is a **read-only context management system** that does not:
+- Execute arbitrary code
+- Access external networks
+- Modify files or system state
+- Store sensitive data persistently
+
+### Security Features
+
+#### 1. Token Counting (Read-Only Operation)
+
+```typescript
+async countTokens(messages: any[]): Promise<number>
+```
+
+**Security Properties:**
+- ✅ **No side effects**: Only reads message content, never modifies state
+- ✅ **Cached results**: Hash-based cache invalidation prevents redundant computation
+- ✅ **Bounded memory**: Cache stores only one hash and one count value
+- ✅ **No external dependencies**: Uses local `@dqbd/tiktoken` library (no network calls)
+
+#### 2. History Compression (Local Model Only)
+
+```typescript
+async compressHistory(messages: any[]): Promise<any[]>
+```
+
+**Security Properties:**
+- ✅ **Local model only**: Summarization uses LM Studio's local models (no external API calls)
+- ✅ **Configurable model**: `contextGuardSummaryModel` allows dedicated summarization model selection
+- ✅ **Fallback safe**: If model unavailable, generates generic summary without crashing
+- ✅ **No data exfiltration**: All processing happens locally within plugin sandbox
+
+#### 3. Smart File Reading (Keyword Extraction)
+
+```typescript
+smartRead(filePath: string, userPrompt?: string): string
+```
+
+**Security Properties:**
+- ✅ **Uses existing path validation**: Relies on `validatePath()` for file access control
+- ✅ **No regex injection**: Keyword matching uses simple `.includes()` (no RegEx)
+- ✅ **Bounded output**: Respects caller's `maxLength` parameter
+- ✅ **Stop words filter**: Prevents false positives from common English/technical terms
+
+#### 4. Terminal Output Filtering
+
+```typescript
+filterTerminalOutput(output: string): string
+```
+
+**Security Properties:**
+- ✅ **Pure function**: No side effects, deterministic output
+- ✅ **Configurable threshold**: `contextGuardTerminalFilterLength` sets truncation point
+- ✅ **No code execution**: Only string manipulation (split/join)
+- ✅ **Preserves context**: Shows first/last lines with clear truncation indicator
+
+### Configuration Security
+
+All ContextGuard settings are **client-side only** and do not:
+- Accept remote configuration
+- Store credentials or tokens
+- Make network requests
+- Access environment variables
+
+| Setting | Validation | Risk Level |
+|---------|------------|------------|
+| `contextGuardEnabled` | Boolean toggle | None |
+| `contextGuardTokenLimit` | Number (1K-200K) | None (memory usage only) |
+| `contextGuardSmartReading` | Boolean toggle | None |
+| `contextGuardSummaryModel` | String (model name) | Low (uses LM Studio's model validation) |
+| `contextGuardTerminalFilterEnabled` | Boolean toggle | None |
+| `contextGuardTerminalFilterLength` | Number (100-20K) | None (output size only) |
+
+### Threat Model
+
+#### Potential Attack Vectors (and Mitigations)
+
+| Threat | Description | Mitigation |
+|--------|-------------|------------|
+| **Memory Exhaustion** | Large token limit causes high memory usage | Configurable limit with reasonable defaults (80K tokens) |
+| **Denial of Service** | Repeated compression triggers slow down system | Hash-based caching prevents redundant computation |
+| **Prompt Injection via Summary** | Malicious content in summary affects future responses | Summaries are read-only; no execution context |
+| **Model Selection Attack** | Malicious model name causes unexpected behavior | LM Studio validates model names before loading |
+
+#### No Known Vulnerabilities
+
+As of v1.4.0, ContextGuard has:
+- ✅ No remote code execution vectors
+- ✅ No path traversal vulnerabilities
+- ✅ No SQL injection points (no database access)
+- ✅ No XSS vectors (no HTML rendering)
+- ✅ No SSRF possibilities (no network requests)
+
+### Secure Defaults
+
+| Setting | Default | Rationale |
+|---------|---------|-----------|
+| `contextGuardEnabled` | `true` | Enabled by default; users can disable if not needed |
+| `contextGuardTokenLimit` | `80,000` | Balances context retention with memory usage |
+| `contextGuardSmartReading` | `true` | Saves tokens without security implications |
+| `contextGuardSummaryModel` | `""` (current chat model) | Uses existing validated model selection |
+| `contextGuardTerminalFilterEnabled` | `true` | Prevents context bloat from verbose outputs |
+| `contextGuardTerminalFilterLength` | `2,000` | Reasonable limit for terminal output visibility |
+
+### Audit Trail
+
+ContextGuard operations are logged to console (not persisted):
+
+```typescript
+[ContextGuard] Token count (${currentTokens}) below threshold (${threshold}). No compression needed.
+[ContextGuard] Compressing history: ${messages.length} messages, ${currentTokens} tokens
+[ContextGuard] Summarization complete. Generated ${summary.length} chars.
+[ContextGuard] Using fallback summary for ${toCompress.length} messages
+```
+
+**Note**: Logs do not include message content (only metadata like counts and lengths).
+
+---
+
+*End of Security Documentation*

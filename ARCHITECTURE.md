@@ -491,6 +491,65 @@ Persistent Storage (.ai_toolbox_context.json)
     └── delete_context_entry(id) / clearContextMemory(confirm) → Management
 ```
 
+### ContextGuard Compression Flow (v1.4.0)
+
+```
+User Message Arrives
+    │
+    ▼
+promptPreprocessor()
+    │
+    ├── Check contextGuardEnabled config
+    │   │
+    │   └── Enabled?
+    │       │
+    │       ├── Yes: Count tokens in history
+    │       │         │
+    │       │         ├── Below 90% threshold? ──► Skip compression
+    │       │         │
+    │       │         └── Above 90% threshold?
+    │       │                 │
+    │       │                 ▼
+    │       │             compressHistory(messages)
+    │       │                 │
+    │       │                 ├── Identify messages to compress (all except last 10)
+    │       │                 ├── Send to summary model
+    │       │                 │   └── Use contextGuardSummaryModel or current chat model
+    │       │                 │
+    │       │                 ├── Generate summary with preserved file paths/names
+    │       │                 │
+    │       │                 ├── Calculate tokens saved
+    │       │                 │
+    │       │                 └── Inject visual indicator:
+    │       │                         │
+    │       │                         ├── 🧠 Emoji header
+    │       │                         ├── Messages compressed count
+    │       │                         ├── Tokens before → after (e.g., "~85k → ~42k")
+    │       │                         ├── Percentage saved (e.g., "Saved ~43,000 tokens (~51%)")
+    │       │                         ├── Timestamp
+    │       │                         └── Visual separator lines
+    │       │
+    │       └── No: Skip ContextGuard processing
+    │
+    ▼
+Final Prompt sent to LLM (with or without compression indicator)
+```
+
+**Visual Indicator Example:**
+```
+🧠 **ContextGuard Compression Active**
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• Compressed 15 message(s) into summary
+• Tokens before: ~85k → after: ~42k
+• **Saved ~43,000 tokens (~51%)**
+• Timestamp: 19:15:32
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+### CONTEXT SUMMARY (from 15 messages)
+[Summary content here...]
+```
+
 ---
 
 ## 🧩 Module Dependencies
@@ -535,10 +594,30 @@ ConfigSchema (Zod)
 ├── State Management (2 fields)
 ├── i18n (1 field)
 ├── Notifications (1 field)
-└── Temporal Awareness (2 fields: temporalAwareness, dateFormatStyle)
+├── Temporal Awareness (2 fields: temporalAwareness, dateFormatStyle)
+└── ContextGuard (6 fields): 🆕 v1.4.0
+    ├── contextGuardEnabled (boolean) — Master toggle
+    ├── contextGuardTokenLimit (number 1K-200K) — Compression threshold
+    ├── contextGuardSmartReading (boolean) — Keyword-based file reading
+    ├── contextGuardSummaryModel (string) — Dedicated summary model name
+    ├── contextGuardTerminalFilterEnabled (boolean) — Terminal output filtering
+    └── contextGuardTerminalFilterLength (number 100-20K) — Max terminal chars
 ```
 
 Each field maps to a UI element in LM Studio's settings panel via `createConfigSchematics()`.
+
+### ContextGuard Configuration Details (v1.4.0)
+
+| Config Key | UI Name | Type | Range | Default | Description |
+|------------|---------|------|-------|---------|-------------|
+| `contextGuardEnabled` | 🧠 ContextGuard Token Management | Boolean | — | `true` | Master switch for all ContextGuard features |
+| `contextGuardTokenLimit` | 📊 Token Limit Before Compression | Number | 1,000–200,000 | `80,000` | Compression triggers at **90%** of this value (e.g., 72k for 80k limit) |
+| `contextGuardSmartReading` | 🔍 Smart File Reading | Boolean | — | `true` | Extracts keywords from queries to read only relevant file portions |
+| `contextGuardSummaryModel` | 🤖 Summary Model Name | String | Any model name | `""` (current chat model) | Dedicated LM Studio model for summarization tasks |
+| `contextGuardTerminalFilterEnabled` | 📌 Terminal Output Filtering | Boolean | — | `true` | Auto-truncates long terminal outputs to save tokens |
+| `contextGuardTerminalFilterLength` | 📏 Max Terminal Output Length | Number | 100–20,000 | `2,000` | Characters before terminal output is truncated |
+
+**Access Path:** LM Studio → Plugins → AI Toolbox → ⚙️ Settings → Scroll to "🧠 ContextGuard Token Management" section
 
 ---
 

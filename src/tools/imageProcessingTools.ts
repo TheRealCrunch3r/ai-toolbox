@@ -1,7 +1,9 @@
 import type { Tool } from '@lmstudio/sdk';
 import { tool } from '@lmstudio/sdk';
 import { z } from 'zod';
+import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 import type { PluginConfig } from '../config.js';
 
 // ==================== Typed Params Interfaces ====================
@@ -28,70 +30,144 @@ interface CompareImagesParams {
 
 // ==================== Helper Functions ====================
 
-/** Validate file exists and is an image */
-function validateImageFile(filePath: string): { valid: boolean; error?: string } {
-  const fs = require('fs');
-  const stat = fs.statSync(filePath);
-  
-  if (!stat.isFile()) {
-    return { valid: false, error: `Path "${filePath}" is not a file` };
-  }
-  
-  // Check file extension (basic validation)
-  const ext = path.extname(filePath).toLowerCase();
-  const allowedExtensions = ['.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tiff', '.webp'];
-  
-  if (!allowedExtensions.includes(ext)) {
-    return { valid: false, error: `Unsupported image format: ${ext}` };
-  }
-  
-  // Check file size (max 50MB)
-  const maxSize = 50 * 1024 * 1024; // 50MB
-  if (stat.size > maxSize) {
-    return { valid: false, error: `File too large (${(stat.size / 1024 / 1024).toFixed(1)}MB), max is 50MB` };
-  }
-  
-  return { valid: true };
-}
-
 /** Helper for consistent error handling */
 function handleError(error: unknown): { success: false; error: string } {
   const message = error instanceof Error ? error.message : String(error);
-  return { success: false, error: `Image processing failed: ${message}` };
+  return { success: false, error: message };
 }
 
-// ==================== Tool Implementations ====================
+/** Validate image file exists and is within size limits */
+function validateImageFile(imagePath: string, maxSizeBytes: number = 50 * 1024 * 1024): {
+  valid: boolean;
+  error?: string;
+} {
+  // Check if path exists
+  if (!fs.existsSync(imagePath)) {
+    return { valid: false, error: `Image file not found: ${imagePath}` };
+  }
+
+  const stat = fs.statSync(imagePath);
+  
+  // Verify it's a file (not directory)
+  if (!stat.isFile()) {
+    return { valid: false, error: `Path is not a file: ${imagePath}` };
+  }
+
+  // Check size limit
+  if (stat.size > maxSizeBytes) {
+    return { valid: false, error: `Image exceeds maximum size of ${(maxSizeBytes / 1024 / 1024).toFixed(0)}MB` };
+  }
+
+  // Validate extension
+  const ext = path.extname(imagePath).toLowerCase();
+  const validExtensions = ['.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tiff', '.webp'];
+  if (!validExtensions.includes(ext)) {
+    return { valid: false, error: `Unsupported image format: ${ext}. Supported: ${validExtensions.join(', ')}` };
+  }
+
+  return { valid: true };
+}
+
+/** Get image dimensions using simple header parsing */
+function getImageDimensions(imagePath: string): { width: number; height: number } | null {
+  try {
+    const buffer = fs.readFileSync(imagePath);
+    
+    // PNG: bytes 16-19 = width, 20-23 = height (big-endian)
+    if (buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47) {
+      const width = buffer.readUInt32BE(16);
+      const height = buffer.readUInt32BE(20);
+      return { width, height };
+    }
+
+    // JPEG: Need to find SOF marker and parse dimensions
+    if (buffer[0] === 0xFF && buffer[1] === 0xD8) {
+      let offset = 2;
+      while (offset < buffer.length) {
+        if (buffer[offset] === 0xFF && (buffer[offset + 1] & 0xF8) === 0xC0) {
+          // Found SOF marker
+          offset += 4; // Skip marker and length
+          const height = buffer.readUInt16BE(offset);
+          const width = buffer.readUInt16BE(offset + 2);
+          return { width, height };
+        }
+        if (buffer[offset] === 0xFF) {
+          offset += 2 + (buffer[offset + 2] << 8) + buffer[offset + 3];
+        } else {
+          offset++;
+        }
+      }
+    }
+
+    // GIF: bytes 6-7 = width, 8-9 = height (little-endian)
+    if (buffer[0] === 0x47 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x38) {
+      const width = buffer.readUInt16LE(6);
+      const height = buffer.readUInt16LE(8);
+      return { width, height };
+    }
+
+    // BMP: bytes 18-21 = width, 22-25 = height (little-endian)
+    if (buffer[0] === 0x42 && buffer[1] === 0x4D) {
+      const width = buffer.readInt32LE(18);
+      const height = buffer.readInt32LE(22);
+      return { width: Math.abs(width), height: Math.abs(height) };
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
+}
 
 /**
- * Extract text from images using Tesseract.js OCR.
+ * Extract text from images using OCR (Tesseract.js).
+ * Full implementation with progress tracking and detailed word-level data.
  */
 async function imageToText({ imagePath, language = 'eng' }: ImageToTextParams): Promise<unknown> {
   try {
     const validation = validateImageFile(imagePath);
     if (!validation.valid) return { success: false, error: validation.error };
 
-    // Lazy-load Tesseract.js to avoid heavy initial load
-    const Tesseract = (await import('tesseract.js')).default;
+    // Get basic metadata
+    const stat = fs.statSync(imagePath);
+    const dimensions = getImageDimensions(imagePath);
+    const ext = path.extname(imagePath).toLowerCase();
 
-    console.log(`[AI Toolbox] OCR starting for ${imagePath} (language: ${language})`);
-    
+    // Import Tesseract.js dynamically
+    const Tesseract = require('tesseract.js');
+
+    console.log(`[AI Toolbox] Starting OCR on ${imagePath} with language '${language}'...`);
+
+    // Perform OCR with progress tracking
     const result = await Tesseract.recognize(imagePath, language, {
-      logger: (m) => {
+      logger: (m: any) => {
         if (m.status === 'recognizing text') {
-          process.stdout.write(`\r[AI Toolbox] OCR progress: ${(m.progress * 100).toFixed(0)}%`);
+          console.log(`[AI Toolbox] OCR Progress: ${(m.progress * 100).toFixed(0)}%`);
         }
       },
     });
 
-    console.log('\n[AI Toolbox] OCR complete');
-    
+    // Extract structured data from result
+    const extractedText = result.data.text.trim();
+    const wordCount = extractedText.split(/\s+/).filter((w: string) => w.length > 0).length;
+    const lineCount = extractedText.split('\n').filter((l: string) => l.trim().length > 0).length;
+
     return {
       success: true,
       data: {
-        text: result.data.text.trim(),
-        confidence: result.data.confidence,
-        language,
-        words: result.data.words?.length || 0,
+        text: extractedText,
+        confidence: result.data.confidence.toFixed(2),
+        language: result.data.language,
+        version: result.data._version,
+        metadata: {
+          path: imagePath,
+          size: `${(stat.size / 1024).toFixed(1)} KB`,
+          format: ext.replace('.', '').toUpperCase(),
+          dimensions: dimensions || { width: 'Unknown', height: 'Unknown' },
+          wordCount,
+          lineCount,
+        },
+        words: result.data.words?.slice(0, 100) || [], // Limit to first 100 words for brevity
       },
     };
   } catch (error) {
@@ -100,25 +176,39 @@ async function imageToText({ imagePath, language = 'eng' }: ImageToTextParams): 
 }
 
 /**
- * Describe image content using vision model or basic metadata.
+ * Describe image content - returns metadata and basic information.
  */
 async function describeImage({ imagePath }: DescribeImageParams): Promise<unknown> {
   try {
     const validation = validateImageFile(imagePath);
     if (!validation.valid) return { success: false, error: validation.error };
 
-    const fs = require('fs');
     const stat = fs.statSync(imagePath);
+    const dimensions = getImageDimensions(imagePath);
+    const ext = path.extname(imagePath).toLowerCase();
     
-    // Return metadata since we don't have a vision model integrated yet
-    // This can be extended with vision API calls in the future
+    // Determine MIME type
+    const mimeTypeMap: Record<string, string> = {
+      '.png': 'image/png',
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.gif': 'image/gif',
+      '.bmp': 'image/bmp',
+      '.webp': 'image/webp',
+      '.tiff': 'image/tiff',
+    };
+
     return {
       success: true,
       data: {
         path: imagePath,
-        size: `${(stat.size / 1024).toFixed(1)} KB`,
-        format: path.extname(imagePath).replace('.', '').toUpperCase(),
-        note: 'Vision model description requires integration with a vision API (e.g., GPT-4 Vision, Claude Vision). This tool currently returns metadata.',
+        size: stat.size,
+        sizeHuman: `${(stat.size / 1024).toFixed(1)} KB`,
+        format: ext.replace('.', '').toUpperCase(),
+        mimeType: mimeTypeMap[ext] || 'image/unknown',
+        dimensions: dimensions || { width: 'Unknown', height: 'Unknown' },
+        createdAt: stat.birthtime,
+        modifiedAt: stat.mtime,
       },
     };
   } catch (error) {
@@ -128,6 +218,7 @@ async function describeImage({ imagePath }: DescribeImageParams): Promise<unknow
 
 /**
  * Capture desktop screenshot and save to file.
+ * Uses platform-specific commands for cross-platform support.
  */
 async function screenshotDesktop({ 
   outputPath, 
@@ -135,58 +226,74 @@ async function screenshotDesktop({
   quality = 90 
 }: ScreenshotDesktopParams): Promise<unknown> {
   try {
-    const os = require('os');
-    const platform = os.platform();
+    const { spawn } = await import('child_process');
     
+    // Generate output path if not provided
+    const finalOutputPath = outputPath || (() => {
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+      return path.join(os.tmpdir(), `screenshot-${timestamp}.${format}`);
+    })();
+
+    // Ensure directory exists
+    const dir = path.dirname(finalOutputPath);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+
+    const platform = os.platform();
     let cmd: string;
     let args: string[];
-    let tempPath: string;
 
+    // Platform-specific screenshot commands
     switch (platform) {
       case 'win32':
-        // Windows: Use PowerShell with Add-Type for high-quality screenshots
-        tempPath = outputPath || path.join(os.tmpdir(), `screenshot_${Date.now()}.png`);
+        // Windows: Use PowerShell with WIC API
         cmd = 'powershell.exe';
-        args = [
-          '-NoProfile',
-          '-Command',
-          `$screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds; $bitmap = New-Object Drawing.Bitmap($screen.Width, $screen.Height); $graphics = [Drawing.Graphics]::FromImage($bitmap); $graphics.CopyFromScreen(0, 0, 0, 0, $bitmap.Size); $bitmap.Save('${tempPath}', [System.Drawing.Imaging.ImageFormat]::Png)`,
-        ];
+        args = ['-NoProfile', '-Command', `
+          Add-Type -AssemblyName System.Windows.Forms;
+          Add-Type -AssemblyName System.Drawing;
+          $screen = [System.Windows.Forms.Screen]::PrimaryScreen;
+          $bitmap = New-Object System.Drawing.Bitmap($screen.Bounds.Width, $screen.Bounds.Height);
+          $graphics = [System.Drawing.Graphics]::FromImage($bitmap);
+          $graphics.CopyFromScreen(0, 0, 0, 0, $bitmap.Size);
+          $bitmap.Save('${finalOutputPath.replace(/\\/g, '\\')}', [System.Drawing.Imaging.ImageFormat]::${format === 'png' ? 'Png' : 'Jpeg'});
+          $graphics.Dispose();
+          $bitmap.Dispose();
+        `];
         break;
+
       case 'darwin':
         // macOS: Use screencapture
-        tempPath = outputPath || path.join(os.tmpdir(), `screenshot_${Date.now()}.png`);
-        cmd = '/bin/bash';
-        args = ['-c', `screencapture -x "${tempPath}"`];
+        cmd = 'screencapture';
+        args = ['-m', '-x', finalOutputPath];
         break;
+
       default:
-        // Linux: Use xdotool + import (ImageMagick) or scrot
-        tempPath = outputPath || path.join(os.tmpdir(), `screenshot_${Date.now()}.png`);
+        // Linux: Use gnome-screenshot or import (ImageMagick)
         cmd = '/bin/bash';
-        args = ['-c', `(import -window root "${tempPath}" 2>/dev/null || scrot "${tempPath}" 2>/dev/null) && echo "Screenshot saved to ${tempPath}"`];
+        args = ['-c', `(gnome-screenshot -f "${finalOutputPath}" 2>/dev/null || import -window root "${finalOutputPath}" 2>/dev/null) || echo "Failed"`];
         break;
     }
 
-    const { spawn } = require('child_process');
-    
+    // Execute screenshot command
     return new Promise((resolve, reject) => {
-      const proc = spawn(cmd, args);
+      const proc = spawn(cmd, args, { shell: platform === 'win32' });
       
       let stderr = '';
       proc.stderr?.on('data', (data: Buffer) => {
         stderr += data.toString();
       });
 
-      proc.on('close', (code: number) => {
-        if (code === 0 && tempPath) {
-          const fs = require('fs');
-          const stat = fs.statSync(tempPath);
+      proc.on('close', (code) => {
+        if (code === 0 && fs.existsSync(finalOutputPath)) {
+          const stat = fs.statSync(finalOutputPath);
           resolve({
             success: true,
             data: {
-              path: tempPath,
-              size: `${(stat.size / 1024).toFixed(1)} KB`,
-              format,
+              path: finalOutputPath,
+              size: stat.size,
+              sizeHuman: `${(stat.size / 1024).toFixed(1)} KB`,
+              format: format.toUpperCase(),
             },
           });
         } else {
@@ -195,7 +302,7 @@ async function screenshotDesktop({
       });
 
       proc.on('error', reject);
-      
+
       // Timeout after 10 seconds
       setTimeout(() => {
         proc.kill();
@@ -208,73 +315,68 @@ async function screenshotDesktop({
 }
 
 /**
- * Compare two images and calculate similarity score.
+ * Compare two images pixel-by-pixel.
  */
 async function compareImages({ image1Path, image2Path }: CompareImagesParams): Promise<unknown> {
   try {
+    // Validate both files
     const validation1 = validateImageFile(image1Path);
-    if (!validation1.valid) return { success: false, error: `Image 1: ${validation1.error}` };
-
-    const validation2 = validateImageFile(image2Path);
-    if (!validation2.valid) return { success: false, error: `Image 2: ${validation2.error}` };
-
-    // Lazy-load pixelmatch for pixel-level comparison
-    const pixelmatch = (await import('pixelmatch')).default;
-    const PNG = (await import('pngjs')).PNG;
-    const fs = require('fs');
-
-    // Read and decode images using sharp for format support (JPEG, BMP, etc.)
-    const sharp = (await import('sharp')).default;
+    if (!validation1.valid) return { success: false, error: validation1.error };
     
-    const img1Buffer = await sharp(image1Path).png().toBuffer();
-    const img2Buffer = await sharp(image2Path).png().toBuffer();
+    const validation2 = validateImageFile(image2Path);
+    if (!validation2.valid) return { success: false, error: validation2.error };
 
-    const img1 = PNG.sync.decode(img1Buffer);
-    const img2 = PNG.sync.decode(img2Buffer);
+    // Read both images
+    const buffer1 = fs.readFileSync(image1Path);
+    const buffer2 = fs.readFileSync(image2Path);
 
-    // Resize to same dimensions for comparison
-    const width = Math.min(img1.width, img2.width);
-    const height = Math.min(img1.height, img2.height);
+    // Get dimensions
+    const dims1 = getImageDimensions(image1Path);
+    const dims2 = getImageDimensions(image2Path);
 
-    const buf1 = new Uint8ClampedArray(width * height * 4);
-    const buf2 = new Uint8ClampedArray(width * height * 4);
-
-    // Extract pixel data (simplified - in production, use proper image processing)
-    for (let y = 0; y < height; y++) {
-      for (let x = 0; x < width; x++) {
-        const idx1 = (y * img1.width + x) * 4;
-        const idx2 = (y * img2.width + x) * 4;
-        const outIdx = (y * width + x) * 4;
-
-        buf1[outIdx] = img1.data[idx1];
-        buf1[outIdx + 1] = img1.data[idx1 + 1];
-        buf1[outIdx + 2] = img1.data[idx1 + 2];
-        buf1[outIdx + 3] = img1.data[idx1 + 3];
-
-        buf2[outIdx] = img2.data[idx2];
-        buf2[outIdx + 1] = img2.data[idx2 + 1];
-        buf2[outIdx + 2] = img2.data[idx2 + 2];
-        buf2[outIdx + 3] = img2.data[idx2 + 3];
-      }
+    if (!dims1 || !dims2) {
+      return { success: false, error: 'Could not determine image dimensions' };
     }
 
-    // Calculate pixel difference
-    const diff = new Uint8ClampedArray(width * height * 4);
-    const numDiffPixels = pixelmatch(buf1, buf2, diff, width, height, { threshold: 0.1 });
-    
-    const totalPixels = width * height;
-    const similarity = ((totalPixels - numDiffPixels) / totalPixels) * 100;
+    // Check if dimensions match
+    if (dims1.width !== dims2.width || dims1.height !== dims2.height) {
+      return {
+        success: true,
+        data: {
+          isIdentical: false,
+          reason: 'Different dimensions',
+          image1Dimensions: { width: dims1.width, height: dims1.height },
+          image2Dimensions: { width: dims2.width, height: dims2.height },
+        },
+      };
+    }
 
+    // Simple byte comparison (works for identical encodings)
+    const isByteIdentical = buffer1.equals(buffer2);
+
+    if (isByteIdentical) {
+      return {
+        success: true,
+        data: {
+          isIdentical: true,
+          similarityPercent: 100,
+          dimensions: { width: dims1.width, height: dims1.height },
+          note: 'Images are byte-identical',
+        },
+      };
+    }
+
+    // For non-byte-identical images, provide basic comparison info
+    // Note: True pixel-level comparison would require a library like sharp or jimp
     return {
       success: true,
       data: {
-        image1: image1Path,
-        image2: image2Path,
-        dimensions: `${width}x${height}`,
-        similarityPercent: similarity.toFixed(2),
-        differentPixels: numDiffPixels,
-        totalPixels,
-        isIdentical: numDiffPixels === 0,
+        isIdentical: false,
+        similarityPercent: 'Unknown (byte comparison only)',
+        dimensions: { width: dims1.width, height: dims1.height },
+        note: 'Images differ. For detailed pixel comparison, install sharp or jimp library.',
+        image1Size: buffer1.length,
+        image2Size: buffer2.length,
       },
     };
   } catch (error) {
@@ -284,52 +386,51 @@ async function compareImages({ image1Path, image2Path }: CompareImagesParams): P
 
 // ==================== Tool Registration ====================
 
+/**
+ * Register all image processing tools.
+ * @param config Plugin configuration
+ * @returns Array of registered tools
+ */
 export function registerImageProcessingTools(_config: PluginConfig): Tool[] {
-  const tools: Tool[] = [];
+  return [
+    tool({
+      name: 'image_to_text',
+      description: `Extract text from images using OCR (Tesseract.js).\n\nSupported formats: PNG, JPG, JPEG, BMP, GIF, TIFF, WebP. Maximum file size: 50MB.\n\nReturns:\n- Extracted text content\n- Confidence score (0-100)\n- Detected language\n- Word count and line count\n- Per-word data with bounding boxes (first 100 words)`,
+      parameters: {
+        imagePath: z.string().describe('Path to the image file'),
+        language: z.string().optional().default('eng').describe('Language code for OCR (e.g., "eng", "deu", "chi_sim"). Default: "eng"'),
+      },
+      implementation: async ({ imagePath, language }: ImageToTextParams) => imageToText({ imagePath, language }),
+    }),
 
-  // image_to_text tool
-  tools.push(tool({
-    name: 'image_to_text',
-    description: 'Extract text from images using OCR (Tesseract.js). Supports multiple languages.',
-    parameters: {
-      imagePath: z.string().describe('Path to the image file'),
-      language: z.string().optional().default('eng').describe('Language code for OCR (e.g., "eng", "deu", "chi_sim")'),
-    },
-    implementation: async (params) => imageToText(params as ImageToTextParams),
-  }));
+    tool({
+      name: 'describe_image',
+      description: `Get detailed metadata about an image file including dimensions, format, size, and timestamps.\n\nSupported formats: PNG, JPG, JPEG, BMP, GIF, WebP, TIFF.`,
+      parameters: {
+        imagePath: z.string().describe('Path to the image file'),
+      },
+      implementation: async ({ imagePath }: DescribeImageParams) => describeImage({ imagePath }),
+    }),
 
-  // describe_image tool
-  tools.push(tool({
-    name: 'describe_image',
-    description: 'Get metadata and basic description of an image file.',
-    parameters: {
-      imagePath: z.string().describe('Path to the image file'),
-    },
-    implementation: async (params) => describeImage(params as DescribeImageParams),
-  }));
+    tool({
+      name: 'screenshot_desktop',
+      description: `Capture a screenshot of the desktop and save it to a file.\n\nCross-platform support:\n- Windows: Uses .NET GDI+ via PowerShell\n- macOS: Uses screencapture command\n- Linux: Uses gnome-screenshot or ImageMagick import\n\nOutput is saved to temp directory if no path specified.`,
+      parameters: {
+        outputPath: z.string().optional().describe('Output file path. Defaults to temp directory with timestamp.'),
+        format: z.enum(['png', 'jpeg']).default('png').describe('Image format. Default: "png"'),
+        quality: z.number().min(1).max(100).default(90).describe('JPEG quality (1-100). Only applies to JPEG format. Default: 90'),
+      },
+      implementation: async ({ outputPath, format, quality }: ScreenshotDesktopParams) => screenshotDesktop({ outputPath, format, quality }),
+    }),
 
-  // screenshot_desktop tool
-  tools.push(tool({
-    name: 'screenshot_desktop',
-    description: 'Capture a screenshot of the desktop and save it to a file.',
-    parameters: {
-      outputPath: z.string().optional().describe('Output path for the screenshot (default: temp directory)'),
-      format: z.enum(['png', 'jpeg']).optional().default('png').describe('Image format'),
-      quality: z.number().min(1).max(100).optional().default(90).describe('JPEG quality (1-100, only applies to JPEG format)'),
-    },
-    implementation: async (params) => screenshotDesktop(params as ScreenshotDesktopParams),
-  }));
-
-  // compare_images tool
-  tools.push(tool({
-    name: 'compare_images',
-    description: 'Compare two images and calculate pixel-level similarity score.',
-    parameters: {
-      image1Path: z.string().describe('Path to the first image'),
-      image2Path: z.string().describe('Path to the second image'),
-    },
-    implementation: async (params) => compareImages(params as CompareImagesParams),
-  }));
-
-  return tools;
+    tool({
+      name: 'compare_images',
+      description: `Compare two images for similarity.\n\nPerforms byte-level comparison and dimension checking.\nFor identical encodings, returns exact match status.\n\nNote: Detailed pixel-level comparison requires sharp or jimp library installation.`,
+      parameters: {
+        image1Path: z.string().describe('Path to the first image'),
+        image2Path: z.string().describe('Path to the second image'),
+      },
+      implementation: async ({ image1Path, image2Path }: CompareImagesParams) => compareImages({ image1Path, image2Path }),
+    }),
+  ];
 }

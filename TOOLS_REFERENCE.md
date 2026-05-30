@@ -1193,3 +1193,78 @@ Context entries are persisted to `.ai_toolbox_context.json` in the current worki
 | Vector RAG | ✅ Enabled | Low |
 | Interactive UI Generation | ❌ Disabled | Low |
 | Auto-Context Management | ✅ Enabled | Low |
+
+---
+
+## 🛡️ ContextGuard Settings (v1.4.0)
+
+ContextGuard is **not a tool** but an automatic context management system with explicit UI controls.
+
+### Access Path
+```
+LM Studio → Plugins → AI Toolbox → ⚙️ Settings → Scroll to "🧠 ContextGuard Token Management"
+```
+
+### Configuration Options
+
+| Setting | Type | Range | Default | Description |
+|---------|------|-------|---------|-------------|
+| **🧠 ContextGuard Token Management** | Toggle | — | ✅ Enabled | Master switch for all ContextGuard features (compression, smart reading, terminal filtering) |
+| **📊 Token Limit Before Compression** | Numeric | 1,000–200,000 | `80,000` | Maximum tokens before compression triggers. **Compression activates at 90%** of this value (e.g., 72k for 80k limit) |
+| **🔍 Smart File Reading** | Toggle | — | ✅ Enabled | Extracts keywords from user queries to read only relevant portions of files. Saves tokens and speeds up responses |
+| **🤖 Summary Model Name** | Text Input | Any model name | *(empty)* | LM Studio model name used for history summarization. Leave empty to use your current chat model |
+| **📌 Terminal Output Filtering** | Toggle | — | ✅ Enabled | Automatically truncates long terminal outputs (npm install, stack traces) to save tokens |
+| **📏 Max Terminal Output Length** | Numeric | 100–20,000 | `2,000` | Maximum characters before terminal output is truncated and summarized |
+
+### Visual Indicator (When Compression Activates)
+
+When ContextGuard compresses chat history, a visual indicator appears:
+
+```
+🧠 **ContextGuard Compression Active**
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• Compressed 15 message(s) into summary
+• Tokens before: ~85k → after: ~42k
+• **Saved ~43,000 tokens (~51%)**
+• Timestamp: 19:15:32
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+### CONTEXT SUMMARY (from 15 messages)
+[Summary content here...]
+```
+
+### Recommended Settings by Use Case
+
+| Use Case | Token Limit | Smart Reading | Terminal Filter | Summary Model |
+|----------|-------------|---------------|-----------------|---------------|
+| **Short Sessions** (<20 messages) | 100,000+ | ✅ Enabled | ✅ Enabled | Current chat model |
+| **Long Coding Sessions** (hours) | 50,000–80,000 | ✅ Enabled | ✅ Enabled | `gemma-2b` or `phi-3-mini` |
+| **Heavy Terminal Output** (npm install, logs) | 40,000–60,000 | ✅ Enabled | ✅ Enabled (1,000 chars) | Current chat model |
+| **Memory-Constrained Systems** | 20,000–40,000 | ✅ Enabled | ✅ Enabled (500 chars) | Small fast model |
+
+### Troubleshooting
+
+| Issue | Solution |
+|-------|----------|
+| Compression not triggering | Increase token limit or have longer conversation |
+| Visual indicator missing | Check `contextGuardEnabled` is toggled ON |
+| Summary quality poor | Set dedicated summary model (e.g., `gemma-2b`) |
+| Terminal output too truncated | Increase `Max Terminal Output Length` setting |
+
+### Config Key Reference (for developers)
+
+```typescript
+interface ContextGuardConfig {
+  contextGuardEnabled: boolean;              // Master toggle
+  contextGuardTokenLimit: number;            // Token limit (1K-200K)
+  contextGuardSmartReading: boolean;         // Smart file reading
+  contextGuardSummaryModel: string;          // Summary model name
+  contextGuardTerminalFilterEnabled: boolean;// Terminal filtering
+  contextGuardTerminalFilterLength: number;  // Max terminal chars (100-20K)
+}
+```
+
+---
+
+*End of Tools Reference*

@@ -16,6 +16,7 @@
     "check:circular": "npx madge --circular src/index.ts"
   },
   "dependencies": {
+    "@dqbd/tiktoken": "^1.0.22",
     "@lmstudio/sdk": "^1.5.0",
     "duck-duck-scrape": "^2.2.7",
     "html-to-text": "^9.0.5",

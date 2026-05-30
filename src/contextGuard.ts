@@ -91,7 +91,26 @@ export class ContextGuard {
     
     this.cachedTokenCount = count;
     this._lastMessageHash = this.computeMessageHash(messages);  // FIX #1: Store hash
+    
     return count;
+  }
+
+  /**
+   * Tracks whether compression was performed in the last operation.
+   */
+  private _lastCompressionInfo: {
+    compressed: boolean;
+    originalTokens?: number;
+    compressedTokens?: number;
+    messagesCompressed?: number;
+    timestamp?: Date;
+  } | null = null;
+
+  /**
+   * Gets information about the last compression operation.
+   */
+  getLastCompressionInfo(): typeof this._lastCompressionInfo {
+    return this._lastCompressionInfo;
   }
 
   /**
@@ -102,35 +121,138 @@ export class ContextGuard {
     const threshold = this.config.tokenLimit * 0.9;
 
     if (currentTokens < threshold) {
+      console.log(`[ContextGuard] Token count (${currentTokens}) below threshold (${threshold}). No compression needed.`);
+      this._lastCompressionInfo = { compressed: false };
       return messages;
     }
+
+    const originalTokenCount = currentTokens;
+    const originalMessageCount = messages.length;
+
+    console.log(`[ContextGuard] Compressing history: ${messages.length} messages, ${currentTokens} tokens (threshold: ${threshold})`);
 
     const keepLast = 10;
     const toCompress = messages.slice(0, -keepLast);
     
-    if (toCompress.length === 0) return messages;
+    if (toCompress.length === 0) {
+      console.log(`[ContextGuard] No messages to compress (only ${messages.length} total, keeping last ${keepLast})`);
+      return messages;
+    }
 
     // Use local model for summarization
     if (this.lmClient && this.config.summaryModel) {
       try {
+        console.log(`[ContextGuard] Loading model: ${this.config.summaryModel}`);
         const model = await this.lmClient.llm.model(this.config.summaryModel);
-        const summaryPrompt = `Summarize the following conversation history into a concise technical summary. Preserve all file paths, function names, and key logic, but discard verbose code blocks and terminal noise.\n\nHistory:\n${toCompress.map(m => `${m.role}: ${m.content}`).join('\n')}`;
         
-        const response = await model.complete(summaryPrompt, { maxTokens: 1024, temperature: 0.1 });
-        const summary = response.content || `[ContextGuard Summary: ${toCompress.length} older messages compressed.]`;
+        // Build summary prompt with conversation history
+        const historyText = toCompress.map(m => {
+          const role = (m.role || 'user').toUpperCase();
+          return `[${role}] ${m.content || ''}`;
+        }).join('\n\n');
+        
+        const summaryPrompt = `You are an intelligent context compressor. Summarize the following conversation history into a concise technical summary.
+
+INSTRUCTIONS:
+1. Preserve ALL file paths, function names, class names, and variable names exactly as written
+2. Keep key logic descriptions and architectural decisions
+3. Discard verbose code blocks — describe them instead
+4. Remove terminal noise, progress indicators, and repetitive output
+5. Maintain chronological flow of the conversation
+6. Be precise but brief (max 500 words)
+
+CONVERSATION HISTORY TO SUMMARIZE:
+${historyText}
+
+SUMMARY:`;
+        
+        console.log(`[ContextGuard] Sending summarization request for ${toCompress.length} messages...`);
+        
+        // Use respond() for chat-based interaction (more reliable than complete())
+        const response = model.respond(
+          [{ role: 'user', content: summaryPrompt }],
+          { maxTokens: 1024, temperature: 0.1 }
+        );
+        
+        // Wait for the result
+        const result = await response.result();
+        const summary = result.content || `[ContextGuard Summary: ${toCompress.length} older messages compressed.]`;
+        
+        console.log(`[ContextGuard] Summarization complete. Generated ${summary.length} chars.`);
+        
+        // Count tokens after compression
+        const compressedPreview = [
+          { role: 'system', content: `### CONTEXT SUMMARY (compressed from ${toCompress.length} messages)\n${summary}` },
+          ...messages.slice(-keepLast)
+        ];
+        const compressedTokenCount = await this.countTokens(compressedPreview);
+        
+        // Track compression info
+        this._lastCompressionInfo = {
+          compressed: true,
+          originalTokens: originalTokenCount,
+          compressedTokens: compressedTokenCount,
+          messagesCompressed: toCompress.length,
+          timestamp: new Date()
+        };
+        
+        const tokensSaved = originalTokenCount - compressedTokenCount;
+        const percentageSaved = Math.round((tokensSaved / originalTokenCount) * 100);
+        
+        // Visual indicator message
+        const visualIndicator = {
+          role: 'system' as const,
+          content: `🧠 **ContextGuard Compression Active**\n\n` +
+                   `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+                   `• Compressed ${toCompress.length} message(s) into summary\n` +
+                   `• Tokens before: ~${Math.round(originalTokenCount / 1000)}k → after: ~${Math.round(compressedTokenCount / 1000)}k\n` +
+                   `• **Saved ~${tokensSaved.toLocaleString()} tokens (~${percentageSaved}%)**\n` +
+                   `• Timestamp: ${new Date().toLocaleTimeString()}\n` +
+                   `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+                   `### CONTEXT SUMMARY (from ${toCompress.length} messages)\n${summary}`
+        };
         
         return [
-          { role: 'system', content: summary },
+          visualIndicator,
           ...messages.slice(-keepLast)
         ];
       } catch (error) {
-        console.warn(`[ContextGuard] Summarization failed: ${(error as Error).message}`);
+        console.error(`[ContextGuard] Summarization failed: ${(error as Error).message}`);
+        console.error(`[ContextGuard] Stack: ${(error as Error).stack}`);
       }
+    } else {
+      console.warn(`[ContextGuard] No LM client or summary model configured. Using fallback.`);
     }
 
-    // Fallback if no model or error
+    // Fallback if no model, error, or summarization failed
+    const fallbackSummary = `[ContextGuard Summary: ${toCompress.length} older messages compressed to save context. Original content unavailable due to compression failure or missing model.]`;
+    console.log(`[ContextGuard] Using fallback summary for ${toCompress.length} messages`);
+    
+    // Track compression info (estimate tokens saved)
+    const estimatedTokensSaved = Math.round(originalTokenCount * 0.7); // Estimate ~70% savings
+    this._lastCompressionInfo = {
+      compressed: true,
+      originalTokens: originalTokenCount,
+      compressedTokens: originalTokenCount - estimatedTokensSaved,
+      messagesCompressed: toCompress.length,
+      timestamp: new Date()
+    };
+    
+    // Visual indicator for fallback
+    const fallbackIndicator = {
+      role: 'system' as const,
+      content: `🧠 **ContextGuard Compression Active (Fallback Mode)**\n\n` +
+               `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+               `• Compressed ${toCompress.length} message(s)\n` +
+               `• Estimated tokens saved: ~${estimatedTokensSaved.toLocaleString()}\n` +
+               `• Note: Full summarization unavailable (model not configured or error occurred)\n` +
+               `• Timestamp: ${new Date().toLocaleTimeString()}\n` +
+               `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+               `### CONTEXT SUMMARY\n${fallbackSummary}`
+    };
+    
     return [
-      { role: 'system', content: `[ContextGuard Summary: ${toCompress.length} older messages compressed to save context. Key file paths and logic preserved.]` },
+      fallbackIndicator,
       ...messages.slice(-keepLast)
     ];
   }
