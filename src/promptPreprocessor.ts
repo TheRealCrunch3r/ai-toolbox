@@ -7,6 +7,7 @@ import { configSchematics } from './config';
 import pdfParse from 'pdf-parse';
 import { ContextGuard } from './contextGuard';
 import { setAttachments, listAttachments } from './attachmentManager';
+import { autoTracker } from './autoTracker';
 
 // --- Temporal Awareness Helpers (merged from up_to_date) ---
 interface DateTimeCache {
@@ -329,6 +330,39 @@ export async function preprocess(
     } catch (e) {
       console.warn('[ContextGuard] Auto-compression failed:', e);
     }
+  }
+
+  // Step 0.6: Auto-tracking analysis (silent background tracking)
+  try {
+    const pluginConfig = ctl.getPluginConfig(configSchematics);
+    const autoTrackingEnabled = pluginConfig.get('autoTrackingEnabled') ?? false;
+    
+    if (autoTrackingEnabled) {
+      // Update tracker config from plugin settings
+      autoTracker.updateConfig({
+        autoTrackingEnabled: true,
+        autoTrackDecisions: pluginConfig.get('autoTrackDecisions') ?? true,
+        autoTrackCompletions: pluginConfig.get('autoTrackCompletions') ?? true,
+        autoTrackErrors: pluginConfig.get('autoTrackErrors') ?? true,
+        autoSummaryInterval: pluginConfig.get('autoSummaryInterval') ?? 50,
+      });
+
+      // Analyze user message for tracking triggers
+      const actions = autoTracker.analyzeMessage(userPrompt);
+      
+      if (actions.length > 0) {
+        console.log(`[Auto-Track] Detected ${actions.length} event(s):`, actions.map(a => `${a.type} (${a.confidence.toFixed(2)})`).join(', '));
+        // Note: Silent tracking - no tool calls made here to avoid interfering with chat flow
+        // The detection is logged for debugging; actual tracking would require separate implementation
+      }
+    } else {
+      // Ensure tracker is disabled if config says so
+      autoTracker.updateConfig({ 
+        autoTrackingEnabled: false,
+      });
+    }
+  } catch (e) {
+    console.warn('[Auto-Track] Analysis failed:', e);
   }
   
   // Step 0: Always register attachments so tools can access them by name

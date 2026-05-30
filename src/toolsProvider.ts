@@ -25,6 +25,7 @@ import { registerRagTools } from './tools/vectorRagTools';
 import { registerUiGenerationTools } from './tools/uiGenerationTools';
 import { registerContextManagementTools } from './tools/contextManagementTools';
 import { registerDocumentTools } from './tools/documentTools';
+import { registerBackupTools } from './tools/backupTools';
 
 // ==================== TYPES ====================
 
@@ -73,7 +74,7 @@ class ToolRegistry {
 
     // ── 🆕 NEW TOOL CATEGORIES ──────────────────────────────────────
     if (config.godMode || isToolEnabled(config, 'imageProcessing')) {
-      registerImageProcessingTools(config, lmClient).forEach(t => this.toolMap.set(t.name, t as TypedTool));
+      registerImageProcessingTools(config).forEach(t => this.toolMap.set(t.name, t as TypedTool));
     }
     if (config.godMode || isToolEnabled(config, 'httpClient')) {
       registerHttpClientTools(config).forEach(t => this.toolMap.set(t.name, t as TypedTool));
@@ -87,6 +88,8 @@ class ToolRegistry {
     if (config.godMode || isToolEnabled(config, 'contextManagement')) {
       registerContextManagementTools(config).forEach(t => this.toolMap.set(t.name, t as TypedTool));
     }
+    // Backup tools — always available (no toggle needed)
+    registerBackupTools(config).forEach(t => this.toolMap.set(t.name, t as TypedTool));
     
     // Execution tools — registered once, filtered by enabled tool types
     const execConfig = { ...config };
@@ -238,9 +241,9 @@ export async function toolsProvider(ctl: ToolsProviderController, lmClient?: any
     executionPython: pluginConfig.get('executionPython'),
     executionTerminal: pluginConfig.get('executionTerminal'),
     executionShell: pluginConfig.get('executionShell'),
-    searchFallbackChain: pluginConfig.get('searchFallbackChain'),
+    searchFallbackChain: pluginConfig.get('searchFallbackChain') as 'ddg-api' | 'ddg-fetch' | 'google' | 'bing',
     maxSearchResults: pluginConfig.get('maxSearchResults'),
-    safesearch: pluginConfig.get('safesearch'),
+    safesearch: pluginConfig.get('safesearch') as '0' | '1' | '2',
     browserTimeout: pluginConfig.get('browserTimeout'),
     headlessMode: pluginConfig.get('headlessMode'),
     gitAutoCommit: pluginConfig.get('gitAutoCommit'),
@@ -251,10 +254,23 @@ export async function toolsProvider(ctl: ToolsProviderController, lmClient?: any
     maxRegexLength: pluginConfig.get('maxRegexLength'),
     statePersistenceEnabled: pluginConfig.get('statePersistenceEnabled'),
     stateMaxSize: pluginConfig.get('stateMaxSize'),
-    language: pluginConfig.get('language'),
+    language: pluginConfig.get('language') as 'en' | 'de' | 'zh-CN' | 'zh-TW',
     notificationsEnabled: pluginConfig.get('notificationsEnabled'),
     temporalAwareness: pluginConfig.get('temporalAwareness'),
-    dateFormatStyle: pluginConfig.get('dateFormatStyle'),
+    dateFormatStyle: pluginConfig.get('dateFormatStyle') as 'standard' | 'heuteIst',
+    // ContextGuard settings
+    contextGuardEnabled: pluginConfig.get('contextGuardEnabled'),
+    contextGuardTokenLimit: pluginConfig.get('contextGuardTokenLimit'),
+    contextGuardSmartReading: pluginConfig.get('contextGuardSmartReading'),
+    contextGuardSummaryModel: pluginConfig.get('contextGuardSummaryModel'),
+    contextGuardTerminalFilterEnabled: pluginConfig.get('contextGuardTerminalFilterEnabled'),
+    contextGuardTerminalFilterLength: pluginConfig.get('contextGuardTerminalFilterLength'),
+    // Auto-tracking settings
+    autoTrackingEnabled: pluginConfig.get('autoTrackingEnabled'),
+    autoTrackDecisions: pluginConfig.get('autoTrackDecisions'),
+    autoTrackCompletions: pluginConfig.get('autoTrackCompletions'),
+    autoTrackErrors: pluginConfig.get('autoTrackErrors'),
+    autoSummaryInterval: pluginConfig.get('autoSummaryInterval'),
   };
 
   const provider = createToolsProvider(liveConfig);

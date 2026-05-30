@@ -76,7 +76,7 @@ function generateChartHtml(data: Array<{ label: string; value: number }>, title:
 function generateDashboardHtml(titles: string[], content: Array<{ type: 'text' | 'chart'; data?: any }>): string {
   const cardsHtml = titles.map((title, index) => {
     const cardContent = content[index]?.type === 'chart' 
-      ? generateChartHtml(content[index].data || [{ label: 'A', value: 50 }, { label: 'B', value: 80 }], title)
+      ? generateChartHtml(content[index].data as Array<{ label: string; value: number }> || [{ label: 'A', value: 50 }, { label: 'B', value: 80 }], title)
       : `<p style="padding: 20px;">${content[index]?.data || `Content for ${title}`}</p>`;
     
     return `
@@ -144,7 +144,7 @@ export function registerUiGenerationTools(_config: PluginConfig): Tool[] {
             if (!dashboard_titles || dashboard_titles.length === 0) {
               return { success: false, error: 'Dashboard component requires at least one title' };
             }
-            const content = dashboard_titles.map((title, index) => ({
+            const content: Array<{ type: 'text' | 'chart'; data?: any }> = dashboard_titles.map((title, index) => ({
               type: index % 2 === 0 ? 'chart' : 'text',
               data: index % 2 === 0 ? [{ label: 'A', value: Math.floor(Math.random() * 100) }, { label: 'B', value: Math.floor(Math.random() * 100) }] : undefined,
             }));

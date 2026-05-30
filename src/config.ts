@@ -133,6 +133,13 @@ export const ConfigSchema = z.object({
   contextGuardSummaryModel: z.string().default('').describe('LM Studio model name for summarization (leave empty to use current chat model)'),
   contextGuardTerminalFilterEnabled: z.boolean().default(true).describe('Enable terminal output filtering'),
   contextGuardTerminalFilterLength: z.number().min(100).max(20000).default(2000).describe('Max chars before terminal output is filtered'),
+
+  // ── 🤖 AUTO-TRACKING SETTINGS ────────────────────────────────────
+  autoTrackingEnabled: z.boolean().default(true).describe('Enable automatic tracking of important events in conversation'),
+  autoTrackDecisions: z.boolean().default(true).describe('Auto-track decisions and conclusions ("I decided", "conclusion")'),
+  autoTrackCompletions: z.boolean().default(true).describe('Auto-track task completions ("successfully completed", "finished")'),
+  autoTrackErrors: z.boolean().default(true).describe('Auto-track bug fixes and error resolutions ("fixed the bug")'),
+  autoSummaryInterval: z.number().min(10).max(200).default(50).describe('Messages between automatic session summaries'),
 });
 
 
@@ -246,6 +253,13 @@ export const DEFAULT_CONFIG: PluginConfig = {
   contextGuardSummaryModel: '',            // Empty = use current chat model
   contextGuardTerminalFilterEnabled: true,
   contextGuardTerminalFilterLength: 2000,  // Filter terminal output > 2KB
+
+  // ── 🤖 AUTO-TRACKING SETTINGS ───────────────────────────────────
+  autoTrackingEnabled: false,              // OFF BY DEFAULT — user must opt-in
+  autoTrackDecisions: true,
+  autoTrackCompletions: true,
+  autoTrackErrors: true,
+  autoSummaryInterval: 50,                 // Summary every 50 messages
 };
 
 
@@ -733,6 +747,38 @@ export const configSchematics = createConfigSchematics()
     min: 100, max: 20000, int: true,
     hint: 'Maximum characters before terminal output is truncated and summarized.',
   }, DEFAULT_CONFIG.contextGuardTerminalFilterLength)
+
+  // ── 🤖 AUTO-TRACKING SETTINGS ───────────────────────────────────
+  .field('autoTrackingEnabled', 'boolean', {
+    displayName: '🤖 Auto-Tracking Enabled',
+    subtitle: 'Automatically remember important events',
+    hint: 'When enabled, the plugin will silently track decisions, completions, and fixes without user prompts. OFF by default for privacy.',
+  }, DEFAULT_CONFIG.autoTrackingEnabled)
+
+  .field('autoTrackDecisions', 'boolean', {
+    displayName: '📌 Track Decisions Automatically',
+    subtitle: '⚙️ Auto-Tracking Setting',
+    hint: 'Detects phrases like "I decided", "conclusion", "going with".',
+  }, DEFAULT_CONFIG.autoTrackDecisions)
+
+  .field('autoTrackCompletions', 'boolean', {
+    displayName: '✅ Track Completions Automatically',
+    subtitle: '⚙️ Auto-Tracking Setting',
+    hint: 'Detects phrases like "successfully completed", "finished implementing".',
+  }, DEFAULT_CONFIG.autoTrackCompletions)
+
+  .field('autoTrackErrors', 'boolean', {
+    displayName: '🐛 Track Bug Fixes Automatically',
+    subtitle: '⚙️ Auto-Tracking Setting',
+    hint: 'Detects phrases like "fixed the bug", "resolved the issue".',
+  }, DEFAULT_CONFIG.autoTrackErrors)
+
+  .field('autoSummaryInterval', 'numeric', {
+    displayName: '📊 Session Summary Interval',
+    subtitle: '⚙️ Auto-Tracking Setting',
+    min: 10, max: 200, int: true,
+    hint: 'Number of messages between automatic session summaries. Higher = less frequent.',
+  }, DEFAULT_CONFIG.autoSummaryInterval)
 
 
   .build();

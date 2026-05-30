@@ -2,6 +2,7 @@ import type { Tool } from '@lmstudio/sdk';
 import { tool } from '@lmstudio/sdk';
 import { z } from 'zod';
 import type { PluginConfig } from '../config';
+import * as childProcess from 'child_process';
 
 // Lazy-load simple-git for testability
 let simpleGitModule: typeof import('simple-git') | null = null;
@@ -34,11 +35,13 @@ async function getRepoName(): Promise<string | null> {
     return process.env.GITHUB_REPOSITORY;
   }
 
-  // Priority 2: Git remote URL parsing
+  // Priority 2: Git remote URL parsing via child_process
   try {
-    const git = await createGit();
-    const remotes = await git.listRemote(['--get-url', 'origin']);
-    const remoteUrl = remotes.trim();
+    const output = childProcess.execSync('git remote get-url origin 2>/dev/null', { 
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'ignore']
+    });
+    const remoteUrl = (output as string).trim();
     
     if (remoteUrl) {
       // Handle SSH format: git@github.com:user/repo.git

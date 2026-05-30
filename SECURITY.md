@@ -357,7 +357,7 @@ Regularly update the plugin to get the latest security patches.
 
 ---
 
-## 🛡️ ContextGuard Security Considerations (v1.4.0)
+## 🛡️ ContextGuard Security Considerations (v1.4.1)
 
 ### Overview
 
@@ -447,7 +447,7 @@ All ContextGuard settings are **client-side only** and do not:
 
 #### No Known Vulnerabilities
 
-As of v1.4.0, ContextGuard has:
+As of v1.4.1, ContextGuard has:
 - ✅ No remote code execution vectors
 - ✅ No path traversal vulnerabilities
 - ✅ No SQL injection points (no database access)

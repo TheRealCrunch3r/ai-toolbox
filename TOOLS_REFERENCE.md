@@ -753,6 +753,240 @@ Locate LM Studio installation directory.
 
 ### `get_enabled_tools`
 
+
+## 💾 Backup & Restore Tools (4)
+
+### `create_backup`
+
+Create a compressed ZIP backup of plugin state files.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `destination` | `string` | No | Custom filename (default: auto-generated with timestamp). Must end with `.zip`. Max 256 chars. |
+| `includeState` | `boolean` | No | Include `.ai_toolbox_state.json` (default: `true`) |
+| `includeContext` | `boolean` | No | Include `.ai_toolbox_context.json` (default: `true`) |
+
+**Returns**: `{ success: true, data: { message, backupPath, filename, filesBackedUp, compressedSizeBytes, compressedSizeHuman, createdAt } }`
+
+**Storage Location**: `.ai_toolbox_backups/` directory with timestamped filenames.
+
+**Filename Format**: `backup-YYYY-MM-DD-HH-MM-SS.zip` (e.g., `backup-2026-05-30-20-27-00.zip`)
+
+**Example**:
+```json
+// Auto-generated filename
+{}
+→ Creates: .ai_toolbox_backups/backup-2026-05-30-20-27-00.zip
+
+// Custom filename
+{"destination": "pre-deployment-backup.zip"}
+→ Creates: .ai_toolbox_backups/pre-deployment-backup.zip
+
+// Selective backup (state only)
+{"includeState": true, "includeContext": false}
+```
+
+**Response Example**:
+```json
+{
+  "success": true,
+  "message": "Backup created successfully",
+  "backupPath": ".ai_toolbox_backups/backup-2026-05-30-20-27-00.zip",
+  "filename": "backup-2026-05-30-20-27-00.zip",
+  "filesBackedUp": [".ai_toolbox_state.json", ".ai_toolbox_context.json"],
+  "compressedSizeBytes": 1247,
+  "compressedSizeHuman": "1.22 KB",
+  "createdAt": "2026-05-30T20:27:00.000Z"
+}
+```
+
+---
+
+### `list_backups`
+
+List all available backup files in the backups directory.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `sortBy` | `string` | No | Sort order: `"date"` (newest first) or `"size"` (largest first). Default: `"date"`. |
+| `limit` | `number` | No | Maximum backups to return. Default: `50`, Max: `1000`. |
+
+**Returns**: `{ success: true, data: { backups: Array<{filename, path, sizeBytes, createdAt}>, totalCount, returnedCount } }`
+
+**Example**:
+```json
+{
+  "sortBy": "date",
+  "limit": 10
+}
+```
+
+**Response Example**:
+```json
+{
+  "success": true,
+  "backups": [
+    {
+      "filename": "backup-2026-05-30-20-27-00.zip",
+      "path": ".ai_toolbox_backups/backup-2026-05-30-20-27-00.zip",
+      "sizeBytes": 1247,
+      "createdAt": "2026-05-30T20:27:00.000Z"
+    },
+    {
+      "filename": "backup-2026-05-30-18-30-00.zip",
+      "path": ".ai_toolbox_backups/backup-2026-05-30-18-30-00.zip",
+      "sizeBytes": 1198,
+      "createdAt": "2026-05-30T18:30:00.000Z"
+    }
+  ],
+  "totalCount": 2,
+  "returnedCount": 2
+}
+```
+
+---
+
+### `restore_backup` ⚠️
+
+⚠️ **Destructive** — Restore state files from a backup archive.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `backupFile` | `string` | Yes | Backup filename to restore (e.g., `"backup-2026-05-30-20-27-00.zip"`). Max 256 chars. |
+| `confirm` | `boolean` | Yes | ⚠️ **MUST be `true`** to confirm restoration. Safety check against accidental data loss. |
+
+**Returns**: `{ success: true, data: { message, backupFile, restoredFiles, extractedFilesCount, timestamp } }`
+
+**⚠️ SAFETY CHECK**: Requires explicit confirmation (`confirm: true`) before proceeding.
+
+**Example**:
+```json
+{
+  "backupFile": "backup-2026-05-30-20-27-00.zip",
+  "confirm": true
+}
+```
+
+**Response Without Confirmation**:
+```json
+{
+  "success": false,
+  "error": "⚠️ SAFETY CHECK FAILED",
+  "message": "Restoration not performed. Set confirm=true to proceed.",
+  "hint": "This is intentional to prevent accidental data loss. Example: {\"backupFile\": \"...\", \"confirm\": true}"
+}
+```
+
+**Response With Confirmation**:
+```json
+{
+  "success": true,
+  "message": "Restored 2 file(s) from backup",
+  "backupFile": "backup-2026-05-30-20-27-00.zip",
+  "restoredFiles": [".ai_toolbox_state.json", ".ai_toolbox_context.json"],
+  "extractedFilesCount": 3,
+  "timestamp": "2026-05-30T20:28:00.000Z"
+}
+```
+
+**Security Features**:
+- Path traversal protection (blocks `../` sequences)
+- Temporary extraction directory with cleanup
+- Only restores known state files (`.ai_toolbox_state.json`, `.ai_toolbox_context.json`)
+
+---
+
+### `delete_backup` ⚠️
+
+⚠️ **Destructive** — Delete a backup file from the backups directory.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `backupFile` | `string` | Yes | Backup filename to delete (e.g., `"old-backup.zip"`). Max 256 chars. Must be `.zip`. |
+| `confirm` | `boolean` | Yes | ⚠️ **MUST be `true`** to confirm deletion. Safety check against accidental data loss. |
+
+**Returns**: `{ success: true, data: { message, deletedFile, timestamp } }`
+
+**⚠️ SAFETY CHECK**: Requires explicit confirmation (`confirm: true`) before proceeding.
+
+**Example**:
+```json
+{
+  "backupFile": "old-backup.zip",
+  "confirm": true
+}
+```
+
+**Response Without Confirmation**:
+```json
+{
+  "success": false,
+  "error": "⚠️ SAFETY CHECK FAILED",
+  "message": "Deletion not performed. Set confirm=true to proceed.",
+  "hint": "This is intentional to prevent accidental data loss."
+}
+```
+
+**Response With Confirmation**:
+```json
+{
+  "success": true,
+  "message": "Deleted backup: old-backup.zip",
+  "deletedFile": "old-backup.zip",
+  "timestamp": "2026-05-30T20:30:00.000Z"
+}
+```
+
+---
+
+### Backup & Restore Workflow Example
+
+```json
+// Step 1: Create a backup before major changes
+{"tool_name": "create_backup", "parameters": {"destination": "before-refactor.zip"}}
+→ ✅ Backup created successfully
+
+// Step 2: Perform your work...
+
+// Step 3: List available backups if needed
+{"tool_name": "list_backups", "parameters": {"limit": 10}}
+→ ✅ Returns list of all backups
+
+// Step 4: Restore if something goes wrong
+{"tool_name": "restore_backup", "parameters": {
+  "backupFile": "before-refactor.zip",
+  "confirm": true
+}}
+→ ⚠️ LLM will ask for confirmation first!
+→ ✅ Restored successfully
+
+// Step 5: Clean up old backups
+{"tool_name": "delete_backup", "parameters": {
+  "backupFile": "old-backup.zip",
+  "confirm": true
+}}
+→ ⚠️ LLM will ask for confirmation first!
+→ ✅ Deleted successfully
+```
+
+---
+
+### Backup Metadata Format
+
+Each backup includes a `backup-metadata.json` file:
+
+```json
+{
+  "version": "1.0",
+  "createdAt": "2026-05-30T20:27:00.000Z",
+  "pluginVersion": "1.4.1",
+  "filesCount": 2,
+  "totalUncompressedSize": 2048
+}
+```
+
+---
+
 List currently enabled tools.
 
 **Returns**: `{ success: true, data: { toolCount, tools: string[] } }`
@@ -1193,10 +1427,11 @@ Context entries are persisted to `.ai_toolbox_context.json` in the current worki
 | Vector RAG | ✅ Enabled | Low |
 | Interactive UI Generation | ❌ Disabled | Low |
 | Auto-Context Management | ✅ Enabled | Low |
+| Backup & Restore | ✅ Enabled | Low (with safety checks) |
 
 ---
 
-## 🛡️ ContextGuard Settings (v1.4.0)
+## 🛡️ ContextGuard Settings (v1.4.1)
 
 ContextGuard is **not a tool** but an automatic context management system with explicit UI controls.
 

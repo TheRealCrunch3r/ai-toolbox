@@ -491,7 +491,7 @@ Persistent Storage (.ai_toolbox_context.json)
     └── delete_context_entry(id) / clearContextMemory(confirm) → Management
 ```
 
-### ContextGuard Compression Flow (v1.4.0)
+### ContextGuard Compression Flow (v1.4.1)
 
 ```
 User Message Arrives
@@ -595,7 +595,7 @@ ConfigSchema (Zod)
 ├── i18n (1 field)
 ├── Notifications (1 field)
 ├── Temporal Awareness (2 fields: temporalAwareness, dateFormatStyle)
-└── ContextGuard (6 fields): 🆕 v1.4.0
+└── ContextGuard (6 fields): 🆕 v1.4.1
     ├── contextGuardEnabled (boolean) — Master toggle
     ├── contextGuardTokenLimit (number 1K-200K) — Compression threshold
     ├── contextGuardSmartReading (boolean) — Keyword-based file reading
@@ -606,7 +606,7 @@ ConfigSchema (Zod)
 
 Each field maps to a UI element in LM Studio's settings panel via `createConfigSchematics()`.
 
-### ContextGuard Configuration Details (v1.4.0)
+### ContextGuard Configuration Details (v1.4.1)
 
 | Config Key | UI Name | Type | Range | Default | Description |
 |------------|---------|------|-------|---------|-------------|

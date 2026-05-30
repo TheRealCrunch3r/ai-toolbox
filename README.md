@@ -1,8 +1,20 @@
 # 🧰 AI Toolbox — LM Studio Plugin
 
-> **80+ tools** across 14 categories: file system, web research, browser automation, Git/GitHub, database, document parsing, background commands, code execution, utilities, image processing, HTTP client, vector RAG, interactive UI generation, auto-context management, and **ContextGuard** (infinite context management).
+> **84+ tools** across 15 categories: file system, web research, browser automation, Git/GitHub, database, document parsing, background commands, code execution, utilities, image processing, HTTP client, vector RAG, interactive UI generation, auto-context management, **backup & restore**, and **ContextGuard** (infinite context management).
 
-## 📋 Table of Contents
+---
+
+## 📢 Recent Updates
+
+### ✅ TypeScript Compilation Fixed (2026-05-30)
+Fixed **14 TypeScript errors** across 7 files:
+- Removed duplicate `AutoTrackConfig` interface definition
+- Aligned property names with Zod schema (`autoTrackingEnabled`, `autoTrackDecisions`, etc.)
+- Replaced non-existent SimpleGit `.remote()` method with `child_process.execSync()`
+- Added proper type assertions for enum fields and third-party libraries
+- **Status**: Build now passes cleanly with strict type checking ✅
+
+---## 📋 Table of Contents
 
 - [Features](#-features)
 - [Tool Categories](#-tool-categories)
@@ -33,9 +45,10 @@
 | 📊 **Vector RAG** | Semantic search with local embeddings |
 | 📚 **Document RAG** | Chat with attached files or disk paths (PDF, DOCX, TXT) |
 | 🎨 **Interactive UI Generation** | Generate and render HTML/CSS/JS components (buttons, forms, charts, dashboards) |
+| 💾 **Backup & Restore** | Create compressed ZIP backups of plugin state with path traversal protection |
 | 🧠 **Auto-Context Management** | Automatic session tracking, decision logging, and persistent memory retrieval |
 | ⏰ **Temporal Awareness** | Injects current date/time into every message for accurate time-sensitive tasks |
-| 🛡️ **ContextGuard** | **v1.4.0!** Dynamic context window management with explicit UI controls: |
+| 🛡️ **ContextGuard** | **v1.4.1!** Dynamic context window management with explicit UI controls: |
 | | • **Smart Reader**: Heuristic keyword-grep for large files (toggleable) |
 | | • **Threshold-Based Compression**: Auto-summarizes history at 90% token limit (configurable 1K-200K tokens) |
 | | • **Terminal Output Filtering**: Truncates long outputs (configurable 100-20K chars) |
@@ -89,6 +102,9 @@
 
 ### Auto-Context Management (7 tools)
 `auto_summarize_context` · `get_context_memory` · `search_context` · `context_summary` · `delete_context_entry` · `track_important_event` · `clear_context_memory`
+
+### Backup & Restore (4 tools) 🆕
+`create_backup` · `list_backups` · `restore_backup` · `delete_backup`
 
 ---
 

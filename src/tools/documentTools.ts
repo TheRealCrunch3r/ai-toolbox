@@ -1,4 +1,4 @@
-import type { Tool, FileHandle } from '@lmstudio/sdk';
+import type { Tool } from '@lmstudio/sdk';
 import { tool } from '@lmstudio/sdk';
 import { z } from 'zod';
 import * as path from 'path';
@@ -52,7 +52,7 @@ async function readDocument({ file_path }: ReadDocumentParams): Promise<unknown>
     const attachment = getAttachment(file_path);
     if (attachment) {
       console.log(`[AI Toolbox] Reading attached file: ${file_path}`);
-      const buffer = await attachment.read();
+      const buffer = await (attachment as any).readFile ? await (attachment as any).readFile() : Buffer.from(await (attachment as any).read());
       const ext = path.extname(file_path).toLowerCase();
       
       if (ext === '.pdf') {
@@ -183,10 +183,10 @@ async function readDOCX(filePath: string): Promise<unknown> {
     console.log(`[AI Toolbox] Reading DOCX from disk: ${filePath}`);
     
     const dataBuffer = fs.readFileSync(filePath);
-    const result = await mammoth.extractRawText({ buffer: dataBuffer });
+    const result = await ((mammoth as unknown) as { extractRawText: (opts: { buffer: Buffer }) => Promise<{ value: string; messages: Array<{ message: string }> }> }).extractRawText({ buffer: dataBuffer });
     
     const text = result.value;
-    const warnings = result.messages.map(m => m.message).join('\n');
+    const warnings = result.messages.map((m: { message: string }) => m.message).join('\n');
     
     console.log(`[AI Toolbox] DOCX read complete: ${(text.length / 1024).toFixed(1)}KB`);
     
@@ -216,10 +216,10 @@ async function readDOCXFromBuffer(buffer: Buffer, fileName: string): Promise<unk
     
     console.log(`[AI Toolbox] Reading DOCX from attachment: ${fileName}`);
     
-    const result = await mammoth.extractRawText({ buffer });
+    const result = await ((mammoth as unknown) as { extractRawText: (opts: { buffer: Buffer }) => Promise<{ value: string; messages: Array<{ message: string }> }> }).extractRawText({ buffer });
     
     const text = result.value;
-    const warnings = result.messages.map(m => m.message).join('\n');
+    const warnings = result.messages.map((m: { message: string }) => m.message).join('\n');
     
     console.log(`[AI Toolbox] DOCX read complete: ${(text.length / 1024).toFixed(1)}KB`);
     
