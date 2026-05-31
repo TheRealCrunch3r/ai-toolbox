@@ -18,6 +18,9 @@ module.exports = {
   // Handle NodeNext .js import extensions
   moduleNameMapper: {
     '^(\\.{1,2}/.*)\\.js$': '$1',
+    // Mock ESM-only packages that ts-jest can't handle
+    '^archiver$': '<rootDir>/tests/__mocks__/archiver.ts',
+    '^unzipper$': '<rootDir>/tests/__mocks__/unzipper.ts',
   },
   collectCoverageFrom: [
     'src/**/*.ts',

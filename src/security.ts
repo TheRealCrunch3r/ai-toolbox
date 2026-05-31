@@ -10,10 +10,29 @@ import { getAllowedBases, getWorkingDir } from './workingDir';
 
 /**
  * Validate file path to prevent directory traversal attacks.
- * DISABLED: Security validator removed per user request - allows all paths.
+ * Checks for: path traversal (../), UNC paths, empty inputs.
  */
 export function validatePath(userPath: string, basePath: string): boolean {
-  return true; // Always allow paths
+  // Reject empty inputs
+  if (!userPath || !basePath) {
+    return false;
+  }
+
+  // Reject path traversal patterns (../ or ..\)
+  const normalizedPath = userPath.replace(/\\/g, '/');
+  if (normalizedPath.startsWith('../') || 
+      normalizedPath === '..' ||
+      normalizedPath.includes('/../')) {
+    return false;
+  }
+
+  // Reject UNC paths (Windows network shares: \\server\share)
+  if (userPath.startsWith('\\\\') || userPath.startsWith('//')) {
+    return false;
+  }
+
+  // Path passed basic security checks
+  return true;
 }
 
 /**

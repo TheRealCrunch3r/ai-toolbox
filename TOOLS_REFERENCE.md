@@ -33,6 +33,61 @@ Read content from a file with size checking and binary detection.
 
 ---
 
+### ⚙️ Workarounds for Character Limits
+
+The `max_length` parameter is a **platform-level constraint** (default: 5,000, max: 50,000) that cannot be changed from within the plugin. Here are workarounds for reading files larger than 50,000 characters:
+
+#### Option 1: Explicitly Specify Higher Values
+```typescript
+// Default behavior (truncates at 5,000 chars)
+read_file("large_file.ts")
+
+// Read up to the maximum allowed (50,000 characters)
+read_file("large_file.ts", max_length=50000)
+```
+
+#### Option 2: Read Files in Chunks
+For files exceeding 50,000 characters, read them sequentially using line-based or offset approaches:
+
+```typescript
+// Step 1: Get file metadata to know total size
+get_file_metadata("large_file.ts")
+→ { path, size: 150000, ... }
+
+// Step 2: Read first chunk (first 50k chars)
+read_file("large_file.ts", max_length=50000)
+→ Returns first 50,000 characters
+
+// Step 3: Use line-based reading for remaining content
+// Note: read_file doesn't support offset/seek natively.
+// For large files, consider using `execute_command` with shell tools:
+execute_command("head -n 1000 large_file.ts")      // First 1000 lines
+execute_command("tail -n 500 large_file.ts")       // Last 500 lines
+execute_command("sed -n '1001,2000p' large_file.ts") // Lines 1001-2000
+
+// Step 4: Combine results as needed
+```
+
+#### Option 3: Use Alternative Tools for Large Files
+| Tool | Best For | Limit |
+|------|----------|-------|
+| `execute_command` + `head/tail/sed/grep` | Reading specific line ranges | Shell-dependent |
+| `find_files` + `get_file_metadata` | Locating and sizing files before reading | None |
+| `rag_index_files` → `rag_query_vector` | Semantic search without full content read | 50k per file |
+
+#### Option 4: Index Then Query (Recommended for Large Codebases)
+```typescript
+// Step 1: Index the entire directory (handles files >50k chars automatically)
+rag_index_files({ directoryPath: "src/", batchSize: 20 })
+→ Indexed 847 chunks across 32 files
+
+// Step 2: Query only the relevant chunks
+rag_query_vector({ query: "authentication middleware", topK: 5 })
+→ Returns only matching snippets (no full file read needed)
+```
+
+---
+
 ### `save_file`
 
 Save content to a file. Supports batch saving.
@@ -275,14 +330,14 @@ Fetch clean text content from a webpage.
 
 ### `rag_web_content`
 
-Fetch webpage and extract content relevant to a query.
+Fetch webpage and extract content relevant to a query using semantic search.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `url` | `string` | Yes | Webpage URL |
 | `query` | `string` | Yes | Query for relevance matching |
 
-**Returns**: `{ success: true, data: { url, query, chunks: string[] } }`
+**Returns**: `{ success: true, data: { url, query, totalChunks, bestMatch: {text, score, metadata} } }`
 
 ---
 
@@ -753,6 +808,11 @@ Locate LM Studio installation directory.
 
 ### `get_enabled_tools`
 
+List currently enabled tools.
+
+**Returns**: `{ success: true, data: { toolCount, tools: string[] } }`
+
+---
 
 ## 💾 Backup & Restore Tools (4)
 
@@ -987,115 +1047,7 @@ Each backup includes a `backup-metadata.json` file:
 
 ---
 
-List currently enabled tools.
-
-**Returns**: `{ success: true, data: { toolCount, tools: string[] } }`
-
----
-
-## 🖼️ Image Processing Tools (4)
-
-### `image_to_text`
-
-Extract text from images using OCR (Tesseract.js).
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `imagePath` | `string` | Yes | Path to image file |
-| `language` | `string` | No | Language code (default: `eng`) |
-
-**Returns**: `{ success: true, data: { text, confidence, language, words } }`
-
-**Supported Formats**: PNG, JPG, JPEG, BMP, GIF, TIFF, WebP. Max 50MB.
-
----
-
-### `describe_image`
-
-Get image metadata.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `imagePath` | `string` | Yes | Path to image file |
-
-**Returns**: `{ success: true, data: { path, size, format, note } }`
-
----
-
-### `screenshot_desktop`
-
-Capture desktop screenshot.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `outputPath` | `string` | No | Output file path |
-| `format` | `string` | No | `png` or `jpeg` (default: `png`) |
-| `quality` | `number` | No | JPEG quality 1-100 (default: 90) |
-
-**Returns**: `{ success: true, data: { path, size, format } }`
-
----
-
-### `compare_images`
-
-Compare two images pixel-by-pixel.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `image1Path` | `string` | Yes | First image path |
-| `image2Path` | `string` | Yes | Second image path |
-
-**Returns**: `{ success: true, data: { dimensions, similarityPercent, differentPixels, totalPixels, isIdentical } }`
-
----
-
-## 🔌 HTTP Client Tools (3)
-
-### `http_request`
-
-Generic HTTP client for any REST API.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `method` | `string` | Yes | `GET`, `POST`, `PUT`, `DELETE`, `PATCH`, `HEAD`, `OPTIONS` |
-| `url` | `string` | Yes | Request URL (http/https only) |
-| `headers` | `object` | No | Custom headers |
-| `body` | `string` or `object` | No | Request body |
-
-**Returns**: `{ success: true, data: { status, statusText, headers, body, url, method } }`
-
-**Blocked**: Private IPs, localhost, `file:`, `data:` protocols.
-
----
-
-### `http_get_json`
-
-GET request with JSON parsing.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `url` | `string` | Yes | Request URL |
-| `headers` | `object` | No | Custom headers |
-
-**Returns**: `{ success: true, data: { status, headers, body, url } }`
-
----
-
-### `http_post_json`
-
-POST request with JSON body.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `url` | `string` | Yes | Request URL |
-| `data` | `object` | Yes | JSON body |
-| `headers` | `object` | No | Custom headers |
-
-**Returns**: `{ success: true, data: { status, headers, body, url } }`
-
----
-
-## 📊 Vector RAG Tools (3)
+## 📊 Vector RAG Tools (4) 🆕
 
 ### `rag_index_files`
 
@@ -1109,30 +1061,55 @@ Index files for semantic search.
 
 **Returns**: `{ success: true, data: { indexedChunks, filesProcessed, skippedFiles, totalDocuments } }`
 
+**Note**: Uses persistent singleton vector store — indexed data survives between tool calls.
+
 ---
 
 ### `rag_query_vector`
 
-Query the vector index.
+Query the vector index for semantically similar documents.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `query` | `string` | Yes | Search query |
-| `topK` | `number` | No | Results count (default: 5, max: 20) |
+| `query` | `string` | Yes | Search query text |
+| `topK` | `number` | No | Number of results to return (default: 5, max: 20) |
 
-**Returns**: `{ success: true, data: { query, topK, results: [{id, text, score, metadata}] } }`
+**Returns**: `{ success: true, data: { query, topK, totalDocuments, results: [{id, text, score, metadata}] } }`
+
+**Note**: Now returns actual search results instead of placeholder data.
 
 ---
 
 ### `rag_clear_index`
 
-Clear the vector index.
+Clear the vector index. Requires confirmation.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `confirm` | `boolean` | Yes | Must be `true` |
+| `confirm` | `boolean` | Yes | Must be `true` to confirm clearing the index |
 
 **Returns**: `{ success: true, data: { message } }`
+
+---
+
+### `rag_web_content` 🆕
+
+Fetch content from a URL and use RAG to find relevant chunks.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `url` | `string` | Yes | The URL to fetch (http/https) |
+| `query` | `string` | Yes | Search query for relevance matching |
+
+**Returns**: `{ success: true, data: { url, query, totalChunks, bestMatch: {text, score, metadata} } }`
+
+**Example**:
+```json
+{
+  "url": "https://example.com",
+  "query": "test"
+}
+```
 
 ---
 

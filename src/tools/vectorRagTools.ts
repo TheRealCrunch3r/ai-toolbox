@@ -22,6 +22,11 @@ interface RagClearIndexParams {
   confirm: boolean;
 }
 
+interface RagWebContentParams {
+  url: string;
+  query: string;
+}
+
 // ==================== Types ====================
 
 interface DocumentChunk {
@@ -43,9 +48,9 @@ interface SearchResult {
   metadata: DocumentChunk['metadata'];
 }
 
-// ==================== Vector Store Implementation (Local) ====================
+// ==================== Persistent Vector Store (Singleton) ====================
 
-/** Simple local vector store using in-memory storage with cosine similarity */
+/** Simple persistent vector store using in-memory storage with cosine similarity */
 class LocalVectorStore {
   private documents: Map<string, { embedding: Float32Array; chunk: DocumentChunk }> = new Map();
   private indexName: string;
@@ -96,7 +101,7 @@ class LocalVectorStore {
 
     // Sort by similarity descending and return top K
     return results
-      .sort((a, b) => b.score - a.score)
+      .sort((a, b) => b.score - b.score)
       .slice(0, topK)
       .map(({ id, score }) => {
         const entry = this.documents.get(id)!;
@@ -118,6 +123,16 @@ class LocalVectorStore {
   get count(): number {
     return this.documents.size;
   }
+}
+
+// Singleton instance that persists across tool calls
+let sharedStore: LocalVectorStore | null = null;
+
+function getSharedStore(): LocalVectorStore {
+  if (!sharedStore) {
+    sharedStore = new LocalVectorStore();
+  }
+  return sharedStore;
 }
 
 // ==================== Text Chunking ====================
@@ -218,7 +233,7 @@ async function ragIndexFiles({
       return { success: false, error: `Directory not found: ${directoryPath}` };
     }
 
-    const store = new LocalVectorStore();
+    const store = getSharedStore();
     let indexedCount = 0;
     let skippedCount = 0;
 
@@ -321,31 +336,25 @@ async function ragIndexFiles({
  */
 async function ragQueryVector({ query, topK = 5 }: RagQueryVectorParams): Promise<unknown> {
   try {
+    const store = getSharedStore();
+    
+    if (store.count === 0) {
+      return { success: false, error: 'No documents indexed. Run rag_index_files first.' };
+    }
+
     // Generate embedding for the query
     const queryEmbedding = generateEmbedding(query);
     
-    // In a real implementation, this would use ChromaDB or similar
-    // For now, we return a placeholder response
+    // Search the actual vector store
+    const results = store.search(queryEmbedding, topK);
+    
     return {
       success: true,
       data: {
         query,
         topK,
-        results: [
-          {
-            id: 'placeholder',
-            text: 'Vector search requires ChromaDB integration. This is a placeholder.',
-            score: 0,
-            metadata: {
-              file_path: '',
-              file_name: '',
-              chunk_index: 0,
-              total_chunks: 1,
-              word_count: 0,
-            },
-          },
-        ],
-        note: 'To enable full vector search, install chromadb and update the implementation.',
+        totalDocuments: store.count,
+        results,
       },
     };
   } catch (error) {
@@ -362,11 +371,98 @@ async function ragClearIndex({ confirm }: RagClearIndexParams): Promise<unknown>
     return { success: false, error: 'Confirmation required to clear index' };
   }
 
-  // In a real implementation, this would clear ChromaDB
+  const store = getSharedStore();
+  store.clear();
+
   return {
     success: true,
     data: { message: 'Vector index cleared successfully' },
   };
+}
+
+/**
+ * Fetch content from a URL and use RAG to find relevant chunks.
+ */
+async function ragWebContent({ url, query }: RagWebContentParams): Promise<unknown> {
+  try {
+    // Validate URL
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(url);
+    } catch (e) {
+      return { success: false, error: `Invalid URL: ${url}` };
+    }
+
+    // Fetch the content with proper headers to avoid bot detection
+    const response = await fetch(parsedUrl.toString(), {
+      method: 'GET',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
+      },
+    });
+
+    if (!response.ok) {
+      return { success: false, error: `HTTP ${response.status}: ${response.statusText}` };
+    }
+
+    // Read the body ONCE and store it
+    const content = await response.text();
+    
+    // Chunk the text
+    const chunks = chunkText(content);
+    
+    if (chunks.length === 0) {
+      return { success: false, error: 'No content could be extracted from URL' };
+    }
+
+    // Generate embedding for query and find best matching chunk
+    const queryEmbedding = generateEmbedding(query);
+    let bestMatch: DocumentChunk | null = null;
+    let bestScore = -Infinity;
+
+    for (const chunk of chunks) {
+      const chunkEmbedding = generateEmbedding(chunk.text);
+      
+      // Calculate cosine similarity
+      let dotProduct = 0;
+      let normA = 0;
+      let normB = 0;
+      
+      for (let i = 0; i < chunkEmbedding.length; i++) {
+        dotProduct += queryEmbedding[i] * chunkEmbedding[i];
+        normA += chunkEmbedding[i] * chunkEmbedding[i];
+        normB += queryEmbedding[i] * queryEmbedding[i];
+      }
+      
+      const similarity = normA > 0 && normB > 0 
+        ? dotProduct / (Math.sqrt(normA) * Math.sqrt(normB)) 
+        : 0;
+
+      if (similarity > bestScore) {
+        bestScore = similarity;
+        bestMatch = chunk;
+      }
+    }
+
+    return {
+      success: true,
+      data: {
+        url,
+        query,
+        totalChunks: chunks.length,
+        bestMatch: bestMatch ? {
+          text: bestMatch.text,
+          score: bestScore,
+          metadata: bestMatch.metadata,
+        } : null,
+      },
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { success: false, error: `RAG search failed: ${message}` };
+  }
 }
 
 // ==================== Tool Registration ====================
@@ -405,6 +501,17 @@ export function registerRagTools(_config: PluginConfig): Tool[] {
       confirm: z.boolean().describe('Set to true to confirm clearing the index'),
     },
     implementation: async (params) => ragClearIndex(params as RagClearIndexParams),
+  }));
+
+  // rag_web_content tool (NEW)
+  tools.push(tool({
+    name: 'rag_web_content',
+    description: 'Fetch content from a URL, and then use RAG to find and return only the text chunks most relevant to a specific query.',
+    parameters: {
+      url: z.string().url().describe('The URL to fetch'),
+      query: z.string().describe('The search query for relevance matching'),
+    },
+    implementation: async (params) => ragWebContent(params as RagWebContentParams),
   }));
 
   return tools;

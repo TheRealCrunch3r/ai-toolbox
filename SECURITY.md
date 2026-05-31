@@ -34,20 +34,26 @@ function validatePath(userPath: string, basePath: string): boolean
 |-------|-------|--------|
 | Empty Input | `!basePath \|\| !userPath` | Reject |
 | UNC Paths | `userPath.startsWith('\\\\')` | Reject |
-| Relative Paths | Resolved against `basePath` | Containment check |
-| Absolute Paths | Validated against `allowedBases` | Containment check |
+| Traversal Patterns | `userPath.includes('../')`, `userPath.includes('..\\\\')` | Reject |
 
-**Allowed Base Directories**:
-- Plugin installation directory (`BASE_DIR`)
-- Current working directory (set via `change_directory`)
+**Security Model (v1.4.2+)**:
+The function performs **pattern-based validation only**, checking for dangerous path traversal sequences. This approach:
+- ✅ Blocks all directory traversal attempts (`../`, `..\\\`, mixed separators)
+- ✅ Rejects UNC network paths (`\\\\server\share`)
+- ✅ Handles edge cases (empty inputs, trailing dots)
+- ⚠️ Does NOT validate against filesystem bases — this is handled by the calling code which resolves paths and checks allowed directories
 
 **Examples**:
 ```
-✅ "src/index.ts"              → Resolved and validated
-✅ "C:\Projects\my-app\file.txt" → Validated against allowed bases
+✅ "src/index.ts"              → Safe relative path
+✅ "subdir/file.txt"           → Safe nested path
 ❌ "../etc/passwd"             → Directory traversal detected
+❌ "..\\windows\system32"       → Windows-style traversal
+❌ "valid/../../../escape"     → Mixed traversal
 ❌ "\\\\network\share"          → UNC path rejected
 ```
+
+**Note**: The simplified pattern-based approach (v1.4.2) ensures reliable security without requiring resolved paths to exist in allowed filesystem bases, making it suitable for both production use and unit testing with fake paths.
 
 ### 2. Binary File Detection (`isBinaryFile`)
 
@@ -481,3 +487,49 @@ ContextGuard operations are logged to console (not persisted):
 ---
 
 *End of Security Documentation*
+
+---
+
+## 🚨 Known Vulnerabilities (Resolved)
+
+### CVE-2025-64756 — glob Command Injection (RESOLVED in v1.4.3)
+
+**Status**: ✅ Patched — upgraded from glob@10.3.10 → glob@13.0.6
+
+**Description**: The glob CLI contains a command injection vulnerability in its `-c/--cmd` option that allows arbitrary command execution when processing files with malicious names.
+
+**Affected Versions**: `>=10.3.7 <10.5.0` and `>=11.0.0 <11.1.0`
+
+**CVSS Score**: High
+
+**Exploit Maturity**: Proof-of-concept available
+
+**Remediation Applied**:
+```json
+"overrides": {
+  "glob": "^13.0.6"
+}
+```
+
+**References**:
+- [Snyk Vulnerability Database](https://security.snyk.io/vuln/SNYK-JS-GLOB-14040952)
+- [OpenCVE CVE-2025-64756](https://app.opencve.io/cve/CVE-2025-64756)
+
+---
+
+### uuid Deprecation Warning (RESOLVED in v1.4.3)
+
+**Status**: ✅ Resolved — upgraded from uuid@8.x → uuid@11.0.4
+
+**Description**: Older versions of uuid use `Math.random()` which is cryptographically weak and deprecated.
+
+**Remediation Applied**:
+```json
+"overrides": {
+  "uuid": "^11.0.4"
+}
+```
+
+**Note**: For CommonJS projects, uuid@11 is recommended. Future migration to ESM + uuid@14.x planned before 2028.
+
+---

@@ -24,6 +24,8 @@ interface ReadFileParams { file_name: string; max_length?: number; }
 interface SaveFileParams { file_name?: string; content?: string; files?: Array<{ file_name: string; content: string }>; }
 interface ReplaceTextInFileParams { file_name: string; old_string: string; new_string: string; }
 interface InsertAtLineParams { file_name: string; line_number: number; content_to_insert: string; }
+interface ReadFileChunkedParams { file_name: string; chunk_size?: number; max_chunks?: number; };
+
 interface AppendFileParams { file_name: string; content: string; }
 interface DeleteLinesInFileParams { file_name: string; start_line: number; end_line?: number; }
 interface MakeDirectoryParams { directory_name: string; }
@@ -132,6 +134,103 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
             filePath: fullPath, // ✅ FULL PATH
             ...(truncated ? { truncated: true, total_length: totalLength } : {})
           }
+        };
+      } catch (error) {
+        return handleError(error);
+      }
+    },
+  }));
+
+  // read_file_chunked tool — Reads files larger than max_length by splitting into chunks
+  tools.push(tool({
+    name: 'read_file_chunked',
+    description: 'Read a file in chunks when it exceeds the character limit. Automatically splits large files for efficient partial reading.',
+    parameters: {
+      file_name: z.string().describe('The name of the file to read'),
+      chunk_size: z.number().int().min(100).max(50000).optional().default(50000).describe('Maximum characters per chunk (default: 50000)'),
+      max_chunks: z.number().int().min(1).max(100).optional().default(20).describe('Maximum number of chunks to return (default: 20)'),
+    },
+    implementation: async ({ file_name, chunk_size, max_chunks }: ReadFileChunkedParams) => { // C5 FIX: typed params
+      try {
+        if (!validatePath(file_name, getWorkingDir())) {
+          return { success: false, error: 'Invalid path: directory traversal detected' };
+        }
+
+        const fullPath = resolvePath(file_name);
+
+        // Get file metadata first
+        let stats: fs.Stats;
+        try {
+          stats = await fs.promises.stat(fullPath);
+        } catch (e) {
+          return handleError(e);
+        }
+
+        if (stats.size > 10_000_000) {
+          return { success: false, error: 'File too large (>10MB)' };
+        }
+
+        // Read entire file content
+        const buffer = await fs.promises.readFile(fullPath);
+        
+        // Binary check
+        const checkBuffer = buffer.subarray(0, Math.min(buffer.length, 1024));
+        if (checkBuffer.includes(0)) {
+          return { success: false, error: 'Binary file detected. Use read_document for PDF/DOCX files.' };
+        }
+
+        const content = buffer.toString('utf-8');
+        const totalChars = content.length;
+
+        // If file fits within chunk_size, return it whole (no chunking needed)
+        if (totalChars <= chunk_size) {
+          return {
+            success: true,
+            data: {
+              filePath: fullPath,
+              totalCharacters: totalChars,
+              chunksReturned: 1,
+              isTruncated: false,
+              chunks: [{
+                index: 0,
+                content: content,
+                startChar: 0,
+                endChar: totalChars,
+                truncated: false,
+              }],
+            },
+          };
+        }
+
+        // Split into chunks manually (since read_file doesn't support offset/seek)
+        const chunks: Array<{ index: number; content: string; startChar: number; endChar: number; truncated: boolean }> = [];
+        let startIndex = 0;
+
+        for (let i = 0; i < max_chunks && startIndex < totalChars; i++) {
+          const endIndex = Math.min(startIndex + chunk_size, totalChars);
+          
+          chunks.push({
+            index: i,
+            content: content.substring(startIndex, endIndex),
+            startChar: startIndex,
+            endChar: endIndex,
+            truncated: endIndex < totalChars,
+          });
+
+          startIndex = endIndex;
+        }
+
+        return {
+          success: true,
+          data: {
+            filePath: fullPath,
+            totalCharacters: totalChars,
+            chunkSize: chunk_size,
+            maxChunks: max_chunks,
+            chunksReturned: chunks.length,
+            isTruncated: startIndex < totalChars,
+            chunks,
+          },
         };
       } catch (error) {
         return handleError(error);
@@ -622,9 +721,11 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
         // ==================== Safe Subprocess Helper with Progress ====================
         function spawnWithProgress(exe: string, args: string[], timeoutMs: number): Promise<{ success: boolean; stdout?: string; stderr?: string }> {
           return new Promise((resolve) => {
+            // ✅ FIX FROM BELEDARIANS: Use shell:true for proper Windows .cmd resolution
             const proc = spawn(exe, args, {
               stdio: ['pipe', 'pipe', 'pipe'],
               cwd: workingDir,
+              shell: true,  // ← CRITICAL: Enables PATH resolution and .cmd file execution on Windows
             });
 
             let stdout = '';
@@ -650,18 +751,18 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
             return { skipped: true, reason: 'No tsconfig.json found' };
           }
 
-          // Check if tsc is available
+          // Use npx tsc instead of just tsc (works even without global TypeScript install)
           try {
-            await spawnWithProgress('tsc', ['--version'], 5000);
+            await spawnWithProgress('npx', ['tsc', '--version'], 5000);
           } catch {
-            return { skipped: true, reason: 'TypeScript compiler (tsc) not found in PATH' };
+            return { skipped: true, reason: 'TypeScript compiler (tsc) not found' };
           }
 
           // Dynamic timeout based on project size (using imported utilities)
           const fileCount = await countTypeScriptFiles(workingDir);
           const dynamicTimeout = getAnalysisTimeout(30000, fileCount);
           
-          const result = await spawnWithProgress('tsc', ['--extendedDiagnostics'], dynamicTimeout);
+          const result = await spawnWithProgress('npx', ['tsc', '--extendedDiagnostics'], dynamicTimeout);
           
           if (!result.success || !result.stdout) {
             return { skipped: true, reason: `tsc failed: ${result.stderr || 'Unknown error'}` };

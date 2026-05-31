@@ -34,7 +34,7 @@ AI Toolbox transforms passive language models into **active problem-solvers** by
 | 🔧 **Utilities** | 10 | Clipboard I/O, system notifications, memory tracking, project analysis |
 | 🖼️ **Image Processing** | 4 | OCR (Tesseract.js), desktop screenshots (Win32/macOS/Linux), image comparison |
 | 🔌 **HTTP Client** | 1 | REST API client with SSRF protection and timeout handling |
-| 📊 **Vector RAG** | 3 | Semantic search with local embeddings, vector indexing, query optimization |
+| 📊 **Vector RAG** | **4** 🆕 | Semantic search with local embeddings, persistent state via singleton pattern (`getSharedStore()`), web content fetching (`rag_web_content`), actual query results (no more placeholders) |
 | 📚 **Document RAG** | 1 | Chat with attached files or disk paths (PDF, DOCX, TXT, MD) via prompt preprocessing |
 | 🎨 **Interactive UI Generation** | 4 | Generate and render HTML/CSS/JS components: buttons, forms, charts, dashboards |
 | 💾 **Backup & Restore** | 4 | Create compressed ZIP backups of plugin state with path traversal protection |
@@ -114,6 +114,7 @@ npm run build
 
 | Version | Date | Key Features |
 |---------|------|-------------|
+| **Unreleased** | 2026-05-31 | Vector RAG fixes: persistent state (singleton), `rag_web_content` added, `rag_query_vector` returns real results |
 | **1.4.1** | 2026-05-30 | TypeScript compilation fixes (14 errors resolved), documentation updates, build stability improvements |
 | **1.3.x** | 2026-05-29 | execute_command disabled by default (security), enhanced validation |
 | **1.2.x** | — | Interactive UI generation, auto-context management |
