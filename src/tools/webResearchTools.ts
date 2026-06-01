@@ -243,10 +243,8 @@ export function registerWebResearchTools(config: PluginConfig): Tool[] {
         const html = await response.text();
         const text = htmlToText(html, {
           wordwrap: false,
-          selectors: [
-            { selector: 'a', options: { ignoreHref: true } },
-            { selector: 'img', format: '[image]' },
-          ],
+          // Removed custom selector for 'img' as it caused "format is not a function" in v9.0.5
+          // Default behavior handles images adequately.
         });
 
         return { success: true, data: { url, content: text.substring(0, 5000) } }; // Limit length

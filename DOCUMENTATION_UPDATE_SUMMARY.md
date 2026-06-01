@@ -12,6 +12,14 @@ This document summarizes all documentation updates made to reflect the **test su
 
 ---
 
+## 🆕 Latest Update — Tool Description Improvements (2026-06-01)
+
+### Overview
+
+This update documents the critical UX fix for `read_file` → `read_file_chunked` fallback trigger. When `read_file` hit its character limit and returned truncated output, the model had no explicit signal to retry with `read_file_chunked`.
+
+---
+
 ## Files Updated
 
 ### 1. README.md
@@ -198,6 +206,55 @@ These documentation updates correspond to the following code changes:
 **Documentation Reviewer**: AI Toolbox Development Team  
 **Date**: 2026-05-31  
 **Status**: ✅ Approved for release with v1.4.2
+
+---
+
+*This document was auto-generated as part of the v1.4.2 release process.*
+
+---
+
+## 🆕 Latest Update — Tool Description Improvements (2026-06-01)
+
+### Overview
+
+This update documents the critical UX fix for `read_file` → `read_file_chunked` fallback trigger. When `read_file` hit its character limit and returned truncated output, the model had no explicit signal to retry with `read_file_chunked`. This caused incomplete file reads and wasted turns in AI agent workflows.
+
+### Files Updated
+
+| File | Change |
+|------|--------|
+| `src/tools/fileSystemTools.ts` | Updated `read_file` description with ⚠️ WARNING; Rewrote `read_file_chunked` description to emphasize "ALWAYS use" on truncation |
+| `README.md` | Added new entry under "Recent Updates" section |
+| `CHANGELOG.md` | Added `[Unreleased]` entry documenting the fix with before/after comparison table |
+| `TOOLS_REFERENCE.md` | Added explicit warning box in `read_file` docs; Added full `read_file_chunked` tool documentation as recommended approach |
+
+### Key Changes Summary
+
+**Before:**
+- `read_file`: No fallback instruction → LLM kept calling it on large files, getting truncated output repeatedly
+- `read_file_chunked`: Generic description → Model didn't know when to use it
+
+**After:**
+- `read_file`: Explicit warning: *"⚠️ WARNING: If output is truncated, you MUST retry with read_file_chunked"*
+- `read_file_chunked`: Clear trigger conditions: *"ALWAYS use this instead of read_file if read_file returned truncated output, or if you know the file is very large (>50k chars)"*
+
+### Impact Assessment
+
+| Metric | Before | After |
+|--------|--------|-------|
+| Wasted turns on large files | High (repeated truncation) | Low (explicit fallback) |
+| File reading reliability | Medium (model-dependent) | High (schema-enforced) |
+| Documentation clarity | Implicit | Explicit with examples |
+
+### Verification Checklist
+
+- [x] `read_file` description updated in source code
+- [x] `read_file_chunked` description updated in source code
+- [x] README.md "Recent Updates" section updated
+- [x] CHANGELOG.md entry added under `[Unreleased]`
+- [x] TOOLS_REFERENCE.md warning box added to `read_file`
+- [x] TOOLS_REFERENCE.md full `read_file_chunked` documentation added
+- [x] DOCUMENTATION_UPDATE_SUMMARY.md updated with this section
 
 ---
 

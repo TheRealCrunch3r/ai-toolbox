@@ -6,6 +6,12 @@
 
 ## 📢 Recent Updates
 
+### ✅ Tool Description Improvements — Explicit Fallback Trigger (2026-06-01)
+Fixed critical UX issue where `read_file` truncation had no explicit fallback signal:
+- **`read_file`**: Added ⚠️ WARNING in tool description to explicitly instruct LLM to retry with `read_file_chunked` on truncated output
+- **`read_file_chunked`**: Rewrote description to emphasize "ALWAYS use this" when read_file fails or files exceed 50k chars
+- **Impact**: Reduces wasted turns, improves file reading reliability for AI agents
+
 ### 🔧 Vector RAG Fixes — Persistent State & New Tool (2026-05-31)
 Fixed critical issues with the Vector RAG tool suite:
 - **Added `rag_web_content`** — New tool to fetch web content and extract relevant chunks via semantic search

@@ -79,7 +79,7 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
   // read_file tool — Hybrid: Early size check + Buffer binary detection + Truncation support
   tools.push(tool({
     name: 'read_file',
-    description: 'Read content from a file in the current working directory.',
+    description: 'Read content from a file in the current working directory. ⚠️ WARNING: If output is truncated, you MUST retry with read_file_chunked to get the full content.',
     parameters: {
       file_name: z.string().describe('The name of the file to read'),
       max_length: z.number().int().min(1).max(50000).optional().default(5000).describe('Maximum number of characters to return (default: 5000)'),
@@ -144,7 +144,7 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
   // read_file_chunked tool — Reads files larger than max_length by splitting into chunks
   tools.push(tool({
     name: 'read_file_chunked',
-    description: 'Read a file in chunks when it exceeds the character limit. Automatically splits large files for efficient partial reading.',
+    description: 'Read a file in chunks to bypass character limits. ALWAYS use this instead of read_file if read_file returned truncated output, or if you know the file is very large (>50k chars). Returns structured chunks with start/end indices and truncation status.',
     parameters: {
       file_name: z.string().describe('The name of the file to read'),
       chunk_size: z.number().int().min(100).max(50000).optional().default(50000).describe('Maximum characters per chunk (default: 50000)'),

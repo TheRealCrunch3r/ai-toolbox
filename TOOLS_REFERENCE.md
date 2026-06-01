@@ -31,6 +31,8 @@ Read content from a file with size checking and binary detection.
 
 **Limits**: Max file size 10MB.
 
+> ⚠️ **IMPORTANT:** If `read_file` returns truncated output (content cut off), you **MUST** retry with [`read_file_chunked`](#read_file_chunked) to get the full content. Do not keep calling `read_file` with larger `max_length` values — it will still truncate.
+
 ---
 
 ### ⚙️ Workarounds for Character Limits
@@ -84,6 +86,44 @@ rag_index_files({ directoryPath: "src/", batchSize: 20 })
 // Step 2: Query only the relevant chunks
 rag_query_vector({ query: "authentication middleware", topK: 5 })
 → Returns only matching snippets (no full file read needed)
+```
+
+---
+
+### `read_file_chunked` 🆕 **RECOMMENDED for large files**
+
+Read a file in chunks to bypass character limits. **ALWAYS use this instead of `read_file` if `read_file` returned truncated output, or if you know the file is very large (>50k chars).** Returns structured chunks with start/end indices and truncation status.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `file_name` | `string` | Yes | File path |
+| `chunk_size` | `number` | No | Max characters per chunk (default: 50000, max: 50000) |
+| `max_chunks` | `number` | No | Maximum number of chunks to return (default: 20) |
+
+**Returns**: `{ success: true, data: { filePath, totalCharacters, chunkSize, maxChunks, chunksReturned, isTruncated, chunks: [{ index, content, startChar, endChar, truncated }] } }`
+
+**When to use:**
+| Scenario | Tool |
+|----------|------|
+| File < 50k chars | `read_file` (simpler) |
+| File > 50k chars | **`read_file_chunked`** ✅ |
+| `read_file` returned truncated output | **`read_file_chunked`** ✅ |
+| Need to read specific sections of large file | `read_file_chunked` with `max_chunks=1` + adjust `chunk_size` |
+
+**Example:**
+```typescript
+// Read a 200k-line TypeScript file in chunks
+read_file_chunked(
+  "large_project.ts",
+  chunk_size: 50000,   // 50k chars per chunk
+  max_chunks: 10       // up to 10 chunks (500k total)
+)
+
+// Response includes:
+// - isTruncated: true/false (did we get all content?)
+// - chunks[].index: 0, 1, 2...
+// - chunks[].startChar / endChar: byte offsets for each chunk
+// - chunks[].content: the actual text
 ```
 
 ---

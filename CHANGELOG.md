@@ -7,9 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
-## [Unreleased]
+## [1.4.5] — 2026-06-01
 
-### 🔧 Vector RAG Fixes (Critical)
+### 🔧 Tool Description Improvements (Critical UX Fix)
+
+#### Fixed `read_file` → `read_file_chunked` Fallback Trigger
+**Status**: ✅ LLM now explicitly warned to use chunked reading on truncation
+
+**Issue:** When `read_file` hit its character limit and returned truncated output, the model had no explicit signal to retry with `read_file_chunked`. This caused incomplete file reads and wasted turns.
+
+**Fix Applied:**
+| Tool | Before | After |
+|------|--------|-------|
+| `read_file` | `'Read content from a file in the current working directory.'` | `'Read content from a file in the current working directory. ⚠️ WARNING: If output is truncated, you MUST retry with read_file_chunked to get the full content.'` |
+| `read_file_chunked` | `'Read a file in chunks when it exceeds the character limit. Automatically splits large files for efficient partial reading.'` | `'Read a file in chunks to bypass character limits. ALWAYS use this instead of read_file if read_file returned truncated output, or if you know the file is very large (>50k chars). Returns structured chunks with start/end indices and truncation status.'` |
+
+**Impact:**
+- ✅ LLM now has explicit fallback instruction embedded in tool schema
+- ✅ Reduces wasted turns from failed `read_file` calls on large files
+- ✅ Improves reliability of file reading workflows for AI agents
+
+---
 
 #### Fixed Persistent State & Added `rag_web_content` Tool
 **Status**: ✅ All 4 RAG tools now fully functional

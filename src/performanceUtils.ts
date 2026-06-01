@@ -312,25 +312,20 @@ export async function fetchWithCache(
 
   const response = await fetch(url, options);
   
-  // Cache successful responses
+  // Cache successful responses (GET only)
   if (response.ok && options?.method !== 'POST') {
     try {
-      const data = await response.json();
+      // ✅ FIX: Clone before reading to preserve the original stream for the caller
+      const clonedResponse = response.clone();
+      const data = await clonedResponse.json();
+      
       requestCache.set(cacheKey, {
         data,
         timestamp: Date.now(),
         status: response.status,
       });
-      
-      // Evict old entries if cache grows too large (max 50 entries)
-      if (requestCache.size > 50) {
-        const oldestKey = requestCache.keys().next().value;
-        if (oldestKey) {
-          requestCache.delete(oldestKey);
-        }
-      }
     } catch {
-      // Non-JSON responses are not cached
+      // Non-JSON responses are not cached (safe to ignore)
     }
   }
 
