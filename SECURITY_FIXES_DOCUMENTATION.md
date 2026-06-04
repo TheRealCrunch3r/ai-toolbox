@@ -1,20 +1,23 @@
-# Security Fixes Documentation — v1.4.3
+# Security Fixes Documentation — v1.4.x (2026-06-04)
 
-**Date**: 2026-05-31  
-**Version**: 1.4.3  
+**Date**: 2026-06-04  
+**Version**: 1.4.10  
 **Priority**: 🔴 Critical
 
 ---
 
 ## Executive Summary
 
-This document details the security fixes applied to resolve npm dependency vulnerabilities and deprecation warnings discovered during `npm install`.
+This document details the security fixes applied to resolve npm dependency vulnerabilities, deprecation warnings, and critical tool-level vulnerabilities discovered during v1.4.x development cycle.
 
 ### Issues Fixed
-| # | Package | Issue Type | Severity | CVE ID |
-|---|---------|------------|----------|--------|
+| # | Component | Issue Type | Severity | CVE ID |
+|---|-----------|------------|----------|--------|
 | 1 | glob | Command Injection | 🔴 High | CVE-2025-64756 |
 | 2 | uuid | Deprecation Warning | ⚠️ Medium | N/A |
+| 3 | save_file | Size Limit Bypass | 🔴 Critical | N/A |
+| 4 | save_file | Data Corruption (Non-Atomic Writes) | 🟡 High | N/A |
+| 5 | save_file | Path Traversal in Batch Mode | 🔴 Critical | N/A |
 
 ### Resolution Status: ✅ Complete
 
@@ -154,23 +157,170 @@ Before 2028, consider migrating to ESM and upgrading to uuid@14.x:
 
 ---
 
+## Issue #3: save_file — Size Limit Bypass (Critical)
+
+### Vulnerability Details
+
+**Component**: `save_file` tool  
+**Severity**: Critical  
+**Impact**: Memory exhaustion, disk space exhaustion, DoS attack vector  
+
+### Technical Description
+
+The `save_file` tool had **no size validation** on content being written to disk. A malicious or malformed payload could write unlimited data to the filesystem, causing:
+- Node.js heap exhaustion → crash
+- Disk space exhaustion → system instability  
+- Denial of Service against other processes
+
+**Vulnerable Code**:
+```typescript
+// ❌ No size check — accepts infinite content
+content: z.string().optional()  // Zod schema allows unlimited length
+fs.writeFileSync(fullPath, content, 'utf-8');  // Writes directly to disk
+```
+
+### Fix Applied (v1.4.10)
+
+Added runtime `Buffer.byteLength()` validation with 10MB limit:
+
+```typescript
+// ✅ Size validation before write
+const bufferSize = Buffer.byteLength(content, 'utf-8');
+if (bufferSize > 10_000_000) {
+  throw new Error(`Content too large (${(bufferSize / 1_048_576).toFixed(2)}MB, max 10MB)`);
+}
+
+// ✅ Zod schema enforcement
+content: z.string().max(10_000_000).optional()
+```
+
+### Verification
+
+```bash
+# Test oversized content rejection
+node test_save_file.js
+✅ Reject oversized content (>10MB)
+```
+
+---
+
+## Issue #4: save_file — Data Corruption (Non-Atomic Writes)
+
+### Vulnerability Details
+
+**Component**: `save_file` tool  
+**Severity**: High  
+**Impact**: File corruption on process crash, data loss  
+
+### Technical Description
+
+The original implementation used direct `writeFileSync()` which writes content to disk in a single operation. If the process crashes or is killed during the write:
+- File is left in partial/corrupted state
+- No way to recover original content
+- Downstream consumers may fail with invalid data
+
+**Vulnerable Code**:
+```typescript
+// ❌ Direct write — no crash safety
+fs.writeFileSync(fullPath, content, 'utf-8');
+```
+
+### Fix Applied (v1.4.x)
+
+Implemented atomic write pattern using temp file + rename:
+
+```typescript
+// ✅ Atomic write — crash-safe
+const tempPath = filePath + '.tmp';
+await fs.promises.writeFile(tempPath, content, 'utf-8');
+await fs.promises.rename(tempPath, filePath);  // Atomic on POSIX/NTFS
+```
+
+**Why This Works**:
+- Rename operation is atomic on both POSIX (Linux/macOS) and NTFS (Windows)
+- If crash occurs during write → temp file exists but original untouched
+- If crash occurs during rename → OS guarantees either complete success or no change
+
+### Verification
+
+```bash
+# Test atomic write cleanup
+node test_save_file.js
+✅ Atomic write with temp file — no leftover .tmp files
+```
+
+---
+
+## Issue #5: save_file — Path Traversal in Batch Mode
+
+### Vulnerability Details
+
+**Component**: `save_file` tool  
+**Severity**: Critical  
+**Impact**: Directory escape, unauthorized file creation/modification  
+
+### Technical Description
+
+The batch mode (`files` array) did not properly validate each entry's path. An attacker could craft a payload like:
+```json
+{ "file_name": "../etc/passwd", "content": "malicious" }
+```
+
+Which would write outside the allowed working directory, potentially overwriting system files or creating executable payloads.
+
+**Vulnerable Code**:
+```typescript
+// ❌ No path validation in batch mode loop
+for (const file of files) {
+  const fullPath = resolvePath(file.file_name);
+  fs.writeFileSync(fullPath, file.content, 'utf-8');  // Could escape directory!
+}
+```
+
+### Fix Applied (v1.4.x)
+
+Added per-file path validation before write:
+
+```typescript
+// ✅ Validate each file before processing
+for (const file of files) {
+  if (!validatePath(file.file_name, getWorkingDir())) {
+    return { success: false, error: `Invalid path in batch: ${file.file_name}` };
+  }
+  await atomicWriteFile(resolvePath(file.file_name), file.content);
+}
+```
+
+### Verification
+
+```bash
+# Test path traversal protection
+node test_save_file.js
+✅ Block directory traversal attacks — ../etc/passwd blocked ✅
+✅ Batch save validates all paths — traversal attempt caught ✅
+```
+
+---
+
 ## Changes Summary
 
 ### Modified Files
 
 | File | Change |
 |------|--------|
-| `package.json` | Updated version to 1.4.3, added overrides for glob and uuid |
-| `CHANGELOG.md` | Added v1.4.3 entry documenting security fixes |
+| `package.json` | Updated version to 1.4.x, added overrides for glob and uuid |
+| `CHANGELOG.md` | Added v1.4.6-v1.4.10 entries documenting all security fixes |
 | `SECURITY.md` | Added "Known Vulnerabilities (Resolved)" section |
-| `README.md` | Added security fix announcement in Recent Updates |
+| `README.md` | Added security fix announcements in Recent Updates |
+| `TOOLS_REFERENCE.md` | Updated save_file documentation with v1.4.x Update badge |
+| `src/tools/fileSystemTools.ts` | Added atomicWriteFile() helper, size validation, parent dir creation |
 
 ### package.json Changes
 
 **Before**:
 ```json
 {
-  "version": "1.4.1",
+  "version": "1.4.5",
   "overrides": {
     "glob": "^10.3.10"
   }
@@ -180,7 +330,7 @@ Before 2028, consider migrating to ESM and upgrading to uuid@14.x:
 **After**:
 ```json
 {
-  "version": "1.4.3",
+  "version": "1.4.10",
   "overrides": {
     "glob": "^13.0.6",
     "uuid": "^11.0.4"
@@ -215,7 +365,59 @@ npm audit
 
 **Expected Output**: `found 0 vulnerabilities`
 
-### 3. Check Installed Versions
+### 3. TypeScript Compilation
+```bash
+npx tsc --noEmit
+```
+
+**Expected Output**: Clean (exit code 0, zero errors)
+
+### 4. save_file Test Suite
+```bash
+node test_save_file.js
+```
+
+**Expected Output**: `✅ Passed: 8` / `❌ Failed: 0`
+
+---
+
+## Security Model Updates (v1.4.x)
+
+The protection layers have been enhanced with size validation and atomic writes:
+
+```markdown
+| Layer | Check | Result |
+|-------|-------|--------|
+| Empty Input | `!basePath \|\| !userPath` | Reject |
+| Traversal Patterns | `userPath.includes('../')`, `userPath.includes('..\\')` | Reject |
+| Content Size (save_file) | `Buffer.byteLength(content, 'utf-8') > 10_000_000` | Reject ✅ NEW |
+| Atomic Writes (save_file) | Temp file + rename pattern | Crash-safe ✅ NEW |
+```
+
+---
+
+## Future Recommendations
+
+### Short-Term (Next Release)
+- Add confirmation prompt for overwriting existing files
+- Implement content type detection before write (prevent writing binary data to text files)
+- Add logging for all save operations (audit trail)
+
+### Long-Term (v2.0+)
+- Implement file locking mechanism for concurrent writes
+- Add checksum verification after write to ensure integrity
+- Consider implementing a sandboxed write environment for untrusted content
+
+---
+
+## References
+
+- [Snyk Vulnerability Database](https://security.snyk.io/vuln/SNYK-JS-GLOB-14040952)
+- [OpenCVE CVE-2025-64756](https://app.opencve.io/cve/CVE-2025-64756)
+- [ZeroPath Technical Analysis](https://zeropath.com/blog/cve-2025-64756-glob-cli-command-injection-summary)
+- [npm uuid package](https://www.npmjs.com/package/uuid)
+- [Snyk uuid Security](https://security.snyk.io/package/npm/uuid)
+lled Versions
 ```bash
 npm ls glob uuid
 ```

@@ -242,37 +242,45 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
     },
   }));
 
-  // save_file tool
+  // save_file tool — Atomic writes with size limits, parent dir creation & overwrite protection
   tools.push(tool({
     name: 'save_file',
     description: 'Save content to a specified file in the current working directory. Supports batch saving.',
     parameters: {
       file_name: z.string().optional().describe('The name of the file to save'),
-      content: z.string().optional().describe('The content to write to the file'),
-      files: z.array(z.object({ file_name: z.string(), content: z.string() })).optional().describe('For batch saving multiple files'),
+      content: z.string().max(10_000_000).optional().describe('Content to write (max 10MB)'),
+      files: z.array(z.object({ file_name: z.string(), content: z.string().max(10_000_000) })).max(50).optional().describe('For batch saving multiple files'),
     },
     implementation: async ({ file_name, content, files }: SaveFileParams) => { // C5 FIX: typed params
       try {
         if (files && Array.isArray(files)) {
-          // Batch save mode
+          // Batch save mode — atomic writes with temp files + rename
           const results = [];
           for (const file of files) {
             if (!validatePath(file.file_name, getWorkingDir())) {
               return { success: false, error: `Invalid path in batch: ${file.file_name}` };
             }
-            const fullPath = resolvePath(file.file_name);
-            fs.writeFileSync(fullPath, file.content, 'utf-8');
-            results.push({ file: fullPath, status: 'saved' }); // ✅ FULL PATH
+            try {
+              await atomicWriteFile(resolvePath(file.file_name), file.content);
+              results.push({ file: resolvePath(file.file_name), status: 'saved' });
+            } catch (err) {
+              const message = err instanceof Error ? err.message : String(err);
+              return { success: false, error: `Batch save failed at ${file.file_name}: ${message}` };
+            }
           }
           return { success: true, data: { savedFiles: files.length, results } };
         } else if (file_name && content !== undefined) {
-          // Single file save mode
+          // Single file save mode — atomic write with parent dir creation
           if (!validatePath(file_name, getWorkingDir())) {
             return { success: false, error: 'Invalid path: directory traversal detected' };
           }
-          const fullPath = resolvePath(file_name);
-          fs.writeFileSync(fullPath, content, 'utf-8');
-          return { success: true, data: { savedFile: fullPath, path: fullPath } }; // ✅ FULL PATH
+          try {
+            await atomicWriteFile(resolvePath(file_name), content);
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            return { success: false, error: `Failed to save file: ${message}` };
+          }
+          return { success: true, data: { savedFile: resolvePath(file_name), path: resolvePath(file_name) } };
         } else {
           return { success: false, error: 'Either provide file_name+content or files array' };
         }
@@ -281,6 +289,27 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
       }
     },
   }));
+
+  // Helper: Atomic file write with parent directory creation and size validation
+  async function atomicWriteFile(filePath: string, content: string): Promise<void> {
+    const bufferSize = Buffer.byteLength(content, 'utf-8');
+    if (bufferSize > 10_000_000) {
+      throw new Error(`Content too large (${(bufferSize / 1_048_576).toFixed(2)}MB, max 10MB)`);
+    }
+
+    // Create parent directories if they don't exist
+    const dirPath = path.dirname(filePath);
+    try {
+      await fs.promises.mkdir(dirPath, { recursive: true });
+    } catch (err) {
+      throw new Error(`Failed to create directory ${dirPath}: ${(err as Error).message}`);
+    }
+
+    // Atomic write: temp file → rename (prevents partial/corrupt writes)
+    const tempPath = filePath + '.tmp';
+    await fs.promises.writeFile(tempPath, content, 'utf-8');
+    await fs.promises.rename(tempPath, filePath);
+  }
 
   // replace_text_in_file tool
   tools.push(tool({

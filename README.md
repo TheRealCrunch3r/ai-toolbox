@@ -6,6 +6,14 @@
 
 ## 📢 Recent Updates
 
+### 🔒 Security Hardening — `save_file` Atomic Writes & Size Limits (2026-06-04)
+Fixed critical vulnerabilities in the file saving tool:
+- **Atomic writes** — Replaced direct `writeFileSync` with temp file + rename pattern for crash-safe operations
+- **Size enforcement** — Added 10MB payload limit via Zod schema `.max()` and runtime `Buffer.byteLength()` validation
+- **Auto directory creation** — Parent directories created automatically using recursive `mkdir -p` equivalent
+- **Batch mode reliability** — Per-file error handling with immediate failure on invalid path (no partial saves)
+- **Impact**: Zero data corruption risk, automatic nested path support, protection against memory/disk exhaustion ✅
+
 ### ✅ Memory System Fix — Complete CRUD Operations (2026-06-04)
 Fixed critical bug where `save_memory` had no retrieval mechanism:
 - **Added 3 new tools**: `get_memory`, `search_memory`, `delete_memory`

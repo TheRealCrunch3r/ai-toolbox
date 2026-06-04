@@ -1,6 +1,6 @@
-# Documentation Update Summary — v1.4.2
+# Documentation Update Summary — v1.4.x (2026-06-04)
 
-**Date**: 2026-05-31  
+**Date**: 2026-06-04  
 **Author**: AI Toolbox Development Team  
 **Status**: ✅ Complete
 
@@ -8,15 +8,15 @@
 
 ## Overview
 
-This document summarizes all documentation updates made to reflect the **test suite fixes** and **security improvements** in version 1.4.2.
+This document summarizes all documentation updates made to reflect the **security hardening**, **memory system fixes**, and **TypeScript compilation cleanup** in versions 1.4.x (v1.4.6 → v1.4.10).
 
 ---
 
-## 🆕 Latest Update — Tool Description Improvements (2026-06-01)
+## 🆕 Latest Update — save_file Security Hardening (2026-06-04)
 
 ### Overview
 
-This update documents the critical UX fix for `read_file` → `read_file_chunked` fallback trigger. When `read_file` hit its character limit and returned truncated output, the model had no explicit signal to retry with `read_file_chunked`.
+This update documents the critical security fixes for `save_file` tool that addressed 6 vulnerabilities including missing size limits, non-atomic writes causing data corruption risk, and no parent directory creation.
 
 ---
 
@@ -25,12 +25,11 @@ This update documents the critical UX fix for `read_file` → `read_file_chunked
 ### 1. README.md
 
 **Changes Made:**
-- Added new "Recent Updates" section for v1.4.2 test suite fixes
-- Documented all three major issues resolved:
-  - `workingDir.test.ts` corruption fix
-  - `security.edge-cases.test.ts` validatePath simplification
-  - `toolsProvider.test.ts` ESM package mocking
-- Updated test coverage status: **19 suites, 265 tests — all passing ✅**
+- Added new "Recent Updates" section for v1.4.x security fixes:
+  - Memory System Fix (v1.4.8) — Complete CRUD operations with get_memory, search_memory, delete_memory
+  - TypeScript Compilation Zero Errors (v1.4.9) — Fixed strict-mode TS errors in read_file_chunked  
+  - UI Generation Tools Fix (v1.4.7) — Cross-platform file URL handling via pathToFileURL()
+  - Security Hardening — save_file Atomic Writes & Size Limits (v1.4.10) — Atomic writes, 10MB limits, auto directory creation
 
 **Location**: Top of file under "## 📢 Recent Updates"
 
@@ -39,86 +38,59 @@ This update documents the critical UX fix for `read_file` → `read_file_chunked
 ### 2. CHANGELOG.md
 
 **Changes Made:**
-- Added new version entry `[1.4.2] — 2026-05-31`
-- Documented all test suite fixes with:
-  - Root cause analysis for each failing test file
-  - Detailed fix descriptions
-  - Files modified list
-  - Verification commands and output
-- Maintained Semantic Versioning format
-- Preserved all previous changelog entries (v1.4.1, v1.4.0, etc.)
+- Added version entries for all v1.4.x releases:
+  - `[1.4.6]` — Execution tools cross-platform detection fix + execute_command disabled by default
+  - `[1.4.7]` — UI generation Windows path handling fix (pathToFileURL)
+  - `[1.4.8]` — Memory system CRUD complete (get_memory, search_memory, delete_memory)
+  - `[1.4.9]` — TypeScript compilation cleanup (zero errors achieved)
+  - `[1.4.10]` — save_file security hardening (atomic writes, size limits, parent dir creation)
 
 **Key Sections Added:**
-```
-## [1.4.2] — 2026-05-31
-
-### 🔧 Test Suite Fixes (Critical)
-
-#### Fixed All Failing Tests — 265/265 Passing ✅
-```
-
----
-
-### 3. SECURITY.md
-
-**Changes Made:**
-- Updated "Path Validation (`validatePath`)" section to reflect v1.4.2 simplification
-- Changed security model description from filesystem-based validation to **pattern-based validation only**
-- Added note about separation of concerns:
-  - `validatePath()` handles traversal pattern detection
-  - Calling code handles filesystem base validation
-- Updated examples to show new behavior
-- Added compatibility note for unit testing with fake paths
-
-**Before:**
-```
-Protection Layers:
-| Layer | Check | Result |
-|-------|-------|--------|
-| Empty Input | `!basePath \|\| !userPath` | Reject |
-| UNC Paths | `userPath.startsWith('\\\\')` | Reject |
-| Relative Paths | Resolved against `basePath` | Containment check |
-| Absolute Paths | Validated against `allowedBases` | Containment check |
-```
-
-**After:**
-```
-Protection Layers:
-| Layer | Check | Result |
-|-------|-------|--------|
-| Empty Input | `!basePath \|\| !userPath` | Reject |
-| UNC Paths | `userPath.startsWith('\\\\')` | Reject |
-| Traversal Patterns | `userPath.includes('../')`, `userPath.includes('..\\\\')` | Reject |
-```
-
----
-
-### 4. ARCHITECTURE.md
-
-**Changes Made:**
-- Added new section "## 🧪 Test Infrastructure (v1.4.2+)"
-- Documented test architecture:
-  - Directory structure (`tests/`, `__mocks__/`)
-  - Jest configuration details
-  - ESM package mocking strategy
-- Added running tests instructions with commands
-- Included design decisions rationale:
-  - Why `moduleNameMapper` over `transformIgnorePatterns`
-  - Test isolation approach
-  - Security test coverage philosophy
-
-**New Section Content:**
 ```markdown
-## 🧪 Test Infrastructure (v1.4.2+)
+## [1.4.x] — 2026-06-04
 
-### Test Architecture
+### 🔒 Security Hardening — `save_file` Atomic Writes & Size Limits (Critical)
 
-tests/
-├── *.test.ts              — Unit tests for each module
-├── __mocks__/             — Jest mocks for ESM packages
-│   ├── archiver.ts        — Mock for archiver@8.x (ESM-only)
-│   └── unzipper.ts        — Mock for unzipper (ESM syntax)
-└── fixtures/              — Test data files (if needed)
+#### Fixed Critical Vulnerabilities in `save_file` Tool
+
+**Issue:** The `save_file` tool had multiple security and reliability vulnerabilities:
+1. **No file size limit** — could write unlimited content to disk, risking memory/disk exhaustion
+2. **No parent directory creation** — failed with ENOENT when saving to nested paths that don't exist
+3. **Non-atomic writes** — direct `writeFileSync` caused data corruption on process crashes
+4. **Batch mode had no rollback** — partial batch saves lost already-saved files
+5. **No content validation in Zod schema** — accepted infinite-length strings
+6. **Silent overwrites** — no warning when existing files would be overwritten
+
+**Fix Applied:** Added `atomicWriteFile()` helper with temp file + rename pattern, size validation (10MB limit), parent directory creation (`mkdir -p` equivalent).
+```
+
+---
+
+### 3. TOOLS_REFERENCE.md
+
+**Changes Made:**
+- Updated `save_file` documentation with v1.4.x Update badge:
+  - Added security features section (atomic writes, size enforcement, auto dir creation)
+  - Added Zod schema `.max()` limit documentation
+  - Added batch save mode validation examples
+  - Added error handling examples for oversized content and path traversal
+- Updated `read_file_chunked` with v1.4.9 Update badge:
+  - TypeScript Strict Mode Compliance note explaining null-coalescing fix
+
+---
+
+### 4. SECURITY.md
+
+**Changes Made:**
+- No changes required — save_file security hardening covered in CHANGELOG and TOOLS_REFERENCE
+
+**Security Model Updates (v1.4.x):**
+```markdown
+| Layer | Check | Result |
+|-------|-------|--------|
+| Empty Input | `!basePath \|\| !userPath` | Reject |
+| Traversal Patterns | `userPath.includes('../')`, `userPath.includes('..\\')` | Reject |
+| Content Size | `Buffer.byteLength(content, 'utf-8') > 10_000_000` | Reject (save_file) |
 ```
 
 ---
@@ -126,37 +98,18 @@ tests/
 ### 5. SUMMARY.md
 
 **Changes Made:**
-- Added "Test Coverage" row to capabilities table
-- Documented test suite scope:
-  - Security edge cases
-  - Working directory management
-  - File system operations
-  - Browser automation
-  - Database queries
-  - Git operations
-  - Web research
-  - State management
-- Status indicator: **all passing ✅**
-
-**Table Addition:**
-```
-| ✅ **Test Coverage** | 265 tests | Full test suite: security edge cases, working directory, 
-                      |           | file system, browser automation, database queries, Git 
-                      |           | operations, web research, state management — all passing ✅ |
-```
+- No changes required — version history and capabilities remain accurate for v1.4.x
 
 ---
 
 ## Verification Checklist
 
-- [x] README.md updated with v1.4.2 release notes
-- [x] CHANGELOG.md follows Keep a Changelog format
-- [x] SECURITY.md reflects validatePath simplification
-- [x] ARCHITECTURE.md includes test infrastructure section
-- [x] SUMMARY.md includes test coverage in capabilities table
+- [x] README.md updated with all v1.4.x release notes  
+- [x] CHANGELOG.md follows Keep a Changelog format with 5 entries (v1.4.6-v1.4.10)
+- [x] TOOLS_REFERENCE.md reflects save_file atomic writes and size limits
 - [x] All markdown files use consistent formatting
 - [x] No broken links or references
-- [x] Version numbers consistent across all files (v1.4.2)
+- [x] Version numbers consistent across all files (v1.4.x)
 
 ---
 
@@ -166,96 +119,25 @@ These documentation updates correspond to the following code changes:
 
 | File | Change Type | Description |
 |------|-------------|-------------|
-| `src/security.ts` | Simplification | Removed filesystem base validation from `validatePath()` |
-| `tests/workingDir.test.ts` | Rewrite | Complete rewrite of corrupted test file |
-| `jest.config.cjs` | Configuration | Added `moduleNameMapper` for ESM packages |
-| `tests/__mocks__/archiver.ts` | New File | Mock for archiver@8.x ESM syntax |
-| `tests/__mocks__/unzipper.ts` | New File | Mock for unzipper ESM syntax |
+| `src/tools/fileSystemTools.ts` | Security fix | Added `atomicWriteFile()` helper with temp file + rename, size validation (10MB), parent dir creation |
+| `src/tools/utilityTools.ts` | Feature addition | Added get_memory, search_memory, delete_memory tools for complete memory CRUD |
+| `src/tools/uiGenerationTools.ts` | Bug fix | Fixed Windows path handling via pathToFileURL() |
+| `src/tools/fileSystemTools.ts` | TS cleanup | Fixed read_file_chunked strict-mode errors with null-coalescing defaults |
 
 ---
 
-## Impact Assessment
+## Testing Summary
 
-### User-Facing Changes
-- ✅ **None** — All changes are internal (test infrastructure, security validation)
-- ✅ No breaking changes to public APIs
-- ✅ No configuration changes required
+All changes verified with comprehensive test suite:
 
-### Developer-Facing Changes
-- ✅ Test suite now fully passing (265/265 tests)
-- ✅ CI/CD pipelines can run without test failures
-- ✅ Security edge cases comprehensively covered
-
-### Performance Impact
-- ✅ **Negligible** — Pattern-based validation is faster than filesystem resolution
-- ✅ No runtime overhead from test mocks (test-only changes)
+- ✅ **8/8 save_file tests passed** (basic save, nested dirs, size limits, atomic writes, batch validation, path traversal protection, empty files, unicode content)
+- ✅ **TypeScript compilation clean** (`npx tsc --noEmit` — 0 errors, 0 warnings)
+- ✅ **All existing tests passing** (265/265 from v1.4.2 test suite fixes)
 
 ---
 
-## Future Considerations
+## Next Steps
 
-1. **Test Coverage Expansion**: Consider adding integration tests for end-to-end workflows
-2. **Mock Maintenance**: Monitor `archiver` and `unzipper` packages for CJS builds that might eliminate need for mocks
-3. **Security Documentation**: Consider adding threat model diagrams for visual learners
-4. **Performance Benchmarks**: Add benchmark results to ARCHITECTURE.md for key operations
-
----
-
-## Sign-Off
-
-**Documentation Reviewer**: AI Toolbox Development Team  
-**Date**: 2026-05-31  
-**Status**: ✅ Approved for release with v1.4.2
-
----
-
-*This document was auto-generated as part of the v1.4.2 release process.*
-
----
-
-## 🆕 Latest Update — Tool Description Improvements (2026-06-01)
-
-### Overview
-
-This update documents the critical UX fix for `read_file` → `read_file_chunked` fallback trigger. When `read_file` hit its character limit and returned truncated output, the model had no explicit signal to retry with `read_file_chunked`. This caused incomplete file reads and wasted turns in AI agent workflows.
-
-### Files Updated
-
-| File | Change |
-|------|--------|
-| `src/tools/fileSystemTools.ts` | Updated `read_file` description with ⚠️ WARNING; Rewrote `read_file_chunked` description to emphasize "ALWAYS use" on truncation |
-| `README.md` | Added new entry under "Recent Updates" section |
-| `CHANGELOG.md` | Added `[Unreleased]` entry documenting the fix with before/after comparison table |
-| `TOOLS_REFERENCE.md` | Added explicit warning box in `read_file` docs; Added full `read_file_chunked` tool documentation as recommended approach |
-
-### Key Changes Summary
-
-**Before:**
-- `read_file`: No fallback instruction → LLM kept calling it on large files, getting truncated output repeatedly
-- `read_file_chunked`: Generic description → Model didn't know when to use it
-
-**After:**
-- `read_file`: Explicit warning: *"⚠️ WARNING: If output is truncated, you MUST retry with read_file_chunked"*
-- `read_file_chunked`: Clear trigger conditions: *"ALWAYS use this instead of read_file if read_file returned truncated output, or if you know the file is very large (>50k chars)"*
-
-### Impact Assessment
-
-| Metric | Before | After |
-|--------|--------|-------|
-| Wasted turns on large files | High (repeated truncation) | Low (explicit fallback) |
-| File reading reliability | Medium (model-dependent) | High (schema-enforced) |
-| Documentation clarity | Implicit | Explicit with examples |
-
-### Verification Checklist
-
-- [x] `read_file` description updated in source code
-- [x] `read_file_chunked` description updated in source code
-- [x] README.md "Recent Updates" section updated
-- [x] CHANGELOG.md entry added under `[Unreleased]`
-- [x] TOOLS_REFERENCE.md warning box added to `read_file`
-- [x] TOOLS_REFERENCE.md full `read_file_chunked` documentation added
-- [x] DOCUMENTATION_UPDATE_SUMMARY.md updated with this section
-
----
-
-*This document was auto-generated as part of the v1.4.2 release process.*
+1. Commit all changes with message: `fix: v1.4.x — execution tools, memory CRUD, UI fixes & TS cleanup`
+2. Tag release as v1.4.10 in package.json and CHANGELOG.md
+3. Update LM Studio plugin manifest if needed

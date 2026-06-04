@@ -130,19 +130,43 @@ read_file_chunked(
 
 ---
 
-### `save_file`
+### `save_file` — v1.4.x Update (v1.4.9+)
 
-Save content to a file. Supports batch saving.
+Save content to a specified file in the current working directory. Supports batch saving with atomic writes and size limits.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `file_name` | `string` | No* | File path |
-| `content` | `string` | No* | Content to write |
-| `files` | `Array<{file_name, content}>` | No* | Batch save array |
+| `file_name` | `string` | No* | File path (*required for single mode) |
+| `content` | `string` | No* | Content to write (max 10MB per file, *required for single mode) |
+| `files` | `Array<{file_name, content}>` | No* | Batch save array (max 50 files, each with .max(10_000_000) limit) |
 
 \* Either `file_name`+`content` or `files` required.
 
-**Returns**: `{ success: true, data: { savedFile, path } }` or `{ savedFiles, results }`
+**Returns**: `{ success: true, data: { savedFile, path } }` or `{ success: true, data: { savedFiles, results } }`
+
+> ⚠️ **Security & Reliability Features (v1.4.x)**:
+> - **Atomic writes** — Uses temp file + rename pattern to prevent corruption on crash
+> - **Size enforcement** — 10MB limit via Zod schema `.max()` and runtime `Buffer.byteLength()` validation
+> - **Auto directory creation** — Parent directories created automatically using recursive `mkdir` equivalent
+> - **Path traversal protection** — Directory escape attempts blocked in both single and batch modes
+
+**Examples:**
+```json
+// Single file save (auto-creates parent dirs)
+{"file_name": "nested/deep/path/test.txt", "content": "Hello World"}
+→ { success: true, data: { savedFile: ".../test.txt" } }
+
+// Batch save mode
+{"files": [
+  {"file_name": "batch1.txt", "content": "First"},
+  {"file_name": "batch2.txt", "content": "Second"}
+]}
+→ { success: true, data: { savedFiles: 2, results: [...] } }
+
+// Size limit enforced (>10MB rejected)
+{"file_name": "big_test.txt", "content": "[very large string >10MB]"}
+→ { success: false, error: "Content too large (X.XXMB, max 10MB)" }
+```
 
 ---
 
