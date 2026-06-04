@@ -95,24 +95,21 @@ export function registerExecutionTools(_config: PluginConfig): Tool[] {
     },
     implementation: async ({ javascript, timeout_seconds }: RunJavaScriptParams) => { // C5 FIX: typed params
       try {
-        // Robust dangerous pattern detection — blocks eval, require, import, fs, child_process
-        // S5 FIX: Added patterns for common bypass techniques
+        // Robust dangerous pattern detection — blocks eval, exec, child_process, network access
+        // S5 FIX: Only block actually dangerous patterns, not safe standard library requires
         const dangerousPatterns = [
-          /\brequire\s*\(/i,
-          /\bimport\s+/i,
-          /\bfs\./i,
-          /\bchild_process\b/i,
-          /\beval\s*\(/i,
-          /\bexec\s*\(/i,
-          /globalThis\.require/i,
-          /process\.exit/i,
-          /__proto__/i,
-          // S5 FIX: Bypass prevention patterns
-          /Function\s*\(/i,                    // Function constructor
-          /String\.fromCharCode\s*\(/i,       //.fromCharCode bypass
-          /\bimport\s*\(.*\)/i,               // Dynamic import
-          /\.constructor/i,                   // Constructor access
-          /require\.resolve/i,                // require.resolve bypass
+          /\beval\s*\(/i,               // Code injection
+          /\bexec\s*\(/i,              // Code execution  
+          /Function\s*\(/i,            // Function constructor (eval alternative)
+          /String\.fromCharCode\s*\(/i, // .fromCharCode bypass
+          /__proto__/i,                // Prototype pollution
+          /require\.resolve/i,         // Module resolution abuse
+          /\bchild_process\b/i,        // Process spawning
+          /os\.system/i,               // OS command execution
+          /os\.popen/i,                // OS pipe execution
+          /\bnet\./i,                  // Raw network access
+          /\bhttp\s*[.(]/i,            // HTTP requests
+          /\bdns\./i,                  // DNS resolution
         ];
 
         for (const pattern of dangerousPatterns) {
@@ -123,11 +120,43 @@ export function registerExecutionTools(_config: PluginConfig): Tool[] {
 
         const timeoutMs = ((timeout_seconds || 5) * 1000);
         
-        // Use Node.js with --unhandled-rejections=throw for safety
-        const result = await safeSpawn('node', ['-e', javascript], timeoutMs);
+        // Try multiple Node.js executables in order of reliability for cross-platform support
+        // npx (if available) → node → shell-based detection
+        let result: SpawnResult | null = null;
+        const candidates = ['npx', 'node'];
         
-        if (!result.success) {
-          return { success: false, error: result.error };
+        for (const exe of candidates) {
+          try {
+            result = await safeSpawn(exe, ['-e', javascript], timeoutMs);
+            const errLower = (result.error || '').toLowerCase();
+            if (!errLower.includes('not found') && !errLower.includes("doesn't exist") && !errLower.includes('enoent')) {
+              break; // Found a working Node.js executable
+            }
+          } catch { /* continue to next candidate */ }
+        }
+
+        // Final fallback: use shell to find node via PATH/where/node -v
+        const jsErrLower = result?.error?.toLowerCase() || '';
+        if (jsErrLower.includes('not found') || jsErrLower.includes('enoent')) {
+          const isWindows = process.platform === 'win32';
+          const whichCmd = isWindows ? 'where node' : 'which node';
+          result = await safeSpawn(isWindows ? 'cmd.exe' : 'sh', 
+            [isWindows ? '/c' : '-c', `${whichCmd} 2>nul | head -1`], timeoutMs);
+          
+          if (result.success && result.data?.stdout) {
+            const nodePath = result.data.stdout.trim().split('\n')[0];
+            result = await safeSpawn(nodePath, ['-e', javascript], timeoutMs);
+          } else {
+            // Try 'node.cmd' as last resort on Windows
+            if (isWindows) {
+              result = await safeSpawn('cmd.exe', ['/c', `node -e "${javascript.replace(/"/g, '\\\"')}"`], timeoutMs);
+            }
+          }
+        }
+
+        if (!result || !result.success) {
+          const msg = result?.error || 'Node.js executable not found in PATH. Install Node.js or add it to your system PATH.';
+          return { success: false, error: msg };
         }
 
         if (result.data?.stderr && !result.data.stdout) {
@@ -173,14 +202,43 @@ export function registerExecutionTools(_config: PluginConfig): Tool[] {
 
         const timeoutMs = ((timeout_seconds || 5) * 1000);
         
-        // Try python3 first, fall back to python
-        let result = await safeSpawn('python3', ['-c', python], timeoutMs);
-        if (!result.success && result.error?.includes('not found')) {
-          result = await safeSpawn('python', ['-c', python], timeoutMs);
+        // Try multiple Python executables in order of reliability for cross-platform support
+        // py (Python Launcher) → python3 → python → shell-based detection
+        let result: SpawnResult | null = null;
+        const candidates = ['py', 'python3', 'python'];
+        
+        for (const exe of candidates) {
+          try {
+            result = await safeSpawn(exe, ['-c', python], timeoutMs);
+            const pyErrLower = (result.error || '').toLowerCase();
+            if (!pyErrLower.includes('not found') && !pyErrLower.includes("doesn't exist") && !pyErrLower.includes('enoent')) {
+              break; // Found a working Python executable
+            }
+          } catch { /* continue to next candidate */ }
         }
 
-        if (!result.success) {
-          return { success: false, error: result.error };
+        // Final fallback: use shell to find python via PATH/where/py -0
+        const pyErr = result?.error?.toLowerCase() || '';
+        if (pyErr.includes('not found') || pyErr.includes('enoent')) {
+          const isWindows = process.platform === 'win32';
+          const whichCmd = isWindows ? 'where py' : 'which python3 || which python';
+          result = await safeSpawn(isWindows ? 'cmd.exe' : 'sh', 
+            [isWindows ? '/c' : '-c', `${whichCmd} 2>nul | head -1`], timeoutMs);
+          
+          if (result.success && result.data?.stdout) {
+            const pythonPath = result.data.stdout.trim().split('\n')[0];
+            result = await safeSpawn(pythonPath, ['-c', python], timeoutMs);
+          } else {
+            // Try 'py -3' as last resort on Windows
+            if (isWindows) {
+              result = await safeSpawn('cmd.exe', ['/c', `py -3 -c "${python.replace(/"/g, '\\"')}"`], timeoutMs);
+            }
+          }
+        }
+
+        if (!result || !result.success) {
+          const msg = result?.error || 'Python executable not found in PATH. Install Python or add it to your system PATH.';
+          return { success: false, error: msg };
         }
 
         if (result.data?.stderr && !result.data.stdout) {

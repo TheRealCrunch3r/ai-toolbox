@@ -3,6 +3,7 @@ import { tool } from '@lmstudio/sdk';
 import { z } from 'zod';
 import * as fs from 'fs';
 import * as path from 'path';
+import { pathToFileURL } from 'url';
 import type { PluginConfig } from '../config.js';
 import { getWorkingDir } from '../workingDir.js';
 
@@ -202,8 +203,9 @@ export function registerUiGenerationTools(_config: PluginConfig): Tool[] {
             const browser = await puppeteerModule.default.launch({ headless: true });
             const page = await browser.newPage();
             
-            // Load the HTML file
-            await page.goto(`file://${filePath}`);
+            // Load the HTML file — use pathToFileURL for cross-platform compatibility (handles Windows backslashes)
+            const fileUrl = pathToFileURL(filePath).href;
+            await page.goto(fileUrl);
             
             // Wait for content to render
             await page.waitForSelector('body', { timeout: 5000 }).catch(() => {});

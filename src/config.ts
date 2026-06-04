@@ -62,7 +62,7 @@ export const ConfigSchema = z.object({
 
   executionTerminal: z.boolean().default(false).describe('Allow run_in_terminal tool'),
 
-  executionShell: z.boolean().default(true).describe('Allow execute_command tool'),
+  executionShell: z.boolean().default(false).describe('Allow execute_command tool'),
 
 
 
@@ -203,12 +203,12 @@ export const DEFAULT_CONFIG: PluginConfig = {
   // Execution tools — all disabled by default (dangerous!)
 
   executionJavaScript: false,
-
+  
   executionPython: false,
-
+  
   executionTerminal: false,
-
-  executionShell: true,
+  
+  executionShell: false, // ⚠️ Disabled by default — dangerous shell commands!
 
 
 

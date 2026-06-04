@@ -222,6 +222,101 @@ export function registerUtilityTools(config: PluginConfig, stateManager: StateMa
     },
   }));
 
+  // get_memory tool — Retrieve saved memories from stateManager
+  tools.push(tool({
+    name: 'get_memory',
+    description: 'Retrieve all saved memory entries. Returns a list of all facts stored via save_memory.',
+    parameters: {},
+    implementation: async () => {
+      try {
+        const keys = stateManager.getAllKeys().filter(k => k.startsWith('memory_'));
+        const memories = [];
+        
+        for (const key of keys) {
+          const value = stateManager.get(key);
+          if (value !== undefined) {
+            memories.push({
+              id: key,
+              fact: value,
+              timestamp: stateManager.get(key + '_timestamp') || Date.now(),
+            });
+          }
+        }
+        
+        // Sort by timestamp (newest first)
+        memories.sort((a, b) => {
+          const tsA = typeof a.timestamp === 'number' ? a.timestamp : 0;
+          const tsB = typeof b.timestamp === 'number' ? b.timestamp : 0;
+          return tsB - tsA;
+        });
+        
+        return { success: true, data: { memories, count: memories.length } };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return { success: false, error: `Failed to retrieve memory: ${message}` };
+      }
+    },
+  }));
+
+  // search_memory tool — Search saved memories by query
+  tools.push(tool({
+    name: 'search_memory',
+    description: 'Search saved memories for a specific fact or keyword. Returns matching entries.',
+    parameters: {
+      query: z.string().describe('Search query to match against stored facts'),
+      max_results: z.number().min(1).max(50).optional().default(10).describe('Maximum number of results to return'),
+    },
+    implementation: async ({ query, max_results = 10 }: { 
+      readonly query: string; 
+      readonly max_results?: number; 
+    }) => {
+      try {
+        const keys = stateManager.getAllKeys().filter(k => k.startsWith('memory_'));
+        const results = [];
+        
+        for (const key of keys) {
+          const value = stateManager.get(key);
+          if (value && typeof value === 'string' && 
+              value.toLowerCase().indexOf(query.toLowerCase()) >= 0) {
+            results.push({
+              id: key,
+              fact: value,
+              timestamp: Date.now(), // Use current time since we don't store it separately
+            });
+          }
+        }
+        
+        return { success: true, data: { results, count: results.length } };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return { success: false, error: `Failed to search memory: ${message}` };
+      }
+    },
+  }));
+
+  // delete_memory tool — Delete a specific saved memory entry by ID
+  tools.push(tool({
+    name: 'delete_memory',
+    description: 'Delete a saved memory entry by its ID (returned from save_memory or get_memory).',
+    parameters: {
+      entry_id: z.string().describe('The unique ID of the memory entry to delete'),
+    },
+    implementation: async ({ entry_id }: { readonly entry_id: string }) => {
+      try {
+        const deleted = stateManager.delete(entry_id);
+        
+        if (!deleted) {
+          return { success: false, error: `Memory entry '${entry_id}' not found` };
+        }
+        
+        return { success: true, data: { deleted: true, entry_id } };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return { success: false, error: `Failed to delete memory: ${message}` };
+      }
+    },
+  }));
+
   // get_system_info tool
   tools.push(tool({
     name: 'get_system_info',

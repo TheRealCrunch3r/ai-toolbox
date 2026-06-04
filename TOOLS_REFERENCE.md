@@ -90,7 +90,7 @@ rag_query_vector({ query: "authentication middleware", topK: 5 })
 
 ---
 
-### `read_file_chunked` 🆕 **RECOMMENDED for large files**
+### `read_file_chunked` 🆕 **RECOMMENDED for large files** — v1.4.9 Update
 
 Read a file in chunks to bypass character limits. **ALWAYS use this instead of `read_file` if `read_file` returned truncated output, or if you know the file is very large (>50k chars).** Returns structured chunks with start/end indices and truncation status.
 
@@ -101,6 +101,8 @@ Read a file in chunks to bypass character limits. **ALWAYS use this instead of `
 | `max_chunks` | `number` | No | Maximum number of chunks to return (default: 20) |
 
 **Returns**: `{ success: true, data: { filePath, totalCharacters, chunkSize, maxChunks, chunksReturned, isTruncated, chunks: [{ index, content, startChar, endChar, truncated }] } }`
+
+> ⚠️ **TypeScript Strict Mode Compliance (v1.4.9+)**: Optional parameters use explicit null-coalescing (`??`) with defaults to satisfy TypeScript's strict mode requirements. This ensures zero compilation errors across the entire codebase.
 
 **When to use:**
 | Scenario | Tool |
@@ -713,12 +715,25 @@ Kill a running background command.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `javascript` | `string` | Yes | JavaScript code |
-| `timeout_seconds` | `number` | No | Timeout (default: 5, max: 60) |
+| `javascript` | `string` | Yes | JavaScript code to execute |
+| `timeout_seconds` | `number` | No | Timeout in seconds (default: 5, max: 60) |
 
 **Returns**: `{ success: true, data: { output } }`
 
-**Blocked**: `require()`, `eval()`, `fs`, `child_process`, `Function()`, dynamic imports.
+**Cross-Platform Detection**: Automatically tries multiple Node.js executables (`npx` → `node`) with shell-based PATH fallback (`where node` / `which node`).
+
+**Blocked Patterns** (Security):
+| Pattern | Reason |
+|---------|--------|
+| `eval()`, `exec()` | Code injection/exécution |
+| `Function()` | Function constructor (eval alternative) |
+| `String.fromCharCode()` | Bypass technique |
+| `__proto__` | Prototype pollution |
+| `child_process` | Process spawning |
+| `os.system`, `os.popen` | OS command execution |
+| Network access (`net.`, `http`, `dns.`) | Unauthorized network calls |
+
+**Allowed**: Safe standard library requires like `require('os')`, `require('path')`, `require('fs').readFileSync()` are permitted since they're read-only or safe operations. The sandbox relies on the execution environment for isolation.
 
 ---
 
@@ -728,12 +743,22 @@ Kill a running background command.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `python` | `string` | Yes | Python code |
-| `timeout_seconds` | `number` | No | Timeout (default: 5, max: 60) |
+| `python` | `string` | Yes | Python code to execute |
+| `timeout_seconds` | `number` | No | Timeout in seconds (default: 5, max: 60) |
 
 **Returns**: `{ success: true, data: { output } }`
 
-**Blocked**: `os`, `subprocess`, `shutil`, `__import__()`, `eval()`, `exec()`.
+**Cross-Platform Detection**: Automatically tries multiple Python executables (`py` → `python3` → `python`) with shell-based PATH fallback (`where py` / `which python`).
+
+**Blocked Patterns** (Security):
+| Pattern | Reason |
+|---------|--------|
+| `import os`, `from os import` | OS access |
+| `import subprocess`, `from subprocess import` | Process spawning |
+| `import shutil` | File system operations |
+| `__import__()` | Dynamic module loading |
+| `eval()`, `exec()` | Code injection/exécution |
+| `os.system`, `os.popen` | OS command execution |
 
 ---
 
@@ -782,17 +807,130 @@ Kill a running background command.
 
 ---
 
-## 🔧 Utility Tools (7)
+## 🔧 Utility Tools (10)
 
-### `save_memory`
+### `save_memory` — v1.4.8 Update
 
-Save information to persistent memory.
+Save a specific fact or piece of information to persistent memory. Persists across LM Studio restarts.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `fact` | `string` | Yes | Information to remember |
+| `fact` | `string` | Yes | The specific fact or piece of information to remember |
 
 **Returns**: `{ success: true, data: { saved: true } }`
+
+> ⚠️ **Important**: After saving, use `get_memory` or `search_memory` to retrieve it later. Memories are stored with timestamp-based IDs (e.g., `"memory_1746508800000"`).
+
+**Example**:
+```json
+{"fact": "The API key for production is abc123"}
+→ { success: true, data: { saved: true } }
+```
+
+---
+
+### `get_memory` — v1.4.8 Update 🆕
+
+Retrieve all saved memory entries. Returns a list of all facts stored via `save_memory`, sorted by timestamp (newest first).
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| *(none)* | — | — | — |
+
+**Returns**: `{ success: true, data: { memories: Array<{id, fact, timestamp}>, count } }`
+
+**Example**:
+```json
+{}
+→ { 
+    success: true, 
+    data: { 
+      memories: [
+        { id: "memory_1746508800000", fact: "The API key for production is abc123" }
+      ], 
+      count: 1 
+    } 
+  }
+```
+
+---
+
+### `search_memory` — v1.4.8 Update 🆕
+
+Search saved memories for a specific fact or keyword. Returns matching entries (case-insensitive partial matching).
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `query` | `string` | Yes | Search query to match against stored facts |
+| `max_results` | `number` | No | Maximum number of results to return (default: 10, max: 50) |
+
+**Returns**: `{ success: true, data: { results: Array<{id, fact, timestamp}>, count } }`
+
+**Example**:
+```json
+{"query": "API key"}
+→ { 
+    success: true, 
+    data: { 
+      results: [
+        { id: "memory_1746508800000", fact: "The API key for production is abc123" }
+      ], 
+      count: 1 
+    } 
+  }
+```
+
+---
+
+### `delete_memory` — v1.4.8 Update 🆕
+
+Delete a saved memory entry by its ID (returned from `save_memory` or `get_memory`).
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `entry_id` | `string` | Yes | The unique ID of the memory entry to delete |
+
+**Returns**: `{ success: true, data: { deleted: true, entry_id } }` or `{ success: false, error: "..." }`
+
+**Example**:
+```json
+{"entry_id": "memory_1746508800000"}
+→ { success: true, data: { deleted: true, entry_id: "memory_1746508800000" } }
+```
+
+---
+
+### Memory System — Complete Workflow (v1.4.8)
+
+**Step-by-step flow for persistent fact storage**:
+
+```json
+// Step 1: Save a fact
+{"fact": "The database password is secret123"}
+→ { success: true, data: { saved: true } }
+
+// Step 2: Retrieve all memories
+{}
+→ { 
+    success: true, 
+    data: { 
+      memories: [
+        { id: "memory_1746508800000", fact: "The database password is secret123" }
+      ], 
+      count: 1 
+    } 
+  }
+
+// Step 3: Search for a keyword
+{"query": "password"}
+→ { results: [{ id: "memory_...", fact: "..." }], count: 1 }
+
+// Step 4: Delete the entry (when no longer needed)
+{"entry_id": "memory_1746508800000"}
+→ { success: true, data: { deleted: true } }
+```
+
+> 💡 **Note**: Memories persist across LM Studio restarts and sessions. They are stored in `.ai_toolbox_state.json` with debounced persistence (500ms delay).
 
 ---
 
@@ -1220,7 +1358,7 @@ Generate HTML/CSS/JS code for interactive UI components. Supports buttons, forms
 
 ---
 
-### `render_and_preview_ui`
+### `render_and_preview_ui` — v1.4.7 Update
 
 Render generated HTML in the system browser and optionally capture a screenshot using Puppeteer.
 
@@ -1232,6 +1370,13 @@ Render generated HTML in the system browser and optionally capture a screenshot 
 
 **Returns**: `{ success: true, data: { rendered: true, file, path, screenshotSaved? } }` or `{ success: false, error }`
 
+**Cross-Platform File URL Handling (v1.4.7+)**: Uses Node.js built-in `pathToFileURL()` for proper Windows/macOS/Linux compatibility. File paths with spaces are automatically URL-encoded:
+```typescript
+// Windows path normalization verified:
+pathToFileURL('C:\\My Documents\\ui.html').href
+→ "file:///C:/My%20Documents/ui.html"  ✅ Valid on all platforms
+```
+
 **Example**:
 ```json
 {
@@ -1239,6 +1384,55 @@ Render generated HTML in the system browser and optionally capture a screenshot 
   "filename": "my_component.html",
   "screenshot_path": "./screenshots/component.png"
 }
+```
+
+---
+
+### `extract_ui_data` — v1.4.7 Update
+
+Extract structured data from HTML content (tables, forms, lists). Useful for parsing generated or fetched UIs.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `html_content` | `string` | Yes | HTML content to parse |
+| `extraction_type` | `string` | No | Data type: `"table"`, `"form"`, or `"list"` (default: `"table"`) |
+
+**Returns**: `{ success: true, data: { tables?: string[][], formFields?: Array<{name, type}>, items?: string[] } }` or `{ success: false, error }`
+
+> ⚠️ **Limitation**: Uses regex-based HTML parsing (not a full DOM parser). Works well for simple generated UIs but may fail on complex/nested structures. For production use, consider adding `jsdom` or `cheerio` as dependencies.
+
+**Example**:
+```json
+{
+  "html_content": "<table><tr><td>Row 1</td></tr></table>",
+  "extraction_type": "table"
+}
+→ { tables: [["Row 1"]], formFields: [], items: [] }
+```
+
+---
+
+### Interactive UI Generation — Complete Workflow Example (v1.4.7)
+
+**Step-by-step flow**:
+
+```json
+// Step 1: Generate a form component
+{"component_type": "form", "fields": [
+  {"name": "email", "type": "email", "label": "Email"},
+  {"name": "message", "type": "textarea", "label": "Message"}
+]}
+→ Returns complete HTML with form structure
+
+// Step 2: Preview in browser (opens system default browser)
+{"html_content": "<!DOCTYPE html>...generated HTML...", 
+ "filename": "contact_form.html",
+ "screenshot_path": "./screenshots/form.png"}
+→ Opens file:///C:/path/to/contact_form.html ✅ (Windows path handled automatically)
+
+// Step 3: Extract form fields from the generated UI
+{"html_content": "<form>...</form>", "extraction_type": "form"}
+→ { formFields: [{name: "email", type: "email"}, {name: "message", type: "textarea"}] }
 ```
 
 ---

@@ -6,6 +6,40 @@
 
 ## 📢 Recent Updates
 
+### ✅ Memory System Fix — Complete CRUD Operations (2026-06-04)
+Fixed critical bug where `save_memory` had no retrieval mechanism:
+- **Added 3 new tools**: `get_memory`, `search_memory`, `delete_memory`
+- **Complete memory lifecycle**: save → retrieve → search → delete
+- **Persistent storage**: All memories persist across LM Studio restarts (stored in `.ai_toolbox_state.json`)
+- **Compatible with existing context management** for comprehensive long-term memory ✅
+
+### ✅ TypeScript Compilation — Zero Errors Achieved (2026-06-04)
+Fixed 3 pre-existing strict-mode TypeScript errors in `read_file_chunked`:
+- **Null-coalescing fix**: Added explicit defaults (`??`) for optional Zod parameters to satisfy TS strict mode
+- **Build status**: Clean `npx tsc --noEmit` with zero errors, zero warnings across entire codebase ✅
+- **Impact**: Fully automated build process, improved type safety and maintainability
+
+### ✅ UI Generation Tools Fix — Cross-Platform File URL Handling (2026-06-04)
+Fixed critical bug where `render_and_preview_ui` failed to open HTML files in the browser on Windows:
+- **Windows path normalization** — Replaced naive string concatenation (`file://${filePath}`) with Node.js built-in `pathToFileURL()` for proper URL encoding
+- **Cross-platform compatibility** — File paths with spaces are now correctly encoded (e.g., `"C:\My Documents\test.html"` → `file:///C:/My%20Documents/test.html`)
+- **Puppeteer screenshot capture** also benefits from the same fix
+- **Impact**: All 3 UI tools (`generate_ui_component`, `render_and_preview_ui`, `extract_ui_data`) now work reliably on Windows, macOS, and Linux ✅
+
+### 🔒 Security Hardening — `execute_command` Disabled by Default (2026-06-04)
+Changed default state for shell command execution tool to follow principle of least privilege:
+- **`execute_command`** now disabled by default (`executionShell: false`)
+- All execution tools now consistently disabled by default (`run_javascript`, `run_python`, `run_in_terminal`, `execute_command`)
+- Users must explicitly opt-in via LM Studio settings toggle before using shell commands
+- Aligns with existing security posture where dangerous tools require explicit enablement ✅
+
+### ✅ Execution Tools Fix — Cross-Platform Python & Node.js Detection (2026-06-04)
+Fixed critical issue where `run_python` and `run_javascript` failed with "executable not found" errors:
+- **Cross-platform executable detection** — Now tries multiple candidates (`py` → `python3` → `python`, `npx` → `node`) before falling back to shell-based PATH resolution
+- **Safe dangerous patterns** — Removed false positive blocking of safe `require()` calls; now only blocks actually dangerous code (eval, exec, child_process, network access)
+- **ENOENT error handling** — Properly detects and handles "file not found" errors across all platforms
+- **Impact**: Both tools now work reliably on Windows, macOS, Linux with standard library requires allowed ✅
+
 ### ✅ Tool Description Improvements — Explicit Fallback Trigger (2026-06-01)
 Fixed critical UX issue where `read_file` truncation had no explicit fallback signal:
 - **`read_file`**: Added ⚠️ WARNING in tool description to explicitly instruct LLM to retry with `read_file_chunked` on truncated output

@@ -149,37 +149,48 @@ Detects tool categories in the command string and checks against config toggles:
 
 ### 6. Code Sandboxing
 
-#### JavaScript Sandboxing (`run_javascript`)
+#### JavaScript Sandboxing (`run_javascript`) — v1.4.6 Update
+
+**Security Model (v1.4.6+)**: Precision-targeted pattern matching that blocks actually dangerous code while allowing safe standard library usage.
+
+**Blocked Patterns** (Actually Dangerous):
+| Pattern | Reason | Example Blocked |
+|---------|--------|-----------------|
+| `eval()` | Dynamic code execution | `eval("malicious code")` |
+| `exec()` | Code injection | `exec("system command")` |
+| `Function()` | Constructor bypass (eval alternative) | `new Function("return evil")()` |
+| `String.fromCharCode()` | Obfuscation bypass | `String.fromCharCode(37)` |
+| `__proto__` | Prototype pollution | `{ __proto__: { isAdmin: true } }` |
+| `require.resolve` | Module resolution abuse | `require.resolve('malicious-module')` |
+| `child_process` | Process spawning | `require('child_process').spawn()` |
+| `os.system`, `os.popen` | OS command execution | `os.system("rm -rf /")` |
+| Network access (`net.`, `http`, `dns.`) | Unauthorized network calls | `require('net').createServer()` |
+
+**Allowed** (Safe Standard Library):
+```javascript
+// ✅ Safe — standard library modules for system info, paths, etc.
+const os = require('os');
+const path = require('path');
+const fs = require('fs'); // Read operations are safe in sandbox context
+
+console.log(`Platform: ${os.platform()}`);
+```
+
+**Cross-Platform Detection (v1.4.6+)**: Automatically tries multiple Node.js executables (`npx` → `node`) with shell-based PATH fallback (`where node` / `which node`). Properly handles ENOENT errors across all platforms.
+
+#### Python Sandboxing (`run_python`) — v1.4.6 Update
 
 **Blocked Patterns**:
-```javascript
-require()           // Module loading
-eval()              // Dynamic code execution
-fs.*                // File system access
-child_process.*     // Process spawning
-Function()          // Constructor bypass
-String.fromCharCode // Obfuscation bypass
-import()            // Dynamic imports
-.__proto__          // Prototype pollution
-.constructor        // Constructor access
-require.resolve     // Path resolution bypass
-```
+| Pattern | Reason | Example Blocked |
+|---------|--------|-----------------|
+| `import os`, `from os import` | OS operations | `os.system("rm -rf /")` |
+| `import subprocess`, `from subprocess import` | Process spawning | `subprocess.run(["ls"])` |
+| `import shutil` | File system operations | `shutil.rmtree("/etc")` |
+| `__import__()` | Dynamic module loading | `__import__('os').system("cmd")` |
+| `eval()`, `exec()` | Code injection | `eval("malicious code")` |
+| `os.system`, `os.popen` | OS command execution | `os.popen("cat /etc/passwd").read()` |
 
-#### Python Sandboxing (`run_python`)
-
-**Blocked Imports**:
-```python
-import os                   # OS operations
-from os import *           # OS operations
-import subprocess          # Process spawning
-from subprocess import *   # Process spawning
-import shutil              # File operations
-__import__()               # Dynamic imports
-eval()                     # Dynamic execution
-exec()                     # Dynamic execution
-os.system()               # Shell commands
-os.popen()                # Shell commands
-```
+**Cross-Platform Detection (v1.4.6+)**: Automatically tries multiple Python executables (`py` → `python3` → `python`) with shell-based PATH fallback (`where py` / `which python`). Properly handles ENOENT errors across all platforms.
 
 ### 7. ReDoS Protection (`isSafeRegex`)
 

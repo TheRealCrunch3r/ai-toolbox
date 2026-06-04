@@ -182,8 +182,12 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
         const content = buffer.toString('utf-8');
         const totalChars = content.length;
 
+        // Resolve optional parameters with defaults (TypeScript strict mode)
+        const effectiveChunkSize = chunk_size ?? 50000;
+        const effectiveMaxChunks = max_chunks ?? 20;
+
         // If file fits within chunk_size, return it whole (no chunking needed)
-        if (totalChars <= chunk_size) {
+        if (totalChars <= effectiveChunkSize) {
           return {
             success: true,
             data: {
@@ -206,8 +210,8 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
         const chunks: Array<{ index: number; content: string; startChar: number; endChar: number; truncated: boolean }> = [];
         let startIndex = 0;
 
-        for (let i = 0; i < max_chunks && startIndex < totalChars; i++) {
-          const endIndex = Math.min(startIndex + chunk_size, totalChars);
+        for (let i = 0; i < effectiveMaxChunks && startIndex < totalChars; i++) {
+          const endIndex = Math.min(startIndex + effectiveChunkSize, totalChars);
           
           chunks.push({
             index: i,
@@ -225,8 +229,8 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
           data: {
             filePath: fullPath,
             totalCharacters: totalChars,
-            chunkSize: chunk_size,
-            maxChunks: max_chunks,
+            chunkSize: effectiveChunkSize,
+            maxChunks: effectiveMaxChunks,
             chunksReturned: chunks.length,
             isTruncated: startIndex < totalChars,
             chunks,
