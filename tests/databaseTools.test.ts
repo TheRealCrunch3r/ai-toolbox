@@ -5,7 +5,8 @@
 import { registerDatabaseTools, resetSqliteCache } from '../src/tools/databaseTools';
 import { DEFAULT_CONFIG } from '../src/config';
 
-// Mock the entire node:sqlite module BEFORE any imports
+// Mock the entire node:sqlite module BEFORE any imports.
+// This intercepts the dynamic import('node:sqlite') used by databaseTools.ts
 jest.mock('node:sqlite', () => ({
   open: jest.fn().mockReturnValue({
     prepare: jest.fn().mockReturnValue({
@@ -15,7 +16,7 @@ jest.mock('node:sqlite', () => ({
     }),
     close: jest.fn(),
   }),
-}), { virtual: true });
+}));
 
 // Mock security - MUST return 'valid' to match implementation
 jest.mock('../src/security', () => ({
@@ -33,27 +34,11 @@ jest.mock('../src/workingDir', () => ({
 
 describe('Database Tools', () => {
   let tools: ReturnType<typeof registerDatabaseTools>;
-  let mockOpen: jest.Mock;
 
   beforeEach(() => {
     jest.clearAllMocks();
     resetSqliteCache();
-
-    // Re-mock node:sqlite after cache reset
-    mockOpen = jest.fn().mockReturnValue({
-      prepare: jest.fn().mockReturnValue({
-        all: jest.fn().mockReturnValue([{ id: 1, name: 'John' }]),
-        get: jest.fn().mockReturnValue({ id: 1, name: 'John' }),
-        run: jest.fn().mockReturnValue({ changes: 1, lastInsertRowid: 1 }),
-      }),
-      close: jest.fn(),
-    });
-
-    // Override the module mock
-    jest.mock('node:sqlite', () => ({
-      open: mockOpen,
-    }), { virtual: true });
-
+    
     tools = registerDatabaseTools(DEFAULT_CONFIG);
   });
 

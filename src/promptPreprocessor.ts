@@ -148,7 +148,7 @@ async function extractPdfText(fileHandle: FileHandle): Promise<string> {
     const typedHandle = fileHandle as unknown as FileHandleWithReadFile;
     const buffer = typedHandle.readFile 
       ? await typedHandle.readFile()
-      : Buffer.from(await typedHandle.read!() as string);
+      : Buffer.from(await (typedHandle.read?.() as Promise<string>) ?? '');
     const data = await pdfParse(buffer);
     return data.text.trim();
   } catch (error) {

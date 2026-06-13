@@ -43,7 +43,7 @@ This update documents the major performance refactoring and documentation accura
 **Performance Refactoring:**
 - **Sync → Async Conversion**: Converted 200+ sync operations across 6 files to eliminate blocking I/O
 - **Lint/Typecheck Fixes**: Resolved all 7 ESLint errors and 24+ TypeScript compilation errors
-- **Tool Count Corrections**: Updated README.md, TOOLS_REFERENCE.md, CHANGELOG.md to reflect actual tool counts (106 total)
+- **Tool Count Corrections**: Updated README.md, TOOLS_REFERENCE.md, CHANGELOG.md to reflect actual tool counts (100 total)
 
 **Documentation Accuracy:**
 - Fixed tool count discrepancies across all markdown files
@@ -74,7 +74,7 @@ This update documents the major performance refactoring and documentation accura
 ### 1. README.md (v1.5.1 Update)
 
 **Changes Made:**
-- Fixed tool count from "110" → **"106 tools"** to match actual source code
+- Fixed tool count from "110" → **"100 tools"** to match actual source code
 - Added missing File System tools: `analyze_project`, `file_diff`, `directory_tree`, `grep_files` (total: 21)
 - Corrected Git & GitHub count from 14 → **13** (removed non-existent `gh_auth`)
 - Added missing Execution tool: `run_tests` (total: 5)
@@ -89,7 +89,7 @@ This update documents the major performance refactoring and documentation accura
 ### 2. TOOLS_REFERENCE.md (v1.5.1 Update)
 
 **Changes Made:**
-- Updated header claim from "110+" → **"106 tools"**
+- Updated header claim from "110+" → **"100 tools"**
 - Added complete documentation for all 4 missing File System tools with parameter tables
 - Removed `gh_auth` section (tool doesn't exist in source code)
 - Added `run_tests` tool documentation to Execution section

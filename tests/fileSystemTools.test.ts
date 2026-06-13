@@ -35,6 +35,14 @@ jest.mock('fs', () => {
         size: 100,
       } as fs.Stats),
       readFile: jest.fn().mockResolvedValue(Buffer.from('file content')),
+      readdir: jest.fn().mockResolvedValue([]),
+      writeFile: jest.fn().mockResolvedValue(undefined),
+      appendFile: jest.fn().mockResolvedValue(undefined),
+      mkdir: jest.fn().mockResolvedValue(undefined),
+      rm: jest.fn().mockResolvedValue(undefined),
+      unlink: jest.fn().mockResolvedValue(undefined),
+      rename: jest.fn().mockResolvedValue(undefined),
+      copyFile: jest.fn().mockResolvedValue(undefined),
       access: jest.fn(),
     },
   };
@@ -87,7 +95,7 @@ describe('File System Tools', () => {
   describe('list_directory', () => {
     test('should list directory entries', async () => {
       const tool = tools?.find(t => t.name === 'list_directory');
-      mockFs.readdirSync.mockReturnValueOnce([
+      (mockFs.promises.readdir as jest.Mock).mockReturnValueOnce([
         { name: 'file.txt', isDirectory: () => false, isFile: () => true } as fs.Dirent,
         { name: 'subdir', isDirectory: () => true, isFile: () => false } as fs.Dirent,
       ]);
@@ -98,7 +106,7 @@ describe('File System Tools', () => {
 
     test('should handle directory read error', async () => {
       const tool = tools?.find(t => t.name === 'list_directory');
-      mockFs.readdirSync.mockImplementationOnce(() => { throw new Error('EACCES'); });
+      (mockFs.promises.readdir as jest.Mock).mockImplementationOnce(() => { throw new Error('EACCES'); });
       const result = await tool?.implementation({ path: '/restricted' });
       expect((result as any).success).toBe(false);
     });
@@ -148,7 +156,7 @@ describe('File System Tools', () => {
   describe('replace_text_in_file', () => {
     test('should replace text', async () => {
       const tool = tools?.find(t => t.name === 'replace_text_in_file');
-      mockFs.readFileSync.mockReturnValueOnce('hello world');
+      (mockFs.promises.readFile as jest.Mock).mockResolvedValueOnce('hello world');
       const result = await tool?.implementation({
         file_name: 'test.txt',
         old_string: 'world',
@@ -159,7 +167,7 @@ describe('File System Tools', () => {
 
     test('should reject when string not found', async () => {
       const tool = tools?.find(t => t.name === 'replace_text_in_file');
-      mockFs.readFileSync.mockReturnValueOnce('hello world');
+      (mockFs.promises.readFile as jest.Mock).mockResolvedValueOnce('hello world');
       const result = await tool?.implementation({
         file_name: 'test.txt',
         old_string: 'notfound',
@@ -172,7 +180,7 @@ describe('File System Tools', () => {
   describe('insert_at_line', () => {
     test('should insert at valid line', async () => {
       const tool = tools?.find(t => t.name === 'insert_at_line');
-      mockFs.readFileSync.mockReturnValueOnce('line1\nline2\nline3');
+      (mockFs.promises.readFile as jest.Mock).mockResolvedValueOnce('line1\nline2\nline3');
       const result = await tool?.implementation({
         file_name: 'test.txt',
         line_number: 2,
@@ -183,7 +191,7 @@ describe('File System Tools', () => {
 
     test('should reject line out of bounds', async () => {
       const tool = tools?.find(t => t.name === 'insert_at_line');
-      mockFs.readFileSync.mockReturnValueOnce('line1\nline2');
+      (mockFs.promises.readFile as jest.Mock).mockReturnValueOnce(Buffer.from('line1\nline2'));
       const result = await tool?.implementation({
         file_name: 'test.txt',
         line_number: 100,
@@ -196,14 +204,14 @@ describe('File System Tools', () => {
   describe('delete_lines_in_file', () => {
     test('should delete single line', async () => {
       const tool = tools?.find(t => t.name === 'delete_lines_in_file');
-      mockFs.readFileSync.mockReturnValueOnce('line1\nline2\nline3');
+      (mockFs.promises.readFile as jest.Mock).mockResolvedValueOnce('line1\nline2\nline3');
       const result = await tool?.implementation({ file_name: 'test.txt', start_line: 2 });
       expect((result as any).success).toBe(true);
     });
 
     test('should delete line range', async () => {
       const tool = tools?.find(t => t.name === 'delete_lines_in_file');
-      mockFs.readFileSync.mockReturnValueOnce('line1\nline2\nline3\nline4');
+      (mockFs.promises.readFile as jest.Mock).mockResolvedValueOnce('line1\nline2\nline3\nline4');
       const result = await tool?.implementation({
         file_name: 'test.txt',
         start_line: 2,
@@ -222,7 +230,7 @@ describe('File System Tools', () => {
 
     test('should handle error', async () => {
       const tool = tools?.find(t => t.name === 'make_directory');
-      mockFs.mkdirSync.mockImplementationOnce(() => { throw new Error('EEXIST'); });
+      (mockFs.promises.mkdir as jest.Mock).mockImplementationOnce(() => { throw new Error('EEXIST'); });
       const result = await tool?.implementation({ directory_name: 'existing' });
       expect((result as any).success).toBe(false);
     });

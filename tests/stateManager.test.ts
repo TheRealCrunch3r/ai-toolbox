@@ -45,7 +45,7 @@ describe('StateManager', () => {
     // Use a very small max size to trigger the limit quickly
     const limitedManager = new StateManager({ ...DEFAULT_CONFIG, stateMaxSize: 10 });
     
-    // Setting a value that exceeds the limit should throw
+    // Setting a value that exceeds the limit should throw synchronously
     let errorThrown = false;
     try {
       limitedManager.set('key', 'a'.repeat(20)); // 20 bytes > 10 byte limit

@@ -6,10 +6,13 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as crypto from 'crypto';
 import { spawn } from 'child_process';
-import type { PluginConfig } from '../config.js';
-import type { StateManager } from '../stateManager.js';
-import { getWorkingDir, resolvePath } from '../workingDir.js';
-import { validatePath } from '../security.js';
+import type { PluginConfig } from '../config';
+
+import type { StateManager } from '../stateManager';
+import { getWorkingDir, resolvePath } from '../workingDir';
+import { validatePath } from '../security';
+
+
 
 // ==================== Typed Params Interfaces ====================
 
@@ -189,10 +192,28 @@ function findLMStudioHome(): string | null {
   return null;
 }
 
-// ==================== System Monitor Helper ====================
+// ==================== System Metrics Helper ====================
 
-async function getSystemMetrics(metrics: string[]): Promise<Record<string, unknown>> {
-  const result: Record<string, unknown> = {};
+interface SystemMetricsResult {
+  cpu?: {
+    count: number;
+    models: string[];
+    avgSpeedMhz: number;
+    details: Array<{ model: string; speed: number }>;
+  };
+  cpuLoadAverage?: { '1min': number; '5min': number; '15min': number };
+  memory?: {
+    totalBytes: number; totalGB: number;
+    freeBytes: number; freeGB: number;
+    usedBytes: number; usedGB: number;
+    usagePercent: number;
+  };
+  disk?: Record<string, unknown>;
+  network?: { interfaces: Record<string, Array<{ address: string; family: string; mac: string }>> };
+}
+
+async function getSystemMetrics(metrics: string[]): Promise<SystemMetricsResult> {
+  const result: SystemMetricsResult = {};
 
   if (metrics.includes('cpu')) {
     const cpus = os.cpus();

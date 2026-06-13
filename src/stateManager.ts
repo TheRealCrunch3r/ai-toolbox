@@ -5,9 +5,9 @@
 
 import type { PluginConfig } from './config';
 import { DEFAULT_CONFIG } from './config';
-import * as fs from 'fs/promises';  // ASYNC import — FIX P2: Static import instead of require ===
+import * as fs from 'fs/promises';
 import * as path from 'path';
-import { getWorkingDir } from './workingDir.js';  // STATIC IMPORT (FIX P2)
+import { getWorkingDir } from './workingDir';
 
 interface StateEntry {
   key: string;
@@ -22,15 +22,15 @@ const logger = {
 };
 
 /**
- * Default memory file location (in CURRENT WORKING DIRECTORY) — ASYNC ===
+ * Default memory file location (in CURRENT WORKING DIRECTORY)
  */
-async function getMemoryFilePath(): Promise<string> {  // MADE ASYNC for consistency
+async function getMemoryFilePath(): Promise<string> {
   const cwd = getWorkingDir();
   
-  // Safety check: ensure we are in a valid directory — ASYNC stat
+  // Safety check: ensure we are in a valid directory
   try {
-    await fs.access(cwd);  // ASYNC access check
-    const stats = await fs.stat(cwd);  // ASYNC stat
+    await fs.access(cwd);
+    const stats = await fs.stat(cwd);
     if (!stats.isDirectory()) {
       throw new Error('Not a directory');
     }
@@ -48,7 +48,7 @@ export class StateManager {
   private state: Map<string, StateEntry>;
   private maxSize: number;
   private persistenceEnabled: boolean;
-  private memoryFile!: string; // NON-NULL ASSERTION (TS2564 fix) ===
+  private memoryFile!: string; // NON-NULL ASSERTION (TS2564 fix)
   private runningSize: number; // Track size incrementally for O(1) checks
 
   constructor(config?: PluginConfig) {
@@ -58,26 +58,28 @@ export class StateManager {
     this.maxSize = effectiveConfig.stateMaxSize;
     this.persistenceEnabled = effectiveConfig.statePersistenceEnabled;
     
-    // Resolve path immediately — ASYNC call (but we await in constructor via Promise)
+    // Resolve path immediately — ASYNC call (fire and forget)
     getMemoryFilePath().then(resolvedPath => {
       this.memoryFile = resolvedPath;
       
-      // Auto-load from disk if persistence is enabled — ASYNC load
+      // Auto-load from disk if persistence is enabled
       if (this.persistenceEnabled && this.state.size === 0) {
         void this.loadFromFile();  // Fire and forget for constructor context
       } else {
         logger.warn('State persistence is DISABLED. Data will not survive reloads.');
       }
-    }).catch(err => {
-      logger.warn(`Failed to resolve memory file path: ${err.message}`);
+    }).catch((err: unknown) => {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.warn(`Failed to resolve memory file path: ${message}`);
       this.memoryFile = path.join(__dirname, '..', '.ai_toolbox_memory.json');  // Fallback
     });
   }
 
   /**
-   * Set a state value with key and optional metadata — ASYNC save ===
+   * Set a state value with key and optional metadata.
+   * Disk persistence is fire-and-forget (non-blocking).
    */
-  async set(key: string, value: unknown): Promise<void> {
+  set(key: string, value: unknown): void {
     const newValueSize = this.getSizeOfValue(value);
     const oldValueSize = this.getExistingValueSize(key);
     
@@ -95,30 +97,28 @@ export class StateManager {
       timestamp: Date.now(),
     });
     
-    // IMMEDIATE async save to disk (fixes persistence issues across reloads) — ASYNC ===
+    // Fire-and-forget async save to disk (fixes persistence issues across reloads)
     if (this.persistenceEnabled) {
-      try {
-        await this.saveToFile();  // ASYNC call
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+      void this.saveToFile().catch((err: unknown) => {
+        const message = err instanceof Error ? err.message : String(err);
         logger.warn(`Failed to persist state immediately: ${message}`);
-      }
+      });
     }
   }
 
   /**
-   * Get a state value by key — ASYNC ===
+   * Get a state value by key.
    */
-  async get<T>(key: string): Promise<T | undefined> {  // MADE ASYNC for consistency
+  get<T>(key: string): T | undefined {
     const entry = this.state.get(key);
     if (!entry) return undefined;
     return entry.value as T;
   }
 
   /**
-   * Delete a state entry — ASYNC save ===
+   * Delete a state entry.
    */
-  async delete(key: string): Promise<boolean> {  // MADE ASYNC for consistency
+  delete(key: string): boolean {
     const entry = this.state.get(key);
     if (!entry) return false;
     
@@ -126,44 +126,42 @@ export class StateManager {
     this.runningSize -= this.getSizeOfValue(entry.value);
     const deleted = this.state.delete(key);
     
-    // Immediate save after deletion — ASYNC ===
+    // Fire-and-forget save after deletion
     if (deleted && this.persistenceEnabled) {
-      try {
-        await this.saveToFile();  // ASYNC call
-      } catch (error) {
-        logger.warn(`Failed to persist state delete immediately: ${String(error)}`);
-      }
+      void this.saveToFile().catch((err: unknown) => {
+        const message = err instanceof Error ? err.message : String(err);
+        logger.warn(`Failed to persist state delete immediately: ${message}`);
+      });
     }
     
     return deleted;
   }
 
   /**
-   * Get all state keys — ASYNC ===
+   * Get all state keys.
    */
   getAllKeys(): string[] {
     return Array.from(this.state.keys());
   }
 
   /**
-   * Clear all state — ASYNC save ===
+   * Clear all state.
    */
-  async clear(): Promise<void> {  // MADE ASYNC for consistency
+  clear(): void {
     this.runningSize = 0;
     this.state.clear();
     
-    // Immediate save after clearing — ASYNC ===
+    // Fire-and-forget save after clearing
     if (this.persistenceEnabled) {
-      try {
-        await this.saveToFile();  // ASYNC call
-      } catch (error) {
-        logger.warn(`Failed to persist state clear immediately: ${String(error)}`);
-      }
+      void this.saveToFile().catch((err: unknown) => {
+        const message = err instanceof Error ? err.message : String(err);
+        logger.warn(`Failed to persist state clear immediately: ${message}`);
+      });
     }
   }
 
   /**
-   * Get size of existing value for a key (for incremental updates) — ASYNC ===
+   * Get size of existing value for a key (for incremental updates).
    */
   private getExistingValueSize(key: string): number {
     const entry = this.state.get(key);
@@ -171,7 +169,7 @@ export class StateManager {
   }
 
   /**
-   * Estimate size of a value in bytes — ASYNC already ===
+   * Estimate size of a value in bytes.
    */
   private getSizeOfValue(value: unknown): number {
     if (typeof value === 'string') return value.length;
@@ -189,9 +187,9 @@ export class StateManager {
   }
 
   /**
-   * Save state to disk as JSON file with optimized serialization — ASYNC ===
+   * Save state to disk as JSON file with optimized serialization.
    */
-  private async saveToFile(): Promise<void> {  // MADE ASYNC
+  private async saveToFile(): Promise<void> {
     try {
       const data = Array.from(this.state.entries()).map(([_key, entry]) => ({
         key: entry.key,
@@ -199,22 +197,22 @@ export class StateManager {
         timestamp: entry.timestamp,
       }));
       
-      // Ensure directory exists (create it if missing) — ASYNC ===
+      // Ensure directory exists (create it if missing)
       const dir = path.dirname(this.memoryFile);
       try {
-        await fs.mkdir(dir, { recursive: true });  // ASYNC mkdir
+        await fs.mkdir(dir, { recursive: true });
       } catch (err) {
         logger.warn(`Could not create memory directory ${dir}: ${String(err)}`);
         return; // Abort save if we can't create the dir
       }
 
-      // Optimized JSON serialization (no pretty-printing for performance) — ASYNC ===
+      // Optimized JSON serialization (no pretty-printing for performance)
       const jsonString = JSON.stringify(data);
       
-      // Write to temp file first, then rename for atomic operation — ASYNC ===
+      // Write to temp file first, then rename for atomic operation
       const tempFile = this.memoryFile + '.tmp';
-      await fs.writeFile(tempFile, jsonString, 'utf-8');  // ASYNC write
-      await fs.rename(tempFile, this.memoryFile);  // ASYNC rename
+      await fs.writeFile(tempFile, jsonString, 'utf-8');
+      await fs.rename(tempFile, this.memoryFile);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       logger.warn(`Failed to save to disk: ${message}`); // M2 fix: no console.warn
@@ -222,39 +220,33 @@ export class StateManager {
   }
 
   /**
-   * Load state from disk JSON file with corruption recovery — ASYNC ===
+   * Load state from disk JSON file with corruption recovery.
    */
-  private async loadFromFile(): Promise<void> {  // MADE ASYNC
+  private async loadFromFile(): Promise<void> {
     try {
-      if (!await fs.access(this.memoryFile).then(() => true).catch(() => false)) {  // ASYNC access check
+      if (!await fs.access(this.memoryFile).then(() => true).catch(() => false)) {
         logger.info(`No existing memory file found at ${this.memoryFile}. Starting fresh.`);
         return;
       }
       
-      const jsonString = await fs.readFile(this.memoryFile, 'utf-8');  // ASYNC read
+      const jsonString = await fs.readFile(this.memoryFile, 'utf-8');
       
       // Try to parse JSON with error recovery
       let data: StateEntry[];
       try {
         data = JSON.parse(jsonString) as StateEntry[];
       } catch { // C1 fix: removed unused parseError variable
-        logger.warn(`Corrupted state file detected, attempting recovery...`);
+        logger.warn(`Corrupted state file detected, removing and starting fresh...`);
 
-        // Try to recover by reading line by line or using backup — ASYNC ===
-        const backupFile = this.memoryFile + '.backup';
-        if (await fs.access(backupFile).then(() => true).catch(() => false)) {  // ASYNC access check
-          try {
-            const backupString = await fs.readFile(backupFile, 'utf-8');  // ASYNC read
-            data = JSON.parse(backupString) as StateEntry[];
-            logger.warn(`Successfully loaded from backup`);
-          } catch {
-            logger.warn(`Backup also corrupted, starting fresh`);
-            data = [];
-          }
-        } else {
-          logger.warn(`No backup available, starting fresh`);
-          data = [];
+        // Attempt to remove the corrupted file to prevent repeated errors
+        try {
+          await fs.unlink(this.memoryFile);
+          logger.info(`Removed corrupted memory file: ${this.memoryFile}`);
+        } catch {
+          logger.warn(`Could not automatically remove corrupted file. Please manually delete: ${this.memoryFile}`);
         }
+
+        data = [];
       }
       
       this.state.clear();
@@ -270,9 +262,9 @@ export class StateManager {
       
       logger.info(`Loaded ${this.state.size} entries from memory.`);
 
-      // Create backup after successful load — ASYNC ===
+      // Create backup after successful load
       try {
-        await fs.writeFile(this.memoryFile + '.backup', jsonString, 'utf-8');  // ASYNC write
+        await fs.writeFile(this.memoryFile + '.backup', jsonString, 'utf-8');
       } catch {
         // Ignore backup creation errors
       }
@@ -283,9 +275,9 @@ export class StateManager {
   }
 
   /**
-   * Export state for persistence (JSON serialization) — kept for backward compatibility — ASYNC ===
+   * Export state for persistence (JSON serialization).
    */
-  async exportState(): Promise<string> {  // MADE ASYNC for consistency
+  exportState(): string {
     const data = Array.from(this.state.entries()).map(([_key, entry]) => ({
       key: entry.key,
       value: entry.value,
@@ -295,9 +287,9 @@ export class StateManager {
   }
 
   /**
-   * Import state from JSON string — kept for backward compatibility — ASYNC ===
+   * Import state from JSON string.
    */
-  async importState(jsonString: string): Promise<void> {  // MADE ASYNC for consistency
+  importState(jsonString: string): void {
     try {
       const data = JSON.parse(jsonString) as StateEntry[];
       this.state.clear();
@@ -307,13 +299,12 @@ export class StateManager {
         this.runningSize += this.getSizeOfValue(entry.value);
       }
       
-      // Immediate save after import — ASYNC ===
+      // Fire-and-forget save after import
       if (this.persistenceEnabled) {
-        try {
-          await this.saveToFile();  // ASYNC call
-        } catch (error) {
-          logger.warn(`Failed to persist state import: ${String(error)}`);
-        }
+        void this.saveToFile().catch((err: unknown) => {
+          const msg = err instanceof Error ? err.message : String(err);
+          logger.warn(`Failed to persist state import: ${msg}`);
+        });
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -322,23 +313,23 @@ export class StateManager {
   }
 
   /**
-   * Get the path to the memory file on disk — ASYNC ===
+   * Get the path to the memory file on disk.
    */
-  async getMemoryFilePath(): Promise<string> {  // MADE ASYNC for consistency
+  getMemoryFilePath(): string {
     return this.memoryFile;
   }
 
   /**
-   * Force save to disk (useful for debugging) — ASYNC ===
+   * Force save to disk (useful for debugging).
    */
-  async forceSave(): Promise<void> {  // MADE ASYNC for consistency
-    await this.saveToFile();  // ASYNC call
+  async forceSave(): Promise<void> {
+    await this.saveToFile();
   }
 
   /**
-   * Force load from disk (useful for debugging) — ASYNC ===
+   * Force load from disk (useful for debugging).
    */
-  async forceLoad(): Promise<void> {  // MADE ASYNC for consistency
-    await this.loadFromFile();  // ASYNC call
+  async forceLoad(): Promise<void> {
+    await this.loadFromFile();
   }
 }

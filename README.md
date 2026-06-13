@@ -1,6 +1,6 @@
-﻿# 🧰 AI Toolbox — LM Studio Plugin
+# 🧰 AI Toolbox — LM Studio Plugin
 
-> **106 tools** across 16 categories: file system, web research, browser automation, Git/GitHub, database, document parsing, background commands, code execution, utilities, image processing, HTTP client, vector RAG, interactive UI generation, auto-context management, backup & restore, and **ContextGuard** (infinite context management).
+> **100 tools** across 15 categories: file system, web research, browser automation, Git/GitHub, database, document parsing, background commands, code execution, utilities, image processing, HTTP client, vector RAG, interactive UI generation, auto-context management, and backup & restore.
 
 ---
 
@@ -10,13 +10,11 @@
 Major refactoring to eliminate blocking I/O and align documentation with actual source code:
 - **Sync → Async Conversion**: Converted 200+ sync operations across 6 files (`fileSystemTools`, `documentTools`, `stateManager`, `contextManagementTools`, `backupTools`, `gitGithubTools`)
 - **Lint/Typecheck Fixes**: Resolved all ESLint errors and TypeScript compilation errors
-- **Tool Count Corrections**: Updated README.md, TOOLS_REFERENCE.md, CHANGELOG.md to reflect actual tool counts (106 total)
+- **Tool Count Corrections**: Updated README.md, TOOLS_REFERENCE.md, CHANGELOG.md to reflect actual tool counts (96 total)
 - **Added Missing Tools**: Documented 23 Utility tools (previously only 7), added `run_tests` to Execution, corrected Git & GitHub count (14 → 13)
 - **Impact**: Eliminates all blocking I/O operations that could cause event loop starvation during high-load scenarios ✅
 
 ---
-
-
 
 ### 🆕 Session Summary Tools — Cross-Session Continuity (2026-06-13)
 Added structured session summary capabilities for seamless handoff between LM Studio sessions:
@@ -101,7 +99,9 @@ Fixed **14 TypeScript errors** across 7 files:
 - Added proper type assertions for enum fields and third-party libraries
 - **Status**: Build now passes cleanly with strict type checking ✅
 
----## 📋 Table of Contents
+---
+
+## 📋 Table of Contents
 
 - [Features](#-features)
 - [Tool Categories](#-tool-categories)
@@ -134,22 +134,13 @@ Fixed **14 TypeScript errors** across 7 files:
 | 🎨 **Interactive UI Generation** | Generate and render HTML/CSS/JS components (buttons, forms, charts, dashboards) |
 | 💾 **Backup & Restore** | Create compressed ZIP backups of plugin state with path traversal protection |
 | 🧠 **Auto-Context Management** | Automatic session tracking, decision logging, and persistent memory retrieval |
-| ⏰ **Temporal Awareness** | Injects current date/time into every message for accurate time-sensitive tasks |
-| 🛡️ **ContextGuard** | **v1.4.2!** Dynamic context window management with explicit UI controls: |
-| | • **Smart Reader**: Heuristic keyword-grep for large files (toggleable) |
-| | • **Threshold-Based Compression**: Auto-summarizes history at 90% token limit (configurable 1K-200K tokens) |
-| | • **Terminal Output Filtering**: Truncates long outputs (configurable 100-20K chars) |
-| | • **Re-RAG Trigger**: `reload_context_for_file` tool for fresh reads |
-| | • **Token Budget Visualization**: Real-time token usage display |
-| | • **Visual Indicator**: Rich status display when compression activates (shows tokens saved, percentage, timestamp) |
-| | • **6 Explicit UI Controls** in LM Studio settings panel (no code changes needed!) |
 
 ---
 
 ## 🗂️ Tool Categories
 
 ### File System (21 tools)
-`list_directory` · `read_file` · `save_file` · `replace_text_in_file` · `insert_at_line` · `append_file` · `delete_lines_in_file` · `make_directory` · `move_file` · `copy_file` · `delete_path` · `delete_files_by_pattern` · `find_files` · `fuzzy_find_local_files` · `get_file_metadata` · `change_directory` · `read_file_chunked` · `analyze_project` · `file_diff` · `directory_tree` · `grep_files` · `analyze_project` · `file_diff` · `directory_tree` · `grep_files`
+`list_directory` · `read_file` · `save_file` · `replace_text_in_file` · `insert_at_line` · `append_file` · `delete_lines_in_file` · `make_directory` · `move_file` · `copy_file` · `delete_path` · `delete_files_by_pattern` · `find_files` · `fuzzy_find_local_files` · `get_file_metadata` · `change_directory` · `read_file_chunked` · `analyze_project` · `file_diff` · `directory_tree` · `grep_files`
 
 ### Web Research (4 tools)
 `web_search` · `wikipedia_search` · `fetch_web_content` · `rag_web_content`
@@ -208,7 +199,7 @@ The plugin is installed as an LM Studio plugin. Ensure you have:
 
 1. **Load the plugin** in LM Studio's plugin settings
 2. **Configure tool access** — individual tool categories can be toggled on/off
-3. **Start a chat** and the LLM can now use any of the 110+ tools
+3. **Start a chat** and the LLM can now use any of the 100 tools
 
 ### Example: Search the Web
 
