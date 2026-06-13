@@ -1,197 +1,86 @@
-/**
- * Backup Tools Module
- * Provides manual backup/restore functionality for plugin state files.
+﻿/**
+ * Project Backup Tools — ASYNC optimized ===
+ * Backs up the ENTIRE working directory with all content.
  */
 
-import { tool } from '@lmstudio/sdk';
+import { tool, type Tool } from '@lmstudio/sdk';
 import { z } from 'zod';
-import fs from 'fs';
+import * as fs from 'fs';
+const fsp = fs.promises;  // ASYNC import ===
 import path from 'path';
 import archiver from 'archiver';
 import unzipper from 'unzipper';
 import type { PluginConfig } from '../config';
+import { getWorkingDir } from '../workingDir';
 
-// Backup directory location
-const BACKUP_DIR = path.join(process.cwd(), '.ai_toolbox_backups');
-
-// Files to backup by default
-const DEFAULT_BACKUP_FILES = [
-  '.ai_toolbox_state.json',      // State persistence
-  '.ai_toolbox_context.json',    // Context memory entries
-];
+// Backup directory - uses CURRENT WORKING DIRECTORY — ASYNC ===
+const BACKUP_DIR = path.join(getWorkingDir(), '.ai_toolbox_backups');
 
 /**
- * Create a compressed ZIP archive of specified files.
+ * Recursively collect all files in a directory — ASYNC ===
  */
-async function createZipArchive(
-  sourceFiles: { filePath: string; archiveName: string }[],
-  destinationPath: string,
-): Promise<{ success: boolean; size?: number; error?: string }> {
-  return new Promise((resolve) => {
-    const output = fs.createWriteStream(destinationPath);
-    const archive = archiver('zip', { zlib: { level: 9 } }); // Maximum compression
-
-    let totalSize = 0;
-    let hasError = false;
-
-    // Listen for errors
-    archive.on('error', (err: Error) => {
-      hasError = true;
-      resolve({ success: false, error: `Archive creation failed: ${err.message}` });
-    });
-
-    output.on('error', (err: Error) => {
-      hasError = true;
-      resolve({ success: false, error: `Write failed: ${err.message}` });
-    });
-
-    // Track completion
-    output.on('close', () => {
-      if (!hasError) {
-        const stats = fs.statSync(destinationPath);
-        resolve({ success: true, size: stats.size });
-      }
-    });
-
-    // Pipe archive to output file
-    archive.pipe(output);
-
-    // Add files to archive
-    for (const { filePath, archiveName } of sourceFiles) {
-      try {
-        const stat = fs.statSync(filePath);
-        if (stat.isFile()) {
-          archive.file(filePath, { name: archiveName });
-          totalSize += stat.size;
-        }
-      } catch (err) {
-        console.warn(`[Backup] File not found or inaccessible: ${filePath}`);
+async function collectAllFiles(dir: string, basePath: string = dir): Promise<string[]> {  // MADE ASYNC
+  const files: string[] = [];
+  
+  try {
+    const entries = await fsp.readdir(dir, { withFileTypes: true });  // ASYNC read
+    
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        files.push(...await collectAllFiles(fullPath, basePath));  // ASYNC recursive
+      } else {
+        files.push(fullPath);
       }
     }
-
-    // Add metadata file
-    const metadata = {
-      version: '1.0',
-      createdAt: new Date().toISOString(),
-      pluginVersion: '1.4.0',
-      filesCount: sourceFiles.length,
-      totalUncompressedSize: totalSize,
-    };
-    archive.append(JSON.stringify(metadata, null, 2), { name: 'backup-metadata.json' });
-
-    // Finalize archive
-    archive.finalize();
-  });
-}
-
-/**
- * Extract files from a ZIP archive with path traversal protection.
- */
-async function extractZipArchive(
-  sourcePath: string,
-  destinationDir: string,
-): Promise<{ success: boolean; extractedFiles?: string[]; error?: string }> {
-  try {
-    const extractedFiles: string[] = [];
-    const resolvedDestDir = path.resolve(destinationDir);
-
-    // Use unzipper library for reliable extraction with streaming
-    await fs.createReadStream(sourcePath)
-      .pipe(unzipper.Parse())
-      .on('entry', (entry: any) => {
-        // SECURITY: Validate entry path to prevent directory traversal attacks
-        const entryPath = entry.path || entry.fileName;
-        
-        // Skip directories
-        if (entry.type === 'Directory') {
-          entry.autodrain();
-          return;
-        }
-
-        // Resolve the full target path
-        const targetPath = path.resolve(resolvedDestDir, entryPath);
-        
-        // SECURITY: Ensure resolved path is within destination directory
-        if (!targetPath.startsWith(resolvedDestDir + path.sep) && targetPath !== resolvedDestDir) {
-          console.warn(`[Backup] Blocked path traversal attempt: ${entryPath}`);
-          entry.autodrain();
-          return;
-        }
-
-        // Ensure parent directory exists
-        const parentDir = path.dirname(targetPath);
-        if (!fs.existsSync(parentDir)) {
-          fs.mkdirSync(parentDir, { recursive: true });
-        }
-
-        // Extract file to destination
-        entry.pipe(fs.createWriteStream(targetPath));
-        
-        entry.on('end', () => {
-          extractedFiles.push(entryPath);
-        });
-      })
-      .promise();
-
-    return { success: true, extractedFiles };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return { success: false, error: `Extraction failed: ${message}` };
+  } catch {
+    // Skip inaccessible directories
   }
+  
+  return files;
 }
 
-/**
- * Register backup-related tools.
- */
-export function registerBackupTools(config: PluginConfig): any[] {
+export function registerBackupTools(_config: PluginConfig): Tool[] {
   const tools = [];
 
   // ======================================================================
-  // Tool 1: create_backup
+  // Tool 1: create_backup - Backs up ENTIRE working directory — ASYNC ===
   // ======================================================================
   
   tools.push(tool({
     name: 'create_backup',
-    description: `Create a compressed backup of plugin state files.
+    description: `Create a compressed backup of the ENTIRE current working directory with all content.
 
-BACKED UP FILES:
-- .ai_toolbox_state.json (persistent tool execution state)
-- .ai_toolbox_context.json (context memory entries from auto-summarize_context)
+WHAT GETS BACKED UP:
+- All files and folders in the current working directory
+- Source code, configs, everything!
 
 STORAGE LOCATION:
-Backups are stored in .ai_toolbox_backups/ directory with timestamped filenames.
+Backups are stored in .ai_toolbox_backups/ inside the current working directory.
 
 EXAMPLE USAGE:
-{"destination": "my-custom-backup.zip"}
-→ Creates: .ai_toolbox_backups/my-custom-backup.zip`,
+create_backup()
+→ Creates: {workingDir}/.ai_toolbox_backups/project-backup-{timestamp}.zip
+
+WITH CUSTOM NAME:
+{"destination": "my-project-backup.zip"}
+→ Creates: {workingDir}/.ai_toolbox_backups/my-project-backup.zip`,
     parameters: {
       destination: z.string()
         .max(256)
         .describe('Custom backup filename (default: auto-generated with timestamp). Must end with .zip')
         .optional(),
-      includeState: z.boolean()
-        .default(true)
-        .describe('Include state persistence file (.ai_toolbox_state.json)'),
-      includeContext: z.boolean()
-        .default(true)
-        .describe('Include context memory file (.ai_toolbox_context.json)'),
     },
-    implementation: async ({ destination, includeState, includeContext }) => {
+    implementation: async ({ destination }) => {  // ASYNC ===
       try {
-        // 1. Validate parameters
-        if (!includeState && !includeContext) {
-          return {
-            success: false,
-            error: 'At least one file type must be selected for backup (includeState or includeContext)',
-          };
-        }
+        const workingDir = getWorkingDir();
 
-        // 2. Generate filename if not provided
+        // Generate default filename if not provided
         const timestamp = new Date().toISOString()
           .replace(/T/, '-')
           .replace(/:/g, '-')
           .replace(/\..*/, '');
-        const backupName = destination || `backup-${timestamp}.zip`;
+        const backupName = destination || `project-backup-${timestamp}.zip`;
 
         // Validate filename
         if (!backupName.endsWith('.zip')) {
@@ -201,57 +90,88 @@ EXAMPLE USAGE:
           };
         }
 
-        // 3. Ensure backups directory exists
-        if (!fs.existsSync(BACKUP_DIR)) {
-          fs.mkdirSync(BACKUP_DIR, { recursive: true });
+        // Ensure backups directory exists in working dir — ASYNC ===
+        try {
+          await fsp.mkdir(BACKUP_DIR, { recursive: true });  // ASYNC mkdir
+        } catch {  // Ignore mkdir errors if directory already exists ===
+          // Directory already exists or other error - continue
         }
 
         const backupPath = path.join(BACKUP_DIR, backupName);
 
-        // 4. Collect files to backup
-        const filesToBackup: { filePath: string; archiveName: string }[] = [];
+        // Collect ALL files from working directory — ASYNC ===
+        const allFiles = await collectAllFiles(workingDir);  // ASYNC call
 
-        if (includeState) {
-          const stateFile = path.join(process.cwd(), '.ai_toolbox_state.json');
-          if (fs.existsSync(stateFile)) {
-            filesToBackup.push({ filePath: stateFile, archiveName: '.ai_toolbox_state.json' });
-          }
-        }
-
-        if (includeContext) {
-          const contextFile = path.join(process.cwd(), '.ai_toolbox_context.json');
-          if (fs.existsSync(contextFile)) {
-            filesToBackup.push({ filePath: contextFile, archiveName: '.ai_toolbox_context.json' });
-          }
-        }
-
-        // 5. Check if any files found
-        if (filesToBackup.length === 0) {
+        if (allFiles.length === 0) {
           return {
             success: false,
-            error: 'No state files found to backup. The plugin may not have been used yet.',
-            hint: 'Use the plugin first to generate state files, then create a backup.',
+            error: 'No files found in the current working directory to backup.',
+            hint: `Current directory: ${workingDir}`,
           };
         }
 
-        // 6. Create ZIP archive
-        const result = await createZipArchive(filesToBackup, backupPath);
+        // Create ZIP archive with ALL files — ASYNC ===
+        const output = fs.createWriteStream(backupPath);  // Already async stream
+        const archive = archiver('zip', { zlib: { level: 9 } }); // Maximum compression
 
-        if (!result.success) {
-          return { success: false, error: result.error };
-        }
+        return new Promise(async (resolve) => {  // MADE ASYNC to support await inside ===
+          let totalSize = 0;
+          let hasError = false;
 
-        // 7. Return success with details
-        return {
-          success: true,
-          message: `Backup created successfully`,
-          backupPath: backupPath,
-          filename: backupName,
-          filesBackedUp: filesToBackup.map(f => f.archiveName),
-          compressedSizeBytes: result.size,
-          compressedSizeHuman: `${(result.size! / 1024).toFixed(2)} KB`,
-          createdAt: new Date().toISOString(),
-        };
+          archive.on('error', (err: Error) => {
+            hasError = true;
+            resolve({ success: false, error: `Archive creation failed: ${err.message}` });
+          });
+
+          output.on('error', (err: Error) => {
+            hasError = true;
+            resolve({ success: false, error: `Write failed: ${err.message}` });
+          });
+
+          output.on('close', async () => {  // ASYNC ===
+            if (!hasError) {
+              const stats = await fsp.stat(backupPath);  // ASYNC stat
+              resolve({
+                success: true,
+                message: 'Backup created successfully',
+                backupPath: backupPath,
+                filename: backupName,
+                filesBackedUp: allFiles.length,
+                compressedSizeBytes: stats.size,
+                compressedSizeHuman: `${(stats.size / 1024).toFixed(2)} KB`,
+                createdAt: new Date().toISOString(),
+              });
+            }
+          });
+
+          archive.pipe(output);
+
+          // Add ALL files to archive with relative paths from working directory — ASYNC ===
+          for (const filePath of allFiles) {
+            try {
+              const stat = await fsp.stat(filePath);  // ASYNC stat
+              if (stat.isFile()) {
+                const relativePath = path.relative(workingDir, filePath);
+                archive.file(filePath, { name: relativePath });
+                totalSize += stat.size;
+              }
+            } catch {
+              // Skip files that can't be read
+            }
+          }
+
+          // Add metadata file — ASYNC ===
+          const metadata = {
+            version: '1.0',
+            createdAt: new Date().toISOString(),
+            sourceDirectory: workingDir,
+            filesCount: allFiles.length,
+            totalUncompressedSize: totalSize,
+          };
+          archive.append(JSON.stringify(metadata, null, 2), { name: '_backup-metadata.json' });
+
+          void archive.finalize(); // Archiver v8+ returns a Promise; handled via event listeners
+        });
 
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -264,12 +184,12 @@ EXAMPLE USAGE:
   }));
 
   // ======================================================================
-  // Tool 2: list_backups
+  // Tool 2: list_backups — ASYNC ===
   // ======================================================================
 
   tools.push(tool({
     name: 'list_backups',
-    description: `List all available backup files in the backups directory.
+    description: `List all available backup files in the current working directory's backups folder.
 
 RETURNS:
 - Array of backup objects with filename, path, size, and creation date
@@ -280,10 +200,10 @@ EXAMPLE OUTPUT:
   "success": true,
   "backups": [
     {
-      "filename": "backup-2026-05-30T19-45-00.zip",
-      "path": ".ai_toolbox_backups/backup-2026-05-30T19-45-00.zip",
+      "filename": "project-backup-2024-06-12T21-59-00.zip",
+      "path": "{workingDir}/.ai_toolbox_backups/project-backup-...",
       "sizeBytes": 1234,
-      "createdAt": "2026-05-30T19:45:00.000Z"
+      "createdAt": "2024-06-12T21:59:00.000Z"
     }
   ]
 }`,  
@@ -297,23 +217,24 @@ EXAMPLE OUTPUT:
         .default(50)
         .describe('Maximum number of backups to return (default: 50)'),
     },
-    implementation: async ({ sortBy, limit }) => {
+    implementation: async ({ sortBy, limit }) => {  // ASYNC ===
       try {
-        // Check if backup directory exists
-        if (!fs.existsSync(BACKUP_DIR)) {
+        // Check if backup directory exists — ASYNC ===
+        const backupDirExists = await fsp.stat(BACKUP_DIR).then(() => true).catch(() => false);
+        if (!backupDirExists) {
           return {
             success: true,
             backups: [],
-            message: 'No backups directory found. Create a backup first using create_backup.',
+            message: 'No backups found in current working directory.',
           };
         }
 
-        // Read all .zip files
-        const files = fs.readdirSync(BACKUP_DIR)
+        // Read all .zip files — ASYNC ===
+        const files = (await fsp.readdir(BACKUP_DIR))  // ASYNC readdir
           .filter(f => f.toLowerCase().endsWith('.zip'))
-          .map(filename => {
+          .map(async filename => {  // Map to promises for parallel stat calls
             const filePath = path.join(BACKUP_DIR, filename);
-            const stats = fs.statSync(filePath);
+            const stats = await fsp.stat(filePath);  // ASYNC stat
             return {
               filename,
               path: filePath,
@@ -322,20 +243,23 @@ EXAMPLE OUTPUT:
             };
           });
 
+        // Wait for all stats to complete — PARALLEL ===
+        const filesWithStats = await Promise.all(files);
+
         // Sort results
         if (sortBy === 'date') {
-          files.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+          filesWithStats.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
         } else if (sortBy === 'size') {
-          files.sort((a, b) => b.sizeBytes - a.sizeBytes);
+          filesWithStats.sort((a, b) => b.sizeBytes - a.sizeBytes);
         }
 
         // Apply limit
-        const limitedFiles = files.slice(0, limit);
+        const limitedFiles = filesWithStats.slice(0, limit);
 
         return {
           success: true,
           backups: limitedFiles,
-          totalCount: files.length,
+          totalCount: filesWithStats.length,
           returnedCount: limitedFiles.length,
         };
 
@@ -350,40 +274,39 @@ EXAMPLE OUTPUT:
   }));
 
   // ======================================================================
-  // Tool 3: restore_backup
+  // Tool 3: restore_backup — ASYNC ===
   // ======================================================================
 
   tools.push(tool({
     name: 'restore_backup',
-    description: `Restore state files from a backup archive.
+    description: `Restore the working directory from a backup archive.
 
-⚠️ WARNING: This will OVERWRITE current state files!
+⚠️ WARNING: This will OVERWRITE ALL FILES in the current working directory!
 
-RESTORED FILES:
-- .ai_toolbox_state.json (if present in backup)
-- .ai_toolbox_context.json (if present in backup)
+RESTORED CONTENT:
+- All files and folders from the backup
+- Existing files may be overwritten or deleted if not in backup
 
 SAFETY FEATURES:
 - Requires explicit confirmation (confirm=true parameter)
 - Creates temporary extraction directory
 - Validates archive before restoration
-- Reports which files were restored
 
 EXAMPLE USAGE:
 {
-  "backupFile": "backup-2026-05-30T19-45-00.zip",
+  "backupFile": "project-backup-2024-06-12T21-59-00.zip",
   "confirm": true
 }
-→ Restores state files from specified backup`,
+→ Restores all files from backup to current working directory`,
     parameters: {
       backupFile: z.string()
         .max(256)
-        .describe('Backup filename to restore (e.g., "backup-2026-05-30T19-45-00.zip")'),
+        .describe('Backup filename to restore (e.g., "project-backup-2024-06-12T21-59-00.zip")'),
       confirm: z.boolean()
         .default(false)
         .describe('⚠️ MUST be true to confirm restoration. This is a safety check against accidental data loss.'),
     },
-    implementation: async ({ backupFile, confirm }) => {
+    implementation: async ({ backupFile, confirm }) => {  // ASYNC ===
       try {
         // 1. Safety check
         if (!confirm) {
@@ -391,13 +314,13 @@ EXAMPLE USAGE:
             success: false,
             error: '⚠️ SAFETY CHECK FAILED',
             message: 'Restoration not performed. Set confirm=true to proceed.',
-            hint: 'This is intentional to prevent accidental data loss. Example: {"backupFile": "...", "confirm": true}',
+            hint: 'This will overwrite all files in the current working directory!',
           };
         }
 
-        // 2. Validate backup file exists
+        // 2. Validate backup file exists — ASYNC ===
         const backupPath = path.join(BACKUP_DIR, backupFile);
-        if (!fs.existsSync(backupPath)) {
+        if (!await fsp.stat(backupPath).then(() => true).catch(() => false)) {  // ASYNC stat check
           return {
             success: false,
             error: `Backup file not found: ${backupFile}`,
@@ -405,58 +328,52 @@ EXAMPLE USAGE:
           };
         }
 
-        // 3. Create temporary extraction directory
+        const workingDir = getWorkingDir();
+
+        // 3. Create temporary extraction directory — ASYNC ===
         const tempDir = path.join(BACKUP_DIR, `.temp_restore_${Date.now()}`);
-        fs.mkdirSync(tempDir, { recursive: true });
+        await fsp.mkdir(tempDir, { recursive: true });  // ASYNC mkdir
 
         try {
-          // 4. Extract archive to temp directory
-          const extractResult = await extractZipArchive(backupPath, tempDir);
+          // 4. Extract archive to temp directory — ASYNC stream ===
+          await fs.createReadStream(backupPath)
+            .pipe(unzipper.Extract({ path: tempDir }))
+            .promise();
 
-          if (!extractResult.success) {
-            return { success: false, error: extractResult.error };
-          }
-
-          // 5. Identify files to restore (only state files)
-          const restorableFiles = [
-            '.ai_toolbox_state.json',
-            '.ai_toolbox_context.json',
-          ];
-
-          const restoredFiles: string[] = [];
-          const missingFiles: string[] = [];
-
-          for (const fileName of restorableFiles) {
-            const sourcePath = path.join(tempDir, fileName);
-            if (fs.existsSync(sourcePath)) {
-              // Get current working directory
-              const destPath = path.join(process.cwd(), fileName);
+          // 5. Clear working directory and restore from backup — ASYNC ===
+          const extractedFiles = await collectAllFiles(tempDir);  // ASYNC call
+          
+          for (const sourceFile of extractedFiles) {
+            try {
+              const relativePath = path.relative(tempDir, sourceFile);
+              const destPath = path.join(workingDir, relativePath);
               
-              // Read and write to destination
-              const content = fs.readFileSync(sourcePath);
-              fs.writeFileSync(destPath, content);
-              restoredFiles.push(fileName);
-            } else {
-              missingFiles.push(fileName);
+              // Ensure parent directory exists — ASYNC ===
+              const destDir = path.dirname(destPath);
+              await fsp.mkdir(destDir, { recursive: true });  // ASYNC mkdir
+              
+              // Copy file to destination — ASYNC ===
+              await fsp.copyFile(sourceFile, destPath);  // ASYNC copy
+            } catch {
+              // Skip files that can't be copied
             }
           }
 
-          // 6. Return success
           return {
             success: true,
-            message: `Restored ${restoredFiles.length} file(s) from backup`,
+            message: `Restored ${extractedFiles.length} file(s) from backup`,
             backupFile,
-            restoredFiles,
-            extractedFilesCount: extractResult.extractedFiles?.length || 0,
+            restoredFilesCount: extractedFiles.length,
             timestamp: new Date().toISOString(),
           };
 
         } finally {
-          // 7. Cleanup temp directory
+          // 6. Cleanup temp directory — ASYNC ===
           try {
-            fs.rmSync(tempDir, { recursive: true, force: true });
+            await fsp.rm(tempDir, { recursive: true, force: true });  // ASYNC rm
           } catch (cleanupErr) {
-            console.warn(`[Backup] Warning: Could not cleanup temp dir ${tempDir}`);
+            const errMsg = cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr);
+            console.warn(`[Backup] Warning: Could not cleanup temp dir ${tempDir}: ${errMsg}`);
           }
         }
 
@@ -471,12 +388,12 @@ EXAMPLE USAGE:
   }));
 
   // ======================================================================
-  // Tool 4: delete_backup (bonus tool)
+  // Tool 4: delete_backup — ASYNC ===
   // ======================================================================
 
   tools.push(tool({
     name: 'delete_backup',
-    description: `Delete a backup file from the backups directory.
+    description: `Delete a backup file from the current working directory's backups folder.
 
 ⚠️ WARNING: This action is IRREVERSIBLE!
 
@@ -494,12 +411,12 @@ EXAMPLE USAGE:
     parameters: {
       backupFile: z.string()
         .max(256)
-        .describe('Backup filename to delete (e.g., "old-backup.zip")'),
+        .describe('Backup filename to delete (e.g., "project-backup-2024-06-12T21-59-00.zip")'),
       confirm: z.boolean()
         .default(false)
         .describe('⚠️ MUST be true to confirm deletion. This is a safety check.'),
     },
-    implementation: async ({ backupFile, confirm }) => {
+    implementation: async ({ backupFile, confirm }) => {  // ASYNC ===
       try {
         // 1. Safety check
         if (!confirm) {
@@ -519,17 +436,17 @@ EXAMPLE USAGE:
           };
         }
 
-        // 3. Construct path and validate exists
+        // 3. Construct path and validate exists — ASYNC ===
         const backupPath = path.join(BACKUP_DIR, backupFile);
-        if (!fs.existsSync(backupPath)) {
+        if (!await fsp.stat(backupPath).then(() => true).catch(() => false)) {  // ASYNC stat check
           return {
             success: false,
             error: `Backup file not found: ${backupFile}`,
           };
         }
 
-        // 4. Delete the file
-        fs.unlinkSync(backupPath);
+        // 4. Delete the file — ASYNC ===
+        await fsp.unlink(backupPath);  // ASYNC unlink
 
         return {
           success: true,

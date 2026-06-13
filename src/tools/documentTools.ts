@@ -2,7 +2,7 @@ import type { Tool } from '@lmstudio/sdk';
 import { tool } from '@lmstudio/sdk';
 import { z } from 'zod';
 import * as path from 'path';
-import * as fs from 'fs';
+import * as fs from 'fs/promises';  // ASYNC import
 import type { PluginConfig } from '../config.js';
 import { getAttachment } from '../attachmentManager';
 
@@ -12,15 +12,17 @@ interface ReadDocumentParams {
   file_path: string;
 }
 
-// ==================== Helper Functions ====================
+// ==================== Helper Functions — ASYNC ===
 
-/** Validate file exists on disk */
-function validateFile(filePath: string): { valid: boolean; error?: string } {
-  if (!fs.existsSync(filePath)) {
+/** Validate file exists on disk — ASYNC */
+async function validateFile(filePath: string): Promise<{ valid: boolean; error?: string }> {
+  try {
+    await fs.access(filePath);  // ASYNC access check
+  } catch {
     return { valid: false, error: `File not found on disk: ${filePath}` };
   }
   
-  const stat = fs.statSync(filePath);
+  const stat = await fs.stat(filePath);  // ASYNC stat
   if (!stat.isFile()) {
     return { valid: false, error: `Path "${filePath}" is not a file` };
   }
@@ -40,7 +42,7 @@ function handleError(error: unknown): { success: false; error: string } {
   return { success: false, error: `Document reading failed: ${message}` };
 }
 
-// ==================== Tool Implementations ====================
+// ==================== Tool Implementations — ASYNC ===
 
 /**
  * Read content from PDF or DOCX files.
@@ -51,16 +53,30 @@ async function readDocument({ file_path }: ReadDocumentParams): Promise<unknown>
     // 1. Check if it's an attached file
     const attachment = getAttachment(file_path);
     if (attachment) {
-      console.log(`[AI Toolbox] Reading attached file: ${file_path}`);
-      const buffer = await (attachment as any).readFile ? await (attachment as any).readFile() : Buffer.from(await (attachment as any).read());
+      console.warn(`[AI Toolbox] Reading attached file: ${file_path}`);
+      
+      // Typed interface for attachment object
+      type AttachmentWithReadFile = { readFile?: () => Promise<Buffer>; read?: () => Promise<unknown> };
+      const typedAttachment = attachment as unknown as AttachmentWithReadFile;
+      let buffer: Buffer | undefined;
+      if (typedAttachment.readFile) {
+        buffer = await typedAttachment.readFile();  // ASYNC already
+      } else if (typedAttachment.read) {
+        buffer = Buffer.from(await typedAttachment.read() as string);  // ASYNC already
+      }
+      
+      if (!buffer) {
+        return { success: false, error: `Unable to read attached file: ${file_path}` };
+      }
+      
       const ext = path.extname(file_path).toLowerCase();
       
       if (ext === '.pdf') {
-        return await readPDFFromBuffer(buffer, file_path);
+        return await readPDFFromBuffer(buffer, file_path);  // ASYNC already
       } else if (ext === '.docx') {
-        return await readDOCXFromBuffer(buffer, file_path);
+        return await readDOCXFromBuffer(buffer, file_path);  // ASYNC already
       } else if (ext === '.txt') {
-        return await readTXTFromBuffer(buffer, file_path);
+        return await readTXTFromBuffer(buffer, file_path);  // ASYNC already
       } else {
         return { 
           success: false, 
@@ -69,8 +85,8 @@ async function readDocument({ file_path }: ReadDocumentParams): Promise<unknown>
       }
     }
 
-    // 2. Fall back to disk path
-    const validation = validateFile(file_path);
+    // 2. Fall back to disk path — ASYNC validation
+    const validation = await validateFile(file_path);  // ASYNC call
     if (!validation.valid) {
       // Provide helpful error if it looked like a filename
       return { 
@@ -83,18 +99,19 @@ async function readDocument({ file_path }: ReadDocumentParams): Promise<unknown>
     
     switch (ext) {
       case '.pdf':
-        return await readPDF(file_path);
+        return await readPDF(file_path);  // ASYNC already
       case '.docx':
-        return await readDOCX(file_path);
+        return await readDOCX(file_path);  // ASYNC already
       case '.txt': {
-        const text = fs.readFileSync(file_path, 'utf-8');
+        const text = await fs.readFile(file_path, 'utf-8');  // ASYNC read
+        const stats = await fs.stat(file_path);  // ASYNC stat for size
         return {
           success: true,
           data: {
             file_path: file_path,
             format: 'TXT',
             word_count: text.split(/\s+/).filter(w => w.length > 0).length,
-            size: `${(fs.statSync(file_path).size / 1024).toFixed(1)} KB`,
+            size: `${(stats.size / 1024).toFixed(1)} KB`,
             text_preview: text.substring(0, 500) + (text.length > 500 ? '...' : ''),
             full_text: text,
           },
@@ -112,18 +129,21 @@ async function readDocument({ file_path }: ReadDocumentParams): Promise<unknown>
 }
 
 /**
- * Read PDF content from disk path.
+ * Read PDF content from disk path — ASYNC read ===
  */
 async function readPDF(filePath: string): Promise<unknown> {
   try {
     const pdfParse = (await import('pdf-parse')).default;
     
-    console.log(`[AI Toolbox] Reading PDF from disk: ${filePath}`);
+    console.warn(`[AI Toolbox] Reading PDF from disk: ${filePath}`);
     
-    const dataBuffer = fs.readFileSync(filePath);
+    const dataBuffer = await fs.readFile(filePath);  // ASYNC read
+    
     const result = await pdfParse(dataBuffer);
     
-    console.log(`[AI Toolbox] PDF read complete: ${result.numpages} pages, ${(result.text.length / 1024).toFixed(1)}KB`);
+    console.warn(`[AI Toolbox] PDF read complete: ${result.numpages} pages, ${(result.text.length / 1024).toFixed(1)}KB`);
+    
+    const stats = await fs.stat(filePath);  // ASYNC stat for size
     
     return {
       success: true,
@@ -132,7 +152,7 @@ async function readPDF(filePath: string): Promise<unknown> {
         format: 'PDF',
         pages: result.numpages,
         word_count: result.text.split(/\s+/).filter(w => w.length > 0).length,
-        size: `${(fs.statSync(filePath).size / 1024).toFixed(1)} KB`,
+        size: `${(stats.size / 1024).toFixed(1)} KB`,
         text_preview: result.text.substring(0, 500) + (result.text.length > 500 ? '...' : ''),
         full_text: result.text,
       },
@@ -143,17 +163,17 @@ async function readPDF(filePath: string): Promise<unknown> {
 }
 
 /**
- * Read PDF content from buffer (for attachments).
+ * Read PDF content from buffer (for attachments). — ASYNC already ===
  */
 async function readPDFFromBuffer(buffer: Buffer, fileName: string): Promise<unknown> {
   try {
     const pdfParse = (await import('pdf-parse')).default;
     
-    console.log(`[AI Toolbox] Reading PDF from attachment: ${fileName}`);
+    console.warn(`[AI Toolbox] Reading PDF from attachment: ${fileName}`);
     
     const result = await pdfParse(buffer);
     
-    console.log(`[AI Toolbox] PDF read complete: ${result.numpages} pages, ${(result.text.length / 1024).toFixed(1)}KB`);
+    console.warn(`[AI Toolbox] PDF read complete: ${result.numpages} pages, ${(result.text.length / 1024).toFixed(1)}KB`);
     
     return {
       success: true,
@@ -174,21 +194,25 @@ async function readPDFFromBuffer(buffer: Buffer, fileName: string): Promise<unkn
 }
 
 /**
- * Read DOCX content from disk path.
+ * Read DOCX content from disk path — ASYNC read ===
  */
 async function readDOCX(filePath: string): Promise<unknown> {
   try {
     const mammoth = await import('mammoth');
     
-    console.log(`[AI Toolbox] Reading DOCX from disk: ${filePath}`);
+    console.warn(`[AI Toolbox] Reading DOCX from disk: ${filePath}`);
     
-    const dataBuffer = fs.readFileSync(filePath);
-    const result = await ((mammoth as unknown) as { extractRawText: (opts: { buffer: Buffer }) => Promise<{ value: string; messages: Array<{ message: string }> }> }).extractRawText({ buffer: dataBuffer });
+    const dataBuffer = await fs.readFile(filePath);  // ASYNC read
+    
+    const mammothTyped = mammoth as unknown as { extractRawText: (opts: { buffer: Buffer }) => Promise<{ value: string; messages: Array<{ message: string }> }> };
+    const result = await mammothTyped.extractRawText({ buffer: dataBuffer });
     
     const text = result.value;
     const warnings = result.messages.map((m: { message: string }) => m.message).join('\n');
     
-    console.log(`[AI Toolbox] DOCX read complete: ${(text.length / 1024).toFixed(1)}KB`);
+    console.warn(`[AI Toolbox] DOCX read complete: ${(text.length / 1024).toFixed(1)}KB`);
+    
+    const stats = await fs.stat(filePath);  // ASYNC stat for size
     
     return {
       success: true,
@@ -196,7 +220,7 @@ async function readDOCX(filePath: string): Promise<unknown> {
         file_path: filePath,
         format: 'DOCX',
         word_count: text.split(/\s+/).filter(w => w.length > 0).length,
-        size: `${(fs.statSync(filePath).size / 1024).toFixed(1)} KB`,
+        size: `${(stats.size / 1024).toFixed(1)} KB`,
         text_preview: text.substring(0, 500) + (text.length > 500 ? '...' : ''),
         full_text: text,
         warnings: warnings || undefined,
@@ -208,20 +232,21 @@ async function readDOCX(filePath: string): Promise<unknown> {
 }
 
 /**
- * Read DOCX content from buffer (for attachments).
+ * Read DOCX content from buffer (for attachments). — ASYNC already ===
  */
 async function readDOCXFromBuffer(buffer: Buffer, fileName: string): Promise<unknown> {
   try {
     const mammoth = await import('mammoth');
     
-    console.log(`[AI Toolbox] Reading DOCX from attachment: ${fileName}`);
+    console.warn(`[AI Toolbox] Reading DOCX from attachment: ${fileName}`);
     
-    const result = await ((mammoth as unknown) as { extractRawText: (opts: { buffer: Buffer }) => Promise<{ value: string; messages: Array<{ message: string }> }> }).extractRawText({ buffer });
+    const mammothTyped = mammoth as unknown as { extractRawText: (opts: { buffer: Buffer }) => Promise<{ value: string; messages: Array<{ message: string }> }> };
+    const result = await mammothTyped.extractRawText({ buffer });
     
     const text = result.value;
     const warnings = result.messages.map((m: { message: string }) => m.message).join('\n');
     
-    console.log(`[AI Toolbox] DOCX read complete: ${(text.length / 1024).toFixed(1)}KB`);
+    console.warn(`[AI Toolbox] DOCX read complete: ${(text.length / 1024).toFixed(1)}KB`);
     
     return {
       success: true,
@@ -242,15 +267,15 @@ async function readDOCXFromBuffer(buffer: Buffer, fileName: string): Promise<unk
 }
 
 /**
- * Read TXT content from buffer (for attachments).
+ * Read TXT content from buffer (for attachments). — ASYNC already ===
  */
 async function readTXTFromBuffer(buffer: Buffer, fileName: string): Promise<unknown> {
   try {
-    console.log(`[AI Toolbox] Reading TXT from attachment: ${fileName}`);
+    console.warn(`[AI Toolbox] Reading TXT from attachment: ${fileName}`);
     
     const text = buffer.toString('utf-8');
     
-    console.log(`[AI Toolbox] TXT read complete: ${(text.length / 1024).toFixed(1)}KB`);
+    console.warn(`[AI Toolbox] TXT read complete: ${(text.length / 1024).toFixed(1)}KB`);
     
     return {
       success: true,
@@ -270,19 +295,19 @@ async function readTXTFromBuffer(buffer: Buffer, fileName: string): Promise<unkn
 }
 
 
-// ==================== Tool Registration ====================
+// ==================== Tool Registration ===
 
 export function registerDocumentTools(_config: PluginConfig): Tool[] {
   const tools: Tool[] = [];
 
-  // read_document tool
+  // read_document tool — ASYNC implementation
   tools.push(tool({
     name: 'read_document',
     description: 'Read content from PDF, DOCX, or TXT files. Supports both disk paths and attached files (use filename for attachments).',
     parameters: {
       file_path: z.string().describe('Path to the PDF, DOCX, or TXT file, or the filename if it is an attached file'),
     },
-    implementation: async (params) => readDocument(params as ReadDocumentParams),
+    implementation: async (params) => readDocument(params),  // ASYNC already
   }));
 
   return tools;

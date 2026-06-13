@@ -322,19 +322,20 @@ src/
 ├── fuzzySearch.ts        # Fuzzy file search implementation
 ├── contextGuard.ts       # ContextGuard module (infinite context management)
 ├── tools/                # ADD NEW TOOLS HERE
-│   ├── fileSystemTools.ts          # 17 file system tools
+│   ├── fileSystemTools.ts          # 20 file system tools
 │   ├── webResearchTools.ts         # 4 web research tools
 │   ├── browserAutomationTools.ts   # 5 browser tools
 │   ├── gitGithubTools.ts           # 14 Git/GitHub tools
 │   ├── databaseTools.ts            # 1 database tool
 │   ├── backgroundCommandTools.ts   # 3 background command tools
-│   ├── executionTools.ts           # 4 execution tools
-│   ├── utilityTools.ts             # 7 utility tools
+│   ├── executionTools.ts           # 5 execution tools
+│   ├── utilityTools.ts             # ~20+ utility tools
 │   ├── imageProcessingTools.ts     # 4 image processing tools
 │   ├── httpClientTools.ts          # 3 HTTP client tools
-│   ├── vectorRagTools.ts           # 3 vector RAG tools
+│   ├── vectorRagTools.ts           # 4 vector RAG tools
 │   ├── uiGenerationTools.ts        # 🆕 Interactive UI Generation (3 tools)
 │   └── contextManagementTools.ts   # 🆕 Auto-Context Management (7 tools)
+├── backupTools.ts                  # 💾 Backup & Restore (4 tools)
 └── tests/                # ADD TESTS HERE
 ```
 
@@ -364,7 +365,7 @@ Be respectful, constructive, and inclusive. We follow the [Contributor Covenant]
 
 ---
 
-## 🛡️ Testing ContextGuard Features (v1.4.1)
+## 🛡️ Testing ContextGuard Features (v1.4.2)
 
 ### UI Controls Verification
 

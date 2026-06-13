@@ -74,11 +74,20 @@ function generateChartHtml(data: Array<{ label: string; value: number }>, title:
 }
 
 /** Generate HTML for a dashboard component */
-function generateDashboardHtml(titles: string[], content: Array<{ type: 'text' | 'chart'; data?: any }>): string {
+function generateDashboardHtml(titles: string[], content: Array<{ type: 'text' | 'chart'; data?: unknown }>): string {
   const cardsHtml = titles.map((title, index) => {
     const cardContent = content[index]?.type === 'chart' 
       ? generateChartHtml(content[index].data as Array<{ label: string; value: number }> || [{ label: 'A', value: 50 }, { label: 'B', value: 80 }], title)
-      : `<p style="padding: 20px;">${content[index]?.data || `Content for ${title}`}</p>`;
+      : (() => {
+          const data = content[index]?.data;
+          if (data == null) return `<p style="padding: 20px;">Content for ${title}</p>`;
+          const textData: string = typeof data === 'string' 
+            ? data 
+            : typeof data !== 'string'
+              ? JSON.stringify(data)
+              : '';
+          return `<p style="padding: 20px;">${textData}</p>`;
+        })();
     
     return `
       <div style="flex: 1; min-width: 250px; background-color: white; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin: 10px;">
@@ -145,7 +154,7 @@ export function registerUiGenerationTools(_config: PluginConfig): Tool[] {
             if (!dashboard_titles || dashboard_titles.length === 0) {
               return { success: false, error: 'Dashboard component requires at least one title' };
             }
-            const content: Array<{ type: 'text' | 'chart'; data?: any }> = dashboard_titles.map((title, index) => ({
+            const content: Array<{ type: 'text' | 'chart'; data?: unknown }> = dashboard_titles.map((title, index) => ({
               type: index % 2 === 0 ? 'chart' : 'text',
               data: index % 2 === 0 ? [{ label: 'A', value: Math.floor(Math.random() * 100) }, { label: 'B', value: Math.floor(Math.random() * 100) }] : undefined,
             }));
@@ -214,6 +223,7 @@ export function registerUiGenerationTools(_config: PluginConfig): Tool[] {
             await page.screenshot({ path: screenshot_path, fullPage: true });
             resultData.screenshotSaved = true;
             
+            // eslint-disable-next-line @typescript-eslint/await-thenable
             await browser.close();
           } catch (screenshotError) {
             const message = screenshotError instanceof Error ? screenshotError.message : String(screenshotError);
@@ -250,7 +260,6 @@ export function registerUiGenerationTools(_config: PluginConfig): Tool[] {
         if (extraction_type === 'table') {
           const tableRegex = /<table[^>]*>([\s\S]*?)<\/table>/gi;
           const rowsRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
-          const cellsRegex = /<(td|th)[^>]*>([\s\S]*?)<\/(td|th)>/gi;
 
           let tableMatch;
           while ((tableMatch = tableRegex.exec(html_content)) !== null) {

@@ -6,7 +6,8 @@
 import { type PluginContext } from '@lmstudio/sdk';
 import { toolsProvider } from './toolsProvider';
 import { configSchematics } from './config';
-import { preprocess } from './promptPreprocessor';
+import { preprocess, setContextGuard } from './promptPreprocessor';
+import { ContextGuard } from './contextGuard';
 import { cleanupBrowserSession } from './tools/browserAutomationTools';
 
 // ✅ FIX: Use structured logging instead of console.log
@@ -24,6 +25,18 @@ export function main(context: PluginContext) {
   
   // Register the configuration schematics (makes toggles appear in UI)
   context.withConfigSchematics(configSchematics);
+  
+  // Initialize ContextGuard with default settings
+  const contextGuard = new ContextGuard({
+    tokenLimit: 30000,           // Matches config.ts default (changed to 30k)
+    smartReading: true,          // Enables keyword-based file reading
+    summaryModel: '',            // Empty = use current chat model for summarization
+    terminalFilterEnabled: true, // Truncates long terminal outputs
+    terminalFilterLength: 2000,  // Max chars before truncation
+  });
+  
+  // Connect ContextGuard to the prompt preprocessor
+  setContextGuard(contextGuard);
   
   // Register the prompt preprocessor for Document RAG / Chat with Files
   context.withPromptPreprocessor(preprocess);

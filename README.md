@@ -1,10 +1,29 @@
-# 🧰 AI Toolbox — LM Studio Plugin
+﻿# 🧰 AI Toolbox — LM Studio Plugin
 
-> **84+ tools** across 15 categories: file system, web research, browser automation, Git/GitHub, database, document parsing, background commands, code execution, utilities, image processing, HTTP client, vector RAG, interactive UI generation, auto-context management, **backup & restore**, and **ContextGuard** (infinite context management).
+> **106 tools** across 16 categories: file system, web research, browser automation, Git/GitHub, database, document parsing, background commands, code execution, utilities, image processing, HTTP client, vector RAG, interactive UI generation, auto-context management, backup & restore, and **ContextGuard** (infinite context management).
 
 ---
 
 ## 📢 Recent Updates
+
+### ⚡ Performance Optimization & Documentation Accuracy (2026-06-13)
+Major refactoring to eliminate blocking I/O and align documentation with actual source code:
+- **Sync → Async Conversion**: Converted 200+ sync operations across 6 files (`fileSystemTools`, `documentTools`, `stateManager`, `contextManagementTools`, `backupTools`, `gitGithubTools`)
+- **Lint/Typecheck Fixes**: Resolved all ESLint errors and TypeScript compilation errors
+- **Tool Count Corrections**: Updated README.md, TOOLS_REFERENCE.md, CHANGELOG.md to reflect actual tool counts (106 total)
+- **Added Missing Tools**: Documented 23 Utility tools (previously only 7), added `run_tests` to Execution, corrected Git & GitHub count (14 → 13)
+- **Impact**: Eliminates all blocking I/O operations that could cause event loop starvation during high-load scenarios ✅
+
+---
+
+
+
+### 🆕 Session Summary Tools — Cross-Session Continuity (2026-06-13)
+Added structured session summary capabilities for seamless handoff between LM Studio sessions:
+- **New tools**: `save_session_summary` and `get_session_summary`
+- **Structured storage**: Saves accomplishments, pending tasks, decisions made, and context for next session
+- **Cross-session continuity**: AI can retrieve previous session context at the start of new sessions without manual handoff
+- **Complete workflow**: Save summary → Close LM Studio → New session retrieves context automatically ✅
 
 ### 🔒 Security Hardening — `save_file` Atomic Writes & Size Limits (2026-06-04)
 Fixed critical vulnerabilities in the file saving tool:
@@ -107,7 +126,7 @@ Fixed **14 TypeScript errors** across 7 files:
 | 🗄️ **Database** | Read-only SQLite queries with SQL validation |
 | ⏳ **Background Commands** | Long-running process management |
 | ⚡ **Code Execution** | Sandboxed JS/Python + full shell commands (pipes, redirects, env vars) |
-| 🔧 **Utilities** | Clipboard, notifications, system info, memory |
+| 🔧 **Utilities** | Clipboard, notifications, system info, memory, session summaries for cross-session continuity |
 | 🖼️ **Image Processing** | OCR (Tesseract.js), screenshots (Win32 API), image comparison (JPEG/BMP/PNG via Sharp) |
 | 🔌 **HTTP Client** | REST API client with SSRF protection |
 | 📊 **Vector RAG** | Semantic search with local embeddings, persistent state, web content fetching |
@@ -116,7 +135,7 @@ Fixed **14 TypeScript errors** across 7 files:
 | 💾 **Backup & Restore** | Create compressed ZIP backups of plugin state with path traversal protection |
 | 🧠 **Auto-Context Management** | Automatic session tracking, decision logging, and persistent memory retrieval |
 | ⏰ **Temporal Awareness** | Injects current date/time into every message for accurate time-sensitive tasks |
-| 🛡️ **ContextGuard** | **v1.4.1!** Dynamic context window management with explicit UI controls: |
+| 🛡️ **ContextGuard** | **v1.4.2!** Dynamic context window management with explicit UI controls: |
 | | • **Smart Reader**: Heuristic keyword-grep for large files (toggleable) |
 | | • **Threshold-Based Compression**: Auto-summarizes history at 90% token limit (configurable 1K-200K tokens) |
 | | • **Terminal Output Filtering**: Truncates long outputs (configurable 100-20K chars) |
@@ -129,8 +148,8 @@ Fixed **14 TypeScript errors** across 7 files:
 
 ## 🗂️ Tool Categories
 
-### File System (17 tools)
-`list_directory` · `read_file` · `save_file` · `replace_text_in_file` · `insert_at_line` · `append_file` · `delete_lines_in_file` · `make_directory` · `move_file` · `copy_file` · `delete_path` · `delete_files_by_pattern` · `find_files` · `fuzzy_find_local_files` · `get_file_metadata` · `change_directory`
+### File System (21 tools)
+`list_directory` · `read_file` · `save_file` · `replace_text_in_file` · `insert_at_line` · `append_file` · `delete_lines_in_file` · `make_directory` · `move_file` · `copy_file` · `delete_path` · `delete_files_by_pattern` · `find_files` · `fuzzy_find_local_files` · `get_file_metadata` · `change_directory` · `read_file_chunked` · `analyze_project` · `file_diff` · `directory_tree` · `grep_files` · `analyze_project` · `file_diff` · `directory_tree` · `grep_files`
 
 ### Web Research (4 tools)
 `web_search` · `wikipedia_search` · `fetch_web_content` · `rag_web_content`
@@ -138,8 +157,8 @@ Fixed **14 TypeScript errors** across 7 files:
 ### Browser Automation (5 tools)
 `browser_open_page` · `browser_session_control` · `browser_session_close` · `preview_html` · `open_file`
 
-### Git & GitHub (14 tools)
-`git_status` · `git_diff` · `git_commit` · `git_log` · `git_add` · `git_checkout` · `gh_auth` · `gh_create_issue` · `gh_list_issues` · `gh_view_comments` · `gh_create_pr` · `gh_list_prs` · `gh_view_pr_diff` · `gh_push`
+### Git & GitHub (13 tools)
+`git_status` · `git_diff` · `git_commit` · `git_log` · `git_add` · `git_checkout` · `gh_create_issue` · `gh_list_issues` · `gh_view_comments` · `gh_create_pr` · `gh_list_prs` · `gh_view_pr_diff` · `gh_push`
 
 ### Database (1 tool)
 `query_database`
@@ -150,11 +169,11 @@ Fixed **14 TypeScript errors** across 7 files:
 ### Background Commands (3 tools)
 `run_background_command` · `check_background_command` · `cancel_background_command`
 
-### Execution (4 tools)
-`run_javascript` · `run_python` · `execute_command` · `run_in_terminal`
+### Execution (5 tools)
+`run_javascript` · `run_python` · `execute_command` · `run_in_terminal` · `run_tests`
 
-### Utilities (7 tools)
-`save_memory` · `get_system_info` · `read_clipboard` · `write_clipboard` · `send_notification` · `findLMStudioHome` · `get_enabled_tools`
+### Utilities (23 tools)
+`save_memory` · `get_memory` · `search_memory` · `delete_memory` · `save_session_summary` · `get_session_summary` · `get_system_info` · `read_clipboard` · `write_clipboard` · `send_notification` · `findLMStudioHome` · `get_enabled_tools` · `system_monitor` · `process_list` · `env_inspect` · `hash_file` · `token_count` · `convert_format` · `secret_scan` · `port_check` · `package_manage` · `detect_os_environment` · `get_current_working_directory`
 
 ### Image Processing (4 tools)
 `image_to_text` · `describe_image` · `screenshot_desktop` · `compare_images`
@@ -189,7 +208,7 @@ The plugin is installed as an LM Studio plugin. Ensure you have:
 
 1. **Load the plugin** in LM Studio's plugin settings
 2. **Configure tool access** — individual tool categories can be toggled on/off
-3. **Start a chat** and the LLM can now use any of the 80+ tools
+3. **Start a chat** and the LLM can now use any of the 110+ tools
 
 ### Example: Search the Web
 
@@ -226,16 +245,18 @@ All settings are accessible through LM Studio's plugin settings panel.
 | `godMode` | `false` | ⚠️ Enables ALL tools at once |
 | `fileSystem` | `true` | File read/write/search operations |
 | `webSearch` | `true` | Web research tools |
-| `contextGuard` | `false` | **New!** Enable ContextGuard for infinite context management |
+| `contextGuardEnabled` | `true` | Enable ContextGuard for infinite context management |
 
 ### ContextGuard Settings
 
 | Setting Name | Type | Default | Description |
 |--------------|------|---------|-------------|
-| `contextGuard` | `boolean` | `false` | Enable the ContextGuard module. |
-| `tokenLimit` | `number` | `110,000` | The maximum token count before compression triggers. |
-| `smartReading` | `boolean` | `true` | Enable heuristic keyword-grep for file reads. |
-| `summaryModel` | `string` | `gemma-2b` | The model used to summarize older history. |
+| `contextGuardEnabled` | `boolean` | `true` | Enable the ContextGuard module. |
+| `contextGuardTokenLimit` | `number` | `30,000` | The maximum token count before compression triggers (90% threshold). |
+| `contextGuardSmartReading` | `boolean` | `true` | Enable heuristic keyword-grep for file reads. |
+| `contextGuardSummaryModel` | `string` | `""` (current chat model) | The model used to summarize older history. |
+| `contextGuardTerminalFilterEnabled` | `boolean` | `true` | Auto-truncates long terminal outputs to save tokens. |
+| `contextGuardTerminalFilterLength` | `number` | `2,000` | Max characters before terminal output is truncated. |
 
 ---
 

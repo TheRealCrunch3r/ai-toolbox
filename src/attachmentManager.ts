@@ -22,7 +22,7 @@ export function setAttachments(files: FileHandle[]): void {
     currentAttachments.set(file.name.toLowerCase(), file);
   }
   if (files.length > 0) {
-    console.log(`[AI Toolbox] Registered ${files.length} attachment(s): ${files.map(f => f.name).join(', ')}`);
+    console.warn(`[AI Toolbox] Registered ${files.length} attachment(s): ${files.map(f => f.name).join(', ')}`);
   }
 }
 

@@ -5,10 +5,12 @@ import type { PluginConfig } from '../config.js';
 import { validateSQLQuery } from '../security.js';
 
 // Lazy-load node:sqlite (Node.js 23+). Graceful fallback for older Node versions.
+// eslint-disable-next-line @typescript-eslint/consistent-type-imports
 let sqliteModule: typeof import('node:sqlite') | null = null;
 let sqliteLoadError: string | null = null;
 
-async function getSqlite(): Promise<typeof import('node:sqlite')> {
+async function getSqlite(): // eslint-disable-next-line @typescript-eslint/consistent-type-imports
+Promise<typeof import('node:sqlite')> {
   if (sqliteModule) return sqliteModule;
   if (sqliteLoadError) throw new Error(sqliteLoadError);
 

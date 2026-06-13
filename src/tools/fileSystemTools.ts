@@ -1,7 +1,8 @@
-import type { Tool } from '@lmstudio/sdk';
+﻿import type { Tool } from '@lmstudio/sdk';
 import { tool } from '@lmstudio/sdk';
 import { z } from 'zod';
-import * as fs from 'fs';
+import * as _fs from 'fs';
+const fs = _fs.promises;
 import * as path from 'path';
 import { spawn } from 'child_process';
 import type { PluginConfig } from '../config.js';
@@ -37,7 +38,6 @@ interface FindFilesParams { pattern: string; max_depth?: number; }
 interface FuzzyFindLocalFilesParams { query: string; path?: string; max_results?: number; }
 interface GetFileMetadataParams { path: string; }
 interface ChangeDirectoryParams { directory: string; }
-interface ReadDocumentParams { file_path: string; }
 
 /** Helper for consistent error handling */
 function handleError(error: unknown): { success: false; error: string } {
@@ -48,7 +48,7 @@ function handleError(error: unknown): { success: false; error: string } {
 export function registerFileSystemTools(config: PluginConfig, _stateManager: StateManager): Tool[] {
   const tools: Tool[] = [];
 
-  // list_directory tool
+  // list_directory tool — ASYNC optimized with fs.promises.readdir
   tools.push(tool({
     name: 'list_directory',
     description: 'List the files and directories in the current working directory or a specified subdirectory.',
@@ -62,7 +62,7 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
           return { success: false, error: 'Invalid path: directory traversal detected' };
         }
         const fullPath = resolvePath(targetPath);
-        const entries = fs.readdirSync(fullPath, { withFileTypes: true });
+        const entries = await fs.readdir(fullPath, { withFileTypes: true });
         const result = entries.map(entry => ({
           path: path.join(fullPath, entry.name),
           name: entry.name,
@@ -94,9 +94,9 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
         const maxLength = max_length || 5000;
 
         // Early size check (Beledarian style) - prevent loading >10MB files
-        let stats: fs.Stats;
+        let stats: _fs.Stats;
         try {
-          stats = await fs.promises.stat(fullPath);
+          stats = await fs.stat(fullPath);
         } catch (e) {
            return handleError(e);
         }
@@ -105,8 +105,8 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
           return { success: false, error: 'File too large (>10MB)' };
         }
 
-        // Read as buffer for efficient binary check (Beledarian style)
-        const buffer = await fs.promises.readFile(fullPath);
+        // Read as buffer for efficient binary check (Beledarian style) — ASYNC
+        const buffer = await fs.readFile(fullPath);
         
         // Binary check: null byte in first 1KB
         const checkBuffer = buffer.subarray(0, Math.min(buffer.length, 1024));
@@ -158,10 +158,10 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
 
         const fullPath = resolvePath(file_name);
 
-        // Get file metadata first
-        let stats: fs.Stats;
+        // Get file metadata first — ASYNC
+        let stats: _fs.Stats;
         try {
-          stats = await fs.promises.stat(fullPath);
+          stats = await fs.stat(fullPath);
         } catch (e) {
           return handleError(e);
         }
@@ -170,8 +170,8 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
           return { success: false, error: 'File too large (>10MB)' };
         }
 
-        // Read entire file content
-        const buffer = await fs.promises.readFile(fullPath);
+        // Read entire file content — ASYNC
+        const buffer = await fs.readFile(fullPath);
         
         // Binary check
         const checkBuffer = buffer.subarray(0, Math.min(buffer.length, 1024));
@@ -290,28 +290,28 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
     },
   }));
 
-  // Helper: Atomic file write with parent directory creation and size validation
+  // Helper: Atomic file write with parent directory creation and size validation — ASYNC
   async function atomicWriteFile(filePath: string, content: string): Promise<void> {
     const bufferSize = Buffer.byteLength(content, 'utf-8');
     if (bufferSize > 10_000_000) {
       throw new Error(`Content too large (${(bufferSize / 1_048_576).toFixed(2)}MB, max 10MB)`);
     }
 
-    // Create parent directories if they don't exist
+    // Create parent directories if they don't exist — ASYNC
     const dirPath = path.dirname(filePath);
     try {
-      await fs.promises.mkdir(dirPath, { recursive: true });
+      await fs.mkdir(dirPath, { recursive: true });
     } catch (err) {
       throw new Error(`Failed to create directory ${dirPath}: ${(err as Error).message}`);
     }
 
-    // Atomic write: temp file → rename (prevents partial/corrupt writes)
+    // Atomic write: temp file → rename (prevents partial/corrupt writes) — ASYNC
     const tempPath = filePath + '.tmp';
-    await fs.promises.writeFile(tempPath, content, 'utf-8');
-    await fs.promises.rename(tempPath, filePath);
+    await fs.writeFile(tempPath, content, 'utf-8');
+    await fs.rename(tempPath, filePath);
   }
 
-  // replace_text_in_file tool
+  // replace_text_in_file tool — ASYNC file operations
   tools.push(tool({
     name: 'replace_text_in_file',
     description: 'Replace a specific string in a file with a new string.',
@@ -326,14 +326,14 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
           return { success: false, error: 'Invalid path' };
         }
         const fullPath = resolvePath(file_name);
-        let content = fs.readFileSync(fullPath, 'utf-8');
+        let content = await fs.readFile(fullPath, 'utf-8');  // ASYNC
         
         if (!content.includes(old_string)) {
           return { success: false, error: `String '${old_string}' not found in file` };
         }
         
         const newContent = content.replace(old_string, new_string);
-        fs.writeFileSync(fullPath, newContent, 'utf-8');
+        await fs.writeFile(fullPath, newContent, 'utf-8');  // ASYNC
         return { success: true, data: { replaced: true, file: fullPath } }; // ✅ FULL PATH
       } catch (error) {
         return handleError(error);
@@ -341,7 +341,7 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
     },
   }));
 
-  // insert_at_line tool
+  // insert_at_line tool — ASYNC file operations
   tools.push(tool({
     name: 'insert_at_line',
     description: 'Insert content at a specific line number in a file.',
@@ -356,7 +356,7 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
           return { success: false, error: 'Invalid path' };
         }
         const fullPath = resolvePath(file_name);
-        let lines = fs.readFileSync(fullPath, 'utf-8').split('\n');
+        let lines = (await fs.readFile(fullPath, 'utf-8')).split('\n');  // ASYNC
         
         // Allow appending at EOF (line_number == length + 1)
         if (line_number > lines.length + 1) {
@@ -364,7 +364,7 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
         }
         
         lines.splice(line_number - 1, 0, content_to_insert);
-        fs.writeFileSync(fullPath, lines.join('\n'), 'utf-8');
+        await fs.writeFile(fullPath, lines.join('\n'), 'utf-8');  // ASYNC
         return { success: true, data: { insertedAt: line_number, file: fullPath } }; // ✅ FULL PATH
       } catch (error) {
         return handleError(error);
@@ -372,7 +372,7 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
     },
   }));
 
-  // append_file tool
+  // append_file tool — ASYNC
   tools.push(tool({
     name: 'append_file',
     description: "Append content to the end of a file. If the file doesn't exist, it will be created.",
@@ -386,7 +386,7 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
           return { success: false, error: 'Invalid path' };
         }
         const fullPath = resolvePath(file_name);
-        fs.appendFileSync(fullPath, content, 'utf-8');
+        await fs.appendFile(fullPath, content, 'utf-8');  // ASYNC
         return { success: true, data: { appendedTo: fullPath } }; // ✅ FULL PATH
       } catch (error) {
         return handleError(error);
@@ -394,7 +394,7 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
     },
   }));
 
-  // delete_lines_in_file tool
+  // delete_lines_in_file tool — ASYNC file operations
   tools.push(tool({
     name: 'delete_lines_in_file',
     description: 'Delete a specific line or range of lines from a file.',
@@ -409,7 +409,7 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
           return { success: false, error: 'Invalid path' };
         }
         const fullPath = resolvePath(file_name);
-        let lines = fs.readFileSync(fullPath, 'utf-8').split('\n');
+        let lines = (await fs.readFile(fullPath, 'utf-8')).split('\n');  // ASYNC
         
         const deleteEnd = end_line || start_line;
         if (start_line > lines.length) {
@@ -419,7 +419,7 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
         // Clamp end_line to avoid silent truncation beyond file bounds
         const clampedEnd = Math.min(deleteEnd, lines.length);
         lines.splice(start_line - 1, clampedEnd - start_line + 1);
-        fs.writeFileSync(fullPath, lines.join('\n'), 'utf-8');
+        await fs.writeFile(fullPath, lines.join('\n'), 'utf-8');  // ASYNC
         return { success: true, data: { deletedLines: `${start_line}-${clampedEnd}`, file: fullPath } }; // ✅ FULL PATH
       } catch (error) {
         return handleError(error);
@@ -427,7 +427,7 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
     },
   }));
 
-  // make_directory tool
+  // make_directory tool — ASYNC mkdir
   tools.push(tool({
     name: 'make_directory',
     description: 'Create a new directory in the current working directory.',
@@ -440,7 +440,7 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
           return { success: false, error: 'Invalid path' };
         }
         const fullPath = resolvePath(directory_name);
-        fs.mkdirSync(fullPath, { recursive: true });
+        await fs.mkdir(fullPath, { recursive: true });  // ASYNC
         return { success: true, data: { createdDirectory: directory_name, path: fullPath } };
       } catch (error) {
         return handleError(error);
@@ -448,7 +448,7 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
     },
   }));
 
-  // move_file tool
+  // move_file tool — ASYNC rename
   tools.push(tool({
     name: 'move_file',
     description: 'Move or rename a file or directory.',
@@ -466,7 +466,7 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
         }
         const fullSource = resolvePath(source);
         const fullDestination = resolvePath(destination);
-        fs.renameSync(fullSource, fullDestination);
+        await fs.rename(fullSource, fullDestination);  // ASYNC
         return { success: true, data: { movedFrom: fullSource, movedTo: fullDestination } }; // ✅ FULL PATHS
       } catch (error) {
         return handleError(error);
@@ -474,7 +474,7 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
     },
   }));
 
-  // copy_file tool
+  // copy_file tool — ASYNC cp
   tools.push(tool({
     name: 'copy_file',
     description: 'Copy a file to a new location.',
@@ -492,7 +492,7 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
         }
         const fullSource = resolvePath(source);
         const fullDestination = resolvePath(destination);
-        fs.copyFileSync(fullSource, fullDestination);
+        await fs.copyFile(fullSource, fullDestination);  // ASYNC
         return { success: true, data: { copiedFrom: fullSource, copiedTo: fullDestination } }; // ✅ FULL PATHS
       } catch (error) {
         return handleError(error);
@@ -500,7 +500,7 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
     },
   }));
 
-  // delete_path tool
+  // delete_path tool — ASYNC stat + unlink/rm
   tools.push(tool({
     name: 'delete_path',
     description: 'Delete a file or directory in the current working directory. Be careful!',
@@ -514,12 +514,12 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
         }
         const fullPath = resolvePath(filePath);
         
-        // Check if it's a directory
-        const stats = fs.statSync(fullPath);
+        // Check if it's a directory — ASYNC stat
+        const stats = await fs.stat(fullPath);  // ASYNC
         if (stats.isDirectory()) {
-          fs.rmSync(fullPath, { recursive: true });
+          await fs.rm(fullPath, { recursive: true });  // ASYNC rm
         } else {
-          fs.unlinkSync(fullPath);
+          await fs.unlink(fullPath);  // ASYNC unlink
         }
         return { success: true, data: { deleted: fullPath } }; // ✅ FULL PATH
       } catch (error) {
@@ -528,7 +528,7 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
     },
   }));
 
-  // delete_files_by_pattern tool
+  // delete_files_by_pattern tool — ASYNC readdir + unlink
   tools.push(tool({
     name: 'delete_files_by_pattern',
     description: 'Delete multiple files in the current directory that match a regex pattern.',
@@ -542,13 +542,13 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
         }
         
         const regex = new RegExp(pattern);
-        const files = fs.readdirSync(getWorkingDir());
+        const files = await fs.readdir(getWorkingDir());  // ASYNC
         const deletedFiles: string[] = [];
         
         for (const file of files) {
           if (regex.test(file)) {
             const fullPath = resolvePath(file);
-            fs.unlinkSync(fullPath);
+            await fs.unlink(fullPath);  // ASYNC unlink
             deletedFiles.push(fullPath); // ✅ FULL PATH
           }
         }
@@ -560,7 +560,7 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
     },
   }));
 
-  // find_files tool — OPTIMIZED with async/await and concurrency control
+  // find_files tool — OPTIMIZED with async/await and concurrency control (already async)
   tools.push(tool({
     name: 'find_files',
     description: 'Find files recursively in the current directory matching a name pattern. Uses async search for better performance.',
@@ -582,7 +582,7 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
     },
   }));
 
-  // fuzzy_find_local_files tool — OPTIMIZED with early exit Levenshtein + caching
+  // fuzzy_find_local_files tool — OPTIMIZED with early exit Levenshtein + caching (already async)
   tools.push(tool({
     name: 'fuzzy_find_local_files',
     description: 'Fuzzy find local files by path/name similarity using optimized Levenshtein scoring with caching.',
@@ -609,7 +609,7 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
           if (depth > maxDepth) return;
           
           try {
-            const entries = await fs.promises.readdir(dirPath, { withFileTypes: true });
+            const entries = await fs.readdir(dirPath, { withFileTypes: true });  // ASYNC
             
             for (const entry of entries) {
               const fullPath = path.join(dirPath, entry.name);
@@ -653,7 +653,7 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
     },
   }));
 
-  // get_file_metadata tool
+  // get_file_metadata tool — ASYNC stat
   tools.push(tool({
     name: 'get_file_metadata',
     description: 'Get metadata (size, dates) for a specific file.',
@@ -666,7 +666,7 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
           return { success: false, error: 'Invalid path' };
         }
         const fullPath = resolvePath(filePath);
-        const stats = fs.statSync(fullPath);
+        const stats = await fs.stat(fullPath);  // ASYNC
         
         return {
           success: true,
@@ -686,7 +686,7 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
     },
   }));
 
-  // change_directory tool — Hybrid: Explicit validation + State abstraction + Contextual response
+  // change_directory tool — Hybrid: Explicit validation + State abstraction + Contextual response (already async)
   tools.push(tool({
     name: 'change_directory',
     description: 'Change the current working directory. All subsequent file operations will use this directory as the base.',
@@ -697,10 +697,10 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
       try {
         const fullPath = resolvePath(directory);
 
-        // ✅ Beledarian's explicit validation using fs.stat
-        let stats: fs.Stats;
+        // ✅ Beledarian's explicit validation using fs.stat — ASYNC
+        let stats: _fs.Stats;
         try {
-          stats = await fs.promises.stat(fullPath);
+          stats = await fs.stat(fullPath);  // ASYNC
         } catch (e) {
            return handleError(e);
         }
@@ -737,7 +737,7 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
   }));
 
 
-  // analyze_project tool — Comprehensive TypeScript Performance & Linting Analysis
+  // analyze_project tool — Comprehensive TypeScript Performance & Linting Analysis (already async)
   tools.push(tool({
     name: 'analyze_project',
     description: 'Run project-wide analysis including TypeScript diagnostics, circular dependency detection, ESLint, config optimization, and import structure analysis.',
@@ -780,7 +780,7 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
         // ==================== A. TypeScript Extended Diagnostics ====================
         async function runTypecheckAnalysis(): Promise<Record<string, unknown>> {
           const tsConfigPath = path.join(workingDir, 'tsconfig.json');
-          if (!fs.existsSync(tsConfigPath)) {
+          if (!await fs.stat(tsConfigPath).then(() => true).catch(() => false)) {  // ASYNC check
             return { skipped: true, reason: 'No tsconfig.json found' };
           }
 
@@ -856,7 +856,7 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
         async function runCircularAnalysis(): Promise<Record<string, unknown>> {
           const entryPoint = path.join(workingDir, 'src', 'index.ts');
           
-          if (!fs.existsSync(entryPoint)) {
+          if (!await fs.stat(entryPoint).then(() => true).catch(() => false)) {  // ASYNC check
             return { skipped: true, reason: 'No src/index.ts found' };
           }
 
@@ -902,7 +902,11 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
             path.join(workingDir, '.eslintrc'),
           ];
 
-          const hasEslintConfig = eslintConfigFiles.some(f => fs.existsSync(f));
+          // Check if any eslint config exists — ASYNC
+          const hasEslintConfig = await Promise.all(eslintConfigFiles.map(f => 
+            fs.stat(f).then(() => true).catch(() => false)
+          )).then(results => results.some(r => r));
+
           if (!hasEslintConfig) {
             return { skipped: true, reason: 'No ESLint configuration found' };
           }
@@ -967,16 +971,17 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
           };
         }
 
-        // ==================== D. TypeScript Config Analysis ====================
-        function runConfigAnalysis(): Record<string, unknown> {
+        // ==================== D. TypeScript Config Analysis — ASYNC read ===
+        async function runConfigAnalysis(): Promise<Record<string, unknown>> {
           const tsConfigPath = path.join(workingDir, 'tsconfig.json');
-          if (!fs.existsSync(tsConfigPath)) {
+          if (!await fs.stat(tsConfigPath).then(() => true).catch(() => false)) {  // ASYNC check
             return { skipped: true, reason: 'No tsconfig.json found' };
           }
 
           let tsConfig: Record<string, unknown>;
           try {
-            tsConfig = JSON.parse(fs.readFileSync(tsConfigPath, 'utf-8')) as Record<string, unknown>;
+            const content = await fs.readFile(tsConfigPath, 'utf-8');  // ASYNC read
+            tsConfig = JSON.parse(content) as Record<string, unknown>;
           } catch {
             return { skipped: true, reason: 'Invalid tsconfig.json format' };
           }
@@ -1019,55 +1024,59 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
           };
         }
 
-        // ==================== E. Import Structure Analysis ====================
-        function runImportAnalysis(): Record<string, unknown> {
+        // ==================== E. Import Structure Analysis — ASYNC read ===
+        async function runImportAnalysis(): Promise<Record<string, unknown>> {
           const srcDir = path.join(workingDir, 'src');
-          if (!fs.existsSync(srcDir)) {
+          if (!await fs.stat(srcDir).then(() => true).catch(() => false)) {  // ASYNC check
             return { skipped: true, reason: 'No src/ directory found' };
           }
 
-          // Collect all .ts files in src/
-          function collectTsFiles(dir: string): string[] {
+          // Collect all .ts files in src/ — ASYNC recursive traversal
+          async function collectTsFiles(dir: string): Promise<string[]> {
             const files: string[] = [];
-            const entries = fs.readdirSync(dir, { withFileTypes: true });
+            try {
+              const entries = await fs.readdir(dir, { withFileTypes: true });  // ASYNC
             
-            for (const entry of entries) {
-              const fullPath = path.join(dir, entry.name);
-              if (entry.isDirectory()) {
-                files.push(...collectTsFiles(fullPath));
-              } else if (entry.name.endsWith('.ts') && !entry.name.endsWith('.d.ts')) {
-                files.push(fullPath);
+              for (const entry of entries) {
+                const fullPath = path.join(dir, entry.name);
+                if (entry.isDirectory()) {
+                  files.push(...await collectTsFiles(fullPath));  // ASYNC recursive
+                } else if (entry.name.endsWith('.ts') && !entry.name.endsWith('.d.ts')) {
+                  files.push(fullPath);
+                }
               }
+            } catch {
+              // Skip inaccessible directories
             }
             
             return files;
           }
 
-          const tsFiles = collectTsFiles(srcDir);
+          const tsFiles = await collectTsFiles(srcDir);  // ASYNC
           const filesWithExcessiveImports: Array<{ file: string; count: number }> = [];
           const declareGlobalUsage: Array<{ file: string }> = [];
 
           for (const filePath of tsFiles) {
             try {
-              const content = fs.readFileSync(filePath, 'utf-8');
-              
-              // Count imports
-              const importStatements = content.match(/^import\s+.*$/gm);
-              const importCount = importStatements ? importStatements.length : 0;
+              const content = await fs.readFile(filePath, 'utf-8');  // ASYNC read
+                
+                // Count imports
+                const importStatements = content.match(/^import\s+.*$/gm);
+                const importCount = importStatements ? importStatements.length : 0;
 
-              if (importCount > importWarningThreshold) {
-                filesWithExcessiveImports.push({ file: path.relative(workingDir, filePath), count: importCount });
-              }
+                if (importCount > importWarningThreshold) {
+                  filesWithExcessiveImports.push({ file: path.relative(workingDir, filePath), count: importCount });
+                }
 
-              // Check for declare global usage (global type patching — bad practice per PDF)
-              const declareGlobalMatches = content.match(/declare\s+global/g);
-              if (declareGlobalMatches && declareGlobalMatches.length > 0) {
-                declareGlobalUsage.push({ file: path.relative(workingDir, filePath) });
+                // Check for declare global usage (global type patching — bad practice per PDF)
+                const declareGlobalMatches = content.match(/declare\s+global/g);
+                if (declareGlobalMatches && declareGlobalMatches.length > 0) {
+                  declareGlobalUsage.push({ file: path.relative(workingDir, filePath) });
+                }
+              } catch {
+                // Skip files that can't be read
               }
-            } catch {
-              // Skip files that can't be read
             }
-          }
 
           return {
             filesWithExcessiveImports,
@@ -1075,23 +1084,23 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
           };
         }
 
-        // ==================== Run Selected Categories ====================
+        // ==================== Run Selected Categories ===
         const results: Record<string, unknown> = {};
 
         if (selectedCategories.includes('typecheck')) {
-          results.typecheck = await runTypecheckAnalysis();
+          results.typecheck = await runTypecheckAnalysis();  // ASYNC
         }
         if (selectedCategories.includes('circular')) {
-          results.circular = await runCircularAnalysis();
+          results.circular = await runCircularAnalysis();  // ASYNC
         }
         if (selectedCategories.includes('eslint')) {
-          results.eslint = await runEslintAnalysis();
+          results.eslint = await runEslintAnalysis();  // ASYNC
         }
         if (selectedCategories.includes('config')) {
-          results.config = runConfigAnalysis();
+          results.config = await runConfigAnalysis();  // ASYNC
         }
         if (selectedCategories.includes('imports')) {
-          results.imports = runImportAnalysis();
+          results.imports = await runImportAnalysis();  // ASYNC
         }
 
         return {
@@ -1104,6 +1113,310 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
       }
     },
   }));
+
+
+  // file_diff tool — Compare two files side by side with unified diff output — ASYNC read ===
+  tools.push(tool({
+    name: 'file_diff',
+    description: 'Compare two files and return a unified diff with +/− markers and line numbers.',
+    parameters: {
+      file_a: z.string().describe('First file path'),
+      file_b: z.string().describe('Second file path'),
+    },
+    implementation: async ({ file_a, file_b }: { file_a: string; file_b: string }) => {  // ASYNC params
+      try {
+        if (!validatePath(file_a, getWorkingDir()) || !validatePath(file_b, getWorkingDir())) {
+          return { success: false, error: 'Invalid path: directory traversal detected' };
+        }
+
+        const fullPathA = resolvePath(file_a);
+        const fullPathB = resolvePath(file_b);
+
+        let contentA: string;
+        let contentB: string;
+
+        try {
+          contentA = await fs.readFile(fullPathA, 'utf-8');  // ASYNC read
+        } catch (e) {
+          return handleError(e);
+        }
+
+        try {
+          contentB = await fs.readFile(fullPathB, 'utf-8');  // ASYNC read
+        } catch (e) {
+          return handleError(e);
+        }
+
+        const linesA = contentA.split('\n');
+        const linesB = contentB.split('\n');
+
+        // Simple LCS-based diff algorithm
+        const m = linesA.length;
+        const n = linesB.length;
+        const lcs: number[][] = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0) as number[]);
+
+        for (let i = 1; i <= m; i++) {
+          for (let j = 1; j <= n; j++) {
+            if (linesA[i - 1] === linesB[j - 1]) {
+              lcs[i][j] = lcs[i - 1][j - 1] + 1;
+            } else {
+              lcs[i][j] = Math.max(lcs[i - 1][j], lcs[i][j - 1]);
+            }
+          }
+        }
+
+        // Backtrack to collect diff lines
+        const diffLines: Array<{ type: 'context' | 'add' | 'remove'; lineNum: number; content: string }> = [];
+        let i = m;
+        let j = n;
+
+        while (i > 0 || j > 0) {
+          if (i > 0 && j > 0 && linesA[i - 1] === linesB[j - 1]) {
+            diffLines.push({ type: 'context', lineNum: i, content: linesA[i - 1] });
+            i--;
+            j--;
+          } else if (j > 0 && (i === 0 || lcs[i][j - 1] >= lcs[i - 1][j])) {
+            diffLines.push({ type: 'add', lineNum: j, content: linesB[j - 1] });
+            j--;
+          } else if (i > 0) {
+            diffLines.push({ type: 'remove', lineNum: i, content: linesA[i - 1] });
+            i--;
+          }
+        }
+
+        // Format as unified diff output
+        const outputParts: string[] = [];
+        for (const dl of diffLines.reverse()) {
+          if (dl.type === 'context') {
+            outputParts.push(` ${dl.content}`);
+          } else if (dl.type === 'add') {
+            outputParts.push(`+${dl.content}`);
+          } else {
+            outputParts.push(`-${dl.content}`);
+          }
+        }
+
+        return { success: true, data: { diff: outputParts.join('\n').trim(), files: [file_a, file_b] } };
+      } catch (error) {
+        return handleError(error);
+      }
+    },
+  }));
+
+
+// directory_tree tool — Visualize directory structure with depth control — ASYNC ===
+  tools.push(tool({
+    name: 'directory_tree',
+    description: 'Visualize the directory structure of a path in a tree-like format. Supports max depth and optional file sizes.',
+    parameters: {
+      path: z.string().default('.').describe('Root directory to visualize'),
+      max_depth: z.number().int().min(1).max(20).default(3).describe('Maximum nesting depth (default: 3)'),
+      show_size: z.boolean().default(false).describe('Show file sizes in the output'),
+    },
+    implementation: async ({ path: dirPath, max_depth, show_size }: { readonly path?: string; readonly max_depth?: number; readonly show_size?: boolean }) => {
+      try {
+        const resolvedDirPath = dirPath || '.';
+        const targetDir = resolvePath(resolvedDirPath);
+
+        if (!validatePath(resolvedDirPath, getWorkingDir())) {
+          return { success: false, error: 'Invalid path: directory traversal detected' };
+        }
+
+        const lines: string[] = [];
+        const depthLimit = max_depth || 3;
+        const displayShowSize = show_size ?? false;
+
+        async function buildTree(currentPath: string, prefix: string, currentDepth: number): Promise<void> {  // ASYNC recursive
+          if (currentDepth > depthLimit) return;
+
+          let entries: _fs.Dirent[];
+          try {
+            entries = await fs.readdir(currentPath, { withFileTypes: true });  // ASYNC read
+          } catch {
+            lines.push(`${prefix}⚠️  [Cannot read directory]`);
+            return;
+          }
+
+          // Sort: directories first, then files (both alphabetically)
+          const dirs: _fs.Dirent[] = [];
+          const files: _fs.Dirent[] = [];
+
+          for (const entry of entries) {
+            if (entry.name.startsWith('.')) continue; // Skip hidden files/dirs
+            if (entry.isDirectory()) {
+              dirs.push(entry);
+            } else {
+              files.push(entry);
+            }
+          }
+
+          const sortedEntries = [...dirs, ...files].sort((a, b) => a.name.localeCompare(b.name));
+
+          for (let i = 0; i < sortedEntries.length; i++) {
+            const entry = sortedEntries[i];
+            const isLast = i === sortedEntries.length - 1;
+            const connector = isLast ? '└── ' : '├── ';
+            const childPrefix = prefix + (isLast ? '    ' : '│   ');
+
+            if (entry.isDirectory()) {
+              lines.push(`${prefix}${connector}📁 ${entry.name}/`);
+              await buildTree(path.join(currentPath, entry.name), childPrefix, currentDepth + 1);  // ASYNC recursive
+            } else {
+              let sizeInfo = '';
+              if (displayShowSize) {
+                try {
+                  const stats = await fs.stat(path.join(currentPath, entry.name));  // ASYNC stat
+                  const sizeKB = Math.round(stats.size / 1024 * 100) / 100;
+                  sizeInfo = ` (${sizeKB < 1 ? `${Math.round(stats.size)}B` : `${sizeKB}KB`})`;
+                } catch {
+                  // Skip size info if stat fails
+                }
+              }
+              lines.push(`${prefix}${connector}📄 ${entry.name}${sizeInfo}`);
+            }
+          }
+        }
+
+        const rootName = path.basename(targetDir);
+        lines.push(`📁 ${rootName}/`);
+        await buildTree(targetDir, '', 1);  // ASYNC call
+
+        return { success: true, data: { tree: lines.join('\n'), path: targetDir, depth: depthLimit } };
+      } catch (error) {
+        return handleError(error);
+      }
+    },
+  }));
+
+
+// grep_files tool — Search file contents across directory with regex support (OPTIMIZED FOR TOKEN SAVINGS) — ASYNC ===
+  tools.push(tool({
+    name: 'grep_files',
+    description: 'Search for a pattern in files across a directory. Returns structured matches with file, line number, and content.',
+    parameters: {
+      pattern: z.string().describe('Regex or literal string to search for'),
+      path: z.string().default('.').describe('Directory to search in (defaults to current working directory)'),
+      include: z.string().optional().describe('File glob pattern to include (e.g., "*.ts", "src/**/*.js")'),
+      exclude: z.string().optional().describe('Files or directories to exclude (e.g., "node_modules", ".git")'),
+      max_results: z.number().int().min(1).max(500).default(50).describe('Maximum number of results to return (default: 50, max: 500)'),
+      max_file_size: z.number().int().min(1024).default(100_000).describe('Maximum file size in bytes to search (default: 100KB, skip larger files)'),
+    },
+    implementation: async ({ pattern, path: searchPath = '.', include, exclude, max_results, max_file_size }: { 
+      pattern: string; 
+      path?: string; 
+      include?: string; 
+      exclude?: string;
+      max_results?: number;
+      max_file_size?: number;
+    }) => {
+      try {
+        const targetDir = resolvePath(searchPath);
+
+        if (!validatePath(searchPath, getWorkingDir())) {
+          return { success: false, error: 'Invalid path: directory traversal detected' };
+        }
+
+        // Validate regex for safety
+        let regex: RegExp;
+        try {
+          const safePattern = isSafeRegex(pattern) ? pattern : escapeRegExp(pattern);
+          regex = new RegExp(safePattern, 'i'); // Case-insensitive by default
+        } catch {
+          return handleError(new Error(`Invalid regex pattern: ${pattern}`));
+        }
+
+        // Configuration with defaults - TOKEN LIMITING
+        const MAX_RESULTS = max_results ?? 50;
+        const MAX_FILE_SIZE = max_file_size ?? 100_000; // 100KB default
+        let resultsCount = 0;
+
+        const matches: Array<{ file: string; line_number: number; content: string }> = [];
+
+        async function walkDirectory(dirPath: string): Promise<void> {  // ASYNC recursive traversal
+          // OPTIMIZATION: Early exit if we have enough results
+          if (resultsCount >= MAX_RESULTS) return;
+
+          let entries: _fs.Dirent[];
+          try {
+            entries = await fs.readdir(dirPath, { withFileTypes: true });  // ASYNC read
+          } catch {
+            return; // Skip inaccessible directories
+          }
+
+          for (const entry of entries) {
+            const fullPath = path.join(dirPath, entry.name);
+
+            // Check exclude patterns
+            if (exclude && entry.name.includes(exclude)) continue;
+
+            if (entry.isDirectory()) {
+              await walkDirectory(fullPath);  // ASYNC recursive
+            } else if (entry.isFile()) {
+              // OPTIMIZATION: Early exit check inside loop too
+              if (resultsCount >= MAX_RESULTS) return;
+
+              // Check include pattern
+              if (include && !matchGlob(entry.name, include) && !matchGlob(path.relative(targetDir, fullPath), include)) {
+                continue;
+              }
+
+              try {
+                // OPTIMIZATION: Early size check BEFORE reading file - CRITICAL FOR TOKEN SAVINGS — ASYNC stat
+                const stats = await fs.stat(fullPath);  // ASYNC stat
+                if (stats.size > MAX_FILE_SIZE) {
+                  continue; // Skip large files to prevent token explosion
+                }
+
+                const content = await fs.readFile(fullPath, 'utf-8');  // ASYNC read
+                const lines = content.split('\n');
+
+                for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
+                  if (regex.test(lines[lineIdx])) {
+                    matches.push({
+                      file: path.relative(targetDir, fullPath),
+                      line_number: lineIdx + 1,
+                      content: lines[lineIdx].trim(),
+                    });
+                    resultsCount++;
+
+                    // OPTIMIZATION: Early termination after max results
+                    if (resultsCount >= MAX_RESULTS) return;
+                  }
+                }
+              } catch {
+                // Skip binary files or unreadable files
+              }
+            }
+          }
+        }
+
+        await walkDirectory(targetDir);  // ASYNC call
+
+        return { 
+          success: true, 
+          data: { 
+            matches,
+            count: resultsCount,
+            truncated: resultsCount >= MAX_RESULTS,
+          } 
+        };
+      } catch (error) {
+        return handleError(error);
+      }
+    },
+  }));
+  
+  // Helper Functions for grep_files
+  /** Escape special regex characters for literal string matching */
+  function escapeRegExp(str: string): string {
+    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  /** Simple glob pattern matcher (supports *, ?) */
+  function matchGlob(filename: string, pattern: string): boolean {
+    const regex = new RegExp('^' + pattern.replace(/\*/g, '.*').replace(/\?/g, '.') + '$', 'i');
+    return regex.test(filename);
+  }
 
   return tools;
 }

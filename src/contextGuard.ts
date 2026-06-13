@@ -44,6 +44,13 @@ export interface ContextGuardConfig {
   terminalFilterLength: number;
 }
 
+/** Message type for context guard operations */
+type ContextMessage = {
+  role?: string;
+  content?: unknown;
+  [key: string]: unknown;
+};
+
 export class ContextGuard {
   private encoder: Tiktoken | null = null;
   private config: ContextGuardConfig;
@@ -61,7 +68,7 @@ export class ContextGuard {
    * Counts tokens efficiently with caching.
    * Accounts for message structure (role prefixes, separators) to match actual LLM token consumption.
    */
-  async countTokens(messages: any[]): Promise<number> {
+  async countTokens(messages: ContextMessage[]): Promise<number> {
     // FIX #1: Hash-based cache invalidation - validates ALL messages, not just last one
     if (this.cachedTokenCount !== null) {
       const currentHash = this.computeMessageHash(messages);
@@ -78,7 +85,11 @@ export class ContextGuard {
     let count = 0;
     for (const msg of messages) {
       const role = msg.role || 'user';
-      const content = msg.content || '';
+      const content: string = typeof msg.content === 'string' 
+        ? msg.content 
+        : msg.content != null && typeof msg.content !== 'string'
+          ? JSON.stringify(msg.content)
+          : '';
       
       // Account for message structure: role prefix + separator + content
       // This matches how LLMs actually consume tokens in chat completion API
@@ -116,39 +127,43 @@ export class ContextGuard {
   /**
    * Compresses history by sending oldest messages to a local model.
    */
-  async compressHistory(messages: any[]): Promise<any[]> {
+  async compressHistory(messages: ContextMessage[]): Promise<ContextMessage[]> {
     const currentTokens = await this.countTokens(messages);
     const threshold = this.config.tokenLimit * 0.9;
 
     if (currentTokens < threshold) {
-      console.log(`[ContextGuard] Token count (${currentTokens}) below threshold (${threshold}). No compression needed.`);
+      console.warn(`[ContextGuard] Token count (${currentTokens}) below threshold (${threshold}). No compression needed.`);
       this._lastCompressionInfo = { compressed: false };
       return messages;
     }
 
     const originalTokenCount = currentTokens;
-    const originalMessageCount = messages.length;
 
-    console.log(`[ContextGuard] Compressing history: ${messages.length} messages, ${currentTokens} tokens (threshold: ${threshold})`);
+    console.warn(`[ContextGuard] Compressing history: ${messages.length} messages, ${currentTokens} tokens (threshold: ${threshold})`);
 
     const keepLast = 10;
     const toCompress = messages.slice(0, -keepLast);
     
     if (toCompress.length === 0) {
-      console.log(`[ContextGuard] No messages to compress (only ${messages.length} total, keeping last ${keepLast})`);
+      console.warn(`[ContextGuard] No messages to compress (only ${messages.length} total, keeping last ${keepLast})`);
       return messages;
     }
 
     // Use local model for summarization
     if (this.lmClient && this.config.summaryModel) {
       try {
-        console.log(`[ContextGuard] Loading model: ${this.config.summaryModel}`);
+        console.warn(`[ContextGuard] Loading model: ${this.config.summaryModel}`);
         const model = await this.lmClient.llm.model(this.config.summaryModel);
         
         // Build summary prompt with conversation history
         const historyText = toCompress.map(m => {
           const role = (m.role || 'user').toUpperCase();
-          return `[${role}] ${m.content || ''}`;
+          const contentStr: string = typeof m.content === 'string'
+            ? m.content
+            : m.content != null && typeof m.content !== 'string'
+              ? JSON.stringify(m.content)
+              : '';
+          return `[${role}] ${contentStr}`;
         }).join('\n\n');
         
         const summaryPrompt = `You are an intelligent context compressor. Summarize the following conversation history into a concise technical summary.
@@ -166,7 +181,7 @@ ${historyText}
 
 SUMMARY:`;
         
-        console.log(`[ContextGuard] Sending summarization request for ${toCompress.length} messages...`);
+        console.warn(`[ContextGuard] Sending summarization request for ${toCompress.length} messages...`);
         
         // Use respond() for chat-based interaction (more reliable than complete())
         const response = model.respond(
@@ -178,7 +193,7 @@ SUMMARY:`;
         const result = await response.result();
         const summary = result.content || `[ContextGuard Summary: ${toCompress.length} older messages compressed.]`;
         
-        console.log(`[ContextGuard] Summarization complete. Generated ${summary.length} chars.`);
+        console.warn(`[ContextGuard] Summarization complete. Generated ${summary.length} chars.`);
         
         // Count tokens after compression
         const compressedPreview = [
@@ -226,7 +241,7 @@ SUMMARY:`;
 
     // Fallback if no model, error, or summarization failed
     const fallbackSummary = `[ContextGuard Summary: ${toCompress.length} older messages compressed to save context. Original content unavailable due to compression failure or missing model.]`;
-    console.log(`[ContextGuard] Using fallback summary for ${toCompress.length} messages`);
+    console.warn(`[ContextGuard] Using fallback summary for ${toCompress.length} messages`);
     
     // Track compression info (estimate tokens saved)
     const estimatedTokensSaved = Math.round(originalTokenCount * 0.7); // Estimate ~70% savings
@@ -376,7 +391,6 @@ SUMMARY:`;
    */
   reloadContextForFile(filePath: string): string {
     if (this.trackedFiles.has(filePath)) {
-      const info = this.trackedFiles.get(filePath)!;
       this.trackedFiles.delete(filePath);
       return `// [ContextGuard] Context reloaded for ${filePath}. Previous compression/truncation cleared.`;
     }
@@ -388,8 +402,10 @@ SUMMARY:`;
    */
   markFileAsCompressed(filePath: string): void {
     if (this.trackedFiles.has(filePath)) {
-      const info = this.trackedFiles.get(filePath)!;
-      this.trackedFiles.set(filePath, { ...info, compressed: true });
+      const info = this.trackedFiles.get(filePath);
+      if (info) {
+        this.trackedFiles.set(filePath, { ...info, compressed: true });
+      }
     } else {
       // If not tracked yet, add it as compressed
       try {
@@ -403,11 +419,17 @@ SUMMARY:`;
 
   /**
    * Computes a simple hash of messages for cache invalidation.
-   * FIX #1: Ensures cache is invalidated when ANY message changes, not just the last one.
+   * FIX #1: Ensures cache is invalidated when every message changes, not just the last one.
    */
-  private computeMessageHash(messages: any[]): string {
-    // Simple but effective hash: concatenate role+content for all messages
-    return messages.map(m => `${m.role}:${m.content || ''}`).join('||');
+  private computeMessageHash(messages: ContextMessage[]): string {
+    return messages.map(m => {
+      const contentStr: string = typeof m.content === 'string'
+        ? m.content
+        : m.content != null && typeof m.content !== 'string'
+          ? JSON.stringify(m.content)
+          : '';
+      return `${m.role}:${contentStr}`;
+    }).join('||');
   }
 
   /**

@@ -79,13 +79,13 @@ export class AutoTracker {
       autoSummaryInterval: 50,
       ...config,
     };
-    console.log(`[AutoTracker] Initialized with config:`, this.config);
+    console.warn(`[AutoTracker] Initialized with config:`, this.config);
   }
 
   /** Update configuration dynamically */
   updateConfig(partial: Partial<AutoTrackConfig>): void {
     this.config = { ...this.config, ...partial };
-    console.log(`[AutoTracker] Config updated:`, this.config);
+    console.warn(`[AutoTracker] Config updated:`, this.config);
   }
 
   /**
@@ -141,7 +141,7 @@ export class AutoTracker {
     // Increment message counter for session summaries
     this.messageCount++;
     if (this.messageCount % this.config.autoSummaryInterval === 0) {
-      console.log(`[AutoTracker] Session summary interval reached: ${this.messageCount} messages`);
+      console.warn(`[AutoTracker] Session summary interval reached: ${this.messageCount} messages`);
     }
 
     return actions;
@@ -176,7 +176,7 @@ export class AutoTracker {
     if (!match) return text.slice(0, 200);
 
     // Get context around the match (up to end of sentence)
-    const startPos = Math.max(0, match.index! - 50);
+    const startPos = Math.max(0, (match as RegExpExecArray).index - 50);
     const endPos = text.indexOf('.', match[0].length) + 1;
     
     return text.slice(startPos, endPos || startPos + 200).trim();
@@ -194,7 +194,7 @@ export class AutoTracker {
    */
   resetCounter(): void {
     this.messageCount = 0;
-    console.log(`[AutoTracker] Message counter reset`);
+    console.warn(`[AutoTracker] Message counter reset`);
   }
 
   /**

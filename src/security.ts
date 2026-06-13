@@ -4,9 +4,8 @@
 
 import type { PluginConfig} from './config';
 import { DEFAULT_CONFIG } from './config';
-import path from 'path';
 // ✅ FIX: Use proper ESM imports instead of require() to maintain module boundary
-import { getAllowedBases, getWorkingDir } from './workingDir';
+import { getWorkingDir } from './workingDir';
 
 /**
  * Validate file path to prevent directory traversal attacks.

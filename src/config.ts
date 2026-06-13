@@ -1,4 +1,4 @@
-import { z } from 'zod';
+﻿import { z } from 'zod';
 
 import { createConfigSchematics } from '@lmstudio/sdk';
 
@@ -19,6 +19,8 @@ export const ConfigSchema = z.object({
   browserAutomation: z.boolean().default(false),
 
   gitOperations: z.boolean().default(false),
+
+  packageManage: z.boolean().default(false).describe('⚠️ Enable package manager (npm/pip/cargo) operations. Disabled by default for security.'),
 
   databaseQueries: z.boolean().default(false),
 
@@ -128,14 +130,14 @@ export const ConfigSchema = z.object({
 
   // ── 🧠 CONTEXT GUARD SETTINGS ───────────────────────────────────
   contextGuardEnabled: z.boolean().default(true).describe('Enable ContextGuard token management and history compression'),
-  contextGuardTokenLimit: z.number().min(1000).max(200000).default(80000).describe('Token limit before history compression triggers (90% threshold)'),
+  contextGuardTokenLimit: z.number().min(1000).max(200000).default(30000).describe('Token limit before history compression triggers (90% threshold)'),
   contextGuardSmartReading: z.boolean().default(true).describe('Enable keyword-based smart file reading'),
   contextGuardSummaryModel: z.string().default('').describe('LM Studio model name for summarization (leave empty to use current chat model)'),
   contextGuardTerminalFilterEnabled: z.boolean().default(true).describe('Enable terminal output filtering'),
   contextGuardTerminalFilterLength: z.number().min(100).max(20000).default(2000).describe('Max chars before terminal output is filtered'),
 
   // ── 🤖 AUTO-TRACKING SETTINGS ────────────────────────────────────
-  autoTrackingEnabled: z.boolean().default(true).describe('Enable automatic tracking of important events in conversation'),
+  autoTrackingEnabled: z.boolean().default(false).describe('⚠️ Privacy-sensitive: disabled by default — user must opt-in. Enables automatic tracking of decisions, completions, and bug fixes.'),
   autoTrackDecisions: z.boolean().default(true).describe('Auto-track decisions and conclusions ("I decided", "conclusion")'),
   autoTrackCompletions: z.boolean().default(true).describe('Auto-track task completions ("successfully completed", "finished")'),
   autoTrackErrors: z.boolean().default(true).describe('Auto-track bug fixes and error resolutions ("fixed the bug")'),
@@ -163,6 +165,8 @@ export const DEFAULT_CONFIG: PluginConfig = {
   browserAutomation: false,
 
   gitOperations: false,
+
+  packageManage: false,
 
   databaseQueries: false,
 
@@ -392,6 +396,12 @@ export const configSchematics = createConfigSchematics()
   .field('webSearch', 'boolean', { displayName: '🌐 Web & Research Tools', hint: 'Enable DuckDuckGo/Wikipedia search' }, DEFAULT_CONFIG.webSearch)
 
   // 🐙 GIT & GITHUB TOOLS (visuelle Gruppierung) 🐙
+
+    .field('packageManage', 'boolean', { 
+    displayName: 'Package Management Tools', 
+    subtitle: 'npm/pip/cargo operations',
+    hint: 'Enable package manager tools. Disabled by default for security.',
+  }, DEFAULT_CONFIG.packageManage)
 
   .field('gitOperations', 'boolean', { 
 

@@ -68,18 +68,23 @@ tests/
 │  │  │  └───────────┼──────────────────────┼─────────────┘  │  │  │
 │  │  │              │                      │                │  │  │
 │  │  │  ┌───────────┴──────────────────────┴─────────────┐  │  │  │
-│  │  │  │              Tool Modules (14 files)            │  │  │  │
+│  │  │  │              Tool Modules (16 files)            │  │  │  │
 │  │  │  │  ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ │  │  │  │
 │  │  │  │  │fileSys │ │webRes  │ │browser │ │  git   │ │  │  │  │
-│  │  │  │  │ (17)   │ │ (4)    │ │  (5)   │ │ (14)   │ │  │  │  │
+│  │  │  │  │ (20)   │ │ (4)    │ │  (5)   │ │ (14)   │ │  │  │  │
 │  │  │  │  └────────┘ └────────┘ └────────┘ └────────┘ │  │  │  │
 │  │  │  │  ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ │  │  │  │
 │  │  │  │  │ datab  │ │backgnd │ │exec    │ │ utility│ │  │  │  │
-│  │  │  │  │ (1)    │ │ cmd(3) │ │  (4)   │ │  (7)   │ │  │  │  │
+│  │  │  │  │ (1)    │ │ cmd(3) │ │  (5)   │ │ (~20+) │ │  │  │  │
 │  │  │  │  └────────┘ └────────┘ └────────┘ └────────┘ │  │  │  │
 │  │  │  │  ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ │  │  │  │
 │  │  │  │  │ image  │ │ http   │ │ vector │ │   UI   │ │  │  │  │
-│  │  │  │  │ (4)    │ │ (3)    │ │ RAG(3) │ │ Gen(3) │ │  │  │  │
+│  │  │  │  │ (4)    │ │ (3)    │ │ RAG(4) │ │ Gen(3) │ │  │  │  │
+│  │  │  │  └────────┘ └────────┘ └────────┘ └────────┘ │  │  │  │
+│  │  │  │  ┌────────┐                                   │  │  │  │
+│  │  │  │  │ Backup │                                   │  │  │  │
+│  │  │  │  │ (4)    │                                   │  │  │  │
+│  │  │  │  └────────┘                                   │  │  │  │
 │  │  │  │  └────────┘ └────────┘ └────────┘ └────────┘ │  │  │  │
 │  │  │  │  ┌────────┐                                   │  │  │  │
 │  │  │  │  │ Context │                                   │  │  │  │
@@ -112,7 +117,7 @@ export function main(context: PluginContext) {
   // 2. Register prompt preprocessor (Document RAG + ContextGuard)
   context.withPromptPreprocessor(preprocess);
   
-  // 3. Register tools provider (all 80+ tools)
+  // 3. Register tools provider (all 110+ tools)
   context.withToolsProvider(toolsProvider);
   
   // 4. Setup cleanup handlers
@@ -136,20 +141,21 @@ new ToolsProvider(config)
     ├── BackgroundCommandManager ──► Initialize process tracker
     └── ToolRegistry.registerAll()
             │
-            ├── registerFileSystemTools()    ──► 17 tools
+            ├── registerFileSystemTools()    ──► 20 tools
             ├── registerWebResearchTools()   ──► 4 tools
             ├── registerBrowserTools()       ──► 5 tools
             ├── registerGitTools()           ──► 14 tools
             ├── registerDatabaseTools()      ──► 1 tool
             ├── registerDocumentTools()      ──► 1 tool
             ├── registerBackgroundCommandTools() ─► 3 tools
-            ├── registerExecutionTools()     ──► 4 tools (filtered)
-            ├── registerUtilityTools()       ──► 7 tools
+            ├── registerExecutionTools()     ──► 5 tools (filtered)
+            ├── registerUtilityTools()       ──► ~20+ tools
             ├── registerImageProcessingTools() ─► 4 tools
             ├── registerHttpClientTools()    ──► 3 tools
-            ├── registerRagTools()           ──► 3 tools
+            ├── registerRagTools()           ──► 4 tools
             ├── registerUiGenerationTools()  ──► 3 tools (🆕)
-            └── registerContextManagementTools() ─► 7 tools (🆕)
+            ├── registerContextManagementTools() ─► 7 tools (🆕)
+            └── registerBackupTools()        ──► 4 tools
             │
             ▼
         ToolRegistry.toolMap (Map<string, TypedTool>)
@@ -513,7 +519,7 @@ Persistent Storage (.ai_toolbox_context.json)
     └── delete_context_entry(id) / clearContextMemory(confirm) → Management
 ```
 
-### ContextGuard Compression Flow (v1.4.1)
+### ContextGuard Compression Flow (v1.4.2)
 
 ```
 User Message Arrives
@@ -546,8 +552,8 @@ promptPreprocessor()
     │       │                         │
     │       │                         ├── 🧠 Emoji header
     │       │                         ├── Messages compressed count
-    │       │                         ├── Tokens before → after (e.g., "~85k → ~42k")
-    │       │                         ├── Percentage saved (e.g., "Saved ~43,000 tokens (~51%)")
+    │       │                         ├── Tokens before → after (e.g., "~35k → ~18k")
+    │       │                         ├── Percentage saved (e.g., "Saved ~17,000 tokens (~49%)")
     │       │                         ├── Timestamp
     │       │                         └── Visual separator lines
     │       │
@@ -563,8 +569,8 @@ Final Prompt sent to LLM (with or without compression indicator)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 • Compressed 15 message(s) into summary
-• Tokens before: ~85k → after: ~42k
-• **Saved ~43,000 tokens (~51%)**
+• Tokens before: ~35k → after: ~18k
+• **Saved ~17,000 tokens (~49%)**
 • Timestamp: 19:15:32
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -582,7 +588,7 @@ index.ts
 │   ├── config.ts
 │   ├── stateManager.ts
 │   ├── backgroundCommands.ts
-│   └── tools/*.ts (14 modules)
+│   └── tools/*.ts (16 modules)
 │       ├── security.ts (shared)
 │       ├── workingDir.ts (shared)
 │       └── performanceUtils.ts (shared)
@@ -617,7 +623,7 @@ ConfigSchema (Zod)
 ├── i18n (1 field)
 ├── Notifications (1 field)
 ├── Temporal Awareness (2 fields: temporalAwareness, dateFormatStyle)
-└── ContextGuard (6 fields): 🆕 v1.4.1
+└── ContextGuard (6 fields): 🆕 v1.4.2
     ├── contextGuardEnabled (boolean) — Master toggle
     ├── contextGuardTokenLimit (number 1K-200K) — Compression threshold
     ├── contextGuardSmartReading (boolean) — Keyword-based file reading
@@ -628,12 +634,12 @@ ConfigSchema (Zod)
 
 Each field maps to a UI element in LM Studio's settings panel via `createConfigSchematics()`.
 
-### ContextGuard Configuration Details (v1.4.1)
+### ContextGuard Configuration Details (v1.4.2)
 
 | Config Key | UI Name | Type | Range | Default | Description |
 |------------|---------|------|-------|---------|-------------|
 | `contextGuardEnabled` | 🧠 ContextGuard Token Management | Boolean | — | `true` | Master switch for all ContextGuard features |
-| `contextGuardTokenLimit` | 📊 Token Limit Before Compression | Number | 1,000–200,000 | `80,000` | Compression triggers at **90%** of this value (e.g., 72k for 80k limit) |
+| `contextGuardTokenLimit` | 📊 Token Limit Before Compression | Number | 1,000–200,000 | `30,000` | Compression triggers at **90%** of this value (e.g., 27k for 30k limit) |
 | `contextGuardSmartReading` | 🔍 Smart File Reading | Boolean | — | `true` | Extracts keywords from queries to read only relevant file portions |
 | `contextGuardSummaryModel` | 🤖 Summary Model Name | String | Any model name | `""` (current chat model) | Dedicated LM Studio model for summarization tasks |
 | `contextGuardTerminalFilterEnabled` | 📌 Terminal Output Filtering | Boolean | — | `true` | Auto-truncates long terminal outputs to save tokens |
@@ -662,20 +668,22 @@ src/
 │   ├── de.ts
 │   ├── zh-CN.ts
 │   └── zh-TW.ts
-├── tools/                      # Tool category modules
-│   ├── fileSystemTools.ts      # 17 file system tools
+├── tools/                      # Tool category modules (16 files)
+│   ├── fileSystemTools.ts      # 20 file system tools
 │   ├── webResearchTools.ts     # 4 web research tools
 │   ├── browserAutomationTools.ts # 5 browser tools
 │   ├── gitGithubTools.ts       # 14 Git/GitHub tools
 │   ├── databaseTools.ts        # 1 database tool
+│   ├── documentTools.ts        # 1 document parsing tool
 │   ├── backgroundCommandTools.ts # 3 background command tools
-│   ├── executionTools.ts       # 4 execution tools
-│   ├── utilityTools.ts         # 7 utility tools
+│   ├── executionTools.ts       # 5 execution tools (incl. run_tests)
+│   ├── utilityTools.ts         # ~20+ utility tools
 │   ├── imageProcessingTools.ts # 4 image processing tools
 │   ├── httpClientTools.ts      # 3 HTTP client tools
-│   ├── vectorRagTools.ts       # 3 vector RAG tools
-│   ├── uiGenerationTools.ts    # 🆕 3 UI generation tools
-│   └── contextManagementTools.ts # 🆕 7 context management tools
+│   ├── vectorRagTools.ts       # 4 vector RAG tools
+│   ├── uiGenerationTools.ts    # 🆕 Interactive UI Generation (3 tools)
+│   ├── contextManagementTools.ts # 🆕 Auto-Context Management (7 tools)
+│   └── backupTools.ts          # 💾 Backup & Restore (4 tools)
 └── types/                      # Type definitions
     └── types.d.ts
 
@@ -1189,7 +1197,7 @@ Persistent Storage (.ai_toolbox_context.json)
     └── delete_context_entry(id) / clearContextMemory(confirm) → Management
 ```
 
-### ContextGuard Compression Flow (v1.4.1)
+### ContextGuard Compression Flow (v1.4.2)
 
 ```
 User Message Arrives
@@ -1293,7 +1301,7 @@ ConfigSchema (Zod)
 ├── i18n (1 field)
 ├── Notifications (1 field)
 ├── Temporal Awareness (2 fields: temporalAwareness, dateFormatStyle)
-└── ContextGuard (6 fields): 🆕 v1.4.1
+└── ContextGuard (6 fields): 🆕 v1.4.2
     ├── contextGuardEnabled (boolean) — Master toggle
     ├── contextGuardTokenLimit (number 1K-200K) — Compression threshold
     ├── contextGuardSmartReading (boolean) — Keyword-based file reading
@@ -1304,12 +1312,12 @@ ConfigSchema (Zod)
 
 Each field maps to a UI element in LM Studio's settings panel via `createConfigSchematics()`.
 
-### ContextGuard Configuration Details (v1.4.1)
+### ContextGuard Configuration Details (v1.4.2)
 
 | Config Key | UI Name | Type | Range | Default | Description |
 |------------|---------|------|-------|---------|-------------|
 | `contextGuardEnabled` | 🧠 ContextGuard Token Management | Boolean | — | `true` | Master switch for all ContextGuard features |
-| `contextGuardTokenLimit` | 📊 Token Limit Before Compression | Number | 1,000–200,000 | `80,000` | Compression triggers at **90%** of this value (e.g., 72k for 80k limit) |
+| `contextGuardTokenLimit` | 📊 Token Limit Before Compression | Number | 1,000–200,000 | `30,000` | Compression triggers at **90%** of this value (e.g., 27k for 30k limit) |
 | `contextGuardSmartReading` | 🔍 Smart File Reading | Boolean | — | `true` | Extracts keywords from queries to read only relevant file portions |
 | `contextGuardSummaryModel` | 🤖 Summary Model Name | String | Any model name | `""` (current chat model) | Dedicated LM Studio model for summarization tasks |
 | `contextGuardTerminalFilterEnabled` | 📌 Terminal Output Filtering | Boolean | — | `true` | Auto-truncates long terminal outputs to save tokens |
@@ -1890,7 +1898,7 @@ Persistent Storage (.ai_toolbox_context.json)
     └── delete_context_entry(id) / clearContextMemory(confirm) → Management
 ```
 
-### ContextGuard Compression Flow (v1.4.1)
+### ContextGuard Compression Flow (v1.4.2)
 
 ```
 User Message Arrives
@@ -1994,7 +2002,7 @@ ConfigSchema (Zod)
 ├── i18n (1 field)
 ├── Notifications (1 field)
 ├── Temporal Awareness (2 fields: temporalAwareness, dateFormatStyle)
-└── ContextGuard (6 fields): 🆕 v1.4.1
+└── ContextGuard (6 fields): 🆕 v1.4.2
     ├── contextGuardEnabled (boolean) — Master toggle
     ├── contextGuardTokenLimit (number 1K-200K) — Compression threshold
     ├── contextGuardSmartReading (boolean) — Keyword-based file reading
@@ -2005,12 +2013,12 @@ ConfigSchema (Zod)
 
 Each field maps to a UI element in LM Studio's settings panel via `createConfigSchematics()`.
 
-### ContextGuard Configuration Details (v1.4.1)
+### ContextGuard Configuration Details (v1.4.2)
 
 | Config Key | UI Name | Type | Range | Default | Description |
 |------------|---------|------|-------|---------|-------------|
 | `contextGuardEnabled` | 🧠 ContextGuard Token Management | Boolean | — | `true` | Master switch for all ContextGuard features |
-| `contextGuardTokenLimit` | 📊 Token Limit Before Compression | Number | 1,000–200,000 | `80,000` | Compression triggers at **90%** of this value (e.g., 72k for 80k limit) |
+| `contextGuardTokenLimit` | 📊 Token Limit Before Compression | Number | 1,000–200,000 | `30,000` | Compression triggers at **90%** of this value (e.g., 27k for 30k limit) |
 | `contextGuardSmartReading` | 🔍 Smart File Reading | Boolean | — | `true` | Extracts keywords from queries to read only relevant file portions |
 | `contextGuardSummaryModel` | 🤖 Summary Model Name | String | Any model name | `""` (current chat model) | Dedicated LM Studio model for summarization tasks |
 | `contextGuardTerminalFilterEnabled` | 📌 Terminal Output Filtering | Boolean | — | `true` | Auto-truncates long terminal outputs to save tokens |

@@ -136,13 +136,13 @@ async function imageToText({ imagePath, language = 'eng' }: ImageToTextParams): 
     // Import Tesseract.js dynamically
     const Tesseract = require('tesseract.js');
 
-    console.log(`[AI Toolbox] Starting OCR on ${imagePath} with language '${language}'...`);
+    console.warn(`[AI Toolbox] Starting OCR on ${imagePath} with language '${language}'...`);
 
     // Perform OCR with progress tracking
     const result = await Tesseract.recognize(imagePath, language, {
       logger: (m: any) => {
         if (m.status === 'recognizing text') {
-          console.log(`[AI Toolbox] OCR Progress: ${(m.progress * 100).toFixed(0)}%`);
+          console.warn(`[AI Toolbox] OCR Progress: ${(m.progress * 100).toFixed(0)}%`);
         }
       },
     });
@@ -222,8 +222,8 @@ async function describeImage({ imagePath }: DescribeImageParams): Promise<unknow
  */
 async function screenshotDesktop({ 
   outputPath, 
-  format = 'png', 
-  quality = 90 
+  format = 'png',
+  quality = 90
 }: ScreenshotDesktopParams): Promise<unknown> {
   try {
     const { spawn } = await import('child_process');
@@ -256,7 +256,15 @@ async function screenshotDesktop({
           $bitmap = New-Object System.Drawing.Bitmap($screen.Bounds.Width, $screen.Bounds.Height);
           $graphics = [System.Drawing.Graphics]::FromImage($bitmap);
           $graphics.CopyFromScreen(0, 0, 0, 0, $bitmap.Size);
-          $bitmap.Save('${finalOutputPath.replace(/\\/g, '\\')}', [System.Drawing.Imaging.ImageFormat]::${format === 'png' ? 'Png' : 'Jpeg'});
+          ${format === 'jpeg' ? `
+          $encoder = [System.Drawing.Imaging.ImageEncodingFormat]::Jpeg;
+          $qualityEncoderClsID = New-Object Guid("1D5BE4B5-FA4A-452D-9CDD-5DB35105E7EB");
+          $qualityEncoder = [System.Drawing.Imaging.EncodedParameter]::new($qualityEncoderClsID, ${quality});
+          $params = New-Object System.Drawing.Imaging.EncoderParameters(1);
+          $params.Param[0] = $qualityEncoder;
+          $encoderParams = [System.Drawing.Imaging.ImageCodecInfo]::GetCodecInfos() | Where-Object {$_.FormatID -eq $encoder.Guid};
+          $bitmap.Save('${finalOutputPath.replace(/\\/g, '\\')}', $encoderParams, $params);` : `
+          $bitmap.Save('${finalOutputPath.replace(/\\/g, '\\')}', [System.Drawing.Imaging.ImageFormat]::Png);`}
           $graphics.Dispose();
           $bitmap.Dispose();
         `];

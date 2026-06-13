@@ -1,7 +1,7 @@
 import type { Tool } from '@lmstudio/sdk';
 import { tool } from '@lmstudio/sdk';
 import { z } from 'zod';
-import * as fs from 'fs';
+import * as fs from 'fs/promises';  // ASYNC import ===
 import * as path from 'path';
 import type { PluginConfig } from '../config.js';
 import { getWorkingDir } from '../workingDir.js';
@@ -25,27 +25,27 @@ interface ContextSummary {
   last_updated: number;
 }
 
-// ==================== Context Storage Manager ====================
+// ==================== Context Storage Manager — ASYNC ===
 
 class ContextStorageManager {
   private storagePath: string;
   
   constructor() {
     this.storagePath = path.join(getWorkingDir(), '.ai_toolbox_context.json');
-    console.log(`[ContextStorage] Initialized with storage path: ${this.storagePath}`);
+    console.warn(`[ContextStorage] Initialized with storage path: ${this.storagePath}`);
   }
 
-  /** Load context entries from disk */
-  load(): ContextEntry[] {
+  /** Load context entries from disk — ASYNC === */
+  async load(): Promise<ContextEntry[]> {  // MADE ASYNC
     try {
-      if (!fs.existsSync(this.storagePath)) {
-        console.log(`[ContextStorage.load] File does not exist yet: ${this.storagePath}`);
+      if (!await fs.access(this.storagePath).then(() => true).catch(() => false)) {  // ASYNC access check
+        console.warn(`[ContextStorage.load] File does not exist yet: ${this.storagePath}`);
         return [];
       }
       
-      const data = fs.readFileSync(this.storagePath, 'utf-8');
+      const data = await fs.readFile(this.storagePath, 'utf-8');  // ASYNC read
       const entries = JSON.parse(data) as ContextEntry[];
-      console.log(`[ContextStorage.load] Loaded ${entries.length} entries from disk`);
+      console.warn(`[ContextStorage.load] Loaded ${entries.length} entries from disk`);
       return entries;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -54,29 +54,29 @@ class ContextStorageManager {
     }
   }
 
-  /** Save context entries to disk */
-  save(entries: ContextEntry[]): void {
+  /** Save context entries to disk — ASYNC === */
+  async save(entries: ContextEntry[]): Promise<void> {  // MADE ASYNC
     try {
       const dir = path.dirname(this.storagePath);
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-        console.log(`[ContextStorage.save] Created directory: ${dir}`);
+      if (!await fs.access(dir).then(() => true).catch(() => false)) {  // ASYNC access check
+        await fs.mkdir(dir, { recursive: true });  // ASYNC mkdir
+        console.warn(`[ContextStorage.save] Created directory: ${dir}`);
       }
       
-      // Write atomically (temp file + rename)
+      // Write atomically (temp file + rename) — ASYNC ===
       const tempPath = this.storagePath + '.tmp';
-      fs.writeFileSync(tempPath, JSON.stringify(entries, null, 2));
-      fs.renameSync(tempPath, this.storagePath);
-      console.log(`[ContextStorage.save] Saved ${entries.length} entries to disk`);
+      await fs.writeFile(tempPath, JSON.stringify(entries, null, 2));  // ASYNC write
+      await fs.rename(tempPath, this.storagePath);  // ASYNC rename
+      console.warn(`[ContextStorage.save] Saved ${entries.length} entries to disk`);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.error(`[ContextStorage.save] Failed to save context storage: ${message}`);
     }
   }
 
-  /** Add a new context entry */
-  addEntry(entry: ContextEntry): void {
-    const entries = this.load();
+  /** Add a new context entry — ASYNC === */
+  async addEntry(entry: ContextEntry): Promise<void> {  // MADE ASYNC
+    const entries = await this.load();  // ASYNC load
     entries.unshift(entry); // Add to beginning
     
     // Limit to last 1000 entries to prevent unbounded growth
@@ -84,12 +84,12 @@ class ContextStorageManager {
       entries.splice(1000);
     }
     
-    this.save(entries);
+    await this.save(entries);  // ASYNC save
   }
 
-  /** Get recent context entries */
-  getRecentEntries(limit: number = 20, type?: string): ContextEntry[] {
-    const entries = this.load();
+  /** Get recent context entries — ASYNC === */
+  async getRecentEntries(limit: number = 20, type?: string): Promise<ContextEntry[]> {  // MADE ASYNC
+    const entries = await this.load();  // ASYNC load
     
     if (type) {
       return entries.filter(e => e.type === type).slice(0, limit);
@@ -98,9 +98,9 @@ class ContextStorageManager {
     return entries.slice(0, limit);
   }
 
-  /** Search context entries by query */
-  searchEntries(query: string, maxResults: number = 10): ContextEntry[] {
-    const entries = this.load();
+  /** Search context entries by query — ASYNC === */
+  async searchEntries(query: string, maxResults: number = 10): Promise<ContextEntry[]> {  // MADE ASYNC
+    const entries = await this.load();  // ASYNC load
     const lowerQuery = query.toLowerCase();
     
     const results = entries.filter(entry => 
@@ -112,27 +112,27 @@ class ContextStorageManager {
     return results.slice(0, maxResults);
   }
 
-  /** Delete context entries by ID */
-  deleteEntry(id: string): boolean {
-    const entries = this.load();
+  /** Delete context entries by ID — ASYNC === */
+  async deleteEntry(id: string): Promise<boolean> {  // MADE ASYNC
+    const entries = await this.load();  // ASYNC load
     const filtered = entries.filter(e => e.id !== id);
     
     if (filtered.length === entries.length) {
       return false; // Entry not found
     }
     
-    this.save(filtered);
+    await this.save(filtered);  // ASYNC save
     return true;
   }
 
-  /** Clear all context entries */
-  clearAll(): void {
-    this.save([]);
+  /** Clear all context entries — ASYNC === */
+  async clearAll(): Promise<void> {  // MADE ASYNC
+    await this.save([]);  // ASYNC save
   }
 
-  /** Get summary statistics */
-  getSummary(): ContextSummary {
-    const entries = this.load();
+  /** Get summary statistics — ASYNC === */
+  async getSummary(): Promise<ContextSummary> {  // MADE ASYNC
+    const entries = await this.load();  // ASYNC load
     
     const entriesByType: Record<string, number> = {};
     entries.forEach(entry => {
@@ -148,7 +148,7 @@ class ContextStorageManager {
   }
 }
 
-// ==================== Context Analyzer ====================
+// ==================== Context Analyzer — ASYNC ===
 
 class ContextAnalyzer {
   private storageManager: ContextStorageManager;
@@ -157,11 +157,11 @@ class ContextAnalyzer {
     this.storageManager = new ContextStorageManager();
   }
 
-  /** Analyze recent activity and auto-save important context */
-  analyzeAndSave(
-    sessionEvents: Array<{ type?: string; timestamp?: number; data?: any }>,
+  /** Analyze recent activity and auto-save important context — ASYNC === */
+  async analyzeAndSave(
+    sessionEvents: Array<{ type?: string; timestamp?: number; data?: unknown }>,
     configChanges?: Record<string, boolean | string>
-  ): { saved_count: number; summary: string } {
+  ): Promise<{ saved_count: number; summary: string }> {  // MADE ASYNC
     const entries: ContextEntry[] = [];
 
     // Analyze tool usage patterns
@@ -204,11 +204,11 @@ class ContextAnalyzer {
     // Detect important decisions (based on event patterns)
     const decisionEvents = sessionEvents.filter(e => 
       e.type === 'decision' || 
-      (e.data && typeof e.data.decision === 'string')
+      (e.data && typeof (e.data as Record<string, unknown>).decision === 'string')
     );
 
     decisionEvents.forEach(event => {
-      const decisionText = event.data?.decision || `Decision made at ${event.timestamp ? new Date(event.timestamp).toLocaleTimeString() : 'unknown time'}`;
+      const decisionText = (event.data as { decision?: string })?.decision || `Decision made at ${event.timestamp ? new Date(event.timestamp).toLocaleTimeString() : 'unknown time'}`;
       entries.push({
         id: this.generateId(),
         timestamp: event.timestamp || Date.now(),
@@ -219,7 +219,7 @@ class ContextAnalyzer {
       });
     });
 
-    // Auto-generate summary if we have enough entries
+    // Auto-generate summary if we have enough entries — ASYNC ===
     if (entries.length > 0) {
       const uniquePatterns = new Set(entries.filter(e => e.type === 'pattern').map(e => e.title));
       
@@ -232,8 +232,10 @@ class ContextAnalyzer {
         tags: ['auto_summary'],
       });
 
-      // Save all entries to storage
-      entries.forEach(entry => this.storageManager.addEntry(entry));
+      // Save all entries to storage — ASYNC ===
+      for (const entry of entries) {
+        await this.storageManager.addEntry(entry);  // ASYNC call
+      }
 
       return {
         saved_count: entries.length,
@@ -244,13 +246,13 @@ class ContextAnalyzer {
     return { saved_count: 0, summary: 'No significant context changes detected.' };
   }
 
-  /** Generate a unique ID for context entry */
+  /** Generate a unique ID for context entry — ASYNC already === */
   private generateId(): string {
     return `ctx_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   }
 }
 
-// ==================== Tool Implementations ====================
+// ==================== Tool Implementations — ASYNC ===
 
 export function registerContextManagementTools(_config: PluginConfig): Tool[] {
   const analyzer = new ContextAnalyzer();
@@ -258,7 +260,7 @@ export function registerContextManagementTools(_config: PluginConfig): Tool[] {
 
   const tools: Tool[] = [];
 
-  // auto_summarize_context tool — Analyze session and save important context
+  // auto_summarize_context tool — ANALYZE AND SAVE — ASYNC ===
   tools.push(tool({
     name: 'auto_summarize_context',
     description: `Automatically analyze recent session activity to identify patterns, frequent tool usage, configuration changes, and decisions worth remembering. Saves findings to persistent memory.
@@ -281,7 +283,7 @@ WHEN TO USE:
       readonly config_changes?: Record<string, boolean | string>; 
     }) => {
       try {
-        const result = analyzer.analyzeAndSave(session_events || [], config_changes);
+        const result = await analyzer.analyzeAndSave(session_events || [], config_changes);  // ASYNC call
         
         return { success: true, data: result };
       } catch (error) {
@@ -291,7 +293,7 @@ WHEN TO USE:
     },
   }));
 
-  // get_context_memory tool — Retrieve auto-saved context entries
+  // get_context_memory tool — RETRIEVE AUTO-SAVED CONTEXT — ASYNC ===
   tools.push(tool({
     name: 'get_context_memory',
     description: `Retrieve your persistent memory entries from past sessions. Access recorded decisions, patterns, configurations, and events.
@@ -310,7 +312,7 @@ WHEN TO USE:
       readonly type?: string; 
     }) => {
       try {
-        const entries = storageManager.getRecentEntries(limit || 20, type);
+        const entries = await storageManager.getRecentEntries(limit || 20, type);  // ASYNC call
         
         return { success: true, data: { entries } };
       } catch (error) {
@@ -320,7 +322,7 @@ WHEN TO USE:
     },
   }));
 
-  // search_context tool — Search auto-saved context by query
+  // search_context tool — SEARCH AUTO-SAVED CONTEXT BY QUERY — ASYNC ===
   tools.push(tool({
     name: 'search_context',
     description: `Search through your persistent memory for past decisions, patterns, configurations, and events. 
@@ -339,7 +341,7 @@ WHEN TO USE:
       readonly max_results?: number; 
     }) => {
       try {
-        const results = storageManager.searchEntries(query, max_results || 10);
+        const results = await storageManager.searchEntries(query, max_results || 10);  // ASYNC call
         
         return { success: true, data: { results } };
       } catch (error) {
@@ -349,7 +351,7 @@ WHEN TO USE:
     },
   }));
 
-  // context_summary tool — Get summary statistics of auto-saved context
+  // context_summary tool — GET SUMMARY STATISTICS OF AUTO-SAVED CONTEXT — ASYNC ===
   tools.push(tool({
     name: 'context_summary',
     description: `Get a statistical overview of your persistent memory: total entries, breakdown by type (decisions, patterns, configurations), and recent activity.
@@ -361,7 +363,7 @@ WHEN TO USE:
     parameters: {},
     implementation: async () => {
       try {
-        const summary = storageManager.getSummary();
+        const summary = await storageManager.getSummary();  // ASYNC call
         
         return { success: true, data: summary };
       } catch (error) {
@@ -371,7 +373,7 @@ WHEN TO USE:
     },
   }));
 
-  // delete_context_entry tool — Remove a specific context entry by ID
+  // delete_context_entry tool — REMOVE A SPECIFIC CONTEXT ENTRY BY ID — ASYNC ===
   tools.push(tool({
     name: 'delete_context_entry',
     description: 'Delete a specific auto-saved context entry by its unique ID.',
@@ -380,7 +382,7 @@ WHEN TO USE:
     },
     implementation: async ({ entry_id }: { readonly entry_id: string }) => {
       try {
-        const deleted = storageManager.deleteEntry(entry_id);
+        const deleted = await storageManager.deleteEntry(entry_id);  // ASYNC call
         
         if (!deleted) {
           return { success: false, error: `Context entry '${entry_id}' not found` };
@@ -394,7 +396,7 @@ WHEN TO USE:
     },
   }));
 
-  // clear_context_memory tool — Clear all auto-saved context entries
+  // clear_context_memory tool — CLEAR ALL AUTO-SAVED CONTEXT ENTRIES — ASYNC ===
   tools.push(tool({
     name: 'clear_context_memory',
     description: 'Clear all automatically saved context entries from persistent memory. This action cannot be undone.',
@@ -407,7 +409,7 @@ WHEN TO USE:
       }
       
       try {
-        storageManager.clearAll();
+        await storageManager.clearAll();  // ASYNC call
         
         return { success: true, data: { cleared: true } };
       } catch (error) {
@@ -417,7 +419,7 @@ WHEN TO USE:
     },
   }));
 
-  // track_important_event tool — Manually mark an event as important for context tracking
+  // track_important_event tool — MANUALLY MARK AN EVENT AS IMPORTANT FOR CONTEXT TRACKING — ASYNC ===
   tools.push(tool({
     name: 'track_important_event',
     description: `Manually record an important event, decision, or milestone to persistent memory across sessions. 
@@ -448,7 +450,7 @@ WHEN TO USE:
           tags,
         };
 
-        storageManager.addEntry(entry);
+        await storageManager.addEntry(entry);  // ASYNC call
         
         return { success: true, data: { tracked: true, entry_id: entry.id } };
       } catch (error) {

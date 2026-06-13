@@ -21,7 +21,7 @@ function loadState(): { workingDir?: string } {
       const data = fs.readFileSync(STATE_FILE, 'utf-8');
       return JSON.parse(data);
     }
-  } catch (error) {
+  } catch {
     // Ignore errors - use defaults
   }
   return {};
@@ -32,7 +32,8 @@ function saveState(state: { workingDir?: string }): void {
   try {
     fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
   } catch (error) {
-    console.warn(`[WorkingDir] Failed to persist state: ${error}`);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.warn(`[WorkingDir] Failed to persist state: ${errorMessage}`);
   }
 }
 
@@ -76,7 +77,7 @@ export function setWorkingDir(newDir: string): boolean {
   
   // PERSIST the change to disk (FIX for sandbox reset issue)
   saveState({ workingDir: resolved });
-  console.log(`[WorkingDir] Persisted new working directory: ${resolved}`);
+  console.warn(`[WorkingDir] Persisted new working directory: ${resolved}`);
   
   return true;
 }
@@ -88,7 +89,7 @@ export function setWorkingDir(newDir: string): boolean {
 export function resetWorkingDir(): void {
   currentWorkingDir = BASE_DIR;
   saveState({ workingDir: undefined }); // Clear persisted state
-  console.log(`[WorkingDir] Reset to plugin root: ${BASE_DIR}`);
+  console.warn(`[WorkingDir] Reset to plugin root: ${BASE_DIR}`);
 }
 
 /** Resolve a user-provided path against the current working directory */
@@ -99,8 +100,8 @@ export function resolvePath(userPath: string): string {
 /** Get allowed base directories for absolute-path validation */
 export function getAllowedBases(): string[] {
   // Allow both the plugin root and the current working directory
-  const bases = [BASE_DIR, currentWorkingDir];
-  return [...new Set(bases)]; // Deduplicate
+  const bases: readonly string[] = [BASE_DIR, currentWorkingDir];
+  return Array.from(new Set(bases)); // Deduplicate
 }
 
 /** Get the plugin installation directory (never changes) */

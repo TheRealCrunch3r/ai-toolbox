@@ -1,10 +1,12 @@
 import type { Tool } from '@lmstudio/sdk';
 import { tool } from '@lmstudio/sdk';
 import { z } from 'zod';
+import * as fs from 'fs';
+import * as path from 'path';
 import { spawn } from 'child_process';
 import type { PluginConfig } from '../config.js';
 import { sanitizeCommand } from '../security.js';
-import { getWorkingDir } from '../workingDir.js';
+import { getWorkingDir, resolvePath } from '../workingDir.js';
 
 // ==================== Shared Spawn Helper ====================
 
@@ -343,51 +345,160 @@ export function registerExecutionTools(_config: PluginConfig): Tool[] {
     },
   }));
 
+
+  // run_tests tool — Execute test suites (Jest, PyTest, Go test)
+  tools.push(tool({
+    name: 'run_tests',
+    description: 'Execute a test suite using Jest, PyTest, or Go test. Runs in the current working directory with timeout protection.',
+    parameters: {
+      runner: z.enum(['jest', 'pytest', 'go-test']).describe('Test framework to use'),
+      file_or_dir: z.string().optional().describe('Specific file or directory path to run tests against (optional)'),
+      timeout_seconds: z.number().min(1).max(300).default(60).describe('Timeout in seconds for test execution (default: 60, max: 300)'),
+    },
+    implementation: async ({ runner, file_or_dir, timeout_seconds }: { readonly runner: string; readonly file_or_dir?: string; readonly timeout_seconds?: number }) => {
+      try {
+        const workingDir = getWorkingDir();
+        const timeoutMs = ((timeout_seconds || 60) * 1000);
+
+        // Determine command based on test runner
+        let cmd: string;
+        let args: string[];
+
+        switch (runner) {
+          case 'jest': {
+            // Check for jest config to determine how to run
+            const hasJestConfig = fs.existsSync(path.join(workingDir, 'jest.config.cjs')) ||
+              fs.existsSync(path.join(workingDir, 'jest.config.js')) ||
+              fs.existsSync(path.join(workingDir, 'package.json'));
+
+            if (!hasJestConfig) {
+              return { success: false, error: 'No Jest configuration found. Add jest.config.* or package.json with jest scripts.' };
+            }
+
+            // Try npx first (works even without global install), fallback to npm test
+            cmd = 'npx';
+            args = ['jest', '--passWithNoTests'];
+            if (file_or_dir) {
+              args.push(resolvePath(file_or_dir));
+            }
+            break;
+          }
+
+          case 'pytest': {
+            cmd = file_or_dir ? 'python3' : 'python3';
+            // Try multiple python commands
+            const pythonCandidates = ['python3', 'python'];
+            let foundPython = false;
+
+            for (const pyCmd of pythonCandidates) {
+              try {
+                await new Promise<void>((resolve, reject) => {
+                  const checkProc = spawn(pyCmd, ['-c', 'import pytest'], { timeout: 5000 });
+                  checkProc.on('close', () => resolve());
+                  checkProc.on('error', reject);
+                });
+
+                cmd = pyCmd;
+                foundPython = true;
+                break;
+              } catch {
+                // Try next candidate
+              }
+            }
+
+            if (!foundPython) {
+              return { success: false, error: 'Python not found or pytest not installed. Install with `pip install pytest`.' };
+            }
+
+            args = ['-m', 'pytest', '-v'];
+            if (file_or_dir) {
+              args.push(resolvePath(file_or_dir));
+            }
+            break;
+          }
+
+          case 'go-test': {
+            // Check for go.mod to confirm Go project
+            const hasGoMod = fs.existsSync(path.join(workingDir, 'go.mod'));
+            if (!hasGoMod) {
+              return { success: false, error: 'No go.mod found. Ensure you are in a Go module directory.' };
+            }
+
+            cmd = 'go';
+            args = ['test', '-v', '-count=1'];
+            if (file_or_dir) {
+              const relPath = path.relative(workingDir, resolvePath(file_or_dir));
+              args.push(relPath);
+            } else {
+              args.push('./...'); // Run all tests in the module
+            }
+            break;
+          }
+
+          default:
+            return { success: false, error: `Unknown test runner: ${runner}` };
+        }
+
+        // Execute with timeout
+        const result = await safeSpawn(cmd, args, timeoutMs);
+
+        if (!result.success) {
+          return { success: false, error: result.error || 'Test execution failed' };
+        }
+
+        // Parse test results from output
+        const stdout = result.data?.stdout || '';
+        const stderr = result.data?.stderr || '';
+        const fullOutput = [stdout, stderr].filter(Boolean).join('\n');
+
+        // Attempt to extract summary info from common test runner outputs
+        let passed = 0;
+        let failed = 0;
+        let total = 0;
+        let durationMs = 0;
+
+        // Jest patterns
+        const jestPassedMatch = fullOutput.match(/(\d+)\s+passed/i);
+        const jestFailedMatch = fullOutput.match(/(\d+)\s+failed/i);
+        if (jestPassedMatch) passed = Number(jestPassedMatch[1]);
+        if (jestFailedMatch) failed = Number(jestFailedMatch[1]);
+
+        // PyTest patterns  
+        const pytestSummaryMatch = fullOutput.match(/(\d+)\s*passed.*?(\d+)?\s*failed/i);
+        if (pytestSummaryMatch) {
+          passed = Number(pytestSummaryMatch[1]);
+          failed = Number(pytestSummaryMatch[2]) || 0;
+        }
+
+        // Go test: only FAIL count is applied (passed/time patterns captured but not used)
+        if (fullOutput.includes('--- FAIL')) {
+          failed += (fullOutput.match(/--- FAIL/g) || []).length;
+        }
+
+        total = passed + failed;
+
+        // Determine overall status
+        const allPassed = failed === 0;
+
+        return {
+          success: true,
+          data: {
+            runner,
+            summary: {
+              totalTests: total > 0 ? total : 'unknown',
+              passed,
+              failed,
+              allPassed,
+              durationMs,
+            },
+            output: fullOutput.trim() || '(No test output)',
+          },
+        };
+      } catch (error) {
+        return handleError(error);
+      }
+    },
+  }));
+
   return tools;
-}
-
-/**
- * Safely parse a shell command into executable and arguments.
- * Handles basic quoting but avoids shell interpretation entirely.
- */
-function parseCommand(command: string): { exe: string; args: string[] } {
-  const trimmed = command.trim();
-  
-  if (!trimmed) {
-    return { exe: '', args: [] };
-  }
-
-  const parts: string[] = [];
-  let current = '';
-  let inQuote: '"' | "'" | null = null;
-  
-  for (let i = 0; i < trimmed.length; i++) {
-    const char = trimmed[i];
-    
-    if (inQuote) {
-      if (char === inQuote) {
-        inQuote = null;
-      } else {
-        current += char;
-      }
-    } else if (char === '"' || char === "'") {
-      inQuote = char;
-    } else if (char === ' ') {
-      if (current) {
-        parts.push(current);
-        current = '';
-      }
-    } else {
-      current += char;
-    }
-  }
-  
-  if (current) {
-    parts.push(current);
-  }
-
-  const exe = parts[0] || '';
-  const args = parts.slice(1);
-  
-  return { exe, args };
 }

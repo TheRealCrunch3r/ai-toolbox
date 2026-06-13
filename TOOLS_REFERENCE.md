@@ -1,10 +1,10 @@
-# Tools Reference
+﻿# Tools Reference
 
-Complete reference for all 80+ tools in the AI Toolbox plugin, organized by category.
+Complete reference for all 106 tools in the AI Toolbox plugin, organized by category.
 
 ---
 
-## 📁 File System Tools (17)
+## 📁 File System Tools (20)
 
 ### `list_directory`
 
@@ -90,7 +90,7 @@ rag_query_vector({ query: "authentication middleware", topK: 5 })
 
 ---
 
-### `read_file_chunked` 🆕 **RECOMMENDED for large files** — v1.4.9 Update
+### `read_file_chunked` 🆕 **RECOMMENDED for large files** — v1.4.10 Update
 
 Read a file in chunks to bypass character limits. **ALWAYS use this instead of `read_file` if `read_file` returned truncated output, or if you know the file is very large (>50k chars).** Returns structured chunks with start/end indices and truncation status.
 
@@ -102,7 +102,7 @@ Read a file in chunks to bypass character limits. **ALWAYS use this instead of `
 
 **Returns**: `{ success: true, data: { filePath, totalCharacters, chunkSize, maxChunks, chunksReturned, isTruncated, chunks: [{ index, content, startChar, endChar, truncated }] } }`
 
-> ⚠️ **TypeScript Strict Mode Compliance (v1.4.9+)**: Optional parameters use explicit null-coalescing (`??`) with defaults to satisfy TypeScript's strict mode requirements. This ensures zero compilation errors across the entire codebase.
+> ⚠️ **TypeScript Strict Mode Compliance (v1.4.10+)**: Optional parameters use explicit null-coalescing (`??`) with defaults to satisfy TypeScript's strict mode requirements. This ensures zero compilation errors across the entire codebase.
 
 **When to use:**
 | Scenario | Tool |
@@ -130,7 +130,7 @@ read_file_chunked(
 
 ---
 
-### `save_file` — v1.4.x Update (v1.4.9+)
+### `save_file` — v1.4.x Update (v1.4.10+)
 
 Save content to a specified file in the current working directory. Supports batch saving with atomic writes and size limits.
 
@@ -483,7 +483,7 @@ Open a file or URL in the default application.
 
 ---
 
-## 🐙 Git & GitHub Tools (14)
+## 🐙 Git & GitHub Tools (13)
 
 ### `git_status`
 
@@ -731,7 +731,7 @@ Kill a running background command.
 
 ---
 
-## ⚡ Execution Tools (4)
+## ⚡ Execution Tools (5)
 
 ### ⚠️ `run_javascript`
 
@@ -831,7 +831,7 @@ Kill a running background command.
 
 ---
 
-## 🔧 Utility Tools (10)
+## 🔧 Utility Tools (~20+)
 
 ### `save_memory` — v1.4.8 Update
 
@@ -954,7 +954,102 @@ Delete a saved memory entry by its ID (returned from `save_memory` or `get_memor
 → { success: true, data: { deleted: true } }
 ```
 
-> 💡 **Note**: Memories persist across LM Studio restarts and sessions. They are stored in `.ai_toolbox_state.json` with debounced persistence (500ms delay).
+> 💡 **Note**: Memories persist across LM Studio restarts and sessions. They are stored in `.ai_toolbox_memory.json` with immediate synchronous persistence for reliability.
+
+---
+
+### 🆕 Session Summary Tools (v1.5.0+)
+
+#### `save_session_summary` — v1.5.0 Update 🆕
+
+Save a structured session summary for cross-session continuity. Includes accomplishments, pending tasks, decisions made, and context for the next session. This enables seamless handoff between LM Studio sessions.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `task_description` | `string` | Yes | Brief description of what was being worked on |
+| `accomplishments` | `string` | No | List key accomplishments or completed tasks (default: "No specific accomplishments recorded.") |
+| `pending_tasks` | `string` | No | List remaining work that needs to continue in the next session (default: "No specific pending tasks recorded.") |
+| `decisions_made` | `string` | No | Key architectural or implementation decisions made during this session (default: "No specific decisions recorded.") |
+| `context_for_next_session` | `string` | No | Important context, file locations, or setup steps needed for the next session (default: "No additional context provided.") |
+
+**Returns**: `{ success: true, data: { saved: true, summary_id, message, preview } }`
+
+> 💡 **Use Case**: Call this at the end of a long task or before closing LM Studio to ensure continuity in future sessions. The AI can later retrieve this with `get_session_summary()` to immediately understand what was being worked on previously.
+
+**Example**:
+```json
+{
+  "task_description": "Debugging memory persistence issues",
+  "accomplishments": "Fixed stateManager to use synchronous saves and workingDir-based paths. Added atomic writes for corruption recovery.",
+  "pending_tasks": "Test persistence across plugin reloads in production environment. Verify .ai_toolbox_memory.json is created in workspace root.",
+  "decisions_made": "Switched from debounced async saves to immediate sync writes for reliability. Store memory in working directory rather than global path.",
+  "context_for_next_session": "Check .ai_toolbox_memory.json location after restarting LM Studio. Ensure stateManager persistence flag is enabled."
+}
+→ { success: true, data: { saved: true, summary_id: "session_summary_1746508800000", message: "Session summary saved successfully." } }
+```
+
+---
+
+#### `get_session_summary` — v1.5.0 Update 🆕
+
+Retrieve the most recent saved session summary for continuity across sessions. Returns structured data including accomplishments, pending tasks, and decisions made in the previous session.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| *(none)* | — | — | — |
+
+**Returns**: `{ success: true, data: { summaries: Array<{task_description, accomplishments, pending_tasks, decisions_made, context_for_next_session}>, count, message } }`
+
+> 💡 **Use Case**: Call this at the start of a new session to immediately understand what was being worked on previously. The AI can use this information to pick up where it left off without requiring manual context from the user.
+
+**Example**:
+```json
+{}
+→ { 
+    success: true, 
+    data: { 
+      summaries: [
+        {
+          task_description: "Debugging memory persistence issues",
+          accomplishments: "Fixed stateManager to use synchronous saves and workingDir-based paths.",
+          pending_tasks: "Test persistence across plugin reloads in production environment.",
+          decisions_made: "Switched from debounced async saves to immediate sync writes for reliability.",
+          context_for_next_session: "Check .ai_toolbox_memory.json location after restarting LM Studio."
+        }
+      ], 
+      count: 1, 
+      message: "Latest session summary retrieved.",
+      total_summaries_stored: 1
+    } 
+  }
+```
+
+---
+
+### Session Summary — Complete Workflow (v1.5.0)
+
+**Step-by-step flow for cross-session continuity**:
+
+```json
+// Step 1: At the end of a long task, save a session summary
+{
+  "task_description": "Implementing user authentication module",
+  "accomplishments": "Created login form, added JWT token validation, integrated with backend API.",
+  "pending_tasks": "Add password reset functionality. Implement email verification flow.",
+  "decisions_made": "Using JWT tokens stored in httpOnly cookies for session management.",
+  "context_for_next_session": "Auth module is in src/auth/. Backend endpoints are at /api/auth/*."
+}
+→ ✅ Session summary saved successfully
+
+// Step 2: Start a new session — retrieve previous context
+{}
+→ ✅ Retrieves latest session summary with all accomplishments and pending tasks
+
+// Step 3: Continue work based on retrieved context
+// AI now knows exactly what was done and what needs to be continued
+```
+
+> 💡 **Storage**: Session summaries are stored in `.ai_toolbox_memory.json` alongside other memory entries. Each summary has a unique ID (timestamp-based) for tracking multiple sessions.
 
 ---
 
@@ -1738,3 +1833,972 @@ interface ContextGuardConfig {
 ---
 
 *End of Tools Reference*
+
+---
+
+## 🛠️ Utility Tools (17)
+
+### `save_session_summary` — v1.5.0 Update
+
+Save a structured session summary for cross-session continuity. Includes accomplishments, pending tasks, decisions made, and context for the next session.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `task_description` | `string` | Yes | Brief description of what was being worked on |
+| `accomplishments` | `string` | No | List key accomplishments or completed tasks |
+| `pending_tasks` | `string` | No | List remaining work that needs to continue in the next session |
+| `decisions_made` | `string` | No | Key architectural or implementation decisions made during this session |
+| `context_for_next_session` | `string` | No | Important context, file locations, or setup steps needed for the next session |
+
+**Returns**: `{ success: true, data: { saved: true, summary_id: string, message: 'Session summary saved successfully.', preview: { task_description, timestamp } } }`
+
+> 💡 **Storage**: Integrated with existing `.ai_toolbox_memory.json` persistence layer using StateManager. Each summary gets a unique timestamp-based ID (`session_summary_{timestamp}`).
+
+---
+
+### `get_session_summary` — v1.5.0 Update
+
+Retrieve the most recent saved session summary for continuity across sessions.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| *(none)* | — | — | No parameters required |
+
+**Returns**: `{ success: true, data: { summaries: [...], count: 1, message: 'Latest session summary retrieved.', total_summaries_stored: number } }`
+
+> 💡 **Sorting**: Returns the most recent summary first based on internal timestamp ordering. Use `total_summaries_stored` to know how many exist.
+
+---
+
+### `get_system_info`
+
+Get information about the system (OS, CPU, Memory).
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| *(none)* | — | — | No parameters required |
+
+**Returns**: `{ success: true, data: { platform, arch, cpus, totalMemory, freeMemory, hostname, release } }`
+
+---
+
+### `read_clipboard`
+
+Read text content from the system clipboard. Cross-platform support (Windows PowerShell, macOS pbpaste, Linux xclip/xsel).
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| *(none)* | — | — | No parameters required |
+
+**Returns**: `{ success: true, data: { content: string } }`
+
+> ⏱️ **Timeout**: 5-second timeout. Returns error if clipboard is empty or inaccessible.
+
+---
+
+### `write_clipboard`
+
+Write text content to the system clipboard. Cross-platform support with shell injection prevention (PowerShell/Bash escaping).
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `content` | `string` | Yes | The text content to write to clipboard |
+
+**Returns**: `{ success: true, data: { written: true } }`
+
+> ⏱️ **Timeout**: 5-second timeout. Content is escaped for shell safety on all platforms.
+
+---
+
+### `send_notification`
+
+Send a system notification to the user using `node-notifier`.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `title` | `string` | Yes | Notification title |
+| `message` | `string` | Yes | Notification message |
+| `icon` | `string` | No | Optional custom icon path |
+
+**Returns**: `{ success: true, data: { sent: true, title, message } }`
+
+---
+
+### `findLMStudioHome`
+
+Locate LM Studio installation directory across platforms (Windows, macOS, Linux).
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| *(none)* | — | — | No parameters required |
+
+**Returns**: `{ success: true, data: { found: true, path: string, platform: string } }` or error if not found.
+
+> 📁 **Search Order**: Checks `%APPDATA%/lm-studio`, `~/Library/Application Support/lm-studio`, `~/.local/share/lm-studio` across platforms.
+
+---
+
+### `get_enabled_tools`
+
+Get list of currently enabled tools based on configuration (respects `godMode` and individual tool toggles).
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| *(none)* | — | — | No parameters required |
+
+**Returns**: `{ success: true, data: { toolCount: number, tools: string[] } }`
+
+---
+
+### `system_monitor` — CPU / Memory / Disk / Network usage
+
+Get detailed system resource metrics including CPU, memory, disk usage, and network interfaces.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `metrics` | `Array<'cpu' \| 'memory' \| 'disk' \| 'network'>` | No | Metrics to report (default: `['cpu', 'memory']`) |
+
+**Returns**: `{ success: true, data: { timestamp, cpu?: {...}, memory?: {...}, disk?: {...}, network?: {...} } }`
+
+> 📊 **CPU Details**: Includes core count, models, average speed, and load averages (Unix only).
+> 💾 **Memory**: Reports total, free, used bytes/GB with usage percentage.
+> 💿 **Disk**: Uses PowerShell on Windows (`Get-CimInstance Win32_LogicalDisk`) or `df -h` on Unix.
+> 🌐 **Network**: Lists all interfaces with IP addresses and MAC addresses.
+
+---
+
+### `process_list` — List running processes
+
+List currently running system processes with resource usage. Supports filtering by process name.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `filter` | `string` | No | Filter processes by name (partial match, case-insensitive) |
+
+**Returns**: `{ success: true, data: { count: number, processes: Array<{pid, name, cpuPercent?, memoryMb?}>, note? } }`
+
+> ⚠️ **Limit**: Returns up to 200 processes max. Use `filter` parameter for more specific results on systems with many processes.
+> 🪟 **Windows**: Uses `Get-CimInstance Win32_Process` via PowerShell.
+> 🐧 **Unix/Linux**: Uses `ps -eo pid,comm,%cpu,rss,state`.
+
+---
+
+### `env_inspect` — List environment variables
+
+List current environment variables with optional prefix filtering (e.g., `PATH`, `NODE`).
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `prefix` | `string` | No | Filter environment variable keys by this prefix (case-insensitive) |
+
+**Returns**: `{ success: true, data: { count: number, prefix: string, variables: Array<{key, value}> } }`
+
+> 🔍 **Sorting**: Results are sorted alphabetically by key.
+> ⚠️ **Security Sensitive**: Contains all environment variables including potentially sensitive values (API keys, passwords). Use prefix filtering to limit exposure.
+
+---
+
+### `hash_file` — File integrity verification
+
+Generate cryptographic checksums for a file to verify its integrity.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `file_path` | `string` | Yes | Path to the file to hash |
+| `algorithm` | `'md5' \| 'sha1' \| 'sha256'` | No | Hash algorithm (default: `sha256`) |
+
+**Returns**: `{ success: true, data: { file, algorithm, hash, fileSizeBytes, fileSizeHuman } }`
+
+> ⚠️ **Limits**: Files >500MB are rejected. Path traversal protection enforced via `validatePath()`.
+> 📦 **Streaming**: Uses Node.js streams for memory-efficient hashing of large files.
+
+---
+
+### `token_count` — LLM token counting
+
+Count the number of LLM tokens in text using the tiktoken library (`@dqbd/tiktoken`). Supports multiple encodings.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `text` | `string` | Yes | The text to count tokens for |
+| `encoding` | `'cl100k_base' \| 'p50k_base' \| 'r50k_base' \| 'gpt2'` | No | Token encoding model (default: `cl100k_base`) |
+
+**Returns**: `{ success: true, data: { textLength, tokenCount, encoding, avgCharsPerToken } }`
+
+> 🧮 **Encodings**:
+> - `cl100k_base`: GPT-4/GPT-3.5 (recommended default)
+> - `p50k_base`: Codex models
+> - `r50k_base`/`gpt2`: Older GPT-2 models
+
+---
+
+### `convert_format` — File format conversion
+
+Convert between file formats: JSON↔CSV, base64 encode/decode, or compress/decompress files.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `action` | `'json_to_csv' \| 'csv_to_json' \| 'base64_encode' \| 'base64_decode' \| 'compress' \| 'decompress'` | Yes | Conversion action to perform |
+| `input` | `string` | Yes | Input file path or content (for base64 actions, can be raw text) |
+| `output` | `string` | No | Output file path. If omitted, uses same name with different extension |
+
+**Returns**: Varies by action:
+- **JSON→CSV/CSV→JSON**: `{ convertedFrom, convertedTo, rows }`
+- **Base64**: `{ encoded, originalLength }` or `{ decoded, decodedLength }` (or file paths if output specified)
+- **Compress/Decompress**: `{ compressedFile }` or `{ extractedTo }`
+
+> 📦 **Dependencies**: Uses `archiver` for ZIP compression and `unzipper` for extraction. Both are pre-installed in package.json.
+
+---
+
+### `secret_scan` — Security audit
+
+Scan files in the current working directory for potentially exposed API keys, passwords, tokens, and other secrets.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `path` | `string` | No | Directory to scan (default: current working directory) |
+| `exclude` | `string` | No | Files or directories to exclude (e.g., `"node_modules,.git"`) |
+
+**Returns**: `{ success: true, data: { scannedPath, totalFindings, severity: 'clean'/'low'/'medium'/'high', findings: Array<{file, line, type, content}>, note? } }`
+
+> 🔍 **Patterns Detected**: Generic API keys, AWS credentials, private keys, GitHub tokens, JWTs, passwords, DB connection strings, Slack tokens.
+> ⚠️ **Security Gate**: Read-only operation; no config flag required. Findings limited to 100 max.
+> 📊 **Severity Levels**: `clean` (0), `low` (<5), `medium` (<20), `high` (≥20) findings.
+
+---
+
+### `port_check` — TCP port availability
+
+Check if a specific TCP port is open and listening on the local machine.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `port` | `number` | Yes | TCP port number to check (1-65535) |
+| `host` | `string` | No | Host to check against (default: `localhost`) |
+
+**Returns**: `{ success: true, data: { port, host, status: 'open'/'closed'/'timed_out' } }`
+
+> ⏱️ **Timeout**: 3-second timeout. Uses Node.js net.Socket for connection testing.
+
+---
+
+### `package_manage` — Dependency management
+
+Install, uninstall, update, or audit npm/pip/cargo packages. ⚠️ Security-sensitive: must be enabled in config (`packageManage: true`).
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `action` | `'install' \| 'uninstall' \| 'update' \| 'audit' \| 'outdated'` | Yes | Action to perform |
+| `package_name` | `string` | Conditional | Package name (required for install/uninstall) |
+| `manager` | `'npm' \| 'pip' \| 'cargo'` | No | Package manager to use (default: `npm`) |
+
+**Returns**: `{ success: true, data: { stdout, stderr } }` or error if action fails.
+
+> ⚠️ **Security Gate**: Install/uninstall actions require `packageManage: true` in plugin config.
+> ⏱️ **Timeout**: 60-second timeout for package operations.
+> 🐍 **pip Limitations**: No audit support (use pip-audit or safety). No uninstall via this tool (delete manually).
+> 🦀 **Cargo Limitations**: Audit requires separate `cargo-audit` installation.
+
+---
+
+### `get_current_working_directory`
+
+Get the current working directory. Use this before generating file operations with relative paths to ensure you know where files will be created/modified.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| *(none)* | — | — | No parameters required |
+
+**Returns**: `{ success: true, data: { current_working_directory: string } }`
+
+
+---
+
+## 🌍 Browser Automation Tools (5)
+
+### `browser_open_page`
+
+Open a webpage in a headless browser (Puppeteer), render it once, and return content.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `url` | `string` | Yes | The URL to open |
+| `screenshot_path` | `string` | No | Path to save a screenshot |
+| `wait_for_selector` | `string` | No | CSS selector to wait for before returning |
+| `full_page_screenshot` | `boolean` | No | If true, captures the full page when taking a screenshot (default: false) |
+
+**Returns**: `{ success: true, data: { url, opened: true, screenshotSaved?, pageText } }`
+
+> 💡 **Session Management**: Uses persistent browser session via `browser_session_control`. Page stays alive for subsequent requests. Use `browser_session_close` to explicitly terminate the browser.
+> ⏱️ **Timeout**: 5-second timeout for selector waiting. Continues extraction if selector not found.
+
+---
+
+### `browser_session_control`
+
+Control the active persistent browser session. Supports actions, page reading, screenshot capture.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `actions` | `Array<{type, ...}>` | No | Optional scripted browser actions to execute (click, type, goto, evaluate) |
+| `read_page` | `boolean` | No | If true, returns page metadata (default: false) |
+| `full_read` | `boolean` | No | If true, forces full page text output (default: false) |
+| `screenshot_path` | `string` | No | Optional screenshot output path |
+
+**Returns**: `{ success: true, data: { actionsExecuted, pageText?, screenshotSaved? } }`
+
+> 🎭 **Supported Actions**:
+> - `click`: Click a selector (`{type: 'click', selector: '#btn'}`)
+> - `type`: Type text into an input (`{type: 'type', selector: '#input', text: 'hello'}`)
+> - `goto`: Navigate to URL (`{type: 'goto', url: 'https://...'}`)
+> - `evaluate`: Execute JavaScript (`{type: 'evaluate', script: 'document.body.innerText'}`)
+
+---
+
+### `browser_session_close`
+
+Close the active persistent browser session. Releases resources and terminates Puppeteer browser instance.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| *(none)* | — | — | No parameters required |
+
+**Returns**: `{ success: true, data: { closed: true } }`
+
+> 🧹 **Cleanup**: Cancels inactivity timer and closes all browser pages. Browser stays alive for up to 5 minutes of inactivity after last use if not explicitly closed.
+
+---
+
+### `preview_html`
+
+Render and preview HTML content in the system's default browser.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `html_content` | `string` | Yes | The HTML content to render |
+| `file_name` | `string` | No | Optional filename (default: `preview.html`) |
+
+**Returns**: `{ success: true, data: { previewed: true, file } }`
+
+> 🌐 **Browser Launch**: Uses the `open` package to launch default browser. File is saved to current working directory before opening.
+
+---
+
+### `open_file`
+
+Open a file or URL in the system's default application.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `target` | `string` | Yes | File path or URL |
+
+**Returns**: `{ success: true, data: { opened: true } }`
+
+---
+
+## 🧠 Context Management Tools (7)
+
+### `auto_summarize_context` — Analyze session and save important context
+
+Automatically analyze recent session activity to identify patterns, frequent tool usage, configuration changes, and decisions worth remembering. Saves findings to persistent memory.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `session_events` | `Array<{type, timestamp, data}>` | No | Recent session events to analyze |
+| `config_changes` | `Record<string, boolean\|string>` | No | Configuration changes made during session |
+
+**Returns**: `{ success: true, data: { saved_count: number, summary: string } }`
+
+> 💡 **Auto-Detection**: Identifies frequent tool usage (>3 uses), configuration changes, and decision events. Generates summary entries with tags for categorization.
+> 📊 **Entry Types**: `pattern`, `configuration`, `decision`, `summary`. Limited to 1000 entries max in storage.
+
+---
+
+### `get_context_memory` — Retrieve auto-saved context entries
+
+Retrieve your persistent memory entries from past sessions. Access recorded decisions, patterns, configurations, and events.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `limit` | `number` | No | Maximum number of entries to return (default: 20, max: 50) |
+| `type` | `'decision' \| 'pattern' \| 'configuration' \| 'file_change' \| 'error' \| 'summary'` | No | Filter by entry type |
+
+**Returns**: `{ success: true, data: { entries: Array<ContextEntry> } }`
+
+---
+
+### `search_context` — Search auto-saved context by query
+
+Search through your persistent memory for past decisions, patterns, configurations, and events.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `query` | `string` | Yes | Search query to match against context entries (matches title, content, tags) |
+| `max_results` | `number` | No | Maximum number of results to return (default: 10, max: 50) |
+
+**Returns**: `{ success: true, data: { results: Array<ContextEntry> } }`
+
+---
+
+### `context_summary` — Get summary statistics
+
+Get a statistical overview of your persistent memory: total entries, breakdown by type (decisions, patterns, configurations), and recent activity.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| *(none)* | — | — | No parameters required |
+
+**Returns**: `{ success: true, data: { total_entries, entries_by_type, recent_entries, last_updated } }`
+
+---
+
+### `delete_context_entry` — Remove a specific context entry by ID
+
+Delete a specific auto-saved context entry by its unique ID.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `entry_id` | `string` | Yes | The unique ID of the context entry to delete (format: `ctx_{timestamp}_{random}`) |
+
+**Returns**: `{ success: true, data: { deleted: true, entry_id } }` or error if not found.
+
+---
+
+### `clear_context_memory` — Clear all auto-saved context entries
+
+Clear all automatically saved context entries from persistent memory. This action cannot be undone.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `confirm` | `boolean` | Yes | Set to true to confirm deletion of all context entries |
+
+**Returns**: `{ success: true, data: { cleared: true } }` or error if confirmation is false.
+
+> ⚠️ **Destructive**: All entries are permanently deleted. No undo available.
+
+---
+
+### `track_important_event` — Manually mark an event as important
+
+Manually record an important event, decision, or milestone to persistent memory across sessions.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `title` | `string` | Yes | Title of the important event |
+| `content` | `string` | Yes | Detailed description of the event |
+| `tags` | `Array<string>` | No | Tags to categorize the event |
+
+**Returns**: `{ success: true, data: { tracked: true, entry_id } }`
+
+> 💡 **Use Cases**: After significant architectural decisions, completing major milestones, or when user explicitly asks you to "remember" something.
+
+---
+
+## ⚡ Execution Tools (5)
+
+### `run_javascript` — SANDBOXED JavaScript execution
+
+Run JavaScript code snippet using Node.js (sandboxed). No external module imports allowed. Standard library only.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `javascript` | `string` | Yes | The JavaScript code to execute |
+| `timeout_seconds` | `number` | No | Timeout in seconds (max 60, default: 5) |
+
+**Returns**: `{ success: true, data: { output } }` or error if execution fails.
+
+> 🛡️ **Security Patterns Blocked**: eval(), exec(), Function constructor, __proto__, require.resolve, child_process, os.system, net.*, http., dns.
+> 🔍 **Cross-Platform**: Tries `npx`, `node`, then shell-based detection for Node.js executable.
+
+---
+
+### `run_python` — SANDBOXED Python execution
+
+Run Python code snippet (sandboxed, no external modules). Standard library only.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `python` | `string` | Yes | The Python code to execute |
+| `timeout_seconds` | `number` | No | Timeout in seconds (max 60, default: 5) |
+
+**Returns**: `{ success: true, data: { output } }` or error if execution fails.
+
+> 🛡️ **Security Patterns Blocked**: import os, from os import, import subprocess, __import__, eval(), exec(), os.system, os.popen.
+> 🔍 **Cross-Platform**: Tries `py`, `python3`, `python`, then shell-based detection for Python executable.
+
+---
+
+### `execute_command` — SAFE command execution with shell features
+
+Execute a command in the current working directory. Supports full shell features (pipes, redirects, env vars).
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `command` | `string` | Yes | The shell command to execute |
+| `timeout_seconds` | `number` | No | Timeout in seconds (max 300, default: 60) |
+| `input` | `string` | No | Input text to pipe to the command's stdin |
+
+**Returns**: `{ success: true, data: { stdout, stderr, output } }` or error if execution fails.
+
+> 🛡️ **Security**: Uses `sanitizeCommand()` to block dangerous patterns before shell interpretation. Shell mode enabled for pipes/redirects but sanitized.
+> ⏱️ **Timeout**: 300-second max timeout for long-running commands.
+
+---
+
+### `run_in_terminal` — Launch in new interactive terminal window
+
+Launch a command in a new, separate interactive terminal window (non-blocking).
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `command` | `string` | Yes | The shell command to execute |
+
+**Returns**: `{ success: true, data: { launched: true } }` or error if no suitable terminal found.
+
+> 🖥️ **Cross-Platform**: Windows uses `cmd.exe /k`. Linux tries xterm, gnome-terminal, konsole, xfce4-terminal in order.
+> ⚠️ **Non-blocking**: Command runs in separate window; tool returns immediately after launch.
+
+---
+
+### `run_tests` — Execute test suites (Jest, PyTest, Go test)
+
+Execute a test suite using Jest, PyTest, or Go test. Runs in the current working directory with timeout protection.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `runner` | `'jest' \| 'pytest' \| 'go-test'` | Yes | Test framework to use |
+| `file_or_dir` | `string` | No | Specific file or directory path to run tests against (optional) |
+| `timeout_seconds` | `number` | No | Timeout in seconds for test execution (default: 60, max: 300) |
+
+**Returns**: `{ success: true, data: { runner, summary: {totalTests, passed, failed, allPassed}, output } }` or error.
+
+> 📊 **Result Parsing**: Automatically extracts pass/fail counts from Jest, PyTest, and Go test output formats.
+> ⚠️ **Prerequisites**: Jest requires jest.config.* or package.json scripts. PyTest requires `pip install pytest`. Go-test requires go.mod.
+
+---
+
+## 🔧 Git & GitHub Tools (14)
+
+### `git_status` — Get current git status
+
+Get the current git status of the repository using simple-git.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| *(none)* | — | — | No parameters required |
+
+**Returns**: `{ success: true, data: { ...gitStatusResult } }` or error if not in a git repository.
+
+---
+
+### `git_diff` — Get repository diff
+
+Get the git diff of the current repository or specific files.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `file_path` | `string` | No | Optional: Path to specific file to diff |
+| `cached` | `boolean` | No | Optional: Show staged changes only (git diff --cached, default: false) |
+
+**Returns**: `{ success: true, data: { diff } }` or error.
+
+---
+
+### `git_commit` — Commit staged changes
+
+Commit staged changes to the git repository.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `message` | `string` | Yes | The commit message |
+
+**Returns**: `{ success: true, data: { committed: true } }` or error.
+
+---
+
+### `git_log` — Get recent git commit history
+
+Get recent git commit history from the repository.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `max_count` | `number` | No | Max number of commits to return (default: 10) |
+
+**Returns**: `{ success: true, data: { commits } }` or error.
+
+---
+
+### `git_add` — Stage files for commit
+
+Stage specific files or all changes for the next commit.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `paths` | `Array<string>` | No | Optional: Specific file paths to stage. If omitted, stages all changes (`.`) |
+
+**Returns**: `{ success: true, data: { stagedPaths } }` or error.
+
+---
+
+### `git_checkout` — Switch branches
+
+Switch to an existing branch or create and switch to a new one (like `git checkout -b`).
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `branch_name` | `string` | Yes | Name of the branch to checkout |
+| `create_new` | `boolean` | No | If true, creates the branch if it doesn't exist (default: false) |
+
+**Returns**: `{ success: true, data: { branchName } }` or error.
+
+---
+
+### `gh_auth` — Check GitHub authentication status
+
+Check GitHub authentication status. Requires `GITHUB_TOKEN` environment variable to be set.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| *(none)* | — | — | No parameters required |
+
+**Returns**: `{ success: true, data: { authenticated: true } }` or error if token not set or authentication fails.
+
+---
+
+### `gh_create_issue` — Create a new GitHub issue
+
+Create a new GitHub issue in the current repository. Requires `GITHUB_TOKEN` and valid git remote pointing to GitHub.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `title` | `string` | Yes | The issue title |
+| `body` | `string` | No | The issue body/description |
+| `labels` | `Array<string>` | No | Labels to apply |
+
+**Returns**: `{ success: true, data: { created: true } }` or error.
+
+---
+
+### `gh_list_issues` — List repository issues
+
+List issues in the current repository with optional filtering by state and labels.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `state` | `'open' \| 'closed'` | No | Filter by issue state (default: `open`) |
+| `labels` | `Array<string>` | No | Filter by labels |
+| `limit` | `number` | No | Max issues to return (default: 10, max: 50) |
+
+**Returns**: `{ success: true, data: { issues } }` or error.
+
+---
+
+### `gh_view_comments` — View issue/PR comments
+
+View comments on a specific issue or pull request.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `number` | `number` | Yes | The issue or PR number |
+| `type` | `'issue' \| 'pr'` | No | Whether it's an issue or a pull request (default: `issue`) |
+
+**Returns**: `{ success: true, data: { comments } }` or error.
+
+---
+
+### `gh_create_pr` — Create a new pull request
+
+Create a new pull request in the current repository. Requires `GITHUB_TOKEN` and valid git remote pointing to GitHub.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `title` | `string` | Yes | The PR title |
+| `body` | `string` | No | The PR body/description |
+| `head_branch` | `string` | Yes | The branch containing your changes |
+| `base_branch` | `string` | No | The branch you want to merge into (default: `main`) |
+
+**Returns**: `{ success: true, data: { created: true, url } }` or error.
+
+---
+
+### `gh_list_prs` — List pull requests
+
+List pull requests in the current repository with optional filtering by state.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `state` | `'open' \| 'closed'` | No | Filter by PR state (default: `open`) |
+| `limit` | `number` | No | Max PRs to return (default: 10, max: 50) |
+
+**Returns**: `{ success: true, data: { prs } }` or error.
+
+---
+
+### `gh_view_pr_diff` — Fetch pull request diff
+
+Fetch the diff/patch of a specific pull request.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `number` | `number` | Yes | The PR number |
+
+**Returns**: `{ success: true, data: { diff } }` or error.
+
+---
+
+### `gh_push` — Push to remote repository
+
+Push local commits to the remote GitHub repository.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `branch` | `string` | No | Optional: The branch to push. Defaults to current branch |
+
+**Returns**: `{ success: true, data: { pushed: true } }` or error.
+
+---
+
+## 🌐 HTTP Client Tools (3)
+
+### `http_request` — Generic HTTP client
+
+Make generic HTTP requests to any REST API. Supports GET, POST, PUT, DELETE, PATCH and other methods. Includes SSRF protection (blocks private/internal IP addresses).
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `method` | `'GET' \| 'POST' \| 'PUT' \| 'DELETE' \| 'PATCH' \| 'HEAD' \| 'OPTIONS'` | Yes | HTTP method |
+| `url` | `string` | Yes | Request URL (must be http:// or https://) |
+| `headers` | `Record<string, string>` | No | Custom headers as key-value pairs |
+| `body` | `string \| Record<string, unknown>` | No | Request body (string or JSON object) |
+
+**Returns**: `{ success: true, data: { status, statusText, headers, body, url, method } }` or error.
+
+> 🛡️ **SSRF Protection**: Blocks file:, data: protocols and private IP ranges (127.x, 10.x, 172.16-31.x, 192.168.x).
+> ⏱️ **Timeout**: 30-second timeout for all requests.
+
+---
+
+### `http_get_json` — GET request with JSON parsing
+
+Make a GET request and return parsed JSON response. Convenience wrapper around http_request.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `url` | `string` | Yes | Request URL (must be http:// or https://) |
+| `headers` | `Record<string, string>` | No | Custom headers as key-value pairs |
+
+**Returns**: `{ success: true, data: { status, headers, body, url } }` or error.
+
+> 🛡️ **SSRF Protection**: Same URL validation as http_request (blocks private IPs).
+> ⏱️ **Timeout**: 30-second timeout. Automatically sets `Accept: application/json`.
+
+---
+
+### `http_post_json` — POST request with JSON body
+
+Make a POST request with JSON body and return parsed response. Convenience wrapper around http_request.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `url` | `string` | Yes | Request URL (must be http:// or https://) |
+| `data` | `Record<string, unknown>` | Yes | JSON object to send as request body |
+| `headers` | `Record<string, string>` | No | Custom headers as key-value pairs |
+
+**Returns**: `{ success: true, data: { status, headers, body, url } }` or error.
+
+> 🛡️ **SSRF Protection**: Same URL validation as http_request (blocks private IPs).
+> ⏱️ **Timeout**: 30-second timeout. Automatically sets `Content-Type: application/json` and `Accept: application/json`.
+
+
+---
+
+## 🎨 UI Generation Tools (3)
+
+### `generate_ui_component` — Generate interactive UI components
+
+Generate HTML/CSS/JS code for an interactive UI component (button, form, chart, dashboard). Returns the generated code.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `component_type` | `'button' \| 'form' \| 'chart' \| 'dashboard'` | Yes | Type of UI component to generate |
+| `label` | `string` | Conditional | Label text for buttons or forms (required for button/form components) |
+| `fields` | `Array<{name, type, label}>` | Conditional | Form fields with name, type (text/email/password/number/textarea/select), and label (required for form component) |
+| `chart_data` | `Array<{label, value}>` | Conditional | Chart data points (required for chart component) |
+| `dashboard_titles` | `Array<string>` | Conditional | Titles for dashboard cards (required for dashboard component) |
+
+**Returns**: `{ success: true, data: { component_type, html } }` or error if validation fails.
+
+> 📦 **Component Types**:
+> - **Button**: Generates styled button with label and color (#007bff default)
+> - **Form**: Generates form with specified fields, submit button, and result display area
+> - **Chart**: Generates simple bar chart from data points (auto-scales heights)
+> - **Dashboard**: Generates multi-card dashboard with alternating text/chart cards
+
+---
+
+### `render_and_preview_ui` — Render UI in browser + screenshot
+
+Render a generated HTML UI component, save it to a file, open it in the default browser, and optionally take a screenshot.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `html_content` | `string` | Yes | The complete HTML content to render |
+| `filename` | `string` | No | Filename for saving (default: `ui_preview.html`) |
+| `screenshot_path` | `string` | No | Optional path to save a screenshot of the rendered UI |
+
+**Returns**: `{ success: true, data: { rendered: true, file, path, screenshotSaved?, screenshotWarning? } }` or error.
+
+> 🖼️ **Screenshot Feature**: Uses Puppeteer in headless mode to capture full-page screenshots. Falls back gracefully if Puppeteer is unavailable (warning included in response).
+> 🔗 **Cross-Platform File URLs**: Uses `pathToFileURL()` for Windows compatibility with file:// URLs.
+
+---
+
+### `extract_ui_data` — Extract structured data from HTML
+
+Extract structured data from HTML content (tables, forms, lists). Useful for parsing generated or fetched UIs.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `html_content` | `string` | Yes | The HTML content to extract data from |
+| `extraction_type` | `'table' \| 'form' \| 'list'` | No | Type of data to extract (default: `table`) |
+
+**Returns**: `{ success: true, data: { tables?: string[][][], formFields?: Array<{name, type}>, items?: string[] } }` or error.
+
+> 🔍 **Extraction Logic**:
+> - **Tables**: Extracts all `<table>` → `<tr>` → `<td>/<th>` structures into nested arrays
+> - **Forms**: Extracts `<form>` → `<input>/<select>/<textarea>` with name and type attributes
+> - **Lists**: Extracts `<ul>/<ol>` → `<li>` items (text content only)
+
+
+---
+
+## 💾 Backup Tools (4)
+
+### `create_backup` — Compress entire working directory
+
+Create a compressed backup of the ENTIRE current working directory with all content. Backups are stored in `.ai_toolbox_backups/`.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `destination` | `string` | No | Custom backup filename (default: auto-generated with timestamp). Must end with .zip |
+
+**Returns**: `{ success: true, data: { message, backupPath, filename, filesBackedUp, compressedSizeBytes, compressedSizeHuman, createdAt } }` or error.
+
+> 📦 **Compression**: Uses ZIP with maximum compression (zlib level 9). Includes all files and folders from working directory.
+> 📄 **Metadata**: Auto-generates `_backup-metadata.json` with version, creation timestamp, source directory, file count, and total uncompressed size.
+> ⚠️ **Excludes**: Backup directory itself is included in backup (may cause circular references; archiver handles this gracefully).
+
+---
+
+### `list_backups` — List available backups
+
+List all available backup files in the current working directory's `.ai_toolbox_backups/` folder.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `sortBy` | `'date' \| 'size'` | No | Sort order: `"date"` (newest first) or `"size"` (largest first, default: `date`) |
+| `limit` | `number` | No | Maximum number of backups to return (default: 50, max: 1000) |
+
+**Returns**: `{ success: true, data: { backups: Array<{filename, path, sizeBytes, createdAt}>, totalCount, returnedCount } }` or empty array if no backups exist.
+
+---
+
+### `restore_backup` — Restore from backup archive (⚠️ Destructive)
+
+Restore the working directory from a backup archive. **This will OVERWRITE ALL FILES in the current working directory!**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `backupFile` | `string` | Yes | Backup filename to restore (e.g., `"project-backup-2024-06-12T21-59-00.zip"`) |
+| `confirm` | `boolean` | Yes | ⚠️ MUST be true to confirm restoration. This is a safety check against accidental data loss. |
+
+**Returns**: `{ success: true, data: { message, backupFile, restoredFilesCount, timestamp } }` or error if confirmation is false or file not found.
+
+> ⚠️ **WARNING**: All existing files in the working directory will be overwritten or deleted if not present in the backup.
+> 🛡️ **Safety Features**: Requires explicit `confirm=true`. Uses temporary extraction directory to validate archive before restoration. Cleans up temp directory after restore.
+
+---
+
+### `delete_backup` — Delete a backup file (⚠️ Destructive)
+
+Delete a backup file from the `.ai_toolbox_backups/` folder. **This action is IRREVERSIBLE!**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `backupFile` | `string` | Yes | Backup filename to delete (e.g., `"project-backup-2024-06-12T21-59-00.zip"`) |
+| `confirm` | `boolean` | Yes | ⚠️ MUST be true to confirm deletion. This is a safety check against accidental data loss. |
+
+**Returns**: `{ success: true, data: { message, deletedFile, timestamp } }` or error if confirmation is false or file not found.
+
+> ⚠️ **WARNING**: Backup file is permanently deleted. No undo available.
+> 🔒 **Safety**: Only allows deletion of `.zip` files from the backup directory. Requires explicit `confirm=true`.
+
+
+---
+
+## ⚙️ Background Commands Tools (3)
+
+### `run_background_command` — Start long-running process in background
+
+Start a long-running process in the background. The process is not blocked and runs independently.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `command` | `string` | Yes | The shell command to execute (must pass sanitization) |
+| `timeout_hours` | `number` | Yes | MANDATORY: How long the process is allowed to run before being killed (0.1–10 hours) |
+| `name` | `string` | Yes | MANDATORY: A short, descriptive name for the background task |
+
+**Returns**: `{ success: true, data: { id, name, command, timeoutHours } }` or error if command is unsafe or registration fails.
+
+> 🛡️ **Security**: Uses `sanitizeCommand()` to block dangerous patterns before execution.
+> ⏱️ **Auto-Termination**: Process is automatically killed after `timeout_hours` expires. Use `check_background_command` to monitor status.
+
+---
+
+### `check_background_command` — Check background command status
+
+Check the status, stdout, and stderr of a running or completed background command.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `id` | `string` | Yes | The command identifier (returned by `run_background_command`) |
+
+**Returns**: `{ success: true, data: { id, name, status, stdout?, stderr?, startTime?, endTime? } }` or error if command not found.
+
+> 📊 **Status Values**: `"running"`, `"completed"`, `"failed"`, `"killed"` (timeout).
+> 🔍 **Output Access**: Captures stdout/stderr from background process. Available after completion.
+
+---
+
+### `cancel_background_command` — Kill a running background command
+
+Kill a running background command immediately.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `id` | `string` | Yes | The command identifier (returned by `run_background_command`) |
+
+**Returns**: `{ success: true, data: { id, cancelled: true } }` or error if command not found or already stopped.
+
+
+---
+
+## 🖥️ System Awareness Tools (1)
+
+### `detect_os_environment` — Explicit OS & Shell Detection
+
+Explicitly detects and reports the current operating system environment with detailed capabilities. Use this at the start of any session or before executing shell commands to ensure correct syntax (e.g., PowerShell vs Bash, Windows paths vs POSIX).
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| *(none)* | — | — | No parameters required |
+
+**Returns**: `{ success: true, data: { osPlatform, osArch, osRelease, hostname, shellType, defaultTerminal, pathSeparator, envVarSyntax, recommendedCommands, warning } }`
+
+> 💡 **RECOMMENDED USAGE:**
+> • Call immediately when starting a new task that involves file paths, shell commands, or environment variables
+> • Use whenever switching contexts between different machines or environments
+> • Reference the `"Recommended Command Syntax"` section before generating any terminal commands
+> 🛡️ **Prevents Cross-Platform Errors**: Automatically detects Windows vs POSIX environments and outputs explicit warnings + syntax recommendations to avoid command mismatches (e.g., `rm` on Windows, path separators, env var syntax).
+

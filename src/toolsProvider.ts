@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Tools Provider - Complete Implementation of all ~45 tools across 6 categories
  */
 
@@ -40,7 +40,8 @@ type TypedTool = Tool & {
 };
 
 // Global config reference to ensure toolsProvider uses the latest user settings
-let currentConfig: PluginConfig = DEFAULT_CONFIG;
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+let _currentConfig: PluginConfig = DEFAULT_CONFIG;
 
 /**
  * Central registry for all available tools.
@@ -49,7 +50,7 @@ let currentConfig: PluginConfig = DEFAULT_CONFIG;
 class ToolRegistry {
   private toolMap = new Map<string, TypedTool>();
 
-  registerAll(config: PluginConfig, stateManager: StateManager, backgroundCommandManager: BackgroundCommandManager, lmClient?: any): void {
+  registerAll(config: PluginConfig, stateManager: StateManager, backgroundCommandManager: BackgroundCommandManager, _lmClient?: any): void {
     if (config.godMode || isToolEnabled(config, 'fileSystem')) {
       registerFileSystemTools(config, stateManager).forEach(t => this.toolMap.set(t.name, t as TypedTool));
     }
@@ -165,7 +166,7 @@ export class ToolsProvider {
       const result = await impl(params);
       
       // Update state with execution result
-      this.stateManager.set(`last_${toolName}`, result);
+      await this.stateManager.set(`last_${toolName}`, result);
       
       return result;
     } catch (error) {
@@ -215,7 +216,7 @@ export function createToolsProvider(config?: PluginConfig): ToolsProvider {
  * 
  * NOTE: Must be async — SDK type requires Promise<Tool[]>.
  */
-export async function toolsProvider(ctl: ToolsProviderController, lmClient?: any): Promise<Tool[]> {
+export async function toolsProvider(ctl: ToolsProviderController, _lmClient?: any): Promise<Tool[]> {
   // FIX: Read configuration dynamically from UI controller (like beledarians plugin)
   const pluginConfig = ctl.getPluginConfig(configSchematics);
   
@@ -225,6 +226,7 @@ export async function toolsProvider(ctl: ToolsProviderController, lmClient?: any
     webSearch: pluginConfig.get('webSearch'),
     browserAutomation: pluginConfig.get('browserAutomation'),
     gitOperations: pluginConfig.get('gitOperations'),
+    packageManage: pluginConfig.get('packageManage'),
     databaseQueries: pluginConfig.get('databaseQueries'),
     documentParsing: pluginConfig.get('documentParsing'),
     backgroundCommands: pluginConfig.get('backgroundCommands'),
@@ -284,5 +286,5 @@ export async function toolsProvider(ctl: ToolsProviderController, lmClient?: any
  * Call this from main() to ensure toolsProvider uses the latest user settings.
  */
 export function updateGlobalConfig(config: PluginConfig): void {
-  currentConfig = config;
+  _currentConfig = config;
 }

@@ -104,14 +104,16 @@ class LocalVectorStore {
       .sort((a, b) => b.score - b.score)
       .slice(0, topK)
       .map(({ id, score }) => {
-        const entry = this.documents.get(id)!;
+        const entry = this.documents.get(id);
+        if (!entry) return null;
         return {
           id: entry.chunk.id,
           text: entry.chunk.text,
           score,
           metadata: entry.chunk.metadata,
         };
-      });
+      })
+      .filter((e): e is NonNullable<typeof e> => e !== null);
   }
 
   /** Clear all documents */
@@ -224,7 +226,6 @@ function generateEmbedding(text: string): Float32Array {
  */
 async function ragIndexFiles({ 
   directoryPath, 
-  filePattern = '*.{ts,js,tsx,jsx,md,json,yaml,yml,toml,txt}',
   batchSize = 10 
 }: RagIndexFilesParams): Promise<unknown> {
   try {
@@ -313,7 +314,7 @@ async function ragIndexFiles({
       }
     }
 
-    console.log('\n[AI Toolbox] Indexing complete');
+    console.warn('\n[AI Toolbox] Indexing complete');
 
     return {
       success: true,
@@ -389,7 +390,7 @@ async function ragWebContent({ url, query }: RagWebContentParams): Promise<unkno
     let parsedUrl: URL;
     try {
       parsedUrl = new URL(url);
-    } catch (e) {
+    } catch {
       return { success: false, error: `Invalid URL: ${url}` };
     }
 
@@ -500,7 +501,7 @@ export function registerRagTools(_config: PluginConfig): Tool[] {
     parameters: {
       confirm: z.boolean().describe('Set to true to confirm clearing the index'),
     },
-    implementation: async (params) => ragClearIndex(params as RagClearIndexParams),
+    implementation: async (params) => ragClearIndex(params),
   }));
 
   // rag_web_content tool (NEW)
@@ -511,7 +512,7 @@ export function registerRagTools(_config: PluginConfig): Tool[] {
       url: z.string().url().describe('The URL to fetch'),
       query: z.string().describe('The search query for relevance matching'),
     },
-    implementation: async (params) => ragWebContent(params as RagWebContentParams),
+    implementation: async (params) => ragWebContent(params),
   }));
 
   return tools;
