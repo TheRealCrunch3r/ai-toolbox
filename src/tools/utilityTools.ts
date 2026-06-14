@@ -460,7 +460,9 @@ export function registerUtilityTools(config: PluginConfig, stateManager: StateMa
     parameters: {},
     implementation: async () => {
       try {
-        const keys = stateManager.getAllKeys().filter(k => k.startsWith('memory_'));
+        // FIX: getAllKeys() is now async — await initialization completion
+        const allKeys = await stateManager.getAllKeys();
+        const keys = allKeys.filter(k => k.startsWith('memory_'));
         const memories = [];
 
         for (const key of keys) {
@@ -498,7 +500,9 @@ export function registerUtilityTools(config: PluginConfig, stateManager: StateMa
     },
     implementation: async ({ query }: { query: string }) => {
       try {
-        const keys = stateManager.getAllKeys().filter(k => k.startsWith('memory_'));
+        // FIX: getAllKeys() is now async — await initialization completion
+        const allKeys = await stateManager.getAllKeys();
+        const keys = allKeys.filter(k => k.startsWith('memory_'));
         const results = [];
 
         for (const key of keys) {
@@ -620,7 +624,8 @@ export function registerUtilityTools(config: PluginConfig, stateManager: StateMa
     parameters: {},
     implementation: async () => {
       try {
-        const keys = stateManager.getAllKeys();
+        // FIX: getAllKeys() is now async — await initialization completion
+        const keys = await stateManager.getAllKeys();
         
         // Find all session summary IDs (sorted by timestamp, newest first)
         const uniqueIds = keys

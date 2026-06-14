@@ -40,6 +40,8 @@ export const ConfigSchema = z.object({
   uiGeneration: z.boolean().default(false).describe('Enable interactive UI generation and rendering tools'),
   contextManagement: z.boolean().default(true).describe('Enable automatic context tracking and memory management'),
 
+  textProcessing: z.boolean().default(true).describe('Enable text processing tools (sed/awk equivalents)'),
+
 
 
   // ── ⚠️ GOD MODE (Enable ALL tools at once) ──────────────────────
@@ -191,6 +193,7 @@ export const DEFAULT_CONFIG: PluginConfig = {
   vectorRAG: true,
   uiGeneration: false,
   contextManagement: true,
+  textProcessing: true,
 
 
 
@@ -252,7 +255,7 @@ export const DEFAULT_CONFIG: PluginConfig = {
 
   // ── 🧠 CONTEXT GUARD SETTINGS ───────────────────────────────────
   contextGuardEnabled: true,
-  contextGuardTokenLimit: 80000,           // ~80k tokens before compression (90% = 72k threshold)
+  contextGuardTokenLimit: 30000,           // ~30k tokens before compression (90% = 27k threshold)
   contextGuardSmartReading: true,
   contextGuardSummaryModel: '',            // Empty = use current chat model
   contextGuardTerminalFilterEnabled: true,
@@ -292,7 +295,7 @@ export function validateConfig(input: unknown): PluginConfig {
 /**
  * Check if a tool category is enabled in config
  */
-export function isToolEnabled(config: PluginConfig, category: keyof Pick<PluginConfig, 'fileSystem' | 'webSearch' | 'browserAutomation' | 'gitOperations' | 'databaseQueries' | 'documentParsing' | 'backgroundCommands' | 'imageProcessing' | 'httpClient' | 'vectorRAG' | 'uiGeneration' | 'contextManagement'>): boolean {
+export function isToolEnabled(config: PluginConfig, category: keyof Pick<PluginConfig, 'fileSystem' | 'webSearch' | 'browserAutomation' | 'gitOperations' | 'databaseQueries' | 'documentParsing' | 'backgroundCommands' | 'imageProcessing' | 'httpClient' | 'vectorRAG' | 'uiGeneration' | 'contextManagement' | 'textProcessing'>): boolean {
   return config[category] === true;
 }
 
@@ -495,15 +498,25 @@ export const configSchematics = createConfigSchematics()
 
   // 📚 DOCUMENT RAG / CHAT WITH FILES 📚
 
+
+
+  // 📚 DOCUMENT RAG / CHAT WITH FILES 📚
+
   .field('documentRAG', 'boolean', { 
-
     displayName: '📚 Document RAG / Chat with Files', 
-
     subtitle: 'Enable file indexing and semantic search for chat',
-
     hint: 'Attach documents to your chat messages. The plugin will automatically retrieve relevant content from attached files using semantic search.',
-
   }, DEFAULT_CONFIG.documentRAG)
+
+
+  .field('textProcessing', 'boolean', { 
+    displayName: '📝 Text Processing Tools (sed/awk equivalents)', 
+    subtitle: 'Regex-based text transformations and field extraction',
+    hint: 'Enable tools for bulk text replacement, pattern matching, and structured data extraction without shell dependencies.',
+  }, DEFAULT_CONFIG.textProcessing)
+
+
+
 
   
 

@@ -1,12 +1,28 @@
 # 🧰 AI Toolbox — LM Studio Plugin
 
-> **100 tools** across 15 categories: file system, web research, browser automation, Git/GitHub, database, document parsing, background commands, code execution, utilities, image processing, HTTP client, vector RAG, interactive UI generation, auto-context management, and backup & restore.
+> **101 tools** across 16 categories: file system, web research, browser automation, Git/GitHub, database, document parsing, background commands, code execution, utilities, image processing, HTTP client, vector RAG, interactive UI generation, auto-context management, and backup & restore.
 
 ---
 
 ## 📢 Recent Updates
 
+### StateManager Async Race Condition Fix - Session Summaries Now Reliable (2026-06-14)
+
+Fixed critical bug where `get_session_summary` returned "No session summaries found" despite data existing on disk.
+
+**Root Cause**: Fire-and-forget async constructor in `StateManager` caused `loadFromFile()` to complete after queries already executed, leaving the in-memory Map empty.
+
+**Fix**:
+- Added `_ready: Promise<void>` field + `ensureReady()` method - callers now wait for initialization before reading state
+- Constructor awaits `loadFromFile()` instead of fire-and-forget pattern  
+- Changed `getAllKeys()` return type from `string[]` to `Promise<string[]>` with await in all callers (`get_memory`, `search_memory`, `get_session_summary`)
+- Verified: `npm run typecheck` -> 0 errors, `npm run build` -> success, `npm run lint` -> 0 errors
+
+**Impact**: Session summaries now reliably persist and retrieve across LM Studio restarts
+
+
 ### ⚡ Performance Optimization & Documentation Accuracy (2026-06-13)
+
 Major refactoring to eliminate blocking I/O and align documentation with actual source code:
 - **Sync → Async Conversion**: Converted 200+ sync operations across 6 files (`fileSystemTools`, `documentTools`, `stateManager`, `contextManagementTools`, `backupTools`, `gitGithubTools`)
 - **Lint/Typecheck Fixes**: Resolved all ESLint errors and TypeScript compilation errors
@@ -131,6 +147,7 @@ Fixed **14 TypeScript errors** across 7 files:
 | 🔌 **HTTP Client** | REST API client with SSRF protection |
 | 📊 **Vector RAG** | Semantic search with local embeddings, persistent state, web content fetching |
 | 📚 **Document RAG** | Chat with attached files or disk paths (PDF, DOCX, TXT) |
+| 📝 **Text Processing** | Regex substitutions (`text_transform`), field extraction from delimited files (`text_extract`), line insert/delete/move operations (`line_operations`) - sed/awk-like functionality without shell dependencies |
 | 🎨 **Interactive UI Generation** | Generate and render HTML/CSS/JS components (buttons, forms, charts, dashboards) |
 | 💾 **Backup & Restore** | Create compressed ZIP backups of plugin state with path traversal protection |
 | 🧠 **Auto-Context Management** | Automatic session tracking, decision logging, and persistent memory retrieval |
@@ -175,6 +192,9 @@ Fixed **14 TypeScript errors** across 7 files:
 ### Vector RAG (4 tools) 🆕
 `rag_index_files` · `rag_query_vector` · `rag_clear_index` · **`rag_web_content`**
 
+### Text Processing (3 tools)
+`text_transform` · `text_extract` · `line_operations`
+
 ### Interactive UI Generation (3 tools)
 `generate_ui_component` · `render_and_preview_ui` · `extract_ui_data`
 
@@ -199,7 +219,7 @@ The plugin is installed as an LM Studio plugin. Ensure you have:
 
 1. **Load the plugin** in LM Studio's plugin settings
 2. **Configure tool access** — individual tool categories can be toggled on/off
-3. **Start a chat** and the LLM can now use any of the 100 tools
+3. **Start a chat** and the LLM can now use any of the 101 tools
 
 ### Example: Search the Web
 

@@ -26,6 +26,7 @@ import { registerUiGenerationTools } from './tools/uiGenerationTools';
 import { registerContextManagementTools } from './tools/contextManagementTools';
 import { registerDocumentTools } from './tools/documentTools';
 import { registerBackupTools } from './tools/backupTools';
+import { registerTextProcessingTools } from './tools/textProcessingTools';
 
 // ==================== TYPES ====================
 
@@ -82,6 +83,9 @@ class ToolRegistry {
     }
     if (config.godMode || isToolEnabled(config, 'vectorRAG')) {
       registerRagTools(config).forEach(t => this.toolMap.set(t.name, t as TypedTool));
+    }
+    if (config.godMode || isToolEnabled(config, 'textProcessing')) {
+      registerTextProcessingTools(config).forEach(t => this.toolMap.set(t.name, t as TypedTool));
     }
     if (config.godMode || isToolEnabled(config, 'uiGeneration')) {
       registerUiGenerationTools(config).forEach(t => this.toolMap.set(t.name, t as TypedTool));
@@ -235,6 +239,7 @@ export async function toolsProvider(ctl: ToolsProviderController, _lmClient?: an
     vectorRAG: pluginConfig.get('vectorRAG'),
     uiGeneration: pluginConfig.get('uiGeneration'),
     contextManagement: pluginConfig.get('contextManagement'),
+    textProcessing: pluginConfig.get('textProcessing'),
     godMode: pluginConfig.get('godMode'),
     documentRAG: pluginConfig.get('documentRAG'),
     retrievalLimit: pluginConfig.get('retrievalLimit'),

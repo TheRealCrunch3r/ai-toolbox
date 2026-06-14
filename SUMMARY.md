@@ -2,7 +2,7 @@
 
 ## Description
 
-**AI Toolbox** is a comprehensive, production-grade plugin for **LM Studio** that extends LLM capabilities by exposing **100 system tools** directly to the model via function calling. It bridges the gap between conversational AI and real-world host system operations, enabling autonomous file management, web research, browser automation, code execution, database queries, document parsing, image processing, Git/GitHub integration, HTTP client operations, vector/document RAG, interactive UI generation, auto-context management, backup & restore functionality—all within a secure, sandboxed environment.
+**AI Toolbox** is a comprehensive, production-grade plugin for **LM Studio** that extends LLM capabilities by exposing **101 system tools** directly to the model via function calling. It bridges the gap between conversational AI and real-world host system operations, enabling autonomous file management, web research, browser automation, code execution, database queries, document parsing, image processing, Git/GitHub integration, HTTP client operations, vector/document RAG, interactive UI generation, auto-context management, backup & restore functionality—all within a secure, sandboxed environment.
 
 ---
 
@@ -36,6 +36,8 @@ AI Toolbox transforms passive language models into **active problem-solvers** by
 | 🔌 **HTTP Client** | 3 | REST API client with SSRF protection and timeout handling |
 | 📊 **Vector RAG** | 4 | Semantic search with local embeddings, persistent state via singleton pattern (`getSharedStore()`), web content fetching (`rag_web_content`), actual query results (no more placeholders) |
 | 📚 **Document RAG** | 1 | Chat with attached files or disk paths (PDF via `pdf-parse`, DOCX via `mammoth`, TXT, MD) via prompt preprocessing |
+| 📝 **Text Processing** | 3 | Regex substitutions (`text_transform`), field extraction from delimited files (`text_extract`), line insert/delete/move operations (`line_operations`) - sed/awk-like functionality without shell dependencies |
+
 | 🎨 **Interactive UI Generation** | 3 | Generate and render HTML/CSS/JS components: buttons, forms, charts (Chart.js), dashboards — cross-platform file URL handling with Puppeteer preview |
 | 💾 **Backup & Restore** | 4 | Create compressed ZIP backups of plugin state (`archiver` v8) with path traversal protection; explicit confirmation required for destructive operations |
 | 🧠 **Auto-Context Management** | 7 | Automatic session tracking, decision logging, persistent memory retrieval, configurable auto-summary intervals via `auto_summarize_context`, `get_context_memory`, `search_context`, `context_summary`, `delete_context_entry`, `clear_context_memory`, `track_important_event` |

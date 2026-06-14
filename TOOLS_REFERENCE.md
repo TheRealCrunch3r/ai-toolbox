@@ -2,7 +2,63 @@
 
 Complete reference for all **100 tools** in the AI Toolbox plugin, organized by category.
 
+
 ---
+
+## Text Processing Tools (3)
+
+### `text_transform`
+
+Apply regex-based text transformations to files. Supports substitution, line ranges, and capture groups. Safer than shell sed - no command injection risk.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `file_name` | `string` | Yes | File path |
+| `pattern` | `string` | Yes | Regex or literal pattern to match |
+| `replacement` | `string` | No | Replacement text (supports $1, $2 for capture groups) |
+| `flags` | `string` | No | Flags: g=global, i=case-insensitive, gi=both (default: g) |
+| `lines` | `{start: number, end?: number}` | No | Line range to apply transformation |
+| `backup` | `boolean` | No | Create .bak file before modifying (default: false) |
+| `dry_run` | `boolean` | No | Preview changes without writing to disk (default: false) |
+
+**Returns**: `{ success: true, data: { modified: boolean, backup_path?: string } }`
+
+---
+
+### `text_extract`
+
+Extract structured data from text files using pattern matching and field extraction. Like awk for parsing logs, CSVs, TSVs, or any delimited text.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `file_name` | `string` | Yes | File path |
+| `pattern` | `string` | No | Regex to filter lines (optional) |
+| `fields` | `number[]` | No | Field indices to extract (0-based, e.g., [0, 2] for first and third columns) |
+| `delimiter` | `string` | No | Field separator character (default: tab) |
+| `output_format` | `string` | No | Output format: list, json, csv (default: json) |
+
+**Returns**: `{ success: true, data: { results: Array } }`
+
+---
+
+### `line_operations`
+
+Insert, delete, or reorder lines in a file. Like awk for line-level operations without shell dependencies.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `file_name` | `string` | Yes | File path |
+| `operation` | `string` | Yes | Operation: insert, delete, move |
+| `target_line` | `number` | No | Target line number (1-indexed) for insert/delete/move |
+| `content` | `string` | No | For insert operation - text to insert |
+| `move_from` | `number` | No | Source line for move operation |
+| `move_to` | `number` | No | Destination line for move operation |
+
+**Returns**: `{ success: true, data: { modified: boolean } }`
+
+---
+
+
 
 ## 📁 File System Tools (21)
 

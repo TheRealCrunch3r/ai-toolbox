@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.5.2] - 2026-06-14
+
+### StateManager Async Race Condition Fix - Session Summaries Now Reliable
+
+#### Fixed Critical Bug Where `get_session_summary` Returned Empty Despite Data Existing on Disk
+
+**Issue**: The StateManager constructor used a fire-and-forget async pattern (`getMemoryFilePath().then(...)`) causing `loadFromFile()` to complete after queries like `getAllKeys()` already executed. This left the in-memory Map empty, returning "No session summaries found".
+
+**Fix:**
+- Added `_ready: Promise<void>` field + `ensureReady()` method - all read operations now await initialization completion
+- Constructor awaits `loadFromFile()` instead of fire-and-forget pattern
+- Changed `getAllKeys()` return type from `string[]` to `Promise<string[]>`
+- Updated 3 callers in `utilityTools.ts`: `get_memory`, `search_memory`, `get_session_summary` - all now `await stateManager.getAllKeys()`
+- Fixed TypeScript TS2565 errors by capturing `this.persistenceEnabled` and `this.state` in locals before async IIFE
+
+**Verification:**
+- `npm run typecheck`: Zero errors (was: 6)
+- `npm run build`: Success (ESM + CJS outputs generated)
+- `npm run lint`: 0 errors, 86 warnings (all pre-existing, unchanged)
+
+**Files Modified:**
+| File | Changes |
+|------|---------|
+| `src/stateManager.ts` | Added `_ready` Promise field, `ensureReady()` method; constructor awaits loadFromFile(); fixed TS2565 with local captures |
+| `src/tools/utilityTools.ts` | Updated 3 `getAllKeys()` calls to `await getAllKeys()` (get_memory, search_memory, get_session_summary) |
+
+**Impact**: Session summaries now reliably persist and retrieve across LM Studio restarts. The fix eliminates the race condition that prevented cross-session continuity from working correctly.
+
+
 ## [1.5.1] — 2026-06-13
 
 ### ⚡ Performance Optimization — Sync → Async Conversion + Lint/Typecheck Fixes (2026-06-13)

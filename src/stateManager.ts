@@ -50,6 +50,9 @@ export class StateManager {
   private persistenceEnabled: boolean;
   private memoryFile!: string; // NON-NULL ASSERTION (TS2564 fix)
   private runningSize: number; // Track size incrementally for O(1) checks
+  
+  /** FIX: Tracks initialization completion so reads wait for data */
+  private _ready!: Promise<void>;
 
   constructor(config?: PluginConfig) {
     this.state = new Map();
@@ -58,21 +61,33 @@ export class StateManager {
     this.maxSize = effectiveConfig.stateMaxSize;
     this.persistenceEnabled = effectiveConfig.statePersistenceEnabled;
     
-    // Resolve path immediately — ASYNC call (fire and forget)
-    getMemoryFilePath().then(resolvedPath => {
-      this.memoryFile = resolvedPath;
-      
-      // Auto-load from disk if persistence is enabled
-      if (this.persistenceEnabled && this.state.size === 0) {
-        void this.loadFromFile();  // Fire and forget for constructor context
-      } else {
-        logger.warn('State persistence is DISABLED. Data will not survive reloads.');
+    // FIX: Capture values in locals to satisfy TypeScript control flow analysis
+    // (async callbacks run later, so TS doesn't track constructor assignments)
+    const persistenceEnabled = this.persistenceEnabled;
+    const stateMap = this.state;
+    
+    // FIX: Synchronous initialization path — no fire-and-forget race condition
+    this._ready = (async () => {
+      try {
+        const resolvedPath = await getMemoryFilePath();
+        this.memoryFile = resolvedPath;
+        
+        if (persistenceEnabled && stateMap.size === 0) {
+          await this.loadFromFile(); // Now awaited, not fire-and-forget
+        } else {
+          logger.warn('State persistence is DISABLED. Data will not survive reloads.');
+        }
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        logger.warn(`Failed to initialize state manager: ${message}`);
+        this.memoryFile = path.join(__dirname, '..', '.ai_toolbox_memory.json'); // Fallback
       }
-    }).catch((err: unknown) => {
-      const message = err instanceof Error ? err.message : String(err);
-      logger.warn(`Failed to resolve memory file path: ${message}`);
-      this.memoryFile = path.join(__dirname, '..', '.ai_toolbox_memory.json');  // Fallback
-    });
+    })();
+  }
+
+  /** FIX: Ensure initialization completes before reading/writing */
+  private async ensureReady(): Promise<void> {
+    return this._ready;
   }
 
   /**
@@ -138,9 +153,10 @@ export class StateManager {
   }
 
   /**
-   * Get all state keys.
+   * Get all state keys. FIX: Waits for initialization if not ready yet.
    */
-  getAllKeys(): string[] {
+  async getAllKeys(): Promise<string[]> {
+    await this.ensureReady(); // FIX: Ensure data is loaded before reading keys
     return Array.from(this.state.keys());
   }
 
