@@ -1,6 +1,48 @@
-﻿---
-
 ---
+
+---
+
+## [1.5.4] - 2026-06-14
+
+### Backup Safety & Confirmation Workflow (Critical UX Fix)
+
+#### Added Two-Step Confirmation Process to Prevent Accidental Backups of Wrong Directories
+
+**Issue:** The `create_backup` tool would silently create backups of whatever directory the LM Studio SDK provided at runtime. When loaded in sandboxed/temporary contexts, this resulted in empty or unintended directories being backed up -- wasting disk space and confusing users.
+
+**Fix:**
+- **Confirmation Required**: First call without `confirm: true` shows preview (directory path, file count, backup destination) and instructs user to proceed
+- **Explicit Confirmation**: Second call with `{ confirm: true }` triggers actual archive creation
+- **Custom Directory Support**: Added `targetDirectory` parameter to explicitly specify which folder to back up (bypasses SDK sandbox context entirely)
+- **Detailed Preview Response**: Returns structured JSON with `workingDirectory`, `filesFound`, `directoryExists`, `backupDestination`, and step-by-step instructions
+
+**Implementation Details:**
+| File | Changes |
+|------|---------|
+| `src/tools/backupTools.ts` | Tool 1 (`create_backup`): Added `confirm` & `targetDirectory` parameters; two-phase workflow (preview -> confirm); preview phase scans directory and returns metadata without creating archives |
+
+**Usage:**
+```json
+// Step 1: Preview
+{}
+-> Shows confirmation dialog with working dir info
+
+// Step 2: Confirm & Create
+{ "confirm": true }
+-> Creates backup of confirmed directory
+
+// Custom path (bypasses sandbox)
+{ "confirm": true, "targetDirectory": "C:\\Projects\\my-app" }
+-> Backs up specified custom path
+```
+
+**Impact:**
+- Zero accidental backups of empty/incorrect directories
+- Full user control over backup target selection
+- Clear error messages and instructions when directory is wrong or missing
+
+---
+
 
 ## [1.5.3] - 2026-06-14
 

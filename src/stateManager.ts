@@ -57,9 +57,17 @@ export class StateManager {
   constructor(config?: PluginConfig) {
     this.state = new Map();
     this.runningSize = 0;
-    const effectiveConfig = config || DEFAULT_CONFIG;
-    this.maxSize = effectiveConfig.stateMaxSize;
-    this.persistenceEnabled = effectiveConfig.statePersistenceEnabled;
+    
+    // FIX: Use DEFAULT_CONFIG as fallback, then merge with passed config (if any)
+    const defaults = typeof DEFAULT_CONFIG !== 'undefined' ? DEFAULT_CONFIG : {};
+    const effectiveConfig = { ...defaults, ...(config || {}) };
+
+    this.maxSize = effectiveConfig.stateMaxSize ?? 10240;
+    
+    // FIX: Default to true even when no config is passed (e.g. in tests or standalone usage)
+    this.persistenceEnabled = effectiveConfig.statePersistenceEnabled !== undefined 
+      ? effectiveConfig.statePersistenceEnabled 
+      : true;
     
     // FIX: Capture values in locals to satisfy TypeScript control flow analysis
     // (async callbacks run later, so TS doesn't track constructor assignments)

@@ -1,0 +1,17 @@
+[
+  {
+    "id": "ctx_1781451335089_4fcg0o971",
+    "timestamp": 1781451335089,
+    "type": "decision",
+    "title": "Session v1.5.3 release preparation complete — backup atomic write + read_file auto-chunk (2026-06-14)",
+    "content": "Complete session preparing v1.5.3 release for LM Studio AI Toolbox plugin. Key work: (1) Fixed create_backup empty file bug by implementing atomic write pattern in backupTools.ts — writes to .tmp first, error cleanup, size validation (>22B), atomic rename; (2) Documented both changes in CHANGELOG.md [1.5.3] section and README.md Recent Updates; (3) All 265 tests pass with zero regressions; (4) SDK @lmstudio/sdk ^1.5.0 confirmed current, no breaking changes. Ready for git commit + tag v1.5.3 push to GitHub.",
+    "tags": [
+      "release-1.5.3",
+      "backup-tools",
+      "atomic-write",
+      "read-file-chunk",
+      "session-summary",
+      "documentation"
+    ]
+  }
+]
