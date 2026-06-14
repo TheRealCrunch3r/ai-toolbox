@@ -98,6 +98,7 @@ WITH CUSTOM NAME:
         }
 
         const backupPath = path.join(BACKUP_DIR, backupName);
+        const tempBackupPath = backupPath + '.tmp';  // Write to temp file first — atomic pattern ===
 
         // Collect ALL files from working directory — ASYNC ===
         const allFiles = await collectAllFiles(workingDir);  // ASYNC call
@@ -111,36 +112,55 @@ WITH CUSTOM NAME:
         }
 
         // Create ZIP archive with ALL files — ASYNC ===
-        const output = fs.createWriteStream(backupPath);  // Already async stream
+        const output = fs.createWriteStream(tempBackupPath);  // Write to temp file first (prevents empty files) ===
         const archive = archiver('zip', { zlib: { level: 9 } }); // Maximum compression
 
         return new Promise(async (resolve) => {  // MADE ASYNC to support await inside ===
           let totalSize = 0;
           let hasError = false;
 
-          archive.on('error', (err: Error) => {
+          archive.on('error', async (err: Error) => {
             hasError = true;
+            try { await fsp.rm(tempBackupPath, { force: true }); } catch {}
             resolve({ success: false, error: `Archive creation failed: ${err.message}` });
           });
 
-          output.on('error', (err: Error) => {
+          output.on('error', async (err: Error) => {
             hasError = true;
+            try { await fsp.rm(tempBackupPath, { force: true }); } catch {}
             resolve({ success: false, error: `Write failed: ${err.message}` });
           });
 
           output.on('close', async () => {  // ASYNC ===
             if (!hasError) {
-              const stats = await fsp.stat(backupPath);  // ASYNC stat
-              resolve({
-                success: true,
-                message: 'Backup created successfully',
-                backupPath: backupPath,
-                filename: backupName,
-                filesBackedUp: allFiles.length,
-                compressedSizeBytes: stats.size,
-                compressedSizeHuman: `${(stats.size / 1024).toFixed(2)} KB`,
-                createdAt: new Date().toISOString(),
-              });
+              try {
+                const stats = await fsp.stat(tempBackupPath);  // ASYNC stat on temp file ===
+
+                // Validate backup is not empty — ZIP files must be at least 22 bytes (magic + minimal archive overhead) ===
+                if (stats.size < 22) {
+                  try { await fsp.rm(tempBackupPath, { force: true }); } catch {}
+                  resolve({ success: false, error: 'Backup file is invalid or empty — the archive stream did not produce valid output.' });
+                  return;
+                }
+
+                // Atomic rename: temp → final path — ASYNC ===
+                await fsp.rename(tempBackupPath, backupPath);  // ASYNC rename (atomic on same filesystem) ===
+
+                resolve({
+                  success: true,
+                  message: 'Backup created successfully',
+                  backupPath: backupPath,
+                  filename: backupName,
+                  filesBackedUp: allFiles.length,
+                  compressedSizeBytes: stats.size,
+                  compressedSizeHuman: `${(stats.size / 1024).toFixed(2)} KB`,
+                  createdAt: new Date().toISOString(),
+                });
+              } catch (renameErr) {
+                const msg = renameErr instanceof Error ? renameErr.message : String(renameErr);
+                try { await fsp.rm(tempBackupPath, { force: true }); } catch {}
+                resolve({ success: false, error: `Finalizing backup failed: ${msg}` });
+              }
             }
           });
 

@@ -5,6 +5,20 @@
 ---
 
 ## 📢 Recent Updates
+### create_backup Atomic Write Pattern — No More Empty Orphan Files (2026-06-14)
+Fixed critical bug where failed backups left behind 0-byte `.zip` files on disk:
+- **Atomic write pattern** — Writes to `{name}.zip.tmp` first, only renames to final path on success
+- **Error cleanup** — Both `archive.on('error')` and `output.on('error')` handlers remove temp file if stream fails
+- **Size validation** — Rejects backups under 22 bytes (ZIP magic + minimal archive overhead) as invalid/empty
+- **Impact**: No more orphaned empty backup files polluting `.ai_toolbox_backups/` on failure ✅
+
+
+### 🛠️ `read_file` Auto-Chunk Fallback — No More Truncated Reads (2026-06-14)
+Fixed critical UX issue where large files were silently truncated, forcing manual retries with `read_file_chunked`:
+- **Automatic fallback** — When content exceeds `maxLength` (default 5k), `read_file` now automatically chunks and returns full structured output in one call
+- **Shared `_readFileWithChunks()` helper** — Handles binary detection, metadata tracking, and configurable chunking (default 50KB)
+- **Backward compatible** — Small files still return single-string format; large files return structured arrays with `index`, `startChar`, `endChar`, `truncated`
+- **Impact**: Eliminates wasted turns from truncated reads, improves reliability for AI agents working with large codebases ✅
 
 ### StateManager Async Race Condition Fix - Session Summaries Now Reliable (2026-06-14)
 

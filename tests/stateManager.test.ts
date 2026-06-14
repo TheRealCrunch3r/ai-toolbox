@@ -29,16 +29,16 @@ describe('StateManager', () => {
     expect(manager.get<string>('key1')).toBe(undefined);
   });
 
-  test('should get all keys', () => {
+  test('should get all keys', async () => {
     manager.set('a', 1);
     manager.set('b', 2);
-    expect(manager.getAllKeys()).toEqual(['a', 'b']);
+    await expect(manager.getAllKeys()).resolves.toEqual(['a', 'b']);
   });
 
-  test('should clear all state', () => {
+  test('should clear all state', async () => {
     manager.set('key1', 'value1');
     manager.clear();
-    expect(manager.getAllKeys()).toEqual([]);
+    await expect(manager.getAllKeys()).resolves.toEqual([]);
   });
 
   test('should enforce size limit', () => {

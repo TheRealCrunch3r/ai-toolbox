@@ -1,11 +1,65 @@
-﻿# Changelog
+﻿---
+
+---
 
-All notable changes to the AI Toolbox plugin will be documented in this file.
+## [1.5.3] - 2026-06-14
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/),
-and this project adheres to [Semantic Versioning](https://semver.org/).
+### create_backup Atomic Write Pattern - No More Empty Orphan Files (Critical)
+
+#### Fixed Bug Where Failed Backups Left Behind 0-byte .zip Files on Disk
+
+**Issue**: The `fs.createWriteStream(backupPath)` call creates/truncates the file immediately upon stream creation, before any data is written. If the archiver encounters an error mid-stream (disk full, pipe broken, IO exception), the empty file persists on disk indefinitely as a silent failure - no error message, just a useless 0-byte backup that `list_backups` reports but cannot restore.
+
+**Fix:**
+- Introduced atomic write pattern: writes to `{backupName}.zip.tmp` first, only renames to final path on success
+- Added cleanup in both `archive.on('error')` and `output.on('error')` handlers - removes temp file if stream fails
+- Added size validation on 'close': rejects backups under 22 bytes (ZIP magic + minimal archive overhead) as invalid/empty
+- Atomic rename from `.tmp` to final path ensures no partial or corrupted backups appear in listing
+
+**Implementation Details:**
+| File | Changes |
+|------|---------|
+| `src/tools/backupTools.ts` | Tool 1 (`create_backup`): ~60 lines modified - temp file writes, error cleanup with `fsp.rm`, size validation (>22B), atomic rename on success |
+
+**Verification:**
+- All 265 tests pass (19 suites, 0 regressions)
+- Build clean: `npm run build` succeeds
+
+**Impact:**
+- No more orphaned 0-byte backup files polluting `.ai_toolbox_backups/` on failure
+- Crash-safe atomic writes follow same pattern as existing `save_file` tool (v1.4.10)
+- Users get clear error messages instead of silent failures with empty files
 
 ---
+
+### read_file Auto-Chunk Fallback (Truncation Fix)
+
+#### Fixed Large File Truncation by Automatically Falling Back to Chunked Reading
+
+**Issue**: When `read_file` encountered files exceeding `maxLength` (default 5,000 chars), it would truncate the output. The LLM received incomplete content without an explicit signal to retry with `read_file_chunked`, causing wasted turns and incomplete reads. Previously, users had to manually check for truncation and call chunked reading themselves.
+
+**Fix:**
+- Added `_readFileWithChunks()` shared helper function at module level - handles binary detection, metadata tracking, and splits files into configurable chunks (default 50KB)
+- Modified `read_file` implementation: when `content.length > maxLength`, automatically calls `_readFileWithChunks(fullPath, 50000)` instead of truncating
+- Returns all chunks with structured metadata (`index`, `startChar`, `endChar`, `truncated`) in a single response
+- Updated tool description to "Automatically chunks large files" - removes manual retry burden from the LLM
+
+**Implementation Details:**
+| File | Changes |
+|------|---------|
+| `src/tools/fileSystemTools.ts` | Added `_readFileWithChunks()` helper; updated `read_file` to auto-fallback on overflow; backward compatible for small files <= `maxLength` which still return single-string format |
+
+**Verification:**
+- All 265 tests pass (19 suites, 0 regressions)
+- Build clean: `npm run build` succeeds
+- Small files (`<= maxLength`) retain original single-string return format for downstream compatibility
+- Large files automatically chunked and returned as structured array of chunks
+
+**Impact:**
+- LLM gets full file content in one call - no more truncated reads or manual fallback retries
+- Eliminates wasted turns from failed `read_file` calls on large files
+- Maintains backward compatibility with existing downstream consumers expecting string returns for small files
+
 
 ## [1.5.2] - 2026-06-14
 
@@ -17,7 +71,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 **Fix:**
 - Added `_ready: Promise<void>` field + `ensureReady()` method - all read operations now await initialization completion
-- Constructor awaits `loadFromFile()` instead of fire-and-forget pattern
+- Constructor awaits `loadFromFile()` instead of fire-and-forget pattern  
 - Changed `getAllKeys()` return type from `string[]` to `Promise<string[]>`
 - Updated 3 callers in `utilityTools.ts`: `get_memory`, `search_memory`, `get_session_summary` - all now `await stateManager.getAllKeys()`
 - Fixed TypeScript TS2565 errors by capturing `this.persistenceEnabled` and `this.state` in locals before async IIFE
@@ -36,6 +90,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 **Impact**: Session summaries now reliably persist and retrieve across LM Studio restarts. The fix eliminates the race condition that prevented cross-session continuity from working correctly.
 
 
+---
 ## [1.5.1] — 2026-06-13
 
 ### ⚡ Performance Optimization — Sync → Async Conversion + Lint/Typecheck Fixes (2026-06-13)

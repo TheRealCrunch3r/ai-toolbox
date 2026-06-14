@@ -45,6 +45,70 @@ function handleError(error: unknown): { success: false; error: string } {
   return { success: false, error: message };
 }
 
+
+/** Helper — reads file, checks binary, splits into chunks (shared by read_file & read_file_chunked) */
+async function _readFileWithChunks(
+  fullPath: string,
+  chunkSize: number,
+): Promise<{ success: true; data: { filePath: string; totalCharacters: number; chunksReturned: number; isTruncated: boolean; chunks: Array<{ index: number; content: string; startChar: number; endChar: number; truncated: boolean }> }; } | { success: false; error: string }> {
+  try {
+    const buffer = await fs.readFile(fullPath);
+
+    // Binary check: null byte in first 1KB
+    const checkBuffer = buffer.subarray(0, Math.min(buffer.length, 1024));
+    if (checkBuffer.includes(0)) {
+      return { success: false, error: 'Binary file detected. Use read_document for PDF/DOCX files.' };
+    }
+
+    const content = buffer.toString('utf-8');
+    const totalChars = content.length;
+
+    // If file fits within chunkSize, return it whole (no chunking needed)
+    if (totalChars <= chunkSize) {
+      return {
+        success: true,
+        data: {
+          filePath: fullPath,
+          totalCharacters: totalChars,
+          chunksReturned: 1,
+          isTruncated: false,
+          chunks: [{ index: 0, content, startChar: 0, endChar: totalChars, truncated: false }],
+        },
+      };
+    }
+
+    // Split into chunks manually (since read_file doesn't support offset/seek)
+    const chunks: Array<{ index: number; content: string; startChar: number; endChar: number; truncated: boolean }> = [];
+    let startIndex = 0;
+
+    for (let i = 0; i < Math.ceil(totalChars / chunkSize); i++) {
+      const endIndex = Math.min(startIndex + chunkSize, totalChars);
+      chunks.push({
+        index: i,
+        content: content.substring(startIndex, endIndex),
+        startChar: startIndex,
+        endChar: endIndex,
+        truncated: endIndex < totalChars,
+      });
+      startIndex = endIndex;
+    }
+
+    return {
+      success: true,
+      data: {
+        filePath: fullPath,
+        totalCharacters: totalChars,
+        chunksReturned: chunks.length,
+        isTruncated: startIndex < totalChars,
+        chunks,
+      },
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { success: false, error: message };
+  }
+}
+
 export function registerFileSystemTools(config: PluginConfig, _stateManager: StateManager): Tool[] {
   const tools: Tool[] = [];
 
@@ -79,7 +143,7 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
   // read_file tool — Hybrid: Early size check + Buffer binary detection + Truncation support
   tools.push(tool({
     name: 'read_file',
-    description: 'Read content from a file in the current working directory. ⚠️ WARNING: If output is truncated, you MUST retry with read_file_chunked to get the full content.',
+    description: 'Read content from a file in the current working directory. Automatically chunks large files to return all content without truncation.',
     parameters: {
       file_name: z.string().describe('The name of the file to read'),
       max_length: z.number().int().min(1).max(50000).optional().default(5000).describe('Maximum number of characters to return (default: 5000)'),
@@ -117,22 +181,21 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
         // Convert to string
         const content = buffer.toString('utf-8');
 
-        // Truncate if necessary and add metadata (AI Toolbox style)
-        let dataContent = content;
-        let truncated = false;
-        let totalLength = content.length;
-
+        // Auto-chunk if file exceeds maxLength — prevents truncation & manual retry
         if (content.length > maxLength) {
-          dataContent = content.substring(0, maxLength);
-          truncated = true;
+          const chunkResult = await _readFileWithChunks(fullPath, 50000);
+          if (!chunkResult.success) {
+            return { success: false, error: chunkResult.error };
+          }
+          return { success: true, data: chunkResult.data };
         }
 
+        // File fits within maxLength — return as single string (backward compatible)
         return { 
           success: true, 
           data: { 
-            content: dataContent,
-            filePath: fullPath, // ✅ FULL PATH
-            ...(truncated ? { truncated: true, total_length: totalLength } : {})
+            content: content,
+            filePath: fullPath,
           }
         };
       } catch (error) {
