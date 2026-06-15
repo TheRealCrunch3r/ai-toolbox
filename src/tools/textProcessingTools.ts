@@ -110,9 +110,9 @@ export function registerTextProcessingTools(_config: PluginConfig): Tool[] {
           return handleError(error);
         }
 
-        // Build regex with flags
+        // Build regex with flags (Zod guarantees valid input: 'g', 'i', or 'gi')
         const flagString = flags || 'g';
-        const regex = new RegExp(pattern, flagString.includes('i') ? `${flagString.replace('g', '')}gi` : flagString);
+        const regex = new RegExp(pattern, flagString);
 
         let changesApplied = 0;
         let transformedContent: string;
@@ -125,15 +125,15 @@ export function registerTextProcessingTools(_config: PluginConfig): Tool[] {
 
           for (let i = startLine - 1; i < endLine; i++) {
             if (replacement) {
-              // Count replacements in this line before applying
-              const matches = linesArray[i].match(new RegExp(pattern, 'g'));
+              // Count replacements in this line before applying (use same flags as main regex)
+              const matches = linesArray[i].match(new RegExp(pattern, flagString));
               if (matches) changesApplied += matches.length;
 
               // Apply replacement with capture groups ($1, $2, etc.)
               linesArray[i] = linesArray[i].replace(regex, replacement);
             } else {
-              // Delete matching lines by splicing the array
-              const matches = linesArray[i].match(new RegExp(pattern, 'g'));
+              // Delete matching lines by splicing the array (use same flags as main regex)
+              const matches = linesArray[i].match(new RegExp(pattern, flagString));
               if (matches) changesApplied += matches.length;
 
               // Remove the line and adjust loop bounds to avoid skipping indices

@@ -2,6 +2,48 @@
 
 ---
 
+## [1.5.7] - 2026-06-15
+
+### 🐛 text_transform Combined Flags Fix (Critical Bug Fix)
+
+#### Fixed Invalid RegExp Constructor Error When Using Combined 'gi' Flags
+
+**Issue:** The `text_transform` tool threw an error when using combined flags `'gi'`:
+```
+Invalid flags supplied to RegExp constructor 'igi'
+```
+
+**Root Cause:** Line 92 in `src/tools/textProcessingTools.ts` had a broken conditional that incorrectly concatenated regex flags:
+```typescript
+// ❌ OLD (buggy):
+const regex = new RegExp(pattern, flagString.includes('i') ? `${flagString.replace('g', '')}gi` : flagString);
+```
+
+When input was `'gi'`:
+1. `flagString.includes('i')` → true
+2. `flagString.replace('g', '')` → removes 'g' from 'gi' → leaves `'i'`
+3. Appends `'gi'` → result: **`'igi'`** — invalid RegExp flag
+
+**Fix:** Since Zod already validates `flags` to only accept `'g' | 'i' | 'gi'`, pass through directly without conditional manipulation:
+```typescript
+// ✅ NEW (fixed):
+const regex = new RegExp(pattern, flagString);
+```
+
+Also fixed the line-range section which was hardcoding `'g'` instead of using user-specified flags. Now uses `flagString` consistently everywhere in both full-file and line-range transformations.
+
+**Files Modified:**
+| File | Changes |
+|------|---------|
+| `src/tools/textProcessingTools.ts` | Fixed regex construction (line 92), fixed line-range section to use `flagString` instead of hardcoded `'g'` for pattern matching in both replacement and deletion modes |
+
+**Verification:**
+- ✅ `npm run typecheck`: Zero errors
+- ✅ `npm run build`: Success (ESM + CJS ~343 KB)
+- ✅ Manual test: Combined 'gi' flags now correctly match case-insensitive patterns globally (verified with uppercase/lowercase replacement)
+
+---
+
 ## [1.5.6] - 2026-06-15
 
 ### 🤖 Auto-Tracking Enabled by Default + Token Threshold Auto-Save (Critical UX Improvement)

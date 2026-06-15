@@ -7,6 +7,22 @@
 ---
 
 ## Overview
+### 🐛 Latest Update — text_transform Combined Flags Fix (2026-06-15)
+
+#### Overview
+
+This update documents the critical bug fix for `text_transform` tool that threw an error when using combined `'gi'` flags: `Invalid flags supplied to RegExp constructor 'igi'`.
+
+**Root Cause:** Line 92 in `src/tools/textProcessingTools.ts` had a broken conditional that incorrectly concatenated regex flags. When input was `'gi'`, the code removed 'g', leaving 'i', then appended 'gi' → result: `'igi'` (invalid).
+
+**Fix:** Since Zod already validates `flags` to only accept `'g' | 'i' | 'gi'`, pass through directly without conditional manipulation. Also fixed line-range section which was hardcoding `'g'` instead of using user-specified flags.
+
+**Files Modified:**
+| File | Changes |
+|------|---------|
+| `src/tools/textProcessingTools.ts` | Fixed regex construction (line 92), fixed line-range section to use `flagString` instead of hardcoded `'g'` for pattern matching in both replacement and deletion modes |
+
+---
 
 This document summarizes all documentation updates made to reflect the **security hardening**, **memory system fixes**, **TypeScript compilation cleanup**, **performance optimizations (sync → async)**, and **documentation accuracy corrections** across versions 1.4.x (v1.4.6 → v1.4.10), v1.5.0, and v1.5.1.
 

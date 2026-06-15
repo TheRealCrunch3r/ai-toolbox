@@ -6,6 +6,11 @@
 
 ## 📢 Recent Updates
 
+### 🐛 text_transform Combined Flags Fix (2026-06-15)
+Fixed critical bug where `text_transform` threw an error when using combined `'gi'` flags: `Invalid flags supplied to RegExp constructor 'igi'`. Root cause was a broken conditional that incorrectly concatenated regex flags. Since Zod already validates input, the fix passes flags through directly without manipulation. Line-range section also fixed to use user-specified flags instead of hardcoded `'g'`.
+
+---
+
 ### 🤖 Auto-Tracking Enabled by Default + Token Threshold Auto-Save (2026-06-15)
 
 Critical UX improvement enabling automatic session memory saving when context window approaches capacity:
