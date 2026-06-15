@@ -2,7 +2,7 @@
 
 ---
 
-## [1.5.7] - 2026-06-15
+## [1.5.8] - 2026-06-15
 
 ### 🐛 text_transform Combined Flags Fix (Critical Bug Fix)
 
