@@ -241,10 +241,15 @@ export function registerWebResearchTools(config: PluginConfig): Tool[] {
         }
 
         const html = await response.text();
+        
+        // Hard cap on fetched content to prevent OOM (50KB max)
+        const MAX_HTML_SIZE = 50_000;
+        if (html.length > MAX_HTML_SIZE) {
+          return { success: false, error: `Page too large (${(html.length / 1024).toFixed(1)} KB). Max allowed is ${MAX_HTML_SIZE / 1024} KB. Use searxng_search + summary_only for large pages.` };
+        }
+
         const text = htmlToText(html, {
           wordwrap: false,
-          // Removed custom selector for 'img' as it caused "format is not a function" in v9.0.5
-          // Default behavior handles images adequately.
         });
 
         return { success: true, data: { url, content: text.substring(0, 5000) } }; // Limit length
@@ -269,6 +274,13 @@ export function registerWebResearchTools(config: PluginConfig): Tool[] {
         if (!response.ok) throw new Error(`HTTP error: ${response.status}`);
 
         const html = await response.text();
+        
+        // Hard cap on fetched content to prevent OOM (50KB max)
+        const MAX_HTML_SIZE = 50_000;
+        if (html.length > MAX_HTML_SIZE) {
+          return { success: false, error: `Page too large (${(html.length / 1024).toFixed(1)} KB). Max allowed is ${MAX_HTML_SIZE / 1024} KB. Use searxng_search + summary_only for large pages.` };
+        }
+
         const text = htmlToText(html);
 
         // Simple keyword-based relevance scoring (placeholder for real RAG)
