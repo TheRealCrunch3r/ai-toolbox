@@ -11,6 +11,55 @@
 This document summarizes all documentation updates made to reflect the **security hardening**, **memory system fixes**, **TypeScript compilation cleanup**, **performance optimizations (sync → async)**, and **documentation accuracy corrections** across versions 1.4.x (v1.4.6 → v1.4.10), v1.5.0, and v1.5.1.
 
 ---
+### 🆕 Latest Update — Auto-Tracking Enabled by Default + Token Threshold Auto-Save (2026-06-15)
+
+#### Overview
+This update documents the critical UX improvement enabling automatic session memory saving when context window approaches capacity:
+- **Auto-tracking enabled by default**: `autoTrackingEnabled` changed from `false` → `true` across Zod schema, DEFAULT_CONFIG, and runtime checks
+- **Configurable token threshold**: New `autoTrackTokenThreshold` setting (default: 75%, range: 10–100%) triggers automatic session memory save when token usage reaches this percentage
+- **Full auto-save implementation**: Added `checkAndSaveTokenThreshold()` and `autoSaveSessionMemory()` methods to AutoTracker class that create context checkpoint entries saved to `.ai_toolbox_context.json`
+- **Integrated into promptPreprocessor Step 0.5**: Now calls `autoTracker.checkAndSaveTokenThreshold(tokenCount, maxTokens, messageCount)` right after ContextGuard token counting
+
+**Files Modified:**
+| File | Changes |
+|------|---------|
+| `src/config.ts` | Changed `autoTrackingEnabled: false` → `true`; Added `autoTrackTokenThreshold: 75` (z.number().min(10).max(100)); Added UI schematic field for numeric threshold setting |
+| `src/autoTracker.ts` | Added `checkAndSaveTokenThreshold()` — checks usage % against threshold, triggers once-per-session; Added `autoSaveSessionMemory()` — creates ContextEntry checkpoint with token stats, saves via ContextStorageManager; Added `resetTokenThreshold()` for session reset |
+| `src/promptPreprocessor.ts` | Replaced placeholder warning in Step 0.5 with actual async call to `checkAndSaveTokenThreshold(tokenCount, maxTokens, messageCount)`; Updated default for `autoTrackingEnabled` from `false` → `true` |
+| `src/tools/contextManagementTools.ts` | Exported `ContextStorageManager` class (was private) — enables dynamic import by autoTracker |
+| `src/toolsProvider.ts` | Added `autoTrackTokenThreshold: pluginConfig.get('autoTrackTokenThreshold')` to liveConfig object for SDK config passing |
+
+**How It Works:**
+```
+User sends message → Preprocessor pulls history (Step 0.5)
+                    → ContextGuard counts tokens (~27k of 30k = 90%)
+                    → autoTracker.checkAndSaveTokenThreshold() called:
+                       ├─ checkTokenThreshold(): 90% >= 75% threshold? YES ✓
+                       │   Sets lastTokenThresholdCheck = true (once-per-session guard)
+                       └─ autoSaveSessionMemory():
+                          ├─ Creates context checkpoint entry with token stats
+                          ├─ Saves to .ai_toolbox_context.json via ContextStorageManager
+                          └─ Returns { triggered: true, saved: true, sessionId: "ctx_178...checkpoint" }
+                    → Console logs: "[Auto-Track] Token threshold triggered — session memory checkpoint saved (ctx_178...)"
+```
+
+**What Gets Saved When Threshold Is Hit:**
+A context entry is written to `.ai_toolbox_context.json`:
+```json
+{
+  "id": "ctx_178...checkpoint",
+  "timestamp": 178...,
+  "type": "summary",
+  "title": "Session Memory Checkpoint (90.2% tokens used)",
+  "content": "Auto-triggered session memory save at 75% token threshold.\n\nCurrent session state:\n- Tokens used: 27060 / 30000 (90.2%)\n- Messages in session: 48\n- Threshold configured: 75%\n\nThis checkpoint preserves critical context before potential overflow.",
+  "tags": ["auto_checkpoint", "token_threshold"]
+}
+```
+
+The AI can later retrieve this via `get_context_memory` or `search_context` tools to recover the saved state.
+
+---
+
 
 ## 🆕 Latest Update — Session Summary Tools (2026-06-13)
 

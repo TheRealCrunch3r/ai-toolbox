@@ -274,6 +274,7 @@ export async function toolsProvider(ctl: ToolsProviderController, _lmClient?: an
     contextGuardTerminalFilterLength: pluginConfig.get('contextGuardTerminalFilterLength'),
     // Auto-tracking settings
     autoTrackingEnabled: pluginConfig.get('autoTrackingEnabled'),
+    autoTrackTokenThreshold: pluginConfig.get('autoTrackTokenThreshold'),
     autoTrackDecisions: pluginConfig.get('autoTrackDecisions'),
     autoTrackCompletions: pluginConfig.get('autoTrackCompletions'),
     autoTrackErrors: pluginConfig.get('autoTrackErrors'),

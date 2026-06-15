@@ -1,10 +1,24 @@
-# 🧰 AI Toolbox — LM Studio Plugin
+﻿# 🧰 AI Toolbox — LM Studio Plugin
 
 > **101 tools** across 16 categories: file system, web research, browser automation, Git/GitHub, database, document parsing, background commands, code execution, utilities, image processing, HTTP client, vector RAG, interactive UI generation, auto-context management, and backup & restore.
 
 ---
 
 ## 📢 Recent Updates
+
+### 🤖 Auto-Tracking Enabled by Default + Token Threshold Auto-Save (2026-06-15)
+
+Critical UX improvement enabling automatic session memory saving when context window approaches capacity:
+- **Auto-tracking enabled by default**: `autoTrackingEnabled` changed from `false` → `true` across Zod schema, DEFAULT_CONFIG, and runtime checks — no manual opt-in required
+- **Configurable token threshold**: New `autoTrackTokenThreshold` setting (default: 75%, range: 10–100%) triggers automatic session memory save when token usage reaches this percentage of the context window
+- **Full auto-save implementation**: Added `checkAndSaveTokenThreshold()` and `autoSaveSessionMemory()` methods to AutoTracker class that create context checkpoint entries saved to `.ai_toolbox_context.json`
+- **Integrated into promptPreprocessor Step 0.5**: Now calls `autoTracker.checkAndSaveTokenThreshold(tokenCount, maxTokens, messageCount)` right after ContextGuard token counting — ensures checkpoint is saved before any compression occurs
+- **Once-per-session guard**: Threshold triggers only once per session to avoid duplicate saves; reset on new session via `resetTokenThreshold()`
+- **Impact**: Prevents critical context loss during long sessions when LLM context window fills up ✅
+
+---
+
+
 ### create_backup Atomic Write Pattern — No More Empty Orphan Files (2026-06-14)
 Fixed critical bug where failed backups left behind 0-byte `.zip` files on disk:
 - **Atomic write pattern** — Writes to `{name}.zip.tmp` first, only renames to final path on success

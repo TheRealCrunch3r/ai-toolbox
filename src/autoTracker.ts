@@ -15,13 +15,16 @@ import { z } from 'zod';
 
 export const AutoTrackConfigSchema = z.object({
   autoTrackingEnabled: z.boolean().default(false),
+  autoTrackTokenThreshold: z.number().min(10).max(100).default(75),
   autoTrackDecisions: z.boolean().default(true),
   autoTrackCompletions: z.boolean().default(true),
   autoTrackErrors: z.boolean().default(true),
   autoSummaryInterval: z.number().min(10).max(200).default(50),
 });
 
-export type AutoTrackConfig = z.infer<typeof AutoTrackConfigSchema>;
+export type AutoTrackConfig = z.infer<typeof AutoTrackConfigSchema> & {
+  lastTokenThresholdCheck?: boolean; // Track if threshold was already triggered this session
+};
 
 export interface AutoTrackAction {
   type: 'decision' | 'completion' | 'error_fix';
@@ -73,10 +76,12 @@ export class AutoTracker {
   constructor(config?: Partial<AutoTrackConfig>) {
     this.config = {
       autoTrackingEnabled: false,
+      autoTrackTokenThreshold: 75,
       autoTrackDecisions: true,
       autoTrackCompletions: true,
       autoTrackErrors: true,
       autoSummaryInterval: 50,
+      lastTokenThresholdCheck: false,
       ...config,
     };
     console.warn(`[AutoTracker] Initialized with config:`, this.config);
@@ -86,6 +91,112 @@ export class AutoTracker {
   updateConfig(partial: Partial<AutoTrackConfig>): void {
     this.config = { ...this.config, ...partial };
     console.warn(`[AutoTracker] Config updated:`, this.config);
+  }
+
+  /**
+   * Check if token threshold has been reached.
+   * @param currentTokens Current token count in the session
+   * @param maxTokens Maximum allowed tokens (context window size)
+   * @returns true if threshold was triggered and auto-tracking is enabled
+   */
+  checkTokenThreshold(currentTokens: number, maxTokens: number): boolean {
+    if (!this.config.autoTrackingEnabled || !maxTokens || maxTokens <= 0) {
+      return false;
+    }
+
+    const usagePercentage = (currentTokens / maxTokens) * 100;
+    const threshold = this.config.autoTrackTokenThreshold ?? 75;
+
+    // Only trigger once per session (reset on resetCounter or new session)
+    if (!this.config.lastTokenThresholdCheck && usagePercentage >= threshold) {
+      console.warn(`[AutoTracker] Token threshold reached: ${usagePercentage.toFixed(1)}% (${currentTokens}/${maxTokens}) — triggering session memory save`);
+      this.config.lastTokenThresholdCheck = true; // Mark as triggered for this session
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Reset token threshold flag (call on new session or after trigger fires).
+   */
+  resetTokenThreshold(): void {
+    if (this.config.lastTokenThresholdCheck) {
+      this.config.lastTokenThresholdCheck = false;
+      console.warn(`[AutoTracker] Token threshold flag reset`);
+    }
+  }
+
+  /**
+   * Auto-save session memory when token threshold is reached.
+   * This creates a context entry capturing the session state to prevent data loss.
+   */
+  async autoSaveSessionMemory(
+    currentTokens: number,
+    maxTokens: number,
+    messageCount: number,
+  ): Promise<{ saved: boolean; sessionId?: string }> {
+    if (!this.config.autoTrackingEnabled) {
+      return { saved: false };
+    }
+
+    const usagePercentage = ((currentTokens / maxTokens) * 100).toFixed(1);
+    const threshold = this.config.autoTrackTokenThreshold ?? 75;
+
+    // Generate a session checkpoint entry
+    const entryId = `ctx_${Date.now()}_checkpoint`;
+    const timestamp = Date.now();
+    
+    const contextEntry = {
+      id: entryId,
+      timestamp,
+      type: 'summary' as const,
+      title: `Session Memory Checkpoint (${usagePercentage}% tokens used)`,
+      content: `Auto-triggered session memory save at ${threshold}% token threshold.\n\nCurrent session state:\n- Tokens used: ${currentTokens} / ${maxTokens} (${usagePercentage}%)\n- Messages in session: ${messageCount}\n- Threshold configured: ${threshold}%\n\nThis checkpoint preserves critical context before potential overflow.`,
+      tags: ['auto_checkpoint', 'token_threshold'],
+    };
+
+    // Save to persistent memory via the storage manager (imported dynamically)
+    try {
+      const { ContextStorageManager } = await import('./tools/contextManagementTools.js');
+      const storage = new ContextStorageManager();
+      await storage.addEntry(contextEntry);
+      
+      console.warn(`[AutoTracker] Session checkpoint saved: ${entryId}`);
+      return { saved: true, sessionId: entryId };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`[AutoTracker] Failed to save session checkpoint: ${message}`);
+      return { saved: false };
+    }
+  }
+
+  /**
+   * Full token threshold check with auto-save.
+   * Returns the result including whether a checkpoint was saved.
+   */
+  async checkAndSaveTokenThreshold(
+    currentTokens: number,
+    maxTokens: number,
+    messageCount?: number,
+  ): Promise<{ triggered: boolean; saved: boolean; sessionId?: string }> {
+    const thresholdTriggered = this.checkTokenThreshold(currentTokens, maxTokens);
+
+    if (!thresholdTriggered) {
+      return { triggered: false, saved: false };
+    }
+
+    // Threshold triggered — now auto-save session memory
+    const msgCount = messageCount ?? 0;
+    const saveResult = await this.autoSaveSessionMemory(currentTokens, maxTokens, msgCount);
+
+    if (saveResult.saved) {
+      console.warn(`[AutoTracker] Session memory checkpoint saved successfully`);
+      return { triggered: true, saved: true, sessionId: saveResult.sessionId };
+    } else {
+      console.error(`[AutoTracker] Token threshold reached but session memory save failed`);
+      return { triggered: true, saved: false };
+    }
   }
 
   /**

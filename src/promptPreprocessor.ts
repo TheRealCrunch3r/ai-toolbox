@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Document RAG Prompt Preprocessor + Working Directory Detection + Temporal Awareness
  */
 
@@ -329,6 +329,41 @@ export async function preprocess(
       const messages = history.getMessagesArray() as unknown as { role?: string; content?: unknown; [key: string]: unknown }[];
       const tokenCount = await contextGuard.countTokens(messages);
       const threshold = contextGuard.getThreshold();
+
+      // Token threshold auto-tracking check (NEW)
+      try {
+        const pluginConfig = ctl.getPluginConfig(configSchematics);
+        const autoTrackingEnabled = pluginConfig.get('autoTrackingEnabled') ?? true; // Default to ON
+        if (autoTrackingEnabled) {
+          autoTracker.updateConfig({
+            autoTrackingEnabled: true,
+            autoTrackDecisions: pluginConfig.get('autoTrackDecisions') ?? true,
+            autoTrackCompletions: pluginConfig.get('autoTrackCompletions') ?? true,
+            autoTrackErrors: pluginConfig.get('autoTrackErrors') ?? true,
+            autoSummaryInterval: pluginConfig.get('autoSummaryInterval') ?? 50,
+            autoTrackTokenThreshold: (pluginConfig.get('autoTrackTokenThreshold')) ?? 75,
+          });
+
+          // Check token threshold AND auto-save session memory if triggered
+          const maxTokens = threshold; // Use ContextGuard limit as proxy for context window size
+          const messageCount = history.getLength(); // Get current message count from history
+          
+          const result = await autoTracker.checkAndSaveTokenThreshold(tokenCount, maxTokens, messageCount);
+          
+          if (result.triggered) {
+            if (result.saved && result.sessionId) {
+              console.warn('[Auto-Track] Token threshold triggered — session memory checkpoint saved (' + result.sessionId + ')');
+            } else {
+              console.warn('[Auto-Track] Token threshold triggered but session memory save failed');
+            }
+          }
+        } else {
+          autoTracker.updateConfig({ autoTrackingEnabled: false });
+        }
+      } catch (e) {
+        console.warn('[Auto-Track] Token threshold check failed:', e);
+      }
+
       if (tokenCount > threshold) {
         console.warn(`[ContextGuard] Token count ${tokenCount} exceeds threshold ${threshold}, compressing...`);
         const compressedMessages = await contextGuard.compressHistory(messages) as unknown as ChatMessage[];
@@ -347,16 +382,17 @@ export async function preprocess(
   // Step 0.6: Auto-tracking analysis (silent background tracking)
   try {
     const pluginConfig = ctl.getPluginConfig(configSchematics);
-    const autoTrackingEnabled = pluginConfig.get('autoTrackingEnabled') ?? false;
+    const autoTrackingEnabled = pluginConfig.get('autoTrackingEnabled') ?? true; // Default to ON
     
     if (autoTrackingEnabled) {
-      // Update tracker config from plugin settings
+      // Update tracker config from plugin settings (also includes token threshold)
       autoTracker.updateConfig({
         autoTrackingEnabled: true,
         autoTrackDecisions: pluginConfig.get('autoTrackDecisions') ?? true,
         autoTrackCompletions: pluginConfig.get('autoTrackCompletions') ?? true,
         autoTrackErrors: pluginConfig.get('autoTrackErrors') ?? true,
         autoSummaryInterval: pluginConfig.get('autoSummaryInterval') ?? 50,
+        autoTrackTokenThreshold: (pluginConfig.get('autoTrackTokenThreshold')) ?? 75,
       });
 
       // Analyze user message for tracking triggers

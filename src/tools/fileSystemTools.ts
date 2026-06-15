@@ -1,4 +1,4 @@
-﻿import type { Tool } from '@lmstudio/sdk';
+import type { Tool } from '@lmstudio/sdk';
 import { tool } from '@lmstudio/sdk';
 import { z } from 'zod';
 import * as _fs from 'fs';
@@ -24,7 +24,7 @@ interface ListDirectoryParams { path?: string; }
 interface ReadFileParams { file_name: string; max_length?: number; }
 interface SaveFileParams { file_name?: string; content?: string; files?: Array<{ file_name: string; content: string }>; }
 interface ReplaceTextInFileParams { file_name: string; old_string: string; new_string: string; }
-interface InsertAtLineParams { file_name: string; line_number: number; content_to_insert: string; }
+interface InsertAtLineParams { file_name: string; line_number: number; content_to_insert?: string; }
 interface ReadFileChunkedParams { file_name: string; chunk_size?: number; max_chunks?: number; };
 
 interface AppendFileParams { file_name: string; content: string; }
@@ -411,9 +411,10 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
     parameters: {
       file_name: z.string().describe('The file to modify'),
       line_number: z.number().int().min(1).describe('The line number to insert at (1-indexed)'),
-      content_to_insert: z.string().describe('The text content to insert'),
+      content_to_insert: z.string().optional().describe('The text content to insert (use "content" as alias)'),
+      content: z.string().optional().describe('Alias for content_to_insert — accepts either parameter name'),
     },
-    implementation: async ({ file_name, line_number, content_to_insert }: InsertAtLineParams) => { // C5 FIX: typed params
+    implementation: async ({ file_name, line_number, content_to_insert, content }: InsertAtLineParams & { content?: string }) => { // C5 FIX: typed params
       try {
         if (!validatePath(file_name, getWorkingDir())) {
           return { success: false, error: 'Invalid path' };
@@ -426,7 +427,14 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
           return { success: false, error: `Line number ${line_number} exceeds file length (${lines.length})` };
         }
         
-        lines.splice(line_number - 1, 0, content_to_insert);
+        // Support both content_to_insert and content parameter names for LLM compatibility
+        const textToInsert = content_to_insert ?? content;
+        
+        if (textToInsert === undefined) {
+          return { success: false, error: 'Either "content_to_insert" or "content" parameter is required' };
+        }
+
+        lines.splice(line_number - 1, 0, textToInsert);
         await fs.writeFile(fullPath, lines.join('\n'), 'utf-8');  // ASYNC
         return { success: true, data: { insertedAt: line_number, file: fullPath } }; // ✅ FULL PATH
       } catch (error) {

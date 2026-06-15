@@ -139,7 +139,8 @@ export const ConfigSchema = z.object({
   contextGuardTerminalFilterLength: z.number().min(100).max(20000).default(2000).describe('Max chars before terminal output is filtered'),
 
   // ── 🤖 AUTO-TRACKING SETTINGS ────────────────────────────────────
-  autoTrackingEnabled: z.boolean().default(false).describe('⚠️ Privacy-sensitive: disabled by default — user must opt-in. Enables automatic tracking of decisions, completions, and bug fixes.'),
+  autoTrackingEnabled: z.boolean().default(true).describe('Automatically tracks decisions, completions, and bug fixes in the background.'),
+  autoTrackTokenThreshold: z.number().min(10).max(100).default(75).describe('Trigger session memory save when token usage reaches this percentage (default: 75%)'),
   autoTrackDecisions: z.boolean().default(true).describe('Auto-track decisions and conclusions ("I decided", "conclusion")'),
   autoTrackCompletions: z.boolean().default(true).describe('Auto-track task completions ("successfully completed", "finished")'),
   autoTrackErrors: z.boolean().default(true).describe('Auto-track bug fixes and error resolutions ("fixed the bug")'),
@@ -262,7 +263,8 @@ export const DEFAULT_CONFIG: PluginConfig = {
   contextGuardTerminalFilterLength: 2000,  // Filter terminal output > 2KB
 
   // ── 🤖 AUTO-TRACKING SETTINGS ───────────────────────────────────
-  autoTrackingEnabled: false,              // OFF BY DEFAULT — user must opt-in
+  autoTrackingEnabled: true,               // ON BY DEFAULT — silent background tracking
+  autoTrackTokenThreshold: 75,             // Save session memory at 75% token usage
   autoTrackDecisions: true,
   autoTrackCompletions: true,
   autoTrackErrors: true,
@@ -775,8 +777,15 @@ export const configSchematics = createConfigSchematics()
   .field('autoTrackingEnabled', 'boolean', {
     displayName: '🤖 Auto-Tracking Enabled',
     subtitle: 'Automatically remember important events',
-    hint: 'When enabled, the plugin will silently track decisions, completions, and fixes without user prompts. OFF by default for privacy.',
+    hint: 'Silently tracks decisions, completions, and bug fixes in the background. Enabled by default.',
   }, DEFAULT_CONFIG.autoTrackingEnabled)
+
+  .field('autoTrackTokenThreshold', 'numeric', {
+    displayName: 'Auto-Track Token Threshold',
+    subtitle: 'Auto-Tracking Setting',
+    min: 10, max: 100, int: true,
+    hint: 'Trigger session memory save when token usage reaches this percentage (default: 75%). Helps prevent context overflow.',
+  }, DEFAULT_CONFIG.autoTrackTokenThreshold)
 
   .field('autoTrackDecisions', 'boolean', {
     displayName: '📌 Track Decisions Automatically',

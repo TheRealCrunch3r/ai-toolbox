@@ -27,7 +27,7 @@ interface ContextSummary {
 
 // ==================== Context Storage Manager — ASYNC ===
 
-class ContextStorageManager {
+export class ContextStorageManager {
   private storagePath: string;
   
   constructor() {

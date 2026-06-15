@@ -1,4 +1,62 @@
+﻿---
+
 ---
+
+## [1.5.6] - 2026-06-15
+
+### 🤖 Auto-Tracking Enabled by Default + Token Threshold Auto-Save (Critical UX Improvement)
+
+#### Enabled Session Memory Auto-Saving When Context Window Approaches Capacity
+
+**Issue:** The `autoTrackingEnabled` setting was disabled by default (`false`), requiring users to manually opt-in for automatic tracking of decisions, completions, and bug fixes. Additionally, there was no mechanism to automatically save session context before token overflow — long sessions risked losing critical context when the LLM's context window filled up.
+
+**Fix:**
+- **Auto-tracking enabled by default**: Changed `autoTrackingEnabled` from `false` → `true` in Zod schema, `DEFAULT_CONFIG`, and all runtime checks (promptPreprocessor, toolsProvider)
+- **New configurable token threshold**: Added `autoTrackTokenThreshold` setting (default: 75%, range: 10–100%) — triggers automatic session memory save when token usage reaches this percentage of the context window
+- **Full auto-save implementation**: Added `checkAndSaveTokenThreshold()` and `autoSaveSessionMemory()` methods to AutoTracker class that create context checkpoint entries saved to `.ai_toolbox_context.json`
+- **Integrated into promptPreprocessor Step 0.5**: Now calls `autoTracker.checkAndSaveTokenThreshold(tokenCount, maxTokens, messageCount)` right after ContextGuard token counting — ensures checkpoint is saved before any compression occurs
+
+**Implementation Details:**
+| File | Changes |
+|------|---------|
+| `src/config.ts` | Changed `autoTrackingEnabled: false` → `true`; Added `autoTrackTokenThreshold: 75` (z.number().min(10).max(100)); Added UI schematic field for numeric threshold setting |
+| `src/autoTracker.ts` | Added `checkAndSaveTokenThreshold()` — checks usage % against threshold, triggers once-per-session; Added `autoSaveSessionMemory()` — creates ContextEntry checkpoint with token stats, saves via ContextStorageManager; Added `resetTokenThreshold()` for session reset |
+| `src/promptPreprocessor.ts` | Replaced placeholder warning in Step 0.5 with actual async call to `checkAndSaveTokenThreshold(tokenCount, maxTokens, messageCount)`; Updated default for `autoTrackingEnabled` from `false` → `true` |
+| `src/tools/contextManagementTools.ts` | Exported `ContextStorageManager` class (was private) — enables dynamic import by autoTracker |
+| `src/toolsProvider.ts` | Added `autoTrackTokenThreshold: pluginConfig.get('autoTrackTokenThreshold')` to liveConfig object for SDK config passing |
+
+**How It Works:**
+```
+User sends message → Preprocessor pulls history (Step 0.5)
+                    → ContextGuard counts tokens (~27k of 30k = 90%)
+                    → autoTracker.checkAndSaveTokenThreshold() called:
+                       ├─ checkTokenThreshold(): 90% >= 75% threshold? YES ✓
+                       │   Sets lastTokenThresholdCheck = true (once-per-session guard)
+                       └─ autoSaveSessionMemory():
+                          ├─ Creates context checkpoint entry with token stats
+                          ├─ Saves to .ai_toolbox_context.json via ContextStorageManager
+                          └─ Returns { triggered: true, saved: true, sessionId: "ctx_178...checkpoint" }
+                    → Console logs: "[Auto-Track] Token threshold triggered — session memory checkpoint saved (ctx_178...)"
+```
+
+**What Gets Saved When Threshold Is Hit:**
+A context entry is written to `.ai_toolbox_context.json`:
+```json
+{
+  "id": "ctx_178...checkpoint",
+  "timestamp": 178...,
+  "type": "summary",
+  "title": "Session Memory Checkpoint (90.2% tokens used)",
+  "content": "Auto-triggered session memory save at 75% token threshold.\n\nCurrent session state:\n- Tokens used: 27060 / 30000 (90.2%)\n- Messages in session: 48\n- Threshold configured: 75%\n\nThis checkpoint preserves critical context before potential overflow.",
+  "tags": ["auto_checkpoint", "token_threshold"]
+}
+```
+
+The AI can later retrieve this via `get_context_memory` or `search_context` tools to recover the saved state.
+
+**Verification:**
+- ✅ `npm run typecheck`: Zero errors (was: 1)
+- ✅ `npm run build`: Success (ESM + CJS bundles generated, ~343 KB)
 
 ---
 

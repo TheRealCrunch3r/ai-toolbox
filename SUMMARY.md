@@ -1,4 +1,4 @@
-# AI Toolbox — LM Studio Plugin
+﻿# AI Toolbox — LM Studio Plugin
 
 ## Description
 
@@ -40,7 +40,7 @@ AI Toolbox transforms passive language models into **active problem-solvers** by
 
 | 🎨 **Interactive UI Generation** | 3 | Generate and render HTML/CSS/JS components: buttons, forms, charts (Chart.js), dashboards — cross-platform file URL handling with Puppeteer preview |
 | 💾 **Backup & Restore** | 4 | Create compressed ZIP backups of plugin state (`archiver` v8) with path traversal protection; explicit confirmation required for destructive operations |
-| 🧠 **Auto-Context Management** | 7 | Automatic session tracking, decision logging, persistent memory retrieval, configurable auto-summary intervals via `auto_summarize_context`, `get_context_memory`, `search_context`, `context_summary`, `delete_context_entry`, `clear_context_memory`, `track_important_event` |
+| 🧠 **Auto-Context Management** | 7 | Automatic session tracking, decision logging, persistent memory retrieval, configurable auto-summary intervals via `auto_summarize_context`, `get_context_memory`, `search_context`, `context_summary`, `delete_context_entry`, `clear_context_memory`, `track_important_event`; **v1.5.6**: Auto-tracking enabled by default (`autoTrackingEnabled: true`), new `autoTrackTokenThreshold` setting (default 75%) triggers automatic session memory checkpoint when context window approaches capacity |
 
 ---
 

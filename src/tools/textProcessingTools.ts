@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Text Processing Tools — sed/awk equivalents for Node.js
  * Provides safe, portable text transformation capabilities without shell dependencies.
  */
@@ -9,8 +9,8 @@ import { z } from 'zod';
 import * as fs from 'fs/promises';
 import type { PluginConfig } from '../config.js';
 import { validatePath } from '../security.js';
-import { getWorkingDir } from '../workingDir.js';
-import * as pathModule from 'path';
+import { getWorkingDir, resolvePath } from '../workingDir.js';
+
 
 // ==================== Typed Params Interfaces ====================
 
@@ -96,7 +96,7 @@ export function registerTextProcessingTools(_config: PluginConfig): Tool[] {
           return { success: false, error: 'Invalid path: directory traversal detected' };
         }
 
-        const fullPath = pathModule.resolve(file_name);
+        const fullPath = resolvePath(file_name);
 
         // Validate regex pattern to prevent DoS attacks
         if (!validateRegex(pattern)) {
@@ -121,7 +121,7 @@ export function registerTextProcessingTools(_config: PluginConfig): Tool[] {
           // Apply transformation to specific line range
           const linesArray = content.split('\n');
           const startLine = Math.max(1, lines.start ?? 1);
-          const endLine = Math.min(lines.end ?? linesArray.length, linesArray.length);
+          let endLine = Math.min(lines.end ?? linesArray.length, linesArray.length);
 
           for (let i = startLine - 1; i < endLine; i++) {
             if (replacement) {
@@ -132,11 +132,14 @@ export function registerTextProcessingTools(_config: PluginConfig): Tool[] {
               // Apply replacement with capture groups ($1, $2, etc.)
               linesArray[i] = linesArray[i].replace(regex, replacement);
             } else {
-              // Delete matching lines
+              // Delete matching lines by splicing the array
               const matches = linesArray[i].match(new RegExp(pattern, 'g'));
               if (matches) changesApplied += matches.length;
 
-              linesArray[i] = '';
+              // Remove the line and adjust loop bounds to avoid skipping indices
+              linesArray.splice(i, 1);
+              i--;           // Decrement index since array shifted left
+              endLine--;     // Adjust range so we don't overrun
             }
           }
 
@@ -218,7 +221,7 @@ export function registerTextProcessingTools(_config: PluginConfig): Tool[] {
           return { success: false, error: 'Invalid path: directory traversal detected' };
         }
 
-        const fullPath = pathModule.resolve(file_name);
+        const fullPath = resolvePath(file_name);
 
         let content: string;
         try {
@@ -285,8 +288,12 @@ export function registerTextProcessingTools(_config: PluginConfig): Tool[] {
     description: 'Insert, delete, or reorder lines in a file. Like awk for line-level operations without shell dependencies.',
     parameters: {
       file_name: z.string().describe('File path'),
-      operation: z.enum(['insert', 'delete', 'move']).default('insert').describe('Operation to perform'),
+      operation: z.enum(['insert', 'delete', 'move']).default('insert').describe('Operation to perform (use "lines" range for delete)'),
       target_line: z.number().int().min(1).optional().describe('Target line number for insert/delete/move operations'),
+      lines: z.object({
+        start: z.number().int().min(1).optional(),
+        end: z.number().int().optional(),
+      }).optional().describe('Line range for delete operation (e.g., {start: 16, end: 17})'),
       content: z.string().optional().describe('For insert operation - text to insert'),
       move_from: z.number().int().optional().describe('Source line for move operation'),
       move_to: z.number().int().optional().describe('Destination line for move operation')
@@ -295,18 +302,18 @@ export function registerTextProcessingTools(_config: PluginConfig): Tool[] {
       file_name: string;
       operation: 'insert' | 'delete' | 'move';
       target_line?: number;
+      lines?: { start?: number; end?: number };
       content?: string;
       move_from?: number;
       move_to?: number;
     }) => {
-      const { file_name, operation, target_line, content, move_from, move_to } = params; // C5 FIX: typed params
+      const { file_name, operation, target_line, lines, content, move_from, move_to } = params; // C5 FIX: typed params
       try {
         if (!validatePath(file_name, getWorkingDir())) {
           return { success: false, error: 'Invalid path: directory traversal detected' };
         }
 
-        const fullPath = pathModule.resolve(file_name);
-
+        const fullPath = resolvePath(file_name);
         let file_content: string;
         try {
           file_content = await readFileWithLimit(fullPath);
@@ -314,7 +321,7 @@ export function registerTextProcessingTools(_config: PluginConfig): Tool[] {
           return handleError(error);
         }
 
-        const lines = file_content.split('\n');
+        const linesArr = file_content.split('\n');
         let changes_made = 0;
 
         switch (operation) {
@@ -322,36 +329,45 @@ export function registerTextProcessingTools(_config: PluginConfig): Tool[] {
             if (!content && content !== '') {
               return { success: false, error: 'Insert operation requires "content" parameter' };
             }
-            const insert_line = target_line ?? (lines.length + 1);
-            lines.splice(insert_line - 1, 0, content || '');
+            const insert_line = target_line ?? (linesArr.length + 1);
+            linesArr.splice(insert_line - 1, 0, content || '');
             changes_made = 1;
             break;
 
           case 'delete':
-            if (!target_line) {
-              return { success: false, error: 'Delete operation requires "target_line" parameter' };
+            if (!target_line && !lines) {
+              return { success: false, error: 'Delete operation requires either "target_line" or "lines.range" parameter' };
             }
-            if (target_line < 1 || target_line > lines.length) {
-              return { success: false, error: `Line number ${target_line} out of range (1-${lines.length})` };
+
+            let deleteStart = target_line ?? lines!.start!;
+            let deleteEnd = lines?.end ?? target_line!;
+
+            // Validate range
+            if (deleteStart < 1 || deleteEnd > linesArr.length || deleteStart > deleteEnd) {
+              return { success: false, error: `Line range ${deleteStart}-${deleteEnd} out of bounds (1-${linesArr.length})` };
             }
-            lines.splice(target_line - 1, 1);
-            changes_made = 1;
+
+            // Delete from end to start to preserve indices during splicing
+            for (let i = deleteEnd - 1; i >= deleteStart - 1; i--) {
+              linesArr.splice(i, 1);
+            }
+            changes_made = deleteEnd - deleteStart + 1;
             break;
 
           case 'move':
             if (!move_from || !move_to) {
               return { success: false, error: 'Move operation requires "move_from" and "move_to" parameters' };
             }
-            if (move_from < 1 || move_from > lines.length || move_to < 1 || move_to > lines.length) {
-              return { success: false, error: `Line numbers out of range (1-${lines.length})` };
+            if (move_from < 1 || move_from > linesArr.length || move_to < 1 || move_to > linesArr.length) {
+              return { success: false, error: `Line numbers out of range (1-${linesArr.length})` };
             }
-            const moved_line = lines.splice(move_from - 1, 1)[0];
+            const moved_line = linesArr.splice(move_from - 1, 1)[0];
             // Adjust target if moving within same direction
             let adjusted_to = move_to;
             if (move_from < move_to) {
               adjusted_to--;
             }
-            lines.splice(adjusted_to - 1, 0, moved_line);
+            linesArr.splice(adjusted_to - 1, 0, moved_line);
             changes_made = 1;
             break;
 
@@ -361,7 +377,7 @@ export function registerTextProcessingTools(_config: PluginConfig): Tool[] {
 
         // Write back atomically
         try {
-          await writeFileAtomic(fullPath, lines.join('\n'));
+          await writeFileAtomic(fullPath, linesArr.join('\n'));
         } catch (error) {
           return handleError(error);
         }
@@ -369,7 +385,7 @@ export function registerTextProcessingTools(_config: PluginConfig): Tool[] {
         return { success: true, data: { 
           operations_performed: operation,
           changes_applied: changes_made,
-          total_lines_after: lines.length,
+          total_lines_after: linesArr.length,
           message: `${operation.charAt(0).toUpperCase() + operation.slice(1)} operation completed successfully`
         }};
       } catch (error) {
