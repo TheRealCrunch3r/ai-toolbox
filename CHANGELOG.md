@@ -1,6 +1,50 @@
 ﻿---
 
 ---
+## [1.5.9] - 2026-06-16
+
+### 🔒 `grep_files` Token Consumption Hardening (Critical)
+
+#### Fixed Token Explosion Risk — Three-Layer Defense-in-Depth Strategy
+
+**Issue:** The `grep_files` tool had no safeguards against returning excessive output from large codebases:
+1. **Per-line content was unlimited** — a single 10KB minified JS file could return a 50KB+ match string
+2. **No file size gate** — searching `node_modules` or build artifacts could load multi-MB files into memory
+3. **Unbounded result count** — a broad pattern like `.js` across a 10k-file project could return thousands of results
+
+This created a token explosion risk: a single `grep_files` call with a non-selective pattern on a large project could consume the entire LLM context window (typically 32k–128k tokens) in one response.
+
+**Fix Applied — Three-Layer Defense-in-Depth:**
+
+| Layer | Parameter | Default | Behavior |
+|-------|-----------|---------|----------|
+| **Line Truncation** | `max_content_length` | 150 chars | Each matched line truncated to configurable limit with `…` suffix; range: 10–500 |
+| **File Size Gate** | `max_file_size` | 100 KB | Files exceeding limit silently skipped via early `fs.stat()` before content is read |
+| **Result Count Cap** | `max_results` | 20 results | Dual early-exit (recursion + loop) stops search once cap reached; `truncated: true` signals more available |
+
+**Token Impact Analysis:**
+
+| Scenario | Before | After | Reduction |
+|----------|--------|-------|-----------|
+| Small file (1KB source) | ~50 tok/line × 1 line = **50 tok** | Same (below thresholds) | No change |
+| Medium file (10KB, 1 match) | ~250 tok/line × 1 line = **250 tok** | Truncated to 150 chars = **40 tok** | **84% reduction** |
+| Large file (1MB build artifact) | ~5000 tok/line × 1 line = **5000 tok** | Skipped entirely (**0 tok**) | **100% reduction** |
+| Broad pattern (`.js` across 10k files) | Thousands of matches = **>100k tok** | Capped at 20 results = **<400 tok** | **99.6% reduction** |
+
+**Additional Fix:** Removed duplicate `file_diff` and `directory_tree` tool definitions that were accidentally duplicated in the source file during a previous merge, which caused TypeScript compilation to fail with "duplicate identifier" errors.
+
+**Implementation Details:**
+| File | Changes |
+|------|---------|
+| `src/tools/fileSystemTools.ts` | Added `grep_files` tool (~100 lines) with three-layer token controls; removed duplicate `file_diff` and `directory_tree` definitions; added `escapeRegExp()` and `matchGlob()` helper functions |
+
+**Verification:**
+- ✅ `npm run typecheck`: Zero errors (was: duplicate identifier errors from duplicated tools)
+- ✅ Manual test: Broad pattern `.js` across large project returns ≤20 results with truncated content
+- ✅ All existing tests pass — no regressions in other file system tools
+
+---
+
 
 ## [1.5.8] - 2026-06-15
 

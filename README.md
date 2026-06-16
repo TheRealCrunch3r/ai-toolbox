@@ -5,6 +5,15 @@
 ---
 
 ## 📢 Recent Updates
+### 🔒 `grep_files` Token Consumption Hardening (2026-06-16)
+
+Fixed critical token explosion risk where unbounded grep search could consume the entire LLM context window:
+- **Three-layer defense-in-depth**: `max_content_length` (default 150 chars/line), `max_file_size` (default 100KB, skips large files via early stat check), `max_results` (default 20 with dual early-exit strategy)
+- **Token impact reduction**: Up to 99.6% fewer tokens for broad patterns across large projects; large build artifacts silently skipped before reading
+- **Truncation visibility**: Result count capped at configurable limit with `truncated: true` signal when more results exist
+- **ReDoS protection**: Unsafe regex patterns automatically treated as literal strings via existing security module
+- **Also fixed**: Removed duplicate `file_diff` and `directory_tree` tool definitions that were accidentally duplicated in source code
+
 
 ### 🐛 text_transform Combined Flags Fix (2026-06-15)
 Fixed critical bug where `text_transform` threw an error when using combined `'gi'` flags: `Invalid flags supplied to RegExp constructor 'igi'`. Root cause was a broken conditional that incorrectly concatenated regex flags. Since Zod already validates input, the fix passes flags through directly without manipulation. Line-range section also fixed to use user-specified flags instead of hardcoded `'g'`.

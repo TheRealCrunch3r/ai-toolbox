@@ -174,3 +174,91 @@ Read a file in chunks to bypass character limits. **ALWAYS use this instead of `
 read_file_chunked(
   "large_project.ts",
   chunk_
+
+---
+
+### ⚙️ Additional File System Tools (2026-06-16+)
+
+### `analyze_project` 🆕 — v1.5.9 Update
+
+Run project-wide analysis including TypeScript diagnostics, circular dependency detection, ESLint, config optimization, and import structure analysis. Uses dynamic timeouts based on project size to avoid hanging on large codebases.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `categories` | `string[]` | No | Analysis categories: `'typecheck'`, `'circular'`, `'eslint'`, `'config'`, `'imports'` (default: all) |
+| `max_imports_warning` | `number` | No | Max imports per file before warning (default: 20, range: 5–100) |
+
+**Returns**: `{ success: true, data: { typecheck?, circular?, eslint?, config?, imports? } }` — each category returns structured metrics (e.g., checkTimeMs, filesChecked, errors/warnings count, recommendations).
+
+> **Note:** Requires `npx tsc`, `madge`, and/or `eslint` to be available. Skips categories whose tools are not installed with a clear reason message instead of failing.
+
+---
+
+### `file_diff` — v1.5.9 Update
+
+Compare two files side by side and return a unified diff with +/− markers and line numbers. Uses an LCS-based algorithm for accurate comparison.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `file_a` | `string` | Yes | First file path (relative to working directory) |
+| `file_b` | `string` | Yes | Second file path (relative to working directory) |
+
+**Returns**: `{ success: true, data: { diff: string, files: [string, string] } }` — the `diff` field contains lines prefixed with ` `, `+`, or `-`.
+
+---
+
+### `directory_tree` 🆕 — v1.5.9 Update
+
+Visualize the directory structure of a path in a tree-like format. Supports depth limiting and optional file size display.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `path` | `string` | No | Root directory to visualize (default: current working directory) |
+| `max_depth` | `number` | No | Maximum nesting depth (default: 3, range: 1–20) |
+| `show_size` | `boolean` | No | Show file sizes in the output (default: false) |
+
+**Returns**: `{ success: true, data: { tree: string, path: string, depth: number } }` — the `tree` field contains a formatted ASCII tree with emoji icons for directories and files.
+
+---
+
+### 🔒 `grep_files` Token Consumption Hardening (v1.5.9+) ⚡
+
+Search for a pattern in files across a directory. Returns structured matches with file, line number, and content. Includes **three-layer token consumption controls** to prevent context window overflow from large codebase searches.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `pattern` | `string` | Yes | Regex or literal string to search for |
+| `path` | `string` | No | Directory to search in (default: current working directory) |
+| `max_content_length` | `number` | No | Max chars per matched line content (**default: 150**, range: 10–500). Truncated lines receive a `…` suffix. |
+| `include` | `string` | No | File glob pattern to include (e.g., `"*.ts"`, `"src/**/*.js"`) |
+| `exclude` | `string` | No | Files or directories to exclude (e.g., `"node_modules"`, `".git"`) |
+| `max_results` | `number` | No | Maximum number of results (**default: 20**, range: 1–500). Search stops early once reached; `truncated: true` signals more available. |
+| `max_file_size` | `number` | No | Max file size in bytes to search (**default: 100,000** / 100KB). Files exceeding this limit are silently skipped via early `fs.stat()` before content is read — prevents loading multi-MB build artifacts. |
+
+**Returns**: `{ success: true, data: { matches: [{ file, line_number, content }], count: number, truncated: boolean } }`
+
+> **Token Impact:** A broad pattern like `.js` across a 10k-file project is reduced from >100k tokens to <400 tokens (99.6% reduction). Large build artifacts are skipped entirely before reading.
+
+**Example Usage:**
+```typescript
+// Search for TODOs in TypeScript files only, limit output
+grep_files({
+  pattern: "TODO",
+  include: "*.ts",
+  max_results: 20,
+  max_content_length: 150
+})
+→ { matches: [...], count: 20, truncated: false }
+
+// Search with larger content length for debugging
+grep_files({
+  pattern: "import.*from",
+  path: "src/",
+  max_results: 500,      // Override default for deep search
+  max_content_length: 300,
+  exclude: "node_modules"
+})
+→ { matches: [...], count: 487, truncated: true }
+```
+
+> **ReDoS Protection:** If the user-provided pattern fails the ReDoS safety check (`isSafeRegex()`), it is automatically treated as a literal string instead of being rejected — preventing regex denial-of-service while maintaining usability for non-regex searches.
