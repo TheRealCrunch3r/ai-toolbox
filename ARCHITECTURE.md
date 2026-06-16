@@ -180,13 +180,13 @@ auto_summarize_context() called
     ▼
 ContextStorageManager.addEntry(entry)
     │
-    ├── Load existing entries from .ai_toolbox_context.json
+    ├── Load existing entries from .ai_toolbox_context.msgpack
     ├── Append new entry to beginning of array
     ├── Limit to 1000 entries (prevent unbounded growth)
     └── Save atomically (temp file + rename)
     
     ▼
-Persistent Storage (.ai_toolbox_context.json)
+Persistent Storage (.ai_toolbox_context.msgpack)
     │
     ├── get_context_memory() → Retrieve recent entries
     ├── search_context(query) → Text-based search
@@ -247,7 +247,7 @@ Persistent context storage for session tracking:
 
 ```typescript
 class ContextStorageManager {
-  private storagePath: string; // .ai_toolbox_context.json
+  private storagePath: string; // .ai_toolbox_context.msgpack
   
   load(): ContextEntry[]
   save(entries: ContextEntry[]): void
@@ -261,7 +261,7 @@ class ContextStorageManager {
 ```
 
 **Key Features:**
-- JSON-based persistent storage in working directory
+- MessagePack binary format (msgpack) for compact, efficient storage
 - Atomic writes with corruption recovery
 - Automatic entry limiting (max 1000 entries)
 - Text-based search across titles, content, and tags
@@ -505,13 +505,13 @@ auto_summarize_context(sessionEvents, configChanges)
     ▼
 ContextStorageManager.addEntry(entry)
     │
-    ├── Load existing entries from .ai_toolbox_context.json
+    ├── Load existing entries from .ai_toolbox_context.msgpack
     ├── Prepend new entry to array
     ├── Enforce 1000-entry limit
     └── Atomic save (temp file + rename)
     
     ▼
-Persistent Storage (.ai_toolbox_context.json)
+Persistent Storage (.ai_toolbox_context.msgpack)
     │
     ├── get_context_memory(limit, type?) → Retrieve entries
     ├── search_context(query, maxResults) → Text-based search
@@ -858,13 +858,13 @@ auto_summarize_context() called
     ▼
 ContextStorageManager.addEntry(entry)
     │
-    ├── Load existing entries from .ai_toolbox_context.json
+    ├── Load existing entries from .ai_toolbox_context.msgpack
     ├── Append new entry to beginning of array
     ├── Limit to 1000 entries (prevent unbounded growth)
     └── Save atomically (temp file + rename)
     
     ▼
-Persistent Storage (.ai_toolbox_context.json)
+Persistent Storage (.ai_toolbox_context.msgpack)
     │
     ├── get_context_memory() → Retrieve recent entries
     ├── search_context(query) → Text-based search
@@ -925,7 +925,7 @@ Persistent context storage for session tracking:
 
 ```typescript
 class ContextStorageManager {
-  private storagePath: string; // .ai_toolbox_context.json
+  private storagePath: string; // .ai_toolbox_context.msgpack
   
   load(): ContextEntry[]
   save(entries: ContextEntry[]): void
@@ -939,7 +939,7 @@ class ContextStorageManager {
 ```
 
 **Key Features:**
-- JSON-based persistent storage in working directory
+- MessagePack binary format (msgpack) for compact, efficient storage
 - Atomic writes with corruption recovery
 - Automatic entry limiting (max 1000 entries)
 - Text-based search across titles, content, and tags
@@ -1183,13 +1183,13 @@ auto_summarize_context(sessionEvents, configChanges)
     ▼
 ContextStorageManager.addEntry(entry)
     │
-    ├── Load existing entries from .ai_toolbox_context.json
+    ├── Load existing entries from .ai_toolbox_context.msgpack
     ├── Prepend new entry to array
     ├── Enforce 1000-entry limit
     └── Atomic save (temp file + rename)
     
     ▼
-Persistent Storage (.ai_toolbox_context.json)
+Persistent Storage (.ai_toolbox_context.msgpack)
     │
     ├── get_context_memory(limit, type?) → Retrieve entries
     ├── search_context(query, maxResults) → Text-based search
@@ -1559,13 +1559,13 @@ auto_summarize_context() called
     ▼
 ContextStorageManager.addEntry(entry)
     │
-    ├── Load existing entries from .ai_toolbox_context.json
+    ├── Load existing entries from .ai_toolbox_context.msgpack
     ├── Append new entry to beginning of array
     ├── Limit to 1000 entries (prevent unbounded growth)
     └── Save atomically (temp file + rename)
     
     ▼
-Persistent Storage (.ai_toolbox_context.json)
+Persistent Storage (.ai_toolbox_context.msgpack)
     │
     ├── get_context_memory() → Retrieve recent entries
     ├── search_context(query) → Text-based search
@@ -1626,7 +1626,7 @@ Persistent context storage for session tracking:
 
 ```typescript
 class ContextStorageManager {
-  private storagePath: string; // .ai_toolbox_context.json
+  private storagePath: string; // .ai_toolbox_context.msgpack
   
   load(): ContextEntry[]
   save(entries: ContextEntry[]): void
@@ -1640,7 +1640,7 @@ class ContextStorageManager {
 ```
 
 **Key Features:**
-- JSON-based persistent storage in working directory
+- MessagePack binary format (msgpack) for compact, efficient storage
 - Atomic writes with corruption recovery
 - Automatic entry limiting (max 1000 entries)
 - Text-based search across titles, content, and tags
@@ -1884,13 +1884,13 @@ auto_summarize_context(sessionEvents, configChanges)
     ▼
 ContextStorageManager.addEntry(entry)
     │
-    ├── Load existing entries from .ai_toolbox_context.json
+    ├── Load existing entries from .ai_toolbox_context.msgpack
     ├── Prepend new entry to array
     ├── Enforce 1000-entry limit
     └── Atomic save (temp file + rename)
     
     ▼
-Persistent Storage (.ai_toolbox_context.json)
+Persistent Storage (.ai_toolbox_context.msgpack)
     │
     ├── get_context_memory(limit, type?) → Retrieve entries
     ├── search_context(query, maxResults) → Text-based search

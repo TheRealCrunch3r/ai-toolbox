@@ -99,7 +99,7 @@ Also fixed the line-range section which was hardcoding `'g'` instead of using us
 **Fix:**
 - **Auto-tracking enabled by default**: Changed `autoTrackingEnabled` from `false` → `true` in Zod schema, `DEFAULT_CONFIG`, and all runtime checks (promptPreprocessor, toolsProvider)
 - **New configurable token threshold**: Added `autoTrackTokenThreshold` setting (default: 75%, range: 10–100%) — triggers automatic session memory save when token usage reaches this percentage of the context window
-- **Full auto-save implementation**: Added `checkAndSaveTokenThreshold()` and `autoSaveSessionMemory()` methods to AutoTracker class that create context checkpoint entries saved to `.ai_toolbox_context.json`
+- **Full auto-save implementation**: Added `checkAndSaveTokenThreshold()` and `autoSaveSessionMemory()` methods to AutoTracker class that create context checkpoint entries saved via ContextStorageManager (migrated from `.ai_toolbox_context.json` to `.msgpack` in v1.5.7)
 - **Integrated into promptPreprocessor Step 0.5**: Now calls `autoTracker.checkAndSaveTokenThreshold(tokenCount, maxTokens, messageCount)` right after ContextGuard token counting — ensures checkpoint is saved before any compression occurs
 
 **Implementation Details:**
@@ -120,13 +120,13 @@ User sends message → Preprocessor pulls history (Step 0.5)
                        │   Sets lastTokenThresholdCheck = true (once-per-session guard)
                        └─ autoSaveSessionMemory():
                           ├─ Creates context checkpoint entry with token stats
-                          ├─ Saves to .ai_toolbox_context.json via ContextStorageManager
+                          ├─ Saves to .ai_toolbox_context.json (migrated to msgpack in v1.5.7) via ContextStorageManager
                           └─ Returns { triggered: true, saved: true, sessionId: "ctx_178...checkpoint" }
                     → Console logs: "[Auto-Track] Token threshold triggered — session memory checkpoint saved (ctx_178...)"
 ```
 
 **What Gets Saved When Threshold Is Hit:**
-A context entry is written to `.ai_toolbox_context.json`:
+A context entry was written to `.ai_toolbox_context.json` (now stored as `.msgpack` since v1.5.7):
 ```json
 {
   "id": "ctx_178...checkpoint",
@@ -335,7 +335,7 @@ The AI can later retrieve this via `get_context_memory` or `search_context` tool
 - **Complete workflow**: Save → Close LM Studio → New session retrieves context automatically
 
 **Implementation:**
-- Integrated with existing `.ai_toolbox_memory.json` persistence layer (synchronous writes for reliability)
+- Integrated with existing `.ai_toolbox_memory.json` (migrated to msgpack in v1.5.7) persistence layer (synchronous writes for reliability)
 - Each summary stored with unique timestamp-based ID for tracking multiple sessions
 - Structured storage enables AI to parse and utilize previous session context without manual handoff
 

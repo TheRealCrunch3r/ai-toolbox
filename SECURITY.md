@@ -249,7 +249,7 @@ God Mode (OFF)
 | HTTP Client | ❌ Disabled | Medium | Network access to any URL |
 | Vector RAG | ✅ Enabled | Low | Read-only file indexing |
 | Interactive UI Generation | ❌ Disabled | Low | HTML generation only, no execution |
-| Auto-Context Management | ✅ Enabled | Low | Local JSON storage, read/write |
+| Auto-Context Management | ✅ Enabled | Low | Local MessagePack (msgpack) storage, read/write |
 | JavaScript Execution | ❌ Disabled | ⚠️ **High** | Code execution |
 | Python Execution | ❌ Disabled | ⚠️ **High** | Code execution |
 | Terminal Execution | ❌ Disabled | ⚠️ **High** | Shell access |

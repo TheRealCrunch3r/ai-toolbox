@@ -7,6 +7,8 @@ import type { PluginConfig } from './config';
 import { DEFAULT_CONFIG } from './config';
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { encode, decode } from '@msgpack/msgpack';
+
 import { getWorkingDir } from './workingDir';
 
 interface StateEntry {
@@ -36,10 +38,10 @@ async function getMemoryFilePath(): Promise<string> {
     }
   } catch {
     logger.warn(`Working directory is invalid or inaccessible: ${cwd}. Defaulting to plugin root.`);
-    return path.join(__dirname, '..', '.ai_toolbox_memory.json');
+    return path.join(__dirname, '..', '.ai_toolbox_memory.msgpack');
   }
 
-  const memoryFile = path.join(cwd, '.ai_toolbox_memory.json');
+  const memoryFile = path.join(cwd, '.ai_toolbox_memory.msgpack');
   logger.info(`Memory file path: ${memoryFile}`);
   return memoryFile;
 }
@@ -88,7 +90,7 @@ export class StateManager {
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
         logger.warn(`Failed to initialize state manager: ${message}`);
-        this.memoryFile = path.join(__dirname, '..', '.ai_toolbox_memory.json'); // Fallback
+        this.memoryFile = path.join(__dirname, '..', '.ai_toolbox_memory.msgpack'); // Fallback
       }
     })();
   }
@@ -211,7 +213,7 @@ export class StateManager {
   }
 
   /**
-   * Save state to disk as JSON file with optimized serialization.
+   * Save state to disk as msgpack binary file with optimized serialization.
    */
   private async saveToFile(): Promise<void> {
     try {
@@ -230,12 +232,12 @@ export class StateManager {
         return; // Abort save if we can't create the dir
       }
 
-      // Optimized JSON serialization (no pretty-printing for performance)
-      const jsonString = JSON.stringify(data);
+      // Encode to msgpack binary format (much smaller than JSON)
+      const encodedData = encode(data);
       
       // Write to temp file first, then rename for atomic operation
       const tempFile = this.memoryFile + '.tmp';
-      await fs.writeFile(tempFile, jsonString, 'utf-8');
+      await fs.writeFile(tempFile, encodedData);  // Buffer write (msgpack format)
       await fs.rename(tempFile, this.memoryFile);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -244,7 +246,7 @@ export class StateManager {
   }
 
   /**
-   * Load state from disk JSON file with corruption recovery.
+   * Load state from disk msgpack binary file with corruption recovery.
    */
   private async loadFromFile(): Promise<void> {
     try {
@@ -253,12 +255,12 @@ export class StateManager {
         return;
       }
       
-      const jsonString = await fs.readFile(this.memoryFile, 'utf-8');
+      const buffer = await fs.readFile(this.memoryFile);  // Read as Buffer (msgpack format)
       
-      // Try to parse JSON with error recovery
+      // Try to decode msgpack with error recovery
       let data: StateEntry[];
       try {
-        data = JSON.parse(jsonString) as StateEntry[];
+        data = decode(buffer) as StateEntry[];
       } catch { // C1 fix: removed unused parseError variable
         logger.warn(`Corrupted state file detected, removing and starting fresh...`);
 
@@ -286,9 +288,14 @@ export class StateManager {
       
       logger.info(`Loaded ${this.state.size} entries from memory.`);
 
-      // Create backup after successful load
+      // Create backup after successful load (still JSON for manual inspection)
       try {
-        await fs.writeFile(this.memoryFile + '.backup', jsonString, 'utf-8');
+        const backupData = Array.from(this.state.entries()).map(([_key, entry]) => ({
+          key: entry.key,
+          value: entry.value,
+          timestamp: entry.timestamp,
+        }));
+        await fs.writeFile(this.memoryFile + '.backup.json', JSON.stringify(backupData), 'utf-8');
       } catch {
         // Ignore backup creation errors
       }

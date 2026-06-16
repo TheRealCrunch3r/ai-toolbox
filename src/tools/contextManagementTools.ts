@@ -3,6 +3,8 @@ import { tool } from '@lmstudio/sdk';
 import { z } from 'zod';
 import * as fs from 'fs/promises';  // ASYNC import ===
 import * as path from 'path';
+import { encode, decode } from '@msgpack/msgpack';
+
 import type { PluginConfig } from '../config.js';
 import { getWorkingDir } from '../workingDir.js';
 
@@ -31,7 +33,7 @@ export class ContextStorageManager {
   private storagePath: string;
   
   constructor() {
-    this.storagePath = path.join(getWorkingDir(), '.ai_toolbox_context.json');
+    this.storagePath = path.join(getWorkingDir(), '.ai_toolbox_context.msgpack');
     console.log(`[ContextStorage] Initialized with storage path: ${this.storagePath}`);
   }
 
@@ -43,8 +45,8 @@ export class ContextStorageManager {
         return [];
       }
       
-      const data = await fs.readFile(this.storagePath, 'utf-8');  // ASYNC read
-      const entries = JSON.parse(data) as ContextEntry[];
+      const buffer = await fs.readFile(this.storagePath);  // Read as Buffer (msgpack format)
+      const entries = decode(buffer) as ContextEntry[];
       console.warn(`[ContextStorage.load] Loaded ${entries.length} entries from disk`);
       return entries;
     } catch (error) {
@@ -65,9 +67,10 @@ export class ContextStorageManager {
       
       // Write atomically (temp file + rename) — ASYNC ===
       const tempPath = this.storagePath + '.tmp';
-      await fs.writeFile(tempPath, JSON.stringify(entries, null, 2));  // ASYNC write
+      const encoded = encode(entries);  // Encode to msgpack Buffer
+      await fs.writeFile(tempPath, encoded);  // ASYNC write (Buffer format)
       await fs.rename(tempPath, this.storagePath);  // ASYNC rename
-      console.warn(`[ContextStorage.save] Saved ${entries.length} entries to disk`);
+      console.warn(`[ContextStorage.save] Saved ${entries.length} entries to disk (${(encoded.byteLength / 1024).toFixed(1)} KB)`);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.error(`[ContextStorage.save] Failed to save context storage: ${message}`);

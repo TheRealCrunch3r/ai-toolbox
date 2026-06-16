@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Document RAG Prompt Preprocessor + Working Directory Detection + Temporal Awareness
  */
 
@@ -103,9 +103,9 @@ function detectDirectoryPath(text: string): string | null {
   }
 
   // Relative paths: ./folder, ../parent/dir
-  const relMatch = withoutUrls.match(/(?:^|\s)(?:\.\/|\.\\.\/|\.\.\/)[\w\-_. ]+/);
+  // Relative paths: ./folder, ../parent/dir
+  const relMatch = withoutUrls.match(/(?:^|\s)(?:\.\/|\.\\.\/)[\w\-_. ]+/);
   if (relMatch) return relMatch[0].trim();
-
   return null;
 }
 
@@ -330,10 +330,11 @@ export async function preprocess(
       const tokenCount = await contextGuard.countTokens(messages);
       const threshold = contextGuard.getThreshold();
 
-      // Token threshold auto-tracking check (NEW)
+      // 🔹 NEW: Token threshold check with user confirmation prompt (no auto-save yet)
       try {
         const pluginConfig = ctl.getPluginConfig(configSchematics);
-        const autoTrackingEnabled = pluginConfig.get('autoTrackingEnabled') ?? true; // Default to ON
+        const autoTrackingEnabled = pluginConfig.get('autoTrackingEnabled') ?? true;
+        
         if (autoTrackingEnabled) {
           autoTracker.updateConfig({
             autoTrackingEnabled: true,
@@ -344,18 +345,13 @@ export async function preprocess(
             autoTrackTokenThreshold: (pluginConfig.get('autoTrackTokenThreshold')) ?? 75,
           });
 
-          // Check token threshold AND auto-save session memory if triggered
           const maxTokens = threshold; // Use ContextGuard limit as proxy for context window size
-          const messageCount = history.getLength(); // Get current message count from history
           
-          const result = await autoTracker.checkAndSaveTokenThreshold(tokenCount, maxTokens, messageCount);
+          // 🔹 NEW: Check threshold and generate prompt instead of auto-saving immediately
+          const { triggered } = autoTracker.checkAndGeneratePrompt(tokenCount, maxTokens);
           
-          if (result.triggered) {
-            if (result.saved && result.sessionId) {
-              console.warn('[Auto-Track] Token threshold triggered — session memory checkpoint saved (' + result.sessionId + ')');
-            } else {
-              console.warn('[Auto-Track] Token threshold triggered but session memory save failed');
-            }
+          if (triggered) {
+            console.warn('[Auto-Track] Token threshold reached — injecting user confirmation prompt');
           }
         } else {
           autoTracker.updateConfig({ autoTrackingEnabled: false });
@@ -400,8 +396,8 @@ export async function preprocess(
       
       if (actions.length > 0) {
         console.warn(`[Auto-Track] Detected ${actions.length} event(s):`, actions.map(a => `${a.type} (${a.confidence.toFixed(2)})`).join(', '));
-        // Note: Silent tracking - no tool calls made here to avoid interfering with chat flow
-        // The detection is logged for debugging; actual tracking would require separate implementation
+        // 🔹 Actions are now buffered in-memory and will be flushed to persistent storage
+        // when the token threshold checkpoint fires (with user confirmation)
       }
     } else {
       // Ensure tracker is disabled if config says so
@@ -500,6 +496,15 @@ export async function preprocess(
 
   console.warn(`[RAG] Total results after sorting: ${allResults.length}`);
 
+  // 🔹 NEW: Inject checkpoint confirmation prompt into context if triggered
+  const pendingWarning = autoTracker.getAndClearPendingWarning();
+  
+  let finalMessage = userPrompt + attachmentNotice;
+  
+  if (pendingWarning) {
+    finalMessage += `\n\n--- SYSTEM INSTRUCTION ---\n${pendingWarning}\n--------------------------`;
+  }
+
   // Inject context if results found
   if (allResults.length > 0) {
     let contextInjection = '';
@@ -507,11 +512,11 @@ export async function preprocess(
       contextInjection += `\n${result.content}\n---\n`;
     }
 
-    return `${userPrompt}${attachmentNotice}\n\n--- RELEVANT DOCUMENT CONTEXT ---\n${contextInjection.trim()}` + getTemporalSuffix(ctl);
+    return `${finalMessage}\n\n--- RELEVANT DOCUMENT CONTEXT ---\n${contextInjection.trim()}` + getTemporalSuffix(ctl);
   }
 
   // If no results found, return original message with attachment notice
   console.warn('[RAG] No relevant results found');
-  const base = userPrompt + attachmentNotice;
+  const base = finalMessage;
   return base + getTemporalSuffix(ctl);
 }

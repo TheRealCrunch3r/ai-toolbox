@@ -6,10 +6,7 @@
  * - Completions ("successfully completed", "finished")
  * - Error fixes ("fixed the bug", "resolved")
  * 
- * Runs silently in background when enabled. Detected actions are buffered in-memory
- * and flushed to persistent context storage either:
- * 1. Automatically when token threshold is reached (with user confirmation prompt)
- * 2. Manually via flushActionsToMemory() if needed
+ * Runs silently in background when enabled.
  */
 
 import { z } from 'zod';
@@ -75,12 +72,6 @@ export class AutoTracker {
   private config: AutoTrackConfig;
   private messageCount = 0;
   private readonly MIN_CONFIDENCE = 0.6; // Minimum confidence to trigger tracking
-  
-  // 🔹 NEW: In-memory buffer for detected actions (flushed on threshold or manually)
-  private actionBuffer: AutoTrackAction[] = [];
-  
-  // 🔹 NEW: Holds the pending checkpoint warning prompt until consumed by user
-  private pendingCheckpointWarning: string | undefined = undefined;
 
   constructor(config?: Partial<AutoTrackConfig>) {
     this.config = {
@@ -118,7 +109,7 @@ export class AutoTracker {
 
     // Only trigger once per session (reset on resetCounter or new session)
     if (!this.config.lastTokenThresholdCheck && usagePercentage >= threshold) {
-      console.warn(`[AutoTracker] Token threshold reached: ${usagePercentage.toFixed(1)}% (${currentTokens}/${maxTokens}) — triggering user confirmation prompt`);
+      console.warn(`[AutoTracker] Token threshold reached: ${usagePercentage.toFixed(1)}% (${currentTokens}/${maxTokens}) — triggering session memory save`);
       this.config.lastTokenThresholdCheck = true; // Mark as triggered for this session
       return true;
     }
@@ -137,79 +128,6 @@ export class AutoTracker {
   }
 
   /**
-   * Check threshold and generate a user-facing prompt if triggered.
-   * Returns { triggered, warning? } instead of auto-saving immediately.
-   */
-  checkAndGeneratePrompt(currentTokens: number, maxTokens: number): { triggered: boolean; warning?: string } {
-    const usagePercentage = (currentTokens / maxTokens) * 100;
-    const threshold = this.config.autoTrackTokenThreshold ?? 75;
-
-    if (!this.config.autoTrackingEnabled || !maxTokens || maxTokens <= 0 || usagePercentage < threshold) {
-      return { triggered: false };
-    }
-
-    // Only trigger once per session (reset on resetCounter or new session)
-    if (!this.config.lastTokenThresholdCheck) {
-      this.config.lastTokenThresholdCheck = true;
-      
-      const bufferedCount = this.actionBuffer.length;
-      const warning = `⚠️ SESSION WARNING: You have reached ${usagePercentage.toFixed(0)}% of your token limit. It is highly recommended to create a session backup before continuing.\n\nAuto-tracked events in buffer (will be saved with checkpoint): ${bufferedCount}\n\nDo you want to proceed with a backup? Reply 'YES' to trigger the backup tool, or 'NO' to continue.`;
-      
-      this.pendingCheckpointWarning = warning;
-      console.warn(`[AutoTracker] Threshold reached: ${usagePercentage.toFixed(1)}% — waiting for user confirmation`);
-    }
-
-    return { triggered: true, warning: this.pendingCheckpointWarning };
-  }
-
-  /** 
-   * Consume and clear the pending warning (call after injection into prompt).
-   */
-  getAndClearPendingWarning(): string | undefined {
-    const warn = this.pendingCheckpointWarning;
-    if (warn) {
-      this.pendingCheckpointWarning = undefined; // 🔹 Consume it so it doesn't repeat every turn
-    }
-    return warn;
-  }
-
-  /**
-   * Flush buffered actions to persistent context storage.
-   * Called automatically when token threshold is reached, or manually via tool call.
-   */
-  async flushActionsToMemory(): Promise<number> {
-    if (this.actionBuffer.length === 0) return 0;
-    
-    const flushed = this.actionBuffer.splice(0); // 🔹 Clear buffer safely before async I/O
-    let savedCount = 0;
-
-    try {
-      const { ContextStorageManager } = await import('./tools/contextManagementTools.js');
-      const storage = new ContextStorageManager();
-
-      for (const action of flushed) {
-        await storage.addEntry({
-          id: `ctx_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-          timestamp: Date.now(),
-          type: action.type === 'error_fix' ? 'error' : 
-                (action.type === 'completion' ? 'summary' : 'decision'),
-          title: `${action.type.charAt(0).toUpperCase() + action.type.slice(1)} Auto-Track`,
-          content: `Auto-detected ${action.type}: "${action.content}"\nConfidence: ${(action.confidence * 100).toFixed(0)}%\nOriginal context: "${action.originalMessage.slice(0, 200)}"`,
-          tags: ['auto_track', action.type],
-        });
-        savedCount++;
-      }
-
-      console.warn(`[AutoTracker] Flushed ${savedCount} auto-tracked event(s) to persistent memory`);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`[AutoTracker] Failed to flush actions: ${message}`);
-    }
-
-    return savedCount;
-  }
-
-  /**
    * Auto-save session memory when token threshold is reached.
    * This creates a context entry capturing the session state to prevent data loss.
    */
@@ -222,9 +140,6 @@ export class AutoTracker {
       return { saved: false };
     }
 
-    // 🔹 NEW: Flush buffered detections before checkpointing
-    const flushedCount = await this.flushActionsToMemory();
-
     const usagePercentage = ((currentTokens / maxTokens) * 100).toFixed(1);
     const threshold = this.config.autoTrackTokenThreshold ?? 75;
 
@@ -232,13 +147,12 @@ export class AutoTracker {
     const entryId = `ctx_${Date.now()}_checkpoint`;
     const timestamp = Date.now();
     
-    // 🔹 NEW: Include flushed action count in checkpoint content
     const contextEntry = {
       id: entryId,
       timestamp,
       type: 'summary' as const,
       title: `Session Memory Checkpoint (${usagePercentage}% tokens used)`,
-      content: `Auto-triggered session memory save at ${threshold}% token threshold.\n\nCurrent session state:\n- Tokens used: ${currentTokens} / ${maxTokens} (${usagePercentage}%)\n- Messages in session: ${messageCount}\n- Threshold configured: ${threshold}%\n- Auto-tracked events flushed this checkpoint: ${flushedCount}\n\nThis checkpoint preserves critical context before potential overflow.`,
+      content: `Auto-triggered session memory save at ${threshold}% token threshold.\n\nCurrent session state:\n- Tokens used: ${currentTokens} / ${maxTokens} (${usagePercentage}%)\n- Messages in session: ${messageCount}\n- Threshold configured: ${threshold}%\n\nThis checkpoint preserves critical context before potential overflow.`,
       tags: ['auto_checkpoint', 'token_threshold'],
     };
 
@@ -288,7 +202,6 @@ export class AutoTracker {
   /**
    * Analyze a message for auto-tracking triggers.
    * Returns array of detected actions (can be multiple).
-   * Actions are ALSO buffered in-memory for later flush to persistent storage.
    */
   analyzeMessage(message: string): AutoTrackAction[] {
     const actions: AutoTrackAction[] = [];
@@ -333,18 +246,6 @@ export class AutoTracker {
           originalMessage: message.slice(0, 500),
           confidence: errorMatch.weight ?? 0,
         });
-      }
-    }
-
-    // 🔹 NEW: Buffer detected actions for later flush to persistent storage
-    if (actions.length > 0) {
-      this.actionBuffer.push(...actions);
-      console.warn(`[AutoTracker] Buffered ${actions.length} action(s). Total in buffer: ${this.actionBuffer.length}`);
-      
-      // 🔹 Safety cap: auto-flush if buffer grows too large (>50 entries)
-      if (this.actionBuffer.length > 50) {
-        console.warn('[AutoTracker] Buffer exceeded safety limit, flushing early...');
-        void this.flushActionsToMemory(); // Fire-and-forget — intentionally unawaited to avoid blocking preprocessor
       }
     }
 
@@ -412,13 +313,6 @@ export class AutoTracker {
    */
   getConfig(): AutoTrackConfig {
     return { ...this.config };
-  }
-  
-  /**
-   * Get the current number of buffered actions (for UI/logging).
-   */
-  getBufferedActionCount(): number {
-    return this.actionBuffer.length;
   }
 }
 

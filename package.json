@@ -13,11 +13,13 @@
     "test": "jest",
     "perf:diagnose": "tsc --extendedDiagnostics",
     "perf:trace": "tsc --generateTrace traceDir",
-    "check:circular": "npx madge --circular src/index.ts"
+    "check:circular": "npx madge --circular src/index.ts",
+    "decode": "node scripts/decode_context.js"
   },
   "dependencies": {
     "@dqbd/tiktoken": "^1.0.22",
     "@lmstudio/sdk": "^1.5.0",
+    "@msgpack/msgpack": "^3.1.3",
     "archiver": "^8.0.0",
     "duck-duck-scrape": "^2.2.7",
     "html-to-text": "^9.0.5",
