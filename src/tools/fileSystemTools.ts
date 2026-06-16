@@ -1352,8 +1352,7 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
         lines.push(`📁 ${rootName}/`);
         await buildTree(targetDir, '', 1);  // ASYNC call
 
-        return { success: true, data: { tree: lines.join('\n'), path: targetDir, depth: depthLimit } };
-      } catch (error) {
+        return { success: true, data: { tree: lines.join('\n'), path: targetDir, depth: depthLimit } };      } catch (error) {
         return handleError(error);
       }
     },
@@ -1367,18 +1366,20 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
     parameters: {
       pattern: z.string().describe('Regex or literal string to search for'),
       path: z.string().default('.').describe('Directory to search in (defaults to current working directory)'),
+      max_content_length: z.number().int().min(10).max(500).optional().default(150).describe('Max chars per matched line content (default: 150)'),
       include: z.string().optional().describe('File glob pattern to include (e.g., "*.ts", "src/**/*.js")'),
       exclude: z.string().optional().describe('Files or directories to exclude (e.g., "node_modules", ".git")'),
-      max_results: z.number().int().min(1).max(500).default(50).describe('Maximum number of results to return (default: 50, max: 500)'),
+      max_results: z.number().int().min(1).max(500).default(20).describe('Maximum number of results to return (default: 20, max: 500)'),
       max_file_size: z.number().int().min(1024).default(100_000).describe('Maximum file size in bytes to search (default: 100KB, skip larger files)'),
     },
-    implementation: async ({ pattern, path: searchPath = '.', include, exclude, max_results, max_file_size }: { 
+    implementation: async ({ pattern, path: searchPath = '.', include, exclude, max_results, max_file_size, max_content_length }: { 
       pattern: string; 
       path?: string; 
       include?: string; 
       exclude?: string;
       max_results?: number;
       max_file_size?: number;
+      max_content_length?: number;
     }) => {
       try {
         const targetDir = resolvePath(searchPath);
@@ -1397,10 +1398,9 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
         }
 
         // Configuration with defaults - TOKEN LIMITING
-        const MAX_RESULTS = max_results ?? 50;
+        const MAX_RESULTS = max_results ?? 20;
         const MAX_FILE_SIZE = max_file_size ?? 100_000; // 100KB default
         let resultsCount = 0;
-
         const matches: Array<{ file: string; line_number: number; content: string }> = [];
 
         async function walkDirectory(dirPath: string): Promise<void> {  // ASYNC recursive traversal
@@ -1443,10 +1443,13 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
 
                 for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
                   if (regex.test(lines[lineIdx])) {
+                    const rawContent = lines[lineIdx].trim();
+                    const maxCl = max_content_length ?? 150;
+                    
                     matches.push({
                       file: path.relative(targetDir, fullPath),
                       line_number: lineIdx + 1,
-                      content: lines[lineIdx].trim(),
+                      content: (rawContent.length > maxCl ? rawContent.slice(0, maxCl) + '…' : rawContent),
                     });
                     resultsCount++;
 
@@ -1488,6 +1491,7 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
     const regex = new RegExp('^' + pattern.replace(/\*/g, '.*').replace(/\?/g, '.') + '$', 'i');
     return regex.test(filename);
   }
+
 
   return tools;
 }

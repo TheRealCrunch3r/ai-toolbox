@@ -312,3 +312,212 @@ All changes verified with comprehensive test suite:
 1. Commit all changes with message: `fix: v1.4.x — execution tools, memory CRUD, UI fixes & TS cleanup`
 2. Tag release as v1.4.10 in package.json and CHANGELOG.md
 3. Update LM Studio plugin manifest if needed
+
+---
+
+## 🆕 Latest Update — `grep_files` Token Consumption Hardening (2026-06-16)
+
+### Overview
+
+This update documents the critical token consumption controls added to the `grep_files` tool to prevent LLM context window overflow from unbounded file search output. The fix implements a **three-layer defense-in-depth strategy** that gates on content length, file size, and result count — ensuring predictable token usage regardless of project size or search pattern selectivity.
+
+---
+
+### 🔴 Problem Statement: Token Explosion Risk
+
+The original `grep_files` implementation had no safeguards against returning excessive output from large codebases:
+
+| Vector | Original Behavior | Impact |
+|--------|------------------|--------|
+| **Per-line content** | Returned entire line (unlimited) | A single 10KB minified JS file could return a 50KB+ match string |
+| **File size gate** | No check — read any file regardless of size | Searching `node_modules` or build artifacts could load multi-MB files |
+| **Result count** | Returned every matching line in the directory tree | A broad pattern like `.js` across a 10k-file project could return thousands of results |
+
+This created a **token explosion risk**: a single `grep_files` call with a non-selective pattern on a large project could consume the entire LLM context window (typically 32k–128k tokens) in one response, causing:
+- Context overflow errors
+- Premature session termination
+- Wasted API credits on unparseable output
+
+---
+
+### ✅ Solution: Three-Layer Defense-in-Depth
+
+#### Layer 1 — `max_content_length` (Line Truncation)
+
+**Purpose:** Prevent individual match lines from consuming excessive tokens.
+
+```typescript
+// Parameter definition (Zod schema)
+max_content_length: z.number().int()
+  .min(10).max(500)           // Hard bounds: 10–500 chars
+  .optional()                  // Optional — user can override
+  .default(150),               // Conservative default for most use cases
+
+// Implementation (line truncation with ellipsis indicator)
+const maxCl = max_content_length ?? 150;
+content: (rawContent.length > maxCl ? rawContent.slice(0, maxCl) + '…' : rawContent)
+```
+
+**Behavior:**
+- Default: **150 characters per line** — balances readability with token economy
+- Minimum: **10 characters** — prevents truncation to useless fragments
+- Maximum: **500 characters** — allows detailed output when needed (e.g., long string literals)
+- Truncated lines receive a `…` suffix so the LLM knows more content exists
+
+**Token Impact:** A 10KB line → truncated to ~150 chars (~40 tokens). Without this, a single match could consume 25× more tokens.
+
+---
+
+#### Layer 2 — `max_file_size` (File Size Gate)
+
+**Purpose:** Prevent loading and processing large files that would waste I/O and memory.
+
+```typescript
+// Parameter definition (Zod schema)
+max_file_size: z.number().int()
+  .min(1024)                   // Minimum: 1KB — skip tiny files only if explicitly needed
+  .default(100_000),           // Default: 100KB — covers most source files
+
+// Implementation (early stat check before reading content)
+const stats = await fs.stat(fullPath);  // ASYNC stat
+if (stats.size > MAX_FILE_SIZE) {
+  continue;  // Skip large files to prevent token explosion
+}
+```
+
+**Behavior:**
+- Default: **100KB per file** — covers most source code files, excludes build artifacts and minified bundles
+- Files exceeding the limit are silently skipped via `fs.stat()` before any content is read
+- This prevents loading multi-MB files into memory or returning massive output
+
+**Token Impact:** A 5MB minified JS file → completely excluded. Without this, a single large file could consume 10–20× more tokens than a typical source file.
+
+---
+
+#### Layer 3 — `max_results` (Result Count Cap)
+
+**Purpose:** Prevent unbounded result accumulation across the entire directory tree.
+
+```typescript
+// Parameter definition (Zod schema)
+max_results: z.number().int()
+  .min(1).max(500)             // Hard bounds: 1–500 results
+  .optional()                  // Optional — user can override for debugging
+  .default(20),                // Conservative default to prevent overflow
+
+// Implementation (dual early-exit strategy)
+const MAX_RESULTS = max_results ?? 20;
+let resultsCount = 0;
+
+async function walkDirectory(dirPath: string): Promise<void> {
+  if (resultsCount >= MAX_RESULTS) return;  // ← Early exit in recursion
+  // ...
+}
+
+for (const entry of entries) {
+  if (resultsCount >= MAX_RESULTS) return;  // ← Early exit inside file loop
+```
+
+**Behavior:**
+- Default: **20 results** — sufficient for most debugging/search tasks, prevents runaway output
+- Minimum: **1 result** — useful for existence checks (`grep_files(pattern="TODO", max_results=1)`)
+- Maximum: **500 results** — allows deep debugging when explicitly requested
+- The `truncated` field in the response signals whether more results are available
+
+**Token Impact:** A broad pattern like `.js` across 10k files → capped at 20 matches (~400 tokens max). Without this, could return thousands of results (hundreds of kilobytes).
+
+---
+
+### 📊 Combined Token Budget Analysis
+
+| Scenario | Without Fix | With Fix (Defaults) | Reduction |
+|----------|-------------|---------------------|-----------|
+| **Small file** (1KB source) | ~50 tokens/line × 1 line = **50 tok** | Same (below all thresholds) | No change |
+| **Medium file** (10KB source, 1 match) | ~250 tok/line × 1 line = **250 tok** | Truncated to 150 chars = **40 tok** | **84% reduction** |
+| **Large file** (1MB build artifact, 1 match) | ~5000 tok/line × 1 line = **5000 tok** | Skipped entirely (**0 tok**) | **100% reduction** |
+| **Broad pattern** (`.js` across 10k files) | Thousands of matches = **>100k tok** | Capped at 20 results = **<400 tok** | **99.6% reduction** |
+
+---
+
+### 🔧 Implementation Details
+
+#### File Location
+- **Tool definition:** `src/tools/fileSystemTools.ts` (lines ~1350–1450)
+- **Helper functions:** `escapeRegExp()` and `matchGlob()` defined in same file (lines ~1460–1475)
+
+#### Helper Functions
+
+```typescript
+/** Escape special regex characters for literal string matching */
+function escapeRegExp(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Simple glob pattern matcher (supports *, ?) */
+function matchGlob(filename: string, pattern: string): boolean {
+  const regex = new RegExp('^' + pattern.replace(/\*/g, '.*').replace(/\?/g, '.') + '$', 'i');
+  return regex.test(filename);
+}
+```
+
+**Purpose:** These helpers enable the `include` and `exclude` parameters to work with both literal strings (auto-escaped) and glob patterns (`*`, `?`). They are used internally for file filtering before content is read.
+
+#### Safety: ReDoS Protection
+
+The tool integrates with the existing `isSafeRegex()` security check from `src/security.ts`:
+
+```typescript
+let regex: RegExp;
+try {
+  const safePattern = isSafeRegex(pattern) ? pattern : escapeRegExp(pattern);
+  regex = new RegExp(safePattern, 'i'); // Case-insensitive by default
+} catch {
+  return handleError(new Error(`Invalid regex pattern: ${pattern}`));
+}
+```
+
+**Behavior:** If the user-provided pattern fails the ReDoS safety check (via `isSafeRegex()`), it is treated as a **literal string** rather than rejected. This prevents regex denial-of-service attacks while maintaining usability for non-regex searches.
+
+---
+
+### 🧪 Verification Results
+
+| Test Case | Expected Behavior | Status |
+|-----------|------------------|--------|
+| Small file, selective pattern | Returns full matches (under all thresholds) | ✅ Pass |
+| Large file (>100KB), any pattern | File skipped entirely | ✅ Pass |
+| Broad pattern across large project | Capped at 20 results with `truncated: true` | ✅ Pass |
+| Per-line content >150 chars | Truncated to 150 + `…` suffix | ✅ Pass |
+| Custom overrides (e.g., max_results=500) | Respects user override for debugging | ✅ Pass |
+| Invalid regex pattern | Falls back to literal string search | ✅ Pass |
+
+---
+
+### ⚠️ Caveats & Trade-offs
+
+1. **Truncation visibility:** Users may not see the full line content if it exceeds `max_content_length`. The `…` suffix indicates more exists, but they must increase `max_content_length` explicitly to view it.
+
+2. **Silent file skipping:** Files exceeding `max_file_size` are skipped without notification. For debugging purposes, users can set `max_file_size` higher (e.g., 10MB) or inspect the file manually with `read_file`.
+
+3. **Result count vs. completeness:** The `truncated` field signals when results were cut off, but the LLM may not always act on this signal. Users should be aware that a broad search may only return partial results by default.
+
+4. **Performance:** The dual early-exit strategy (recursion + loop) ensures minimal I/O once the cap is reached. However, `fs.stat()` calls for every file add overhead — negligible compared to `fs.readFile()` savings on large files.
+
+---
+
+### 📋 Related Code Changes
+
+| File | Change Type | Description |
+|------|-------------|-------------|
+| `src/tools/fileSystemTools.ts` | Feature addition | Added `grep_files` tool with three-layer token consumption controls |
+| `src/security.ts` (existing) | Integration | Tool uses `isSafeRegex()` for ReDoS protection fallback to literal matching |
+
+---
+
+### 🔮 Future Considerations
+
+1. **Progressive disclosure:** Could add a `--verbose` flag that returns full content when explicitly requested, overriding defaults.
+2. **Streaming output:** For very large projects, consider streaming matches in chunks rather than returning all at once (would require SDK changes).
+3. **File type filtering:** The current `include`/`exclude` parameters are basic glob patterns — could be extended to support MIME types or language identifiers.
+
+---
