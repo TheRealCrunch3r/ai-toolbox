@@ -321,6 +321,9 @@ export async function preprocess(
 ): Promise<string | ChatMessage> {
   const userPrompt = userMessage.getText();
   
+  // 🔹 Declare pendingWarning at the top so it's accessible across all steps
+  let pendingWarning: string | undefined;
+  
   // Step 0.5: ContextGuard auto-compression (before any processing)
   if (contextGuard) {
     try {
@@ -330,7 +333,8 @@ export async function preprocess(
       const tokenCount = await contextGuard.countTokens(messages);
       const threshold = contextGuard.getThreshold();
 
-      // 🔹 NEW: Token threshold check with user confirmation prompt (no auto-save yet)
+      // 🔹 NEW: Token threshold check with user confirmation prompt + YES reply handler
+      
       try {
         const pluginConfig = ctl.getPluginConfig(configSchematics);
         const autoTrackingEnabled = pluginConfig.get('autoTrackingEnabled') ?? true;
@@ -347,11 +351,26 @@ export async function preprocess(
 
           const maxTokens = threshold; // Use ContextGuard limit as proxy for context window size
           
-          // 🔹 NEW: Check threshold and generate prompt instead of auto-saving immediately
-          const { triggered } = autoTracker.checkAndGeneratePrompt(tokenCount, maxTokens);
-          
-          if (triggered) {
-            console.warn('[Auto-Track] Token threshold reached — injecting user confirmation prompt');
+          // Check if user replied YES to a previous warning
+          const userTextLower = userMessage.getText().toLowerCase();
+          const isYesReply = /^\s*(yes|y)\s*$/.test(userTextLower) || /yes\s+(please|proceed|go)/i.test(userTextLower);
+
+          if (isYesReply && autoTracker.hasPendingWarning()) {
+            // User confirmed → Trigger actual save & clear warning
+            console.warn('[Auto-Track] User confirmed backup, triggering session checkpoint...');
+            await autoTracker.checkAndSaveTokenThreshold(tokenCount, maxTokens, history.getLength());
+            pendingWarning = undefined; 
+          } else {
+            // Consume any pending warning (clears it so it doesn't repeat)
+            const warn = autoTracker.consumePendingConfirmation();
+            
+            if (!warn) {
+              // No previous warning → check threshold now for the first time this session
+              const { triggered, warning } = autoTracker.checkAndGeneratePrompt(tokenCount, maxTokens);
+              pendingWarning = triggered ? warning : undefined;
+            } else {
+              pendingWarning = warn;
+            }
           }
         } else {
           autoTracker.updateConfig({ autoTrackingEnabled: false });
@@ -496,9 +515,7 @@ export async function preprocess(
 
   console.warn(`[RAG] Total results after sorting: ${allResults.length}`);
 
-  // 🔹 NEW: Inject checkpoint confirmation prompt into context if triggered
-  const pendingWarning = autoTracker.getAndClearPendingWarning();
-  
+  // 🔹 Inject checkpoint confirmation prompt if triggered/pending from Step 0.5
   let finalMessage = userPrompt + attachmentNotice;
   
   if (pendingWarning) {

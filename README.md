@@ -339,6 +339,25 @@ npm install
 npm run build
 ```
 
+### Safe Edit Workflow (v1.5.9+)
+
+Prevent file corruption during LLM-assisted editing with our backup-first strategy:
+
+```bash
+# Backup before editing:
+node scripts/safe_edit.js backup src/index.ts
+
+# Make your edits...
+
+# Verify after editing:
+node scripts/safe_edit.js verify src/index.ts
+
+# Remove backups when satisfied:
+node scripts/safe_edit.js cleanup --keep=0
+```
+
+📖 **Full Guide:** See [SAFE_EDIT_GUIDE.md](./SAFE_EDIT_GUIDE.md) for complete workflow details, decision trees, and emergency recovery procedures.
+
 ---
 
 ## 📦 Dependencies

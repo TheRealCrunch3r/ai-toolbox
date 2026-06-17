@@ -163,7 +163,23 @@ export class AutoTracker {
   }
 
   /** 
-   * Consume and clear the pending warning (call after injection into prompt).
+   * Consume and clear the pending warning (call after user replies YES/NO).
+   */
+  consumePendingConfirmation(): string | undefined {
+    const warn = this.pendingCheckpointWarning;
+    if (warn) {
+      this.pendingCheckpointWarning = undefined; // 🔹 Clear so it doesn't repeat every turn
+    }
+    return warn;
+  }
+
+  /** Check if a checkpoint warning is currently waiting for user response */
+  hasPendingWarning(): boolean {
+    return !!this.pendingCheckpointWarning;
+  }
+
+  /** 
+   * Consume and clear the pending warning (legacy alias — call after injection into prompt).
    */
   getAndClearPendingWarning(): string | undefined {
     const warn = this.pendingCheckpointWarning;

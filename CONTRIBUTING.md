@@ -365,6 +365,54 @@ Be respectful, constructive, and inclusive. We follow the [Contributor Covenant]
 
 ---
 
+## 🛡️ Safe Edit Workflow (v1.5.9+)
+
+### Why This Matters
+
+File corruption during LLM-assisted editing is a known risk when `replace_text_in_file` fails silently or when exact text matches aren't verified first. The **backup-first strategy** prevents data loss and enables quick recovery.
+
+### Quick Start
+
+```bash
+# 1. Backup before editing:
+node scripts/safe_edit.js backup src/index.ts
+
+# 2. Make your edits...
+
+# 3. Verify after editing:
+node scripts/safe_edit.js verify src/index.ts
+
+# 4. Remove backups when satisfied:
+node scripts/safe_edit.js cleanup --keep=0
+```
+
+### Decision Tree for Tool Selection
+
+| Scenario | Recommended Tool | Why? |
+|----------|-----------------|------|
+| Small change (< 10 lines) | `replace_text_in_file()` | Precise, minimal impact |
+| Medium change (10-50% of file) | `replace_text_in_file()` or `save_file()` | Depends on replacement complexity |
+| Large rewrite (> 50% of file) | `save_file()` | Faster and less error-prone than multiple replacements |
+| File > 50KB | `read_file_chunked()` first | Avoids truncation issues |
+
+### When Things Go Wrong
+
+If a file gets corrupted during editing:
+
+1. **STOP making edits immediately**
+2. **Restore from backup:**
+   ```bash
+   node scripts/safe_edit.js restore .ai_toolbox_backups/src.index.ts.backup-<timestamp>.bak
+   ```
+3. **Verify restored file:**
+   ```bash
+   node scripts/safe_edit.js verify src/index.ts
+   ```
+
+📖 **Full Guide:** See [SAFE_EDIT_GUIDE.md](../SAFE_EDIT_GUIDE.md) for complete workflow details, emergency recovery procedures, and advanced usage examples.
+
+---
+
 ## 🛡️ Testing ContextGuard Features (v1.4.2)
 
 ### UI Controls Verification

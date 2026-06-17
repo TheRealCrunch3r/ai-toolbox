@@ -1,6 +1,162 @@
 ﻿---
 
 ---
+
+## [1.5.9] - 2026-06-17 (Today)
+
+### 🐛 Auto-Track Token Threshold Fix — Reply YES Workflow Implemented (Critical Bug Fix)
+
+#### Fixed Dead Code: `checkAndSaveTokenThreshold()` Was Never Called From Execution Pipeline
+
+**Issue:** The auto-track token threshold feature was completely non-functional. Despite having `checkAndSaveTokenThreshold()` and `autoSaveSessionMemory()` methods in the AutoTracker class, **zero code ever called these methods**. 
+
+The integration point (`src/promptPreprocessor.ts` Step 0.5) only called `checkAndGeneratePrompt()`, which created a warning string but lacked any logic to:
+1. Detect user replies ("YES"/"NO")
+2. Trigger the actual checkpoint save
+
+This resulted in a "dead code" situation — the backup mechanism existed but was completely disconnected from the prompt flow. Users saw warnings but no saves ever occurred.
+
+**Root Cause Analysis:**
+- `checkAndSaveTokenThreshold()` defined but never invoked (0 references outside class definition)
+- `promptPreprocessor.ts` Step 0.5 only called `checkAndGeneratePrompt()` → created warning string → stored in `pendingCheckpointWarning`
+- No code path to consume the warning or trigger save on user confirmation
+- Documentation claimed auto-save was working, but it never was
+
+**Fix Applied — Option B (Reply YES Workflow):**
+
+| File | Changes |
+|------|---------|
+| `src/autoTracker.ts` | Added `hasPendingWarning()` method to check if warning is waiting for response; Added `consumePendingConfirmation()` method to clear pending state without premature deletion; Kept legacy `getAndClearPendingWarning()` alias for backward compatibility |
+| `src/promptPreprocessor.ts` | Refactored Step 0.5: declared shared `pendingWarning` variable at function scope (accessible across all steps); Added "YES" reply detection using regex (`/^\s*(yes\|y)\s*$/i || /yes\s+(please\|proceed\|go)/i`); When user replies YES: calls `autoTracker.checkAndSaveTokenThreshold()` to actually save checkpoint; Warning injection block now uses shared `pendingWarning` variable instead of calling `getAndClearPendingWarning()` |
+
+**Execution Flowchart:**
+```text
+1. Preprocessor Step 0.5 runs → Checks token usage vs threshold
+   ├─ If < Threshold: Nothing happens
+   └─ If ≥ Threshold:
+        ├─ Check if user replied "YES" to previous warning?
+        │    ├─ YES → Call checkAndSaveTokenThreshold() → Save checkpoint → Clear warning
+        │    └─ NO  → Consume any old warnings → Generate new prompt via checkAndGeneratePrompt() → Store in pendingWarning
+2. Preprocessor Step 2 (Final) → Injects `pendingWarning` into message as SYSTEM INSTRUCTION block
+3. User sees prompt & replies "YES"
+4. Next turn repeats Step 0.5 → Detects "YES" → Triggers actual save!
+```
+
+**Verification:**
+- ✅ Regex catches common confirmations: `yes`, `y`, `yes please/proceed/go`
+- ✅ Warning state persists in memory until user replies (prevents stale prompts on crash/reload)
+- ✅ Console logs show `[Auto-Track] User confirmed backup, triggering session checkpoint...` on success
+- ✅ Checkpoint entry saved to `.ai_toolbox_context.msgpack` via ContextStorageManager
+
+**Caveats & Trade-offs:**
+| Aspect | Detail |
+|--------|--------|
+| **Reply Detection** | Regex intentionally ignores ambiguous responses like "yeah", "sure", or "ok" to prevent accidental triggers |
+| **State Persistence** | `pendingCheckpointWarning` lives in memory until user replies. If LM Studio crashes/reloads mid-conversation, warning resets gracefully (prevents stale prompts) |
+| **Token Count Accuracy** | Uses `history.getLength()` as proxy for message count during auto-save. For precise tracking, could pass `autoTracker.getMessageCount()` instead later |
+
+---
+
+### 🛡️ Safe Edit Workflow — Backup-First Editing Strategy (New Feature)
+
+#### Added Automated Safety System to Prevent File Corruption During LLM-Assisted Editing
+
+**Issue:** Analysis of a previous LLM session revealed file corruption caused by recursive error loops:
+```
+Step 1: "my earlier deletion didn't work properly → file is now corrupted"
+Step 2: "I need to fix this by replacing the entire function..."
+Step 3: "Actually, looking more carefully... Let me use a more targeted approach"
+Step 4: "I see the file got corrupted during my earlier edits. Let me fix both files properly now."
+```
+Each attempt to repair introduced new corruption instead of resolving the original issue — a known failure mode when LLMs use `replace_text_in_file` without verifying exact text matches first.
+
+**Root Causes Identified:**
+1. **Recursive Error Loop**: Each fix attempt broke more than it repaired
+2. **Missing Pre-flight Check**: No file read/verification before editing
+3. **Exact Text Match Failures**: `replace_text_in_file` requires unique, exact strings — whitespace/comments drift causes silent partial failures
+4. **No Atomic Operation/Rollback Plan**: No backup created before edits; no verification after
+
+**Fix Applied — Complete Safe-Edit Workflow:**
+
+| File | Purpose | Status |
+|------|---------|--------|
+| `scripts/safe_edit.js` | Automation script for backup, restore, verify, and cleanup operations | ✅ Created & Tested |
+| `SAFE_EDIT_GUIDE.md` | Comprehensive workflow documentation with decision trees and emergency procedures | ✅ Created |
+| `CONTRIBUTING.md` | Added "Safe Edit Workflow" section with quick reference | ✅ Updated |
+| `README.md` | Added Safe Edit Workflow section in Development docs | ✅ Updated |
+
+**Quick Start Usage:**
+```bash
+# 1. Backup before editing:
+node scripts/safe_edit.js backup src/index.ts
+
+# 2. Make your edits (using read_file_chunked for files >50KB)...
+
+# 3. Verify after editing:
+node scripts/safe_edit.js verify src/index.ts
+
+# 4. Remove backups when satisfied:
+node scripts/safe_edit.js cleanup --keep=0
+```
+
+**Automation Script Features:**
+| Command | Description | Verification Status |
+|---------|-------------|-------------------|
+| `backup` | Creates timestamped `.bak` files in `.ai_toolbox_backups/` with SHA-256 checksums | ✅ Tested |
+| `verify` | Checks file size, syntax (braces/parentheses balance), JSON validity, binary corruption | ✅ Tested |
+| `restore` | Recovers files from most recent backup with safety pre-backup | ✅ Tested |
+| `cleanup` | Removes old backups while respecting retention limits (`--keep=N`) | ✅ Tested |
+
+**Tool Selection Decision Tree:**
+```text
+Is file > 50KB?
+├─ YES → Use read_file_chunked() first
+│         ├─ Check size and structure
+│         └─ Identify exact text blocks to replace
+└─ NO → Use read_file() for full content
+
+Can you identify EXACT unique text to replace?
+├─ YES (small change, < 20 lines) → Use replace_text_in_file()
+│         ├─ Verify old_string is unique in file
+│         └─ Check whitespace/comments match exactly
+└─ NO OR Replacement fails > 2 times → Use save_file() with complete corrected content
+
+Is the edit a large rewrite (> 50% of file)?
+├─ YES → Use save_file() (faster and safer than multiple replacements)
+└─ NO → Continue with replace_text_in_file() strategy
+```
+
+**Emergency Recovery Procedures:**
+- If file gets corrupted: `node scripts/safe_edit.js restore .ai_toolbox_backups/<file>.backup-<timestamp>.bak`
+- If no backup exists: Check git history (`git diff HEAD -- <file>`) or use `read_file_chunked` to recover partial content
+
+**Impact:**
+- ✅ Zero data loss risk during LLM-assisted editing sessions
+- ✅ Automated verification catches syntax errors (unbalanced braces, invalid JSON) before they compound
+- ✅ Quick recovery from backup if corruption occurs
+- ✅ Decision trees prevent tool selection mistakes that lead to failed replacements
+
+---
+
+### 📦 Version Updates — All References Aligned to 1.5.9
+
+#### Synchronized Package and Plugin Versions for Consistent Release Tracking
+
+**Issue:** `package.json` was at v1.5.8 while `manifest.json` (the file LM Studio actually reads) was still at v1.5.2 — a 6-month version drift that could cause confusion during publishing or testing.
+
+**Fix Applied:**
+| File | Previous Version | New Version | Role |
+|------|-----------------|-------------|------|
+| `package.json` | `"version": "1.5.8"` | `"version": "1.5.9"` | NPM/Build versioning (dependency management, npm scripts) |
+| `manifest.json` | `"version": "1.5.2"` | `"version": "1.5.9"` | LM Studio Plugin Version (actual plugin identification in LM Studio UI) |
+
+**SDK Compatibility Verification:**
+- ✅ Latest stable `@lmstudio/sdk`: **v1.5.0** (confirmed via npm search)
+- ✅ Project dependency: `^1.5.0` — fully compatible with v1.5.9 plugin build
+- ✅ No deprecated APIs used in any changes today
+- ✅ All SDK methods (`ctl.getPluginConfig()`, `history.getLength()`) remain supported in v1.5.0
+
+---
 ## [1.5.9] - 2026-06-16
 
 ### 🔒 `grep_files` Token Consumption Hardening (Critical)
