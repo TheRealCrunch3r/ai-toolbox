@@ -79,12 +79,15 @@ export class AutoTracker {
   // 🔹 NEW: In-memory buffer for detected actions (flushed on threshold or manually)
   private actionBuffer: AutoTrackAction[] = [];
   
+  // 🔹 NEW: Guard to prevent concurrent flushes (fixes race condition with checkpoint save)
+  private isFlushing = false;
+  
   // 🔹 NEW: Holds the pending checkpoint warning prompt until consumed by user
   private pendingCheckpointWarning: string | undefined = undefined;
 
   constructor(config?: Partial<AutoTrackConfig>) {
     this.config = {
-      autoTrackingEnabled: false,
+      autoTrackingEnabled: true, // ← Matches schema & DEFAULT_CONFIG default (true)
       autoTrackTokenThreshold: 75,
       autoTrackDecisions: true,
       autoTrackCompletions: true,
@@ -178,24 +181,15 @@ export class AutoTracker {
     return !!this.pendingCheckpointWarning;
   }
 
-  /** 
-   * Consume and clear the pending warning (legacy alias — call after injection into prompt).
-   */
-  getAndClearPendingWarning(): string | undefined {
-    const warn = this.pendingCheckpointWarning;
-    if (warn) {
-      this.pendingCheckpointWarning = undefined; // 🔹 Consume it so it doesn't repeat every turn
-    }
-    return warn;
-  }
-
   /**
    * Flush buffered actions to persistent context storage.
    * Called automatically when token threshold is reached, or manually via tool call.
    */
   async flushActionsToMemory(): Promise<number> {
-    if (this.actionBuffer.length === 0) return 0;
+    // 🔹 FIX #4: Prevent concurrent flushes (race condition with checkpoint save)
+    if (this.isFlushing || this.actionBuffer.length === 0) return 0;
     
+    this.isFlushing = true;
     const flushed = this.actionBuffer.splice(0); // 🔹 Clear buffer safely before async I/O
     let savedCount = 0;
 
@@ -220,6 +214,9 @@ export class AutoTracker {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.error(`[AutoTracker] Failed to flush actions: ${message}`);
+    } finally {
+      // 🔹 Always reset guard, even on failure
+      this.isFlushing = false;
     }
 
     return savedCount;
@@ -358,7 +355,7 @@ export class AutoTracker {
       console.warn(`[AutoTracker] Buffered ${actions.length} action(s). Total in buffer: ${this.actionBuffer.length}`);
       
       // 🔹 Safety cap: auto-flush if buffer grows too large (>50 entries)
-      if (this.actionBuffer.length > 50) {
+      if (this.actionBuffer.length > 50 && !this.isFlushing) {
         console.warn('[AutoTracker] Buffer exceeded safety limit, flushing early...');
         void this.flushActionsToMemory(); // Fire-and-forget — intentionally unawaited to avoid blocking preprocessor
       }

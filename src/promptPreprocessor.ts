@@ -356,7 +356,9 @@ export async function preprocess(
           const isYesReply = /^\s*(yes|y)\s*$/.test(userTextLower) || /yes\s+(please|proceed|go)/i.test(userTextLower);
 
           if (isYesReply && autoTracker.hasPendingWarning()) {
-            // User confirmed → Trigger actual save & clear warning
+            // Reset threshold flag so checkAndSaveTokenThreshold can re-evaluate fresh
+            autoTracker.resetTokenThreshold();
+            
             console.warn('[Auto-Track] User confirmed backup, triggering session checkpoint...');
             await autoTracker.checkAndSaveTokenThreshold(tokenCount, maxTokens, history.getLength());
             pendingWarning = undefined; 
@@ -369,7 +371,10 @@ export async function preprocess(
               const { triggered, warning } = autoTracker.checkAndGeneratePrompt(tokenCount, maxTokens);
               pendingWarning = triggered ? warning : undefined;
             } else {
-              pendingWarning = warn;
+              // User said "NO" — reset flag so it can re-evaluate on next token climb, and clear warning
+              autoTracker.resetTokenThreshold();
+              console.warn('[Auto-Track] User declined checkpoint — threshold flag reset for next evaluation');
+              pendingWarning = undefined; // 🔹 FIX #3: Don't re-inject the same warning forever
             }
           }
         } else {
