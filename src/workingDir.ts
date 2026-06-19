@@ -19,7 +19,7 @@ function loadState(): { workingDir?: string } {
   try {
     if (fs.existsSync(STATE_FILE)) {
       const data = fs.readFileSync(STATE_FILE, 'utf-8');
-      return JSON.parse(data);
+      return JSON.parse(data) as { workingDir?: string };
     }
   } catch {
     // Ignore errors - use defaults

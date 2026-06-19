@@ -8,7 +8,7 @@
 
 ## Overview
 
-This document summarizes all documentation updates made to reflect the **security hardening**, **memory system fixes**, **TypeScript compilation cleanup**, **performance optimizations (sync → async)**, and **documentation accuracy corrections** across versions 1.4.x (v1.4.6 → v1.4.10), v1.5.0, and v1.5.9.
+This document summarizes all documentation updates made to reflect the **security hardening**, **memory system fixes**, **TypeScript compilation cleanup**, **performance optimizations (sync → async)**, and **documentation accuracy corrections** across versions 1.4.x (v1.4.6 → v1.4.10), v1.5.0, and v1.5.10.
 
 All documentation has been reconstructed based on actual source code analysis to ensure 100% accuracy with the current implementation.
 
@@ -253,7 +253,7 @@ All changes verified with comprehensive test suite:
 ## 📋 Next Steps
 
 1. Commit all changes with message: `docs: reconstruct documentation from source code analysis`
-2. Tag release as v1.5.9 in package.json and CHANGELOG.md (if not already done)
+2. Tag release as v1.5.10 in package.json and CHANGELOG.md (if not already done)
 3. Update LM Studio plugin manifest if needed
 4. Run full test suite to verify no regressions: `npm test`
 

@@ -282,7 +282,7 @@ WHEN TO USE:
       config_changes: z.record(z.union([z.boolean(), z.string()])).optional().describe('Configuration changes made during session'),
     },
     implementation: async ({ session_events = [], config_changes }: { 
-      readonly session_events?: Array<{ type?: string; data?: any; timestamp?: number }>; 
+      readonly session_events?: Array<{ type?: string; data?: unknown; timestamp?: number }>; 
       readonly config_changes?: Record<string, boolean | string>; 
     }) => {
       try {

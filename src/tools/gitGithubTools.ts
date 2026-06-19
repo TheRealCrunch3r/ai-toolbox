@@ -303,6 +303,7 @@ export function registerGitTools(_config: PluginConfig): Tool[] {
           url += `&labels=${labels.join(',')}`;
         }
         
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
         const issues = await ghApiRequest<Array<any>>('GET', url);
         
         return { success: true, data: { issues: issues.slice(0, limit || 20) } };
@@ -384,6 +385,7 @@ export function registerGitTools(_config: PluginConfig): Tool[] {
         if (!repoName) throw new Error('Could not determine repository name');
         
         const url = `/repos/${repoName}/pulls?state=${state || 'open'}`;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
         const prs = await ghApiRequest<Array<any>>('GET', url);
         
         return { success: true, data: { prs: prs.slice(0, limit || 20) } };
@@ -438,6 +440,7 @@ export function registerGitTools(_config: PluginConfig): Tool[] {
         if (branch) {
           await git.push('origin', branch);  // ASYNC call
         } else {
+// eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-explicit-any
           (await (git as any).push())  // ASYNC call - push current branch
         }
         

@@ -1,6 +1,6 @@
 {
   "name": "@lmstudio/ai-toolbox",
-  "version": "1.5.9",
+  "version": "1.5.10",
   "description": "AI Toolbox Plugin for LM Studio - 101 tools across 16 categories: file system, web research, browser automation, Git/GitHub, database, document parsing, background commands, code execution, utilities, image processing, HTTP client, vector RAG, text processing, interactive UI generation, auto-context management, and backup & restore.",
   "type": "commonjs",
   "main": "dist/index.js",
@@ -11,6 +11,8 @@
     "lint": "eslint src --ext .ts",
     "lint:fix": "eslint src --ext .ts --fix",
     "test": "jest",
+    "test:errorsonly": "jest --silent",
+    "test:quiet": "jest --silent --no-coverage",
     "perf:diagnose": "tsc --extendedDiagnostics",
     "perf:trace": "tsc --generateTrace traceDir",
     "check:circular": "npx madge --circular src/index.ts",

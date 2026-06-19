@@ -156,7 +156,7 @@ describe('File System Tools', () => {
   describe('replace_text_in_file', () => {
     test('should replace text', async () => {
       const tool = tools?.find(t => t.name === 'replace_text_in_file');
-      (mockFs.promises.readFile as jest.Mock).mockResolvedValueOnce('hello world');
+      (mockFs.promises.readFile as jest.Mock).mockResolvedValueOnce(Buffer.from('hello world'));
       const result = await tool?.implementation({
         file_name: 'test.txt',
         old_string: 'world',
@@ -167,7 +167,7 @@ describe('File System Tools', () => {
 
     test('should reject when string not found', async () => {
       const tool = tools?.find(t => t.name === 'replace_text_in_file');
-      (mockFs.promises.readFile as jest.Mock).mockResolvedValueOnce('hello world');
+      (mockFs.promises.readFile as jest.Mock).mockResolvedValueOnce(Buffer.from('hello world'));
       const result = await tool?.implementation({
         file_name: 'test.txt',
         old_string: 'notfound',
@@ -180,7 +180,7 @@ describe('File System Tools', () => {
   describe('insert_at_line', () => {
     test('should insert at valid line', async () => {
       const tool = tools?.find(t => t.name === 'insert_at_line');
-      (mockFs.promises.readFile as jest.Mock).mockResolvedValueOnce('line1\nline2\nline3');
+      (mockFs.promises.readFile as jest.Mock).mockResolvedValueOnce(Buffer.from('line1\nline2\nline3'));
       const result = await tool?.implementation({
         file_name: 'test.txt',
         line_number: 2,
@@ -204,14 +204,14 @@ describe('File System Tools', () => {
   describe('delete_lines_in_file', () => {
     test('should delete single line', async () => {
       const tool = tools?.find(t => t.name === 'delete_lines_in_file');
-      (mockFs.promises.readFile as jest.Mock).mockResolvedValueOnce('line1\nline2\nline3');
+      (mockFs.promises.readFile as jest.Mock).mockResolvedValueOnce(Buffer.from('line1\nline2\nline3'));
       const result = await tool?.implementation({ file_name: 'test.txt', start_line: 2 });
       expect((result as any).success).toBe(true);
     });
 
     test('should delete line range', async () => {
       const tool = tools?.find(t => t.name === 'delete_lines_in_file');
-      (mockFs.promises.readFile as jest.Mock).mockResolvedValueOnce('line1\nline2\nline3\nline4');
+      (mockFs.promises.readFile as jest.Mock).mockResolvedValueOnce(Buffer.from('line1\nline2\nline3\nline4'));
       const result = await tool?.implementation({
         file_name: 'test.txt',
         start_line: 2,

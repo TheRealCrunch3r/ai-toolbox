@@ -56,12 +56,19 @@ function validateRegex(pattern: string): boolean {
 }
 
 /** Read file with size limit (10MB) */
+/** Read file with size limit (10MB) AND binary detection */
 async function readFileWithLimit(filePath: string): Promise<string> {
   const stats = await fs.stat(filePath);
   if (stats.size > 10_000_000) {
-    throw new Error('File too large (>10MB)');
+    throw new Error(`File too large (${(stats.size / 1048576).toFixed(2)}MB, max 10MB)`);
   }
-  return fs.readFile(filePath, 'utf-8');
+  // Binary detection: check for null bytes in first 8KB
+  const buffer = await fs.readFile(filePath);
+  const checkBuffer = buffer.subarray(0, Math.min(buffer.length, 8192));
+  if (checkBuffer.includes(0)) {
+    throw new Error('Binary file detected. This tool only supports text files.');
+  }
+  return buffer.toString('utf-8');
 }
 
 /** Write file with atomic operation */
@@ -80,8 +87,8 @@ export function registerTextProcessingTools(_config: PluginConfig): Tool[] {
     description: 'Apply regex-based text transformations to files. Supports substitution, line ranges, and capture groups. Safer than shell sed — no command injection risk.',
     parameters: {
       file_name: z.string().describe('File path'),
-      pattern: z.string().describe('Regex or literal pattern to match'),
-      replacement: z.string().optional().describe('Replacement text (supports $1, $2 for capture groups)'),
+      pattern: z.string().min(1).max(10_000).describe('Regex or literal pattern to match (required, non-empty, max 10KB)'),
+      replacement: z.string().max(100_000).optional().describe('Replacement text (supports $1, $2 for capture groups, max 100KB)'),
       flags: z.enum(['g', 'i', 'gi']).default('g').describe('Flags: g=global, i=case-insensitive, gi=both'),
       lines: z.object({
         start: z.number().int().min(1).optional(),
@@ -294,7 +301,8 @@ export function registerTextProcessingTools(_config: PluginConfig): Tool[] {
         start: z.number().int().min(1).optional(),
         end: z.number().int().optional(),
       }).optional().describe('Line range for delete operation (e.g., {start: 16, end: 17})'),
-      content: z.string().optional().describe('For insert operation - text to insert'),
+      content: z.string().max(1_000_000).optional().describe('For insert operation - text to insert (max 1MB)'),
+      backup: z.boolean().optional().default(false).describe('Create .bak backup before modification. Default: false'),
       move_from: z.number().int().optional().describe('Source line for move operation'),
       move_to: z.number().int().optional().describe('Destination line for move operation')
     },
@@ -304,10 +312,11 @@ export function registerTextProcessingTools(_config: PluginConfig): Tool[] {
       target_line?: number;
       lines?: { start?: number; end?: number };
       content?: string;
+      backup?: boolean;
       move_from?: number;
       move_to?: number;
     }) => {
-      const { file_name, operation, target_line, lines, content, move_from, move_to } = params; // C5 FIX: typed params
+      const { file_name, operation, target_line, lines, content, backup, move_from, move_to } = params; // C5 FIX: typed params
       try {
         if (!validatePath(file_name, getWorkingDir())) {
           return { success: false, error: 'Invalid path: directory traversal detected' };
@@ -339,8 +348,10 @@ export function registerTextProcessingTools(_config: PluginConfig): Tool[] {
               return { success: false, error: 'Delete operation requires either "target_line" or "lines.range" parameter' };
             }
 
-            let deleteStart = target_line ?? lines!.start!;
-            let deleteEnd = lines?.end ?? target_line!;
+            // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+            let deleteStart = target_line ?? (lines?.start ?? 0);
+            // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+            let deleteEnd = lines?.end ?? target_line ?? linesArr.length;
 
             // Validate range
             if (deleteStart < 1 || deleteEnd > linesArr.length || deleteStart > deleteEnd) {
@@ -375,17 +386,30 @@ export function registerTextProcessingTools(_config: PluginConfig): Tool[] {
             return { success: false, error: `Unknown operation: ${String(operation)}` };
         }
 
-        // Write back atomically
+        // ========== P1 FIX: Create Backup if requested (Bug #5) ==========
+        let backupPath: string | null = null;
+        if (backup) {
+          backupPath = fullPath + '.bak';
+          try {
+            await fs.copyFile(fullPath, backupPath);
+          } catch (e) {
+            return { success: false, error: `Failed to create backup at ${backupPath}: ${e instanceof Error ? e.message : String(e)}` };
+          }
+        }
+
+        // ========== P1 FIX: Atomic Write (Bug #4) ==========
         try {
           await writeFileAtomic(fullPath, linesArr.join('\n'));
         } catch (error) {
           return handleError(error);
         }
 
+
         return { success: true, data: { 
           operations_performed: operation,
           changes_applied: changes_made,
           total_lines_after: linesArr.length,
+          backup_created: backupPath,
           message: `${operation.charAt(0).toUpperCase() + operation.slice(1)} operation completed successfully`
         }};
       } catch (error) {

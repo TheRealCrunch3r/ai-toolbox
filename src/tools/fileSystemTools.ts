@@ -24,7 +24,7 @@ interface ListDirectoryParams { path?: string; }
 interface ReadFileParams { file_name: string; max_length?: number; }
 interface SaveFileParams { file_name?: string; content?: string; files?: Array<{ file_name: string; content: string }>; }
 interface ReplaceTextInFileParams { file_name: string; old_string: string; new_string: string; }
-interface InsertAtLineParams { file_name: string; line_number: number; content_to_insert?: string; }
+interface InsertAtLineParams { file_name: string; line_number: number; content_to_insert?: string; content?: string; }
 interface ReadFileChunkedParams { file_name: string; chunk_size?: number; max_chunks?: number; };
 
 interface AppendFileParams { file_name: string; content: string; }
@@ -161,7 +161,7 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
         let stats: _fs.Stats;
         try {
           stats = await fs.stat(fullPath);
-        } catch (e) {
+        } catch (e: unknown) {
            return handleError(e);
         }
 
@@ -225,7 +225,7 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
         let stats: _fs.Stats;
         try {
           stats = await fs.stat(fullPath);
-        } catch (e) {
+        } catch (e: unknown) {
           return handleError(e);
         }
 
@@ -374,129 +374,398 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
     await fs.rename(tempPath, filePath);
   }
 
-  // replace_text_in_file tool — ASYNC file operations
+// replace_text_in_file tool — FIXED: All 8 issues resolved (P0-P3 priority)
   tools.push(tool({
     name: 'replace_text_in_file',
-    description: 'Replace a specific string in a file with a new string.',
+    description: 'Replace text in a file with comprehensive safety features. Supports global replacement, binary protection, size limits, atomic writes, and optional backups.',
     parameters: {
       file_name: z.string().describe('The file to modify'),
-      old_string: z.string().describe('The exact text to replace. Must be unique in the file.'),
-      new_string: z.string().describe('The text to insert in place of old_string.'),
+      old_string: z.string().min(1).describe('The exact text to replace (must be non-empty)'),
+      new_string: z.string().optional().default('').describe('The replacement text (default: empty string = delete)'),
+      global: z.boolean().optional().default(true).describe('Replace all occurrences (true) or only first (false). Default: true'),
+      backup: z.boolean().optional().default(false).describe('Create .bak backup before modification. Default: false'),
     },
-    implementation: async ({ file_name, old_string, new_string }: ReplaceTextInFileParams) => { // C5 FIX: typed params
+    implementation: async ({ file_name, old_string, new_string = '', global = true, backup = false }: ReplaceTextInFileParams & { global?: boolean; backup?: boolean }) => {
       try {
+        // ========== P2 FIX: Parameter Validation (Bug #7) ==========
+        if (!old_string || old_string.length === 0) {
+          return { success: false, error: 'Parameter validation failed: old_string must be non-empty' };
+        }
+        if (old_string.length > 100_000) {
+          return { success: false, error: `Parameter validation failed: old_string too large (${old_string.length} chars, max 100KB)` };
+        }
+        if ((new_string || '').length > 1_000_000) {
+          return { success: false, error: `Parameter validation failed: new_string too large (${(new_string||'').length} chars, max 1MB)` };
+        }
+
+        // ========== P2 FIX: Path Validation ==========
         if (!validatePath(file_name, getWorkingDir())) {
-          return { success: false, error: 'Invalid path' };
+          return { success: false, error: 'Invalid path: directory traversal detected' };
         }
         const fullPath = resolvePath(file_name);
-        let content = await fs.readFile(fullPath, 'utf-8');  // ASYNC
-        
-        if (!content.includes(old_string)) {
-          return { success: false, error: `String '${old_string}' not found in file` };
+
+        // ========== P2 FIX: File Size Limit (Bug #3) ==========
+        let stats: _fs.Stats;
+        try {
+          stats = await fs.stat(fullPath);
+        } catch {
+          return { success: false, error: `File not found or inaccessible: ${file_name}` };
         }
-        
-        const newContent = content.replace(old_string, new_string);
-        await fs.writeFile(fullPath, newContent, 'utf-8');  // ASYNC
-        return { success: true, data: { replaced: true, file: fullPath } }; // ✅ FULL PATH
+        if (!stats.isFile()) {
+          return { success: false, error: `Path is not a file: ${file_name}` };
+        }
+        if (stats.size > 10_000_000) {
+          return { success: false, error: `File too large (${(stats.size / 1_048_576).toFixed(2)}MB, max 10MB). Use read_file_chunked for large files.` };
+        }
+
+        // ========== P2 FIX: Binary File Detection (Bug #2) ==========
+        const buffer = await fs.readFile(fullPath);
+        const checkBuffer = buffer.subarray(0, Math.min(buffer.length, 8192));
+        if (checkBuffer.includes(0)) {
+          return { success: false, error: 'Binary file detected. This tool only supports text files. Use save_file for binary content.' };
+        }
+        const content = buffer.toString('utf-8');
+
+        // ========== P0 FIX: Check if old_string exists (Bug #1 related) ==========
+        const occurrences = content.split(old_string).length - 1;
+        if (occurrences === 0) {
+          return { success: false, error: `String not found in file '${file_name}'. Searched for: ${old_string.substring(0, 50)}${old_string.length > 50 ? '...' : ''}` };
+        }
+
+        // ========== P1 FIX: Create Backup if requested (Bug #5) ==========
+        let backupPath: string | null = null;
+        if (backup) {
+          backupPath = fullPath + '.bak';
+          try {
+            await fs.copyFile(fullPath, backupPath);
+          } catch (e: unknown) {
+            return { success: false, error: `Failed to create backup at ${backupPath}: ${e instanceof Error ? e.message : String(e)}` };
+          }
+        }
+
+        // ========== P0 FIX: Global Replace Option (Bug #1) ==========
+        let newContent: string;
+        if (global) {
+          // Replace ALL occurrences using split/join (handles special chars safely)
+          newContent = content.split(old_string).join(new_string);
+        } else {
+          // Replace only FIRST occurrence
+          const firstIndex = content.indexOf(old_string);
+          newContent = content.substring(0, firstIndex) + new_string + content.substring(firstIndex + old_string.length);
+        }
+
+        // ========== P1 FIX: Atomic Write (Bug #4) ==========
+        await atomicWriteFile(fullPath, newContent);
+
+        // ========== P3 FIX: Rich Return Data with Context ==========
+        return {
+          success: true,
+          data: {
+            file: fullPath,
+            replacements: global ? occurrences : 1,
+            bytesWritten: Buffer.byteLength(newContent, 'utf-8'),
+            backupCreated: backup ? backupPath : null,
+          },
+        };
       } catch (error) {
-        return handleError(error);
+        // ========== P3 FIX: Enhanced Error Context ==========
+        const message = error instanceof Error ? error.message : String(error);
+        return { success: false, error: `Failed to replace text in '${file_name}': ${message}` };
       }
     },
   }));
 
-  // insert_at_line tool — ASYNC file operations
+
+// insert_at_line tool — FIXED: All safety features added (P0-P3 priority)
   tools.push(tool({
     name: 'insert_at_line',
-    description: 'Insert content at a specific line number in a file.',
+    description: 'Insert content at a specific line number in a file. Includes binary protection, size limits, atomic writes, and optional backups.',
     parameters: {
       file_name: z.string().describe('The file to modify'),
       line_number: z.number().int().min(1).describe('The line number to insert at (1-indexed)'),
-      content_to_insert: z.string().optional().describe('The text content to insert (use "content" as alias)'),
-      content: z.string().optional().describe('Alias for content_to_insert — accepts either parameter name'),
+      content_to_insert: z.string().max(1_000_000).optional().describe('The text content to insert (use "content" as alias, max 1MB)'),
+      content: z.string().max(1_000_000).optional().describe('Alias for content_to_insert — accepts either parameter name'),
+      backup: z.boolean().optional().default(false).describe('Create .bak backup before modification. Default: false'),
     },
-    implementation: async ({ file_name, line_number, content_to_insert, content }: InsertAtLineParams & { content?: string }) => { // C5 FIX: typed params
+    implementation: async ({ file_name, line_number, content_to_insert, content, backup = false }: InsertAtLineParams & { backup?: boolean }) => {
       try {
-        if (!validatePath(file_name, getWorkingDir())) {
-          return { success: false, error: 'Invalid path' };
-        }
-        const fullPath = resolvePath(file_name);
-        let lines = (await fs.readFile(fullPath, 'utf-8')).split('\n');  // ASYNC
-        
-        // Allow appending at EOF (line_number == length + 1)
-        if (line_number > lines.length + 1) {
-          return { success: false, error: `Line number ${line_number} exceeds file length (${lines.length})` };
-        }
-        
-        // Support both content_to_insert and content parameter names for LLM compatibility
+        // ========== P2 FIX: Parameter Validation (Bug #7) ==========
         const textToInsert = content_to_insert ?? content;
-        
         if (textToInsert === undefined) {
           return { success: false, error: 'Either "content_to_insert" or "content" parameter is required' };
         }
+        if ((textToInsert || '').length > 1_000_000) {
+          return { success: false, error: `Content too large (${(textToInsert||'').length} chars, max 1MB)` };
+        }
 
-        lines.splice(line_number - 1, 0, textToInsert);
-        await fs.writeFile(fullPath, lines.join('\n'), 'utf-8');  // ASYNC
-        return { success: true, data: { insertedAt: line_number, file: fullPath } }; // ✅ FULL PATH
-      } catch (error) {
-        return handleError(error);
-      }
-    },
-  }));
-
-  // append_file tool — ASYNC
-  tools.push(tool({
-    name: 'append_file',
-    description: "Append content to the end of a file. If the file doesn't exist, it will be created.",
-    parameters: {
-      file_name: z.string().describe('The file to append to'),
-      content: z.string().describe('The text content to append'),
-    },
-    implementation: async ({ file_name, content }: AppendFileParams) => { // C5 FIX: typed params
-      try {
+        // ========== P2 FIX: Path Validation ==========
         if (!validatePath(file_name, getWorkingDir())) {
-          return { success: false, error: 'Invalid path' };
+          return { success: false, error: 'Invalid path: directory traversal detected' };
         }
         const fullPath = resolvePath(file_name);
-        await fs.appendFile(fullPath, content, 'utf-8');  // ASYNC
-        return { success: true, data: { appendedTo: fullPath } }; // ✅ FULL PATH
+
+        // ========== P2 FIX: File Size Limit (Bug #3) ==========
+        let stats: _fs.Stats;
+        try {
+          stats = await fs.stat(fullPath);
+        } catch {
+          return { success: false, error: `File not found or inaccessible: ${file_name}` };
+        }
+        if (!stats.isFile()) {
+          return { success: false, error: `Path is not a file: ${file_name}` };
+        }
+        if (stats.size > 10_000_000) {
+          return { success: false, error: `File too large (${(stats.size / 1_048_576).toFixed(2)}MB, max 10MB). Use read_file_chunked for large files.` };
+        }
+
+        // ========== P2 FIX: Binary File Detection (Bug #2) ==========
+        const buffer = await fs.readFile(fullPath);
+        const checkBuffer = buffer.subarray(0, Math.min(buffer.length, 8192));
+        if (checkBuffer.includes(0)) {
+          return { success: false, error: 'Binary file detected. This tool only supports text files.' };
+        }
+        const contentStr = buffer.toString('utf-8');
+
+        // ========== P0 FIX: Validate line number bounds ==========
+        let lines = contentStr.split('\n');
+        if (line_number > lines.length + 1) {
+          return { success: false, error: `Line number ${line_number} exceeds file length (${lines.length}). Max allowed: ${lines.length + 1}` };
+        }
+
+        // ========== P1 FIX: Create Backup if requested (Bug #5) ==========
+        let backupPath: string | null = null;
+        if (backup) {
+          backupPath = fullPath + '.bak';
+          try {
+            await fs.copyFile(fullPath, backupPath);
+          } catch (e: unknown) {
+            return { success: false, error: `Failed to create backup at ${backupPath}: ${e instanceof Error ? e.message : String(e)}` };
+          }
+        }
+
+        // ========== P0 FIX: Insert content ==========
+        lines.splice(line_number - 1, 0, textToInsert);
+        const newContent = lines.join('\n');
+
+        // ========== P1 FIX: Atomic Write (Bug #4) ==========
+        await atomicWriteFile(fullPath, newContent);
+
+        // ========== P3 FIX: Rich Return Data with Context ==========
+        return {
+          success: true,
+          data: {
+            insertedAt: line_number,
+            file: fullPath,
+            bytesWritten: Buffer.byteLength(newContent, 'utf-8'),
+            backupCreated: backupPath,
+            totalLines: lines.length,
+          },
+        };
       } catch (error) {
-        return handleError(error);
+        // ========== P3 FIX: Enhanced Error Context ==========
+        const message = error instanceof Error ? error.message : String(error);
+        return { success: false, error: `Failed to insert at line ${line_number} in '${file_name}': ${message}` };
       }
     },
   }));
 
-  // delete_lines_in_file tool — ASYNC file operations
+// append_file tool — FIXED: All safety features added (P0 - MOST CRITICAL)
+  tools.push(tool({
+    name: 'append_file',
+    description: "Append content to the end of a file safely. Includes binary protection, size limits, atomic writes, and optional backups. If file doesn't exist, it will be created.",
+    parameters: {
+      file_name: z.string().describe('The file to append to'),
+      content: z.string().max(1_000_000).describe('The text content to append (max 1MB)'),
+      backup: z.boolean().optional().default(false).describe('Create .bak backup before modification. Default: false'),
+    },
+    implementation: async ({ file_name, content, backup = false }: AppendFileParams & { backup?: boolean }) => {
+      try {
+        // ========== P2 FIX: Parameter Validation (Bug #7) ==========
+        if (!content || content.length === 0) {
+          return { success: false, error: 'Content cannot be empty. Provide text to append.' };
+        }
+        if (content.length > 1_000_000) {
+          return { success: false, error: `Content too large (${content.length} chars, max 1MB)` };
+        }
+
+        // ========== P2 FIX: Path Validation ==========
+        if (!validatePath(file_name, getWorkingDir())) {
+          return { success: false, error: 'Invalid path: directory traversal detected' };
+        }
+        const fullPath = resolvePath(file_name);
+
+        // Check if file exists and get stats
+        let existingSize = 0;
+        let stats: _fs.Stats | null = null;
+        try {
+          stats = await fs.stat(fullPath);
+          if (!stats.isFile()) {
+            return { success: false, error: `Path is not a file: ${file_name}` };
+          }
+          existingSize = stats.size;
+        } catch (error) {
+          // File doesn't exist yet — that's OK for append
+          const err = error as Error;
+          if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+            return { success: false, error: `Cannot access file '${file_name}': ${err.message}` };
+          }
+        }
+
+        // ========== P2 FIX: File Size Limit (Bug #3) ==========
+        const contentBytes = Buffer.byteLength(content, 'utf-8');
+        const totalSize = existingSize + contentBytes;
+        if (totalSize > 10_000_000) {
+          return { success: false, error: `Append would exceed 10MB limit. Existing: ${(existingSize / 1048576).toFixed(2)}MB, Adding: ${(contentBytes / 1048576).toFixed(2)}MB` };
+        }
+
+        // ========== P2 FIX: Binary File Detection (Bug #2) ==========
+        if (stats && existingSize > 0) {
+          const buffer = await fs.readFile(fullPath);
+          const checkBuffer = buffer.subarray(0, Math.min(buffer.length, 8192));
+          if (checkBuffer.includes(0)) {
+            return { success: false, error: 'Binary file detected. Cannot append to binary files.' };
+          }
+        }
+
+        // ========== P1 FIX: Create Backup if requested (Bug #5) ==========
+        let backupPath: string | null = null;
+        if (backup && stats) {
+          backupPath = fullPath + '.bak';
+          try {
+            await fs.copyFile(fullPath, backupPath);
+          } catch (e: unknown) {
+            return { success: false, error: `Failed to create backup at ${backupPath}: ${e instanceof Error ? e.message : String(e)}` };
+          }
+        }
+
+        // ========== P1 FIX: Atomic Write (Bug #4) ==========
+        // For append, we must read existing content + new content, then atomic write
+        let existingContent = '';
+        if (stats && existingSize > 0) {
+          const buffer = await fs.readFile(fullPath);
+          existingContent = buffer.toString('utf-8');
+        }
+        const fullContent = existingContent + content;
+        
+        // Use atomic write instead of appendFile
+        await atomicWriteFile(fullPath, fullContent);
+
+        // ========== P3 FIX: Rich Return Data with Context ==========
+        return {
+          success: true,
+          data: {
+            appendedTo: fullPath,
+            bytesAppended: contentBytes,
+            totalFileSize: totalSize,
+            backupCreated: backupPath,
+          },
+        };
+      } catch (error) {
+        // ========== P3 FIX: Enhanced Error Context ==========
+        const message = error instanceof Error ? error.message : String(error);
+        return { success: false, error: `Failed to append to '${file_name}': ${message}` };
+      }
+    },
+  }));
+
+
+
+// delete_lines_in_file tool — FIXED: All safety features added (P1)
   tools.push(tool({
     name: 'delete_lines_in_file',
-    description: 'Delete a specific line or range of lines from a file.',
+    description: 'Delete a specific line or range of lines from a file. Includes binary protection, size limits, atomic writes, and optional backups.',
     parameters: {
       file_name: z.string().describe('The file to modify'),
       start_line: z.number().int().min(1).describe('Starting line number (1-indexed)'),
       end_line: z.number().int().min(1).optional().describe('Ending line number (inclusive). If omitted, only deletes start_line.'),
+      backup: z.boolean().optional().default(true).describe('Create .bak backup before deletion. Default: true'),
     },
-    implementation: async ({ file_name, start_line, end_line }: DeleteLinesInFileParams) => { // C5 FIX: typed params
+    implementation: async ({ file_name, start_line, end_line, backup = true }: DeleteLinesInFileParams & { backup?: boolean }) => {
       try {
+        // ========== P2 FIX: Path Validation ==========
         if (!validatePath(file_name, getWorkingDir())) {
-          return { success: false, error: 'Invalid path' };
+          return { success: false, error: 'Invalid path: directory traversal detected' };
         }
         const fullPath = resolvePath(file_name);
-        let lines = (await fs.readFile(fullPath, 'utf-8')).split('\n');  // ASYNC
-        
+
+        // ========== P2 FIX: File Size Limit (Bug #3) ==========
+        let stats: _fs.Stats;
+        try {
+          stats = await fs.stat(fullPath);
+        } catch {
+          return { success: false, error: `File not found or inaccessible: ${file_name}` };
+        }
+        if (!stats.isFile()) {
+          return { success: false, error: `Path is not a file: ${file_name}` };
+        }
+        if (stats.size > 10_000_000) {
+          return { success: false, error: `File too large (${(stats.size / 1_048_576).toFixed(2)}MB, max 10MB). Use read_file_chunked for large files.` };
+        }
+
+        // ========== P2 FIX: Binary File Detection (Bug #2) ==========
+        const buffer = await fs.readFile(fullPath);
+        const checkBuffer = buffer.subarray(0, Math.min(buffer.length, 8192));
+        if (checkBuffer.includes(0)) {
+          return { success: false, error: 'Binary file detected. This tool only supports text files.' };
+        }
+        const contentStr = buffer.toString('utf-8');
+
+        // ========== P0 FIX: Validate line bounds ==========
+        let lines = contentStr.split('\n');
         const deleteEnd = end_line || start_line;
+        
         if (start_line > lines.length) {
           return { success: false, error: `Start line ${start_line} exceeds file length (${lines.length})` };
         }
-        
+
         // Clamp end_line to avoid silent truncation beyond file bounds
         const clampedEnd = Math.min(deleteEnd, lines.length);
-        lines.splice(start_line - 1, clampedEnd - start_line + 1);
-        await fs.writeFile(fullPath, lines.join('\n'), 'utf-8');  // ASYNC
-        return { success: true, data: { deletedLines: `${start_line}-${clampedEnd}`, file: fullPath } }; // ✅ FULL PATH
+        
+        if (clampedEnd < start_line) {
+          return { success: false, error: `Invalid range: end line (${deleteEnd}) is before start line (${start_line})` };
+        }
+
+        const linesToDelete = clampedEnd - start_line + 1;
+
+        // ========== P1 FIX: Create Backup if requested (Bug #5) — DEFAULT TRUE FOR SAFETY ==========
+        let backupPath: string | null = null;
+        if (backup) {
+          backupPath = fullPath + '.bak';
+          try {
+            await fs.copyFile(fullPath, backupPath);
+          } catch (e: unknown) {
+            return { success: false, error: `Failed to create backup at ${backupPath}: ${e instanceof Error ? e.message : String(e)}` };
+          }
+        }
+
+        // ========== P0 FIX: Delete lines ==========
+        lines.splice(start_line - 1, linesToDelete);
+        const newContent = lines.join('\n');
+
+        // ========== P1 FIX: Atomic Write (Bug #4) ==========
+        await atomicWriteFile(fullPath, newContent);
+
+        // ========== P3 FIX: Rich Return Data with Context ==========
+        return {
+          success: true,
+          data: {
+            deletedLines: `${start_line}-${clampedEnd}`,
+            linesDeleted: linesToDelete,
+            file: fullPath,
+            bytesWritten: Buffer.byteLength(newContent, 'utf-8'),
+            backupCreated: backupPath,
+            remainingLines: lines.length,
+          },
+        };
       } catch (error) {
-        return handleError(error);
+        // ========== P3 FIX: Enhanced Error Context ==========
+        const message = error instanceof Error ? error.message : String(error);
+        return { success: false, error: `Failed to delete lines ${start_line}-${end_line || start_line} in '${file_name}': ${message}` };
       }
     },
   }));
+
+
 
   // make_directory tool — ASYNC mkdir
   tools.push(tool({
@@ -772,7 +1041,7 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
         let stats: _fs.Stats;
         try {
           stats = await fs.stat(fullPath);  // ASYNC
-        } catch (e) {
+        } catch (e: unknown) {
            return handleError(e);
         }
 
@@ -1208,13 +1477,13 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
 
         try {
           contentA = await fs.readFile(fullPathA, 'utf-8');  // ASYNC read
-        } catch (e) {
+        } catch (e: unknown) {
           return handleError(e);
         }
 
         try {
           contentB = await fs.readFile(fullPathB, 'utf-8');  // ASYNC read
-        } catch (e) {
+        } catch (e: unknown) {
           return handleError(e);
         }
 
@@ -1352,7 +1621,8 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
         lines.push(`📁 ${rootName}/`);
         await buildTree(targetDir, '', 1);  // ASYNC call
 
-        return { success: true, data: { tree: lines.join('\n'), path: targetDir, depth: depthLimit } };      } catch (error) {
+        return { success: true, data: { tree: lines.join('\n'), path: targetDir, depth: depthLimit } };
+      } catch (error) {
         return handleError(error);
       }
     },

@@ -1,5 +1,5 @@
 /**
- * Auto-Tracking Module
+ * Auto-Tracking Module (Refactored with Finite State Machine)
  * 
  * Automatically detects and tracks important events in conversation:
  * - Decisions ("I decided", "conclusion")
@@ -14,6 +14,39 @@
 
 import { z } from 'zod';
 
+// ==================== CONSTANTS ====================
+
+/** Fixed token overhead added by ContextGuard.countTokens() for BOS/system structure */
+const CONTEXT_GUARD_OVERHEAD = 8;
+
+/** Maximum buffer size before forced auto-flush (safety cap) */
+const MAX_BUFFER_SIZE = 50;
+
+// ==================== FSM TYPES ====================
+
+/**
+ * Finite State Machine states for AutoTracker's checkpoint flow.
+ * Replaces boolean flags (`lastTokenThresholdCheck`) with explicit, traceable state transitions.
+ */
+export enum AutoTrackState {
+  /** Normal operation — threshold not reached this session */
+  IDLE = 'IDLE',
+  /** Threshold hit, warning generated, awaiting user reply (YES/NO) */
+  THRESHOLD_REACHED = 'THRESHOLD_REACHED',
+  /** User replied YES to checkpoint prompt; processing save */
+  CONFIRMED = 'CONFIRMED',
+  /** User replied NO to checkpoint prompt; will reset for next session */
+  DECLINED = 'DECLINED',
+}
+
+/** Records a state transition for debugging/audit trails */
+export interface AutoTrackTransition {
+  from: AutoTrackState;
+  to: AutoTrackState;
+  reason?: string;
+  timestamp: number;
+}
+
 // ==================== TYPES ====================
 
 export const AutoTrackConfigSchema = z.object({
@@ -25,9 +58,7 @@ export const AutoTrackConfigSchema = z.object({
   autoSummaryInterval: z.number().min(10).max(200).default(50),
 });
 
-export type AutoTrackConfig = z.infer<typeof AutoTrackConfigSchema> & {
-  lastTokenThresholdCheck?: boolean; // Track if threshold was already triggered this session
-};
+export type AutoTrackConfig = z.infer<typeof AutoTrackConfigSchema>;
 
 export interface AutoTrackAction {
   type: 'decision' | 'completion' | 'error_fix';
@@ -69,23 +100,32 @@ const ERROR_FIX_PATTERNS = [
   { pattern: /issue\s+(resolved|addressed)/i, weight: 0.75 },
 ];
 
-// ==================== AUTO-TRACKER CLASS ====================
+// ==================== AUTO-TRACKER CLASS (FSM) ====================
 
 export class AutoTracker {
   private config: AutoTrackConfig;
   private messageCount = 0;
   private readonly MIN_CONFIDENCE = 0.6; // Minimum confidence to trigger tracking
   
-  // 🔹 NEW: In-memory buffer for detected actions (flushed on threshold or manually)
+  // 🔹 FSM State — replaces boolean `lastTokenThresholdCheck`
+  private currentState: AutoTrackState = AutoTrackState.IDLE;
+  
+  // 🔹 Transition history for debugging (capped at 100 entries)
+  private transitionHistory: AutoTrackTransition[] = [];
+
+  // 🔹 In-memory buffer for detected actions (flushed on threshold or manually)
   private actionBuffer: AutoTrackAction[] = [];
   
-  // 🔹 NEW: Guard to prevent concurrent flushes (fixes race condition with checkpoint save)
+  // 🔹 Guard to prevent concurrent flushes (I/O concurrency, not FSM state)
   private isFlushing = false;
   
-  // 🔹 NEW: Holds the pending checkpoint warning prompt until consumed by user
+  // 🔹 Holds the pending checkpoint warning prompt until consumed by user
   private pendingCheckpointWarning: string | undefined = undefined;
 
-  constructor(config?: Partial<AutoTrackConfig>) {
+  // 🔹 Optional injected storage manager for testing (avoids dynamic import issues)
+  private testStorageManager: unknown = null;
+
+  constructor(config?: Partial<AutoTrackConfig>, testStorageManager?: unknown) {
     this.config = {
       autoTrackingEnabled: true, // ← Matches schema & DEFAULT_CONFIG default (true)
       autoTrackTokenThreshold: 75,
@@ -93,17 +133,60 @@ export class AutoTracker {
       autoTrackCompletions: true,
       autoTrackErrors: true,
       autoSummaryInterval: 50,
-      lastTokenThresholdCheck: false,
       ...config,
     };
-    console.warn(`[AutoTracker] Initialized with config:`, this.config);
+    this.testStorageManager = testStorageManager || null; // For testing
+    console.warn(`[AutoTracker] [INIT] Initialized with config:`, this.config);
   }
 
   /** Update configuration dynamically */
   updateConfig(partial: Partial<AutoTrackConfig>): void {
     this.config = { ...this.config, ...partial };
-    console.warn(`[AutoTracker] Config updated:`, this.config);
+    console.warn(`[AutoTracker] [CONFIG] Config updated:`, this.config);
   }
+
+  // ==================== FSM TRANSITION LOGIC ====================
+
+  /**
+   * Transition to a new state with logging and history tracking.
+   */
+  private transitionTo(newState: AutoTrackState, reason?: string): void {
+    const oldState = this.currentState;
+    
+    if (oldState !== newState) {
+      console.warn(`[AutoTracker] [STATE] ${oldState} → ${newState}${reason ? ` (${reason})` : ''}`);
+      
+      // Append to transition history (capped at 100 entries for memory safety)
+      this.transitionHistory.push({ from: oldState, to: newState, reason, timestamp: Date.now() });
+      if (this.transitionHistory.length > 100) {
+        this.transitionHistory.shift();
+      }
+
+      // Reset pending warning on any state change (safety net)
+      if (newState !== AutoTrackState.THRESHOLD_REACHED && this.pendingCheckpointWarning) {
+        this.pendingCheckpointWarning = undefined;
+      }
+
+      this.currentState = newState;
+    }
+  }
+
+  /**
+   * Get current FSM state.
+   */
+  getState(): AutoTrackState {
+    return this.currentState;
+  }
+
+  /**
+   * Get transition history for debugging/audit (last N entries).
+   */
+  getTransitionHistory(maxEntries?: number): AutoTrackTransition[] {
+    const limit = maxEntries ?? 100;
+    return this.transitionHistory.slice(-limit);
+  }
+
+  // ==================== TOKEN THRESHOLD CHECKS ====================
 
   /**
    * Check if token threshold has been reached.
@@ -116,14 +199,22 @@ export class AutoTracker {
       return false;
     }
 
-    const usagePercentage = (currentTokens / maxTokens) * 100;
+    // Subtract ContextGuard's fixed BOS/system overhead for accurate percentage calculation
+    const effectiveTokens = Math.max(0, currentTokens - CONTEXT_GUARD_OVERHEAD);
+    const usagePercentage = (effectiveTokens / maxTokens) * 100;
     const threshold = this.config.autoTrackTokenThreshold ?? 75;
 
-    // Only trigger once per session (reset on resetCounter or new session)
-    if (!this.config.lastTokenThresholdCheck && usagePercentage >= threshold) {
-      console.warn(`[AutoTracker] Token threshold reached: ${usagePercentage.toFixed(1)}% (${currentTokens}/${maxTokens}) — triggering user confirmation prompt`);
-      this.config.lastTokenThresholdCheck = true; // Mark as triggered for this session
+    console.warn(`[AutoTracker] [THRESHOLD] Check: ${usagePercentage.toFixed(2)}% effective (${currentTokens}/${maxTokens}), limit=${threshold}%`);
+
+    // FSM: IDLE → THRESHOLD_REACHED
+    if (this.currentState === AutoTrackState.IDLE && usagePercentage >= threshold) {
+      console.warn(`[AutoTracker] [THRESHOLD] Threshold reached — transitioning to THRESHOLD_REACHED state`);
+      this.transitionTo(AutoTrackState.THRESHOLD_REACHED, `usage=${usagePercentage.toFixed(1)}%`);
       return true;
+    }
+
+    if (this.currentState !== AutoTrackState.IDLE) {
+      console.warn(`[AutoTracker] [THRESHOLD] Skipped: already in ${this.currentState} state this session`);
     }
 
     return false;
@@ -133,9 +224,11 @@ export class AutoTracker {
    * Reset token threshold flag (call on new session or after trigger fires).
    */
   resetTokenThreshold(): void {
-    if (this.config.lastTokenThresholdCheck) {
-      this.config.lastTokenThresholdCheck = false;
-      console.warn(`[AutoTracker] Token threshold flag reset`);
+    if (this.currentState !== AutoTrackState.IDLE) {
+      console.warn(`[AutoTracker] [RESET] Explicit reset from ${this.currentState} → IDLE`);
+      this.transitionTo(AutoTrackState.IDLE, 'explicit_reset');
+    } else {
+      console.warn(`[AutoTracker] [RESET] Already in IDLE state — no action needed`);
     }
   }
 
@@ -144,33 +237,42 @@ export class AutoTracker {
    * Returns { triggered, warning? } instead of auto-saving immediately.
    */
   checkAndGeneratePrompt(currentTokens: number, maxTokens: number): { triggered: boolean; warning?: string } {
-    const usagePercentage = (currentTokens / maxTokens) * 100;
+    // Subtract ContextGuard's fixed BOS/system overhead for accurate percentage calculation
+    const effectiveTokens = Math.max(0, currentTokens - CONTEXT_GUARD_OVERHEAD);
+    const usagePercentage = (effectiveTokens / maxTokens) * 100;
     const threshold = this.config.autoTrackTokenThreshold ?? 75;
 
     if (!this.config.autoTrackingEnabled || !maxTokens || maxTokens <= 0 || usagePercentage < threshold) {
       return { triggered: false };
     }
 
-    // Only trigger once per session (reset on resetCounter or new session)
-    if (!this.config.lastTokenThresholdCheck) {
-      this.config.lastTokenThresholdCheck = true;
-      
-      const bufferedCount = this.actionBuffer.length;
-      const warning = `⚠️ SESSION WARNING: You have reached ${usagePercentage.toFixed(0)}% of your token limit. It is highly recommended to create a session backup before continuing.\n\nAuto-tracked events in buffer (will be saved with checkpoint): ${bufferedCount}\n\nDo you want to proceed with a backup? Reply 'YES' to trigger the backup tool, or 'NO' to continue.`;
-      
-      this.pendingCheckpointWarning = warning;
-      console.warn(`[AutoTracker] Threshold reached: ${usagePercentage.toFixed(1)}% — waiting for user confirmation`);
+    // FSM transition handled by checkTokenThreshold (called before or in parallel)
+    // If we're already in THRESHOLD_REACHED, just return the existing warning
+    if (this.currentState === AutoTrackState.THRESHOLD_REACHED && this.pendingCheckpointWarning) {
+      console.warn(`[AutoTracker] [PROMPT] Returning existing pending warning (${usagePercentage.toFixed(1)}%)`);
+      return { triggered: true, warning: this.pendingCheckpointWarning };
     }
 
-    return { triggered: true, warning: this.pendingCheckpointWarning };
+    // First trigger — generate new prompt
+    this.transitionTo(AutoTrackState.THRESHOLD_REACHED, `first_trigger=${usagePercentage.toFixed(1)}%`);
+    
+    const bufferedCount = this.actionBuffer.length;
+    const warning = `⚠️ SESSION WARNING: You have reached ${usagePercentage.toFixed(0)}% of your token limit. It is highly recommended to create a session backup before continuing.\n\nAuto-tracked events in buffer (will be saved with checkpoint): ${bufferedCount}\n\nDo you want to proceed with a backup? Reply 'YES' to trigger the backup tool, or 'NO' to continue.`;
+    
+    this.pendingCheckpointWarning = warning;
+    console.warn(`[AutoTracker] [PROMPT] Generated checkpoint prompt for user confirmation`);
+
+    return { triggered: true, warning };
   }
 
   /** 
    * Consume and clear the pending warning (call after user replies YES/NO).
+   * Returns the warning text so caller can process it.
    */
   consumePendingConfirmation(): string | undefined {
     const warn = this.pendingCheckpointWarning;
     if (warn) {
+      console.warn(`[AutoTracker] [CONSUME] Pending warning consumed`);
       this.pendingCheckpointWarning = undefined; // 🔹 Clear so it doesn't repeat every turn
     }
     return warn;
@@ -178,7 +280,36 @@ export class AutoTracker {
 
   /** Check if a checkpoint warning is currently waiting for user response */
   hasPendingWarning(): boolean {
-    return !!this.pendingCheckpointWarning;
+    const result = !!this.pendingCheckpointWarning && this.currentState === AutoTrackState.THRESHOLD_REACHED;
+    console.warn(`[AutoTracker] [HAS_WARNING] ${result ? 'Yes' : 'No'} (state=${this.currentState})`);
+    return result;
+  }
+
+  /**
+   * Process user reply to checkpoint prompt. Handles FSM transitions for YES/NO paths.
+   * @param reply 'YES' or 'NO'
+   */
+  processUserReply(reply: 'YES' | 'NO'): void {
+    if (this.currentState !== AutoTrackState.THRESHOLD_REACHED) {
+      console.warn(`[AutoTracker] [REPLY] Ignoring ${reply} — not in THRESHOLD_REACHED state`);
+      return;
+    }
+
+    const replyUpper = reply.toUpperCase();
+    
+    if (replyUpper === 'YES') {
+      // User confirmed → transition to CONFIRMED, caller will trigger checkpoint save
+      console.warn(`[AutoTracker] [REPLY] YES received — transitioning to CONFIRMED state`);
+      this.transitionTo(AutoTrackState.CONFIRMED, 'user_confirmed');
+    } else {
+      // User declined → transition to DECLINED, then immediately back to IDLE (Bug #3 fix)
+      console.warn(`[AutoTracker] [REPLY] NO received — transitioning to DECLINED, then IDLE`);
+      this.transitionTo(AutoTrackState.DECLINED, 'user_declined');
+      this.transitionTo(AutoTrackState.IDLE, 'post_decline_reset');
+    }
+
+    // Clear warning regardless of reply
+    this.pendingCheckpointWarning = undefined;
   }
 
   /**
@@ -187,15 +318,29 @@ export class AutoTracker {
    */
   async flushActionsToMemory(): Promise<number> {
     // 🔹 FIX #4: Prevent concurrent flushes (race condition with checkpoint save)
-    if (this.isFlushing || this.actionBuffer.length === 0) return 0;
-    
+    if (this.isFlushing || this.actionBuffer.length === 0) {
+      console.warn(`[AutoTracker] [FLUSH] Skipped: isFlushing=${this.isFlushing}, bufferLen=${this.actionBuffer.length}`);
+      return 0;
+    }
+
+    const preFlushCount = this.actionBuffer.length;
     this.isFlushing = true;
     const flushed = this.actionBuffer.splice(0); // 🔹 Clear buffer safely before async I/O
+    
+    console.warn(`[AutoTracker] [FLUSH] Starting flush of ${preFlushCount} action(s)`);
+
     let savedCount = 0;
 
     try {
-      const { ContextStorageManager } = await import('./tools/contextManagementTools.js');
-      const storage = new ContextStorageManager();
+      // Use injected storage manager for testing, otherwise dynamic import
+      let storage;
+      if (this.testStorageManager) {
+        storage = new (this.testStorageManager as any)();
+      } else {
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
+        const { ContextStorageManager } = await import('./tools/contextManagementTools.js');
+        storage = new ContextStorageManager();
+      }
 
       for (const action of flushed) {
         await storage.addEntry({
@@ -210,10 +355,10 @@ export class AutoTracker {
         savedCount++;
       }
 
-      console.warn(`[AutoTracker] Flushed ${savedCount} auto-tracked event(s) to persistent memory`);
+      console.warn(`[AutoTracker] [FLUSH] Completed: ${savedCount}/${preFlushCount} actions flushed to persistent memory`);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      console.error(`[AutoTracker] Failed to flush actions: ${message}`);
+      console.error(`[AutoTracker] [FLUSH] Failed: ${message}`);
     } finally {
       // 🔹 Always reset guard, even on failure
       this.isFlushing = false;
@@ -232,48 +377,52 @@ export class AutoTracker {
     messageCount: number,
   ): Promise<{ saved: boolean; sessionId?: string }> {
     if (!this.config.autoTrackingEnabled) {
+      console.warn('[AUTO SAVE DEBUG] Entering, testStorageManager=', this.testStorageManager ? 'INJECTED' : 'NULL', ', autoTrackingEnabled=', this.config.autoTrackingEnabled);
+      console.warn(`[AutoTracker] [CHECKPOINT] Skipped: autoTracking disabled`);
       return { saved: false };
     }
 
-    // 🔹 NEW: Flush buffered detections before checkpointing
-    const flushedCount = await this.flushActionsToMemory();
-
-    const usagePercentage = ((currentTokens / maxTokens) * 100).toFixed(1);
+    // Subtract ContextGuard's fixed BOS/system overhead for accurate display
+    const effectiveTokens = Math.max(0, currentTokens - CONTEXT_GUARD_OVERHEAD);
+    const usagePercentage = ((effectiveTokens / maxTokens) * 100).toFixed(1);
     const threshold = this.config.autoTrackTokenThreshold ?? 75;
+
+    console.warn(`[AutoTracker] [CHECKPOINT] Generating checkpoint at ${usagePercentage}% (${currentTokens}/${maxTokens})`);
 
     // Generate a session checkpoint entry
     const entryId = `ctx_${Date.now()}_checkpoint`;
     const timestamp = Date.now();
-    
-    // 🔹 NEW: Include flushed action count in checkpoint content
+
     const contextEntry = {
       id: entryId,
       timestamp,
       type: 'summary' as const,
       title: `Session Memory Checkpoint (${usagePercentage}% tokens used)`,
-      content: `Auto-triggered session memory save at ${threshold}% token threshold.\n\nCurrent session state:\n- Tokens used: ${currentTokens} / ${maxTokens} (${usagePercentage}%)\n- Messages in session: ${messageCount}\n- Threshold configured: ${threshold}%\n- Auto-tracked events flushed this checkpoint: ${flushedCount}\n\nThis checkpoint preserves critical context before potential overflow.`,
+      content: `Auto-triggered session memory save at ${threshold}% token threshold.\n\nCurrent session state:\n- Tokens used: ${currentTokens} / ${maxTokens} (${usagePercentage}%)\n- Messages in session: ${messageCount}\n- Threshold configured: ${threshold}%\n- Auto-tracked events in buffer: ${this.actionBuffer.length}\n\nThis checkpoint preserves critical context before potential overflow.`,
       tags: ['auto_checkpoint', 'token_threshold'],
     };
 
-    // Save to persistent memory via the storage manager (imported dynamically)
+    // Save to persistent memory via the storage manager (injected for testing or dynamic import)
     try {
-      const { ContextStorageManager } = await import('./tools/contextManagementTools.js');
-      const storage = new ContextStorageManager();
+      let storage;
+      if (this.testStorageManager) {
+        storage = new (this.testStorageManager as any)();
+      } else {
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
+        const { ContextStorageManager } = await import('./tools/contextManagementTools.js');
+        storage = new ContextStorageManager();
+      }
       await storage.addEntry(contextEntry);
-      
-      console.warn(`[AutoTracker] Session checkpoint saved: ${entryId}`);
+
+      console.warn(`[AutoTracker] [CHECKPOINT] Saved: ${entryId}`);
       return { saved: true, sessionId: entryId };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      console.error(`[AutoTracker] Failed to save session checkpoint: ${message}`);
+      console.error(`[AutoTracker] [CHECKPOINT] Failed to save checkpoint: ${message}`);
       return { saved: false };
     }
   }
 
-  /**
-   * Full token threshold check with auto-save.
-   * Returns the result including whether a checkpoint was saved.
-   */
   async checkAndSaveTokenThreshold(
     currentTokens: number,
     maxTokens: number,
@@ -285,15 +434,27 @@ export class AutoTracker {
       return { triggered: false, saved: false };
     }
 
-    // Threshold triggered — now auto-save session memory
+    // Threshold triggered — flush buffered actions and save session memory
+    console.warn(`[AutoTracker] [CHECKANDSAVE] Threshold triggered — proceeding to checkpoint`);
+    
+    // Flush any buffered actions as part of the checkpoint save
+    const flushedCount = await this.flushActionsToMemory();
+    if (flushedCount > 0) {
+      console.warn(`[AutoTracker] [CHECKANDSAVE] Flushed ${flushedCount} buffered action(s)`);
+    }
+
     const msgCount = messageCount ?? 0;
     const saveResult = await this.autoSaveSessionMemory(currentTokens, maxTokens, msgCount);
 
     if (saveResult.saved) {
-      console.warn(`[AutoTracker] Session memory checkpoint saved successfully`);
+      console.warn(`[AutoTracker] [CHECKANDSAVE] Checkpoint saved successfully — transitioning to CONFIRMED`);
+      // FSM: THRESHOLD_REACHED → CONFIRMED (checkpoint completed)
+      this.transitionTo(AutoTrackState.CONFIRMED, 'auto_checkpoint_saved');
       return { triggered: true, saved: true, sessionId: saveResult.sessionId };
     } else {
-      console.error(`[AutoTracker] Token threshold reached but session memory save failed`);
+      console.error(`[AutoTracker] [CHECKANDSAVE] Checkpoint failed — transitioning to DECLINED`);
+      // FSM: THRESHOLD_REACHED → DECLINED (save failed, treat as declined)
+      this.transitionTo(AutoTrackState.DECLINED, 'auto_checkpoint_failed');
       return { triggered: true, saved: false };
     }
   }
@@ -352,11 +513,11 @@ export class AutoTracker {
     // 🔹 NEW: Buffer detected actions for later flush to persistent storage
     if (actions.length > 0) {
       this.actionBuffer.push(...actions);
-      console.warn(`[AutoTracker] Buffered ${actions.length} action(s). Total in buffer: ${this.actionBuffer.length}`);
+      console.warn(`[AutoTracker] [BUFFER] Added ${actions.length} action(s), total=${this.actionBuffer.length}, state=${this.currentState}`);
       
       // 🔹 Safety cap: auto-flush if buffer grows too large (>50 entries)
-      if (this.actionBuffer.length > 50 && !this.isFlushing) {
-        console.warn('[AutoTracker] Buffer exceeded safety limit, flushing early...');
+      if (this.actionBuffer.length > MAX_BUFFER_SIZE && !this.isFlushing) {
+        console.warn(`[AutoTracker] [BUFFER] Exceeded safety limit (${MAX_BUFFER_SIZE}), flushing early...`);
         void this.flushActionsToMemory(); // Fire-and-forget — intentionally unawaited to avoid blocking preprocessor
       }
     }
@@ -364,7 +525,7 @@ export class AutoTracker {
     // Increment message counter for session summaries
     this.messageCount++;
     if (this.messageCount % this.config.autoSummaryInterval === 0) {
-      console.warn(`[AutoTracker] Session summary interval reached: ${this.messageCount} messages`);
+      console.warn(`[AutoTracker] [COUNT] Session summary interval reached: ${this.messageCount} messages`);
     }
 
     return actions;
@@ -417,7 +578,11 @@ export class AutoTracker {
    */
   resetCounter(): void {
     this.messageCount = 0;
-    console.warn(`[AutoTracker] Message counter reset`);
+    console.warn(`[AutoTracker] [RESET] Message counter reset`);
+    // Also reset FSM to IDLE on new session
+    if (this.currentState !== AutoTrackState.IDLE) {
+      this.transitionTo(AutoTrackState.IDLE, 'new_session');
+    }
   }
 
   /**
@@ -432,6 +597,21 @@ export class AutoTracker {
    */
   getBufferedActionCount(): number {
     return this.actionBuffer.length;
+  }
+
+  /**
+   * Get diagnostic summary for monitoring/debugging.
+   */
+  getDiagnosticSummary(): string {
+    return [
+      `[AutoTracker] Diagnostic:`,
+      `  State: ${this.currentState}`,
+      `  Buffer: ${this.actionBuffer.length} actions`,
+      `  Messages: ${this.messageCount}`,
+      `  Flushing: ${this.isFlushing}`,
+      `  Pending Warning: ${this.pendingCheckpointWarning ? 'Yes' : 'No'}`,
+      `  Transition History (last ${this.transitionHistory.length}): ${JSON.stringify(this.transitionHistory.slice(-5))}`
+    ].join('\n');
   }
 }
 

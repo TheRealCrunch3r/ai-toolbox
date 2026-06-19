@@ -1,0 +1,49 @@
+  async autoSaveSessionMemory(
+    currentTokens: number,
+    maxTokens: number,
+    messageCount: number,
+  ): Promise<{ saved: boolean; sessionId?: string }> {
+    if (!this.config.autoTrackingEnabled) {
+      console.warn(`[AutoTracker] [CHECKPOINT] Skipped: autoTracking disabled`);
+      return { saved: false };
+    }
+
+    // Subtract ContextGuard's fixed BOS/system overhead for accurate display
+    const effectiveTokens = Math.max(0, currentTokens - CONTEXT_GUARD_OVERHEAD);
+    const usagePercentage = ((effectiveTokens / maxTokens) * 100).toFixed(1);
+    const threshold = this.config.autoTrackTokenThreshold ?? 75;
+
+    console.warn(`[AutoTracker] [CHECKPOINT] Generating checkpoint at ${usagePercentage}% (${currentTokens}/${maxTokens})`);
+
+    // Generate a session checkpoint entry
+    const entryId = `ctx_${Date.now()}_checkpoint`;
+    const timestamp = Date.now();
+
+    const contextEntry = {
+      id: entryId,
+      timestamp,
+      type: 'summary' as const,
+      title: `Session Memory Checkpoint (${usagePercentage}% tokens used)`,
+      content: `Auto-triggered session memory save at ${threshold}% token threshold.\n\nCurrent session state:\n- Tokens used: ${currentTokens} / ${maxTokens} (${usagePercentage}%)\n- Messages in session: ${messageCount}\n- Threshold configured: ${threshold}%\n- Auto-tracked events in buffer: ${this.actionBuffer.length}\n\nThis checkpoint preserves critical context before potential overflow.`,
+      tags: ['auto_checkpoint', 'token_threshold'],
+    };
+
+    // Save to persistent memory via the storage manager (injected for testing or dynamic import)
+    try {
+      let storage;
+      if (this.testStorageManager) {
+        storage = new this.testStorageManager();
+      } else {
+        const { ContextStorageManager } = await import('./tools/contextManagementTools.js');
+        storage = new ContextStorageManager();
+      }
+      await storage.addEntry(contextEntry);
+
+      console.warn(`[AutoTracker] [CHECKPOINT] Saved: ${entryId}`);
+      return { saved: true, sessionId: entryId };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`[AutoTracker] [CHECKPOINT] Failed to save checkpoint: ${message}`);
+      return { saved: false };
+    }
+  }

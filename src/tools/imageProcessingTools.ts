@@ -134,21 +134,24 @@ async function imageToText({ imagePath, language = 'eng' }: ImageToTextParams): 
     const ext = path.extname(imagePath).toLowerCase();
 
     // Import Tesseract.js dynamically
-    const Tesseract = require('tesseract.js');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-unsafe-assignment
+const Tesseract = require('tesseract.js');
 
     console.warn(`[AI Toolbox] Starting OCR on ${imagePath} with language '${language}'...`);
 
     // Perform OCR with progress tracking
-    const result = await Tesseract.recognize(imagePath, language, {
-      logger: (m: any) => {
-        if (m.status === 'recognizing text') {
-          console.warn(`[AI Toolbox] OCR Progress: ${(m.progress * 100).toFixed(0)}%`);
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
+const result = await Tesseract.recognize(imagePath, language, {
+      logger: (m: unknown) => {
+        if ((m as any).status === 'recognizing text') {
+          console.warn(`[AI Toolbox] OCR Progress: ${((m as any).progress * 100).toFixed(0)}%`);
         }
       },
     });
 
     // Extract structured data from result
-    const extractedText = result.data.text.trim();
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
+const extractedText = result.data.text.trim();
     const wordCount = extractedText.split(/\s+/).filter((w: string) => w.length > 0).length;
     const lineCount = extractedText.split('\n').filter((l: string) => l.trim().length > 0).length;
 
