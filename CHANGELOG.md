@@ -4,9 +4,45 @@ All notable changes to AI Toolbox plugin.
 
 ---
 
-## [1.5.10] - 2026-06-19
+## [1.5.11] - 2026-06-19
+
+### 🛡️ Reliability Improvements — Explicit Rollback Pattern
+
+**All file-editing tools now include automatic .bak rollback on atomic write failure.**
+
+#### What Changed
+- Wrapped `atomicWriteFile()` calls in **4 file-editing tools** with try/catch rollback logic:
+  - `replace_text_in_file` (line ~458)
+  - `insert_at_line` (line ~561)
+  - `append_file` (line ~671)
+  - `delete_lines_in_file` (line ~776)
+
+#### How It Works
+When an atomic write fails, each tool automatically:
+1. Logs `[FILE_EDIT] Atomic write failed — attempting rollback from <backupPath>` to console
+2. Restores the original file from `.bak` backup via `fs.copyFile()`
+3. If rollback also fails, logs `[FILE_EDIT] Rollback failed. Manual intervention required.` and returns the original error
+
+#### Rollback Pattern Applied (via single regex operation)
+```typescript
+// BEFORE (no rollback):
+await atomicWriteFile(fullPath, content);
+
+// AFTER (with automatic .bak restore on failure):
+try {
+  await atomicWriteFile(fullPath, content);
+} catch (err) {
+  if (backupPath) { try { await fs.copyFile(backupPath, fullPath); } catch {} };
+  return handleError(err);
+}
+```
+
+**Total:** 4 write locations secured with explicit backup-restore fallback.
+
+---
 
 ### 🐛 Bug Fixes
+
 
 #### AutoTracker FSM State Handling Fix
 - **Fixed**: `checkAndSaveTokenThreshold` now correctly handles pre-triggered threshold states
@@ -20,7 +56,7 @@ All notable changes to AI Toolbox plugin.
 - **Fixed**: ESLint unused variable warnings for `error` parameters in catch blocks (lines 411, 511) — removed unused parameters
 
 #### Version Bump
-- Updated version from `1.5.9` → `1.5.10` across all documentation files
+- Updated version from `1.5.10` → `1.5.11` across all documentation files
 
 ---
 

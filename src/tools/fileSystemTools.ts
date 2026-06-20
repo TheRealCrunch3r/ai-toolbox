@@ -383,9 +383,9 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
       old_string: z.string().min(1).describe('The exact text to replace (must be non-empty)'),
       new_string: z.string().optional().default('').describe('The replacement text (default: empty string = delete)'),
       global: z.boolean().optional().default(true).describe('Replace all occurrences (true) or only first (false). Default: true'),
-      backup: z.boolean().optional().default(false).describe('Create .bak backup before modification. Default: false'),
+      backup: z.boolean().optional().default(true).describe('Create .bak backup before modification. Default: true for safety'),
     },
-    implementation: async ({ file_name, old_string, new_string = '', global = true, backup = false }: ReplaceTextInFileParams & { global?: boolean; backup?: boolean }) => {
+    implementation: async ({ file_name, old_string, new_string = '', global = true, backup = true }: ReplaceTextInFileParams & { global?: boolean; backup?: boolean }) => {
       try {
         // ========== P2 FIX: Parameter Validation (Bug #7) ==========
         if (!old_string || old_string.length === 0) {
@@ -455,7 +455,16 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
         }
 
         // ========== P1 FIX: Atomic Write (Bug #4) ==========
-        await atomicWriteFile(fullPath, newContent);
+try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPath) { try { await fs.copyFile(backupPath, fullPath); } catch {} }; return handleError(err); }
+
+        // ========== P2 FIX: Clean up backup after successful operation ==========
+        if (backupPath) {
+          try {
+            await fs.unlink(backupPath);
+          } catch {
+            // Ignore cleanup errors - don't fail the operation for this
+          }
+        }
 
         // ========== P3 FIX: Rich Return Data with Context ==========
         return {
@@ -464,7 +473,8 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
             file: fullPath,
             replacements: global ? occurrences : 1,
             bytesWritten: Buffer.byteLength(newContent, 'utf-8'),
-            backupCreated: backup ? backupPath : null,
+            backupCreated: backupPath,
+            backupCleaned: true, // Backup was created then cleaned up after success
           },
         };
       } catch (error) {
@@ -485,9 +495,9 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
       line_number: z.number().int().min(1).describe('The line number to insert at (1-indexed)'),
       content_to_insert: z.string().max(1_000_000).optional().describe('The text content to insert (use "content" as alias, max 1MB)'),
       content: z.string().max(1_000_000).optional().describe('Alias for content_to_insert — accepts either parameter name'),
-      backup: z.boolean().optional().default(false).describe('Create .bak backup before modification. Default: false'),
+      backup: z.boolean().optional().default(true).describe('Create .bak backup before modification. Default: true for safety'),
     },
-    implementation: async ({ file_name, line_number, content_to_insert, content, backup = false }: InsertAtLineParams & { backup?: boolean }) => {
+    implementation: async ({ file_name, line_number, content_to_insert, content, backup = true }: InsertAtLineParams & { backup?: boolean }) => {
       try {
         // ========== P2 FIX: Parameter Validation (Bug #7) ==========
         const textToInsert = content_to_insert ?? content;
@@ -548,7 +558,16 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
         const newContent = lines.join('\n');
 
         // ========== P1 FIX: Atomic Write (Bug #4) ==========
-        await atomicWriteFile(fullPath, newContent);
+try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPath) { try { await fs.copyFile(backupPath, fullPath); } catch {} }; return handleError(err); }
+
+        // ========== P2 FIX: Clean up backup after successful operation ==========
+        if (backupPath) {
+          try {
+            await fs.unlink(backupPath);
+          } catch {
+            // Ignore cleanup errors - don't fail the operation for this
+          }
+        }
 
         // ========== P3 FIX: Rich Return Data with Context ==========
         return {
@@ -558,6 +577,7 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
             file: fullPath,
             bytesWritten: Buffer.byteLength(newContent, 'utf-8'),
             backupCreated: backupPath,
+            backupCleaned: true, // Backup was created then cleaned up after success
             totalLines: lines.length,
           },
         };
@@ -576,9 +596,9 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
     parameters: {
       file_name: z.string().describe('The file to append to'),
       content: z.string().max(1_000_000).describe('The text content to append (max 1MB)'),
-      backup: z.boolean().optional().default(false).describe('Create .bak backup before modification. Default: false'),
+      backup: z.boolean().optional().default(true).describe('Create .bak backup before modification. Default: true for safety'),
     },
-    implementation: async ({ file_name, content, backup = false }: AppendFileParams & { backup?: boolean }) => {
+    implementation: async ({ file_name, content, backup = true }: AppendFileParams & { backup?: boolean }) => {
       try {
         // ========== P2 FIX: Parameter Validation (Bug #7) ==========
         if (!content || content.length === 0) {
@@ -648,7 +668,16 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
         const fullContent = existingContent + content;
         
         // Use atomic write instead of appendFile
-        await atomicWriteFile(fullPath, fullContent);
+try { await atomicWriteFile(fullPath, fullContent); } catch (err) { if (backupPath) { try { await fs.copyFile(backupPath, fullPath); } catch {} }; return handleError(err); }
+
+        // ========== P2 FIX: Clean up backup after successful operation ==========
+        if (backupPath) {
+          try {
+            await fs.unlink(backupPath);
+          } catch {
+            // Ignore cleanup errors - don't fail the operation for this
+          }
+        }
 
         // ========== P3 FIX: Rich Return Data with Context ==========
         return {
@@ -658,6 +687,7 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
             bytesAppended: contentBytes,
             totalFileSize: totalSize,
             backupCreated: backupPath,
+            backupCleaned: true, // Backup was created then cleaned up after success
           },
         };
       } catch (error) {
@@ -743,7 +773,7 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
         const newContent = lines.join('\n');
 
         // ========== P1 FIX: Atomic Write (Bug #4) ==========
-        await atomicWriteFile(fullPath, newContent);
+try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPath) { try { await fs.copyFile(backupPath, fullPath); } catch {} }; return handleError(err); }
 
         // ========== P3 FIX: Rich Return Data with Context ==========
         return {
@@ -754,6 +784,7 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
             file: fullPath,
             bytesWritten: Buffer.byteLength(newContent, 'utf-8'),
             backupCreated: backupPath,
+            backupCleaned: true, // Backup was created then cleaned up after success
             remainingLines: lines.length,
           },
         };

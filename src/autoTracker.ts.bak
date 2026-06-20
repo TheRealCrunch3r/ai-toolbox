@@ -13,6 +13,7 @@
  */
 
 import { z } from 'zod';
+import { ContextStorageManager } from './tools/contextManagementTools.js';
 
 // ==================== CONSTANTS ====================
 
@@ -335,10 +336,9 @@ export class AutoTracker {
       // Use injected storage manager for testing, otherwise dynamic import
       let storage;
       if (this.testStorageManager) {
-        const Ctor = this.testStorageManager as unknown as new () => { addEntry(e: unknown): Promise<void> };
-        storage = new Ctor();
+        storage = new (this.testStorageManager as any)();
       } else {
-       
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
         const { ContextStorageManager } = await import('./tools/contextManagementTools.js');
         storage = new ContextStorageManager();
       }
@@ -407,10 +407,9 @@ export class AutoTracker {
     try {
       let storage;
       if (this.testStorageManager) {
-        const Ctor = this.testStorageManager as unknown as new () => { addEntry(e: unknown): Promise<void> };
-        storage = new Ctor();
+        storage = new (this.testStorageManager as any)();
       } else {
-       
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
         const { ContextStorageManager } = await import('./tools/contextManagementTools.js');
         storage = new ContextStorageManager();
       }

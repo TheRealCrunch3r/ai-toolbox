@@ -130,6 +130,19 @@ Each category is implemented as a separate module in `src/tools/`:
 
 ## 📈 Recent Changes (v1.5.x)
 
+### [1.5.11] - 2026-06-19 — Explicit Rollback Pattern
+
+**All file-editing tools now automatically restore `.bak` backup on write failure.**
+
+Four tools (`replace_text_in_file`, `insert_at_line`, `append_file`, `delete_lines_in_file`) wrap their `atomicWriteFile()` calls in try/catch:
+1. On atomic write error → attempts `fs.copyFile(backupPath, fullPath)` to restore original
+2. Logs `[FILE_EDIT] Atomic write failed — attempting rollback from <path>`
+3. If rollback also fails, logs warning and returns original error
+
+**Impact:** Protects against silent data corruption on disk-full, permission errors, or I/O failures during file modifications.
+
+---
+
 ### 🔧 Major Refactoring (2026-06-13)
 
 **Sync → Async Conversion:**

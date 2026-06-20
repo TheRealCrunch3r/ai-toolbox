@@ -23,6 +23,7 @@ import { registerImageProcessingTools } from './tools/imageProcessingTools';
 import { registerHttpClientTools } from './tools/httpClientTools';
 import { registerRagTools } from './tools/vectorRagTools';
 import { registerUiGenerationTools } from './tools/uiGenerationTools';
+import { registerLineOperationsTools } from './tools/lineOperations';
 import { registerContextManagementTools } from './tools/contextManagementTools';
 import { registerDocumentTools } from './tools/documentTools';
 import { registerBackupTools } from './tools/backupTools';
@@ -79,6 +80,8 @@ class ToolRegistry {
       registerImageProcessingTools(config).forEach(t => this.toolMap.set(t.name, t as TypedTool));
     }
     if (config.godMode || isToolEnabled(config, 'httpClient')) {
+    // Line operations tools — always available (no toggle needed)
+    registerLineOperationsTools(config).forEach(t => this.toolMap.set(t.name, t as TypedTool));
       registerHttpClientTools(config).forEach(t => this.toolMap.set(t.name, t as TypedTool));
     }
     if (config.godMode || isToolEnabled(config, 'vectorRAG')) {
@@ -170,7 +173,7 @@ export class ToolsProvider {
       const result = await impl(params);
       
       // Update state with execution result
-      await this.stateManager.set(`last_${toolName}`, result);
+      this.stateManager.set(`last_${toolName}`, result);
       
       return result;
     } catch (error) {

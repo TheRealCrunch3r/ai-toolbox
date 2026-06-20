@@ -34,7 +34,7 @@ export class ContextStorageManager {
   
   constructor() {
     this.storagePath = path.join(getWorkingDir(), '.ai_toolbox_context.msgpack');
-    console.log(`[ContextStorage] Initialized with storage path: ${this.storagePath}`);
+    console.warn(`[ContextStorage] Initialized with storage path: ${this.storagePath}`);
   }
 
   /** Load context entries from disk — ASYNC === */

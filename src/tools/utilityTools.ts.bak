@@ -1,10 +1,4 @@
-// External library types (unzipper, require(), etc.) have implicit any — eslint-disable below  
- 
-
 ﻿import type { Tool } from '@lmstudio/sdk';
-// External library types (unzipper, require, etc.) have implicit any
-/* eslint-disable @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access */
-
 import { tool } from '@lmstudio/sdk';
 import { z } from 'zod';
 import * as os from 'os';
@@ -278,8 +272,7 @@ async function getSystemMetrics(metrics: string[]): Promise<SystemMetricsResult>
         });
 
         try {
-          const parsedDisk = psResult.stdout ? JSON.parse(psResult.stdout) as Record<string, unknown> | Record<string, unknown>[] : null;
-        diskInfo = Array.isArray(parsedDisk) ? { raw: parsedDisk } : (parsedDisk || {});
+          diskInfo = JSON.parse(psResult.stdout);
         } catch {
           diskInfo = { error: 'Could not parse PowerShell disk info output' };
         }
@@ -344,14 +337,8 @@ async function getProcessList(filter?: string): Promise<Array<{ pid: number; nam
     });
 
     try {
-      const rawParsed = result.stdout ? (JSON.parse(result.stdout) as Record<string, unknown> | Array<Record<string, unknown>>) : null;
-      let parsed: Array<Record<string, unknown>> = [];
-      if (Array.isArray(rawParsed)) {
-        parsed = rawParsed.map((item: unknown) => item as Record<string, unknown>);
-      } else if (rawParsed && typeof rawParsed === "object") {
-        parsed = [rawParsed];
-      }
-      for (const p of parsed) {
+      const parsed = JSON.parse(result.stdout);
+      for (const p of (parsed as Array<Record<string, unknown>>)) {
         processes.push({
           pid: Number(p.ProcessId) || 0,
           name: String(p.Name) || 'Unknown',
@@ -480,7 +467,7 @@ export function registerUtilityTools(config: PluginConfig, stateManager: StateMa
         const memories = [];
 
         for (const key of keys) {
-          const value = stateManager.get<string>(key);
+          const value = await stateManager.get<string>(key);
           if (value !== undefined) {
             memories.push({
               id: key,
@@ -520,7 +507,7 @@ export function registerUtilityTools(config: PluginConfig, stateManager: StateMa
         const results = [];
 
         for (const key of keys) {
-          const value = stateManager.get<string>(key);
+          const value = await stateManager.get<string>(key);
           if (value && typeof value === 'string' &&
               value.toLowerCase().indexOf(query.toLowerCase()) >= 0) {
             results.push({
@@ -652,7 +639,7 @@ export function registerUtilityTools(config: PluginConfig, stateManager: StateMa
         const idsWithTimestamps = await Promise.all(
           uniqueIds.map(async id => ({
             id,
-            timestamp: stateManager.get<number>(`session_summary_${id}_timestamp`) || 0,
+            timestamp: await stateManager.get<number>(`session_summary_${id}_timestamp`) || 0,
           }))
         );
         
@@ -1001,19 +988,16 @@ export function registerUtilityTools(config: PluginConfig, stateManager: StateMa
       try {
         const tiktokenModule = await import('@dqbd/tiktoken');
 
- 
- 
         let enc: unknown;
         try {
           enc = tiktokenModule.get_encoding(encoding as 'cl100k_base' | 'p50k_base' | 'r50k_base' | 'gpt2');
         } catch {
           // Fallback: create encoding directly by name
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+// eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
 enc = new (tiktokenModule as any).getEncoding(encoding);
         }
 
-        const encInstance = enc as { encode: (text: string) => number[] };
-        const tokens = encInstance.encode(text);
+        const tokens = (enc as any).encode(text);
         const tokenCount = tokens.length;
 
         return {
@@ -1172,7 +1156,7 @@ enc = new (tiktokenModule as any).getEncoding(encoding);
             const archive = archiverModule.default('zip', { zlib: { level: 9 } }); // Max compression
 
             outputStream.on('close', () => {
-// eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-explicit-any
+// eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
 resolve({ success: true, data: { compressedFile: zipOutputName, sizeBytes: (archive as any).pointer() } });
             });
 
@@ -1242,10 +1226,9 @@ const unzipperModule = require('unzipper');
 
         // Security gate: check config flag for secret scanning
         if (!config.godMode) {
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const configModule = require("../config.js") as { DEFAULT_CONFIG?: Record<string, unknown> };
-        const pkgConfig = configModule.DEFAULT_CONFIG ?? {};
-          if (!("packageManage" in pkgConfig)) {
+// eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-require-imports
+const pkgConfig = require('../config.js').DEFAULT_CONFIG;
+          if (pkgConfig && !pkgConfig.packageManage) {
             // Only warn, don't block — this is a read-only operation
           }
         }
@@ -1370,10 +1353,9 @@ const configModule = require("../config.js") as { DEFAULT_CONFIG?: Record<string
     implementation: async ({ action, package_name, manager }: { action: string; package_name?: string; manager: string }) => {
       // Security gate: check config flag for install/uninstall
       if (action === 'install' || action === 'uninstall') {
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const configModule = require("../config.js") as { DEFAULT_CONFIG?: Record<string, unknown> };
-      const pkgConfig = configModule.DEFAULT_CONFIG ?? {};
-        if (!("packageManage" in pkgConfig)) {
+// eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-require-imports
+const pkgConfig = require('../config.js').DEFAULT_CONFIG;
+        if (!pkgConfig.packageManage) {
           return { success: false, error: 'package_manage tool is disabled. Enable it in plugin settings to allow package installation/uninstallation.' };
         }
       }
@@ -1624,12 +1606,11 @@ export function registerGetCurrentWorkingDirectoryTool(): Tool[] {
       description: 'Get the current working directory. Use this before generating file operations with relative paths to ensure you know where files will be created/modified.',
       parameters: {},
       implementation: async () => {
-// eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-require-imports
-const { getWorkingDir } = require('../workingDir.js');
         return {
           success: true,
           data: {
-// eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+            current_working_directory: getWorkingDir()
+
 current_working_directory: getWorkingDir()
           }
         };

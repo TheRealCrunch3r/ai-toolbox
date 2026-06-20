@@ -348,9 +348,9 @@ export function registerTextProcessingTools(_config: PluginConfig): Tool[] {
               return { success: false, error: 'Delete operation requires either "target_line" or "lines.range" parameter' };
             }
 
-            // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+             
             let deleteStart = target_line ?? (lines?.start ?? 0);
-            // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+             
             let deleteEnd = lines?.end ?? target_line ?? linesArr.length;
 
             // Validate range

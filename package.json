@@ -1,6 +1,6 @@
 {
   "name": "@lmstudio/ai-toolbox",
-  "version": "1.5.10",
+  "version": "1.5.11",
   "description": "AI Toolbox Plugin for LM Studio - 101 tools across 16 categories: file system, web research, browser automation, Git/GitHub, database, document parsing, background commands, code execution, utilities, image processing, HTTP client, vector RAG, text processing, interactive UI generation, auto-context management, and backup & restore.",
   "type": "commonjs",
   "main": "dist/index.js",
@@ -24,6 +24,7 @@
     "@msgpack/msgpack": "^3.1.3",
     "archiver": "^8.0.0",
     "duck-duck-scrape": "^2.2.7",
+    "fflate": "^0.8.3",
     "html-to-text": "^9.0.5",
     "mammoth": "^1.6.0",
     "node-notifier": "^10.0.1",

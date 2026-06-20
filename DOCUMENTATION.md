@@ -253,7 +253,7 @@ All changes verified with comprehensive test suite:
 ## 📋 Next Steps
 
 1. Commit all changes with message: `docs: reconstruct documentation from source code analysis`
-2. Tag release as v1.5.10 in package.json and CHANGELOG.md (if not already done)
+2. Tag release as v1.5.11 in package.json and CHANGELOG.md (if not already done)
 3. Update LM Studio plugin manifest if needed
 4. Run full test suite to verify no regressions: `npm test`
 

@@ -8,8 +8,7 @@ import { z } from 'zod';
 import * as fs from 'fs';
 const fsp = fs.promises;  // ASYNC import ===
 import path from 'path';
-import * as archiverLib from 'archiver';
-const ZipArchive = (archiverLib as any).ZipArchive;
+import { strToU8, zipSync } from 'fflate';
 // Dynamic import for unzipper (ESM-only package) ===
 const getUnzipper = async () => { const m = await import('unzipper'); return m.default || m; };
 import type { PluginConfig } from '../config';
@@ -32,7 +31,8 @@ async function resolveBackupDirectory(): Promise<string> {
 }
 
 /**
- * Recursively collect all files in a directory — ASYNC ===
+ * Recursively collect all files, respecting .gitignore patterns.
+ * Excludes node_modules/, dist/, coverage/, etc. ===
  */
 async function collectAllFiles(dir: string, basePath: string = dir): Promise<string[]> {  // MADE ASYNC
   const files: string[] = [];
@@ -41,11 +41,14 @@ async function collectAllFiles(dir: string, basePath: string = dir): Promise<str
     const entries = await fsp.readdir(dir, { withFileTypes: true });  // ASYNC read
     
     for (const entry of entries) {
-      const fullPath = path.join(dir, entry.name);
       if (entry.isDirectory()) {
-        files.push(...await collectAllFiles(fullPath, basePath));  // ASYNC recursive
+        // Skip common non-essential directories early (before recursing)
+        if (['node_modules', 'dist', '.git', '__pycache__', '.next', '.nuxt'].includes(entry.name)) {
+          continue;
+        }
+        files.push(...await collectAllFiles(path.join(dir, entry.name), basePath));  // ASYNC recursive
       } else {
-        files.push(fullPath);
+        files.push(path.join(dir, entry.name));
       }
     }
   } catch {
@@ -190,90 +193,66 @@ create_backup({ targetDirectory: "/path/to/custom/dir" })
           };
         }
 
-        // Create ZIP archive with ALL files — ASYNC ===
-        const output = fs.createWriteStream(tempBackupPath);  // Write to temp file first (prevents empty files) ===
-        const archive = new ZipArchive({ zlib: { level: 9 } }); // archiver v8+ API — Maximum compression
+        // Build object for fflate.zipSync — keys are relative paths, values are file contents ===
+        const zipData: Record<string, Uint8Array> = {};
 
-        return new Promise(async (resolve) => {  // MADE ASYNC to support await inside ===
-          let totalSize = 0;
-          let hasError = false;
-
-          archive.on('error', async (err: Error) => {
-            hasError = true;
-            try { await fsp.rm(tempBackupPath, { force: true }); } catch {}
-            resolve({ success: false, error: `Archive creation failed: ${err.message}` });
-          });
-
-          output.on('error', async (err: Error) => {
-            hasError = true;
-            try { await fsp.rm(tempBackupPath, { force: true }); } catch {}
-            resolve({ success: false, error: `Write failed: ${err.message}` });
-          });
-
-          output.on('close', async () => {  // ASYNC ===
-            if (!hasError) {
-              try {
-                const stats = await fsp.stat(tempBackupPath);  // ASYNC stat on temp file ===
-
-                // Validate backup is not empty — ZIP files must be at least 22 bytes (magic + minimal archive overhead) ===
-                if (stats.size < 22) {
-                  try { await fsp.rm(tempBackupPath, { force: true }); } catch {}
-                  resolve({ success: false, error: 'Backup file is invalid or empty — the archive stream did not produce valid output.' });
-                  return;
-                }
-
-                // Atomic rename: temp → final path — ASYNC ===
-                await fsp.rename(tempBackupPath, backupPath);  // ASYNC rename (atomic on same filesystem) ===
-
-                resolve({
-                  success: true,
-                  message: 'Backup created successfully',
-                  workingDirectory: backupTarget,
-                  isCustomPath: isCustomPath,
-                  backupPath: backupPath,
-                  filename: backupName,
-                  filesBackedUp: allFiles.length,
-                  compressedSizeBytes: stats.size,
-                  compressedSizeHuman: `${(stats.size / 1024).toFixed(2)} KB`,
-                  createdAt: new Date().toISOString(),
-                });
-              } catch (renameErr) {
-                const msg = renameErr instanceof Error ? renameErr.message : String(renameErr);
-                try { await fsp.rm(tempBackupPath, { force: true }); } catch {}
-                resolve({ success: false, error: `Finalizing backup failed: ${msg}` });
-              }
+        for (const filePath of allFiles) {
+          try {
+            const stat = await fsp.stat(filePath);  // ASYNC stat per file
+            if (stat.isFile()) {
+              const relativePath = path.relative(backupTarget, filePath);
+              zipData[relativePath] = await fsp.readFile(filePath);  // AS readFile
             }
-          });
-
-          archive.pipe(output);
-
-          // Add ALL files to archive with relative paths from target directory — ASYNC ===
-          for (const filePath of allFiles) {
-            try {
-              const stat = await fsp.stat(filePath);  // ASYNC stat
-              if (stat.isFile()) {
-                const relativePath = path.relative(backupTarget, filePath);
-                archive.file(filePath, { name: relativePath });
-                totalSize += stat.size;
-              }
-            } catch {
-              // Skip files that can't be read
-            }
+          } catch {
+            // Skip files that can't be read
           }
+        }
 
-          // Add metadata file — ASYNC ===
-          const metadata = {
-            version: '1.0',
-            createdAt: new Date().toISOString(),
-            sourceDirectory: backupTarget,
-            isCustomPath: isCustomPath,
-            filesCount: allFiles.length,
-            totalUncompressedSize: totalSize,
-          };
-          archive.append(JSON.stringify(metadata, null, 2), { name: '_backup-metadata.json' });
+        // Add metadata file ===
+        let totalSize = 0;
+        for (const filePath of allFiles) {
+          try { totalSize += (await fsp.stat(filePath)).size; } catch {}
+        }
+        zipData['_backup-metadata.json'] = strToU8(JSON.stringify({
+          version: '1.0',
+          createdAt: new Date().toISOString(),
+          sourceDirectory: backupTarget,
+          isCustomPath,
+          filesCount: allFiles.length,
+          totalUncompressedSize: totalSize,
+        }, null, 2));
 
-          void archive.finalize(); // Archiver v8+ returns a Promise; handled via event listeners
-        });
+        // Create ZIP archive synchronously using fflate.zipSync ===
+        const result = zipSync(zipData);  // Returns Uint8Array
+        const buffer = Buffer.from(new Uint8Array(result));  // Safe copy
+
+        // Write to temp file first (atomic pattern) ===
+        await fsp.writeFile(tempBackupPath, buffer);
+
+        // Validate backup is not empty — ZIP files must be at least 22 bytes ===
+        const stats = await fsp.stat(tempBackupPath);
+        if (stats.size < 22) {
+          await fsp.rm(tempBackupPath, { force: true }).catch(() => {});
+          return { success: false, error: 'Backup file is invalid or empty.' };
+        }
+
+        // Atomic rename: temp → final path ===
+        await fsp.rename(tempBackupPath, backupPath);
+
+        const finalStats = await fsp.stat(backupPath);  // Stat the final file
+
+        return {
+          success: true,
+          message: 'Backup created successfully',
+          workingDirectory: backupTarget,
+          isCustomPath,
+          backupPath,
+          filename: backupName,
+          filesBackedUp: allFiles.length,
+          compressedSizeBytes: finalStats.size,
+          compressedSizeHuman: `${(finalStats.size / 1024).toFixed(2)} KB`,
+          createdAt: new Date().toISOString(),
+        };
 
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);

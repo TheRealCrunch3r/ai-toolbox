@@ -247,7 +247,7 @@ npm install
 npm run build
 ```
 
-### Safe Edit Workflow (v1.5.10+)
+### Safe Edit Workflow (v1.5.11+)
 
 Prevent file corruption during LLM-assisted editing with our backup-first strategy:
 

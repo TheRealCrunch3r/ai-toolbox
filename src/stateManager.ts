@@ -6,6 +6,7 @@
 import type { PluginConfig } from './config';
 import { DEFAULT_CONFIG } from './config';
 import * as fs from 'fs/promises';
+import * as os from 'os'; // Added for safe temp directory fallback
 import * as path from 'path';
 import { encode, decode } from '@msgpack/msgpack';
 
@@ -37,12 +38,18 @@ async function getMemoryFilePath(): Promise<string> {
       throw new Error('Not a directory');
     }
   } catch {
-    logger.warn(`Working directory is invalid or inaccessible: ${cwd}. Defaulting to plugin root.`);
-    return path.join(__dirname, '..', '.ai_toolbox_memory.msgpack');
+    logger.warn(`Working directory is invalid or inaccessible: ${cwd}. Using OS temp directory as fallback.`);
+    
+    // Use OS temp dir instead of plugin root to avoid permission issues in tests/sandboxes
+    const safeDir = path.join(os.tmpdir(), 'ai-toolbox-state');
+    try {
+      await fs.mkdir(safeDir, { recursive: true });
+    } catch {} // Ignore if already exists or other minor errors
+    
+    return path.join(safeDir, '.ai_toolbox_memory.msgpack');
   }
 
   const memoryFile = path.join(cwd, '.ai_toolbox_memory.msgpack');
-  logger.info(`Memory file path: ${memoryFile}`);
   return memoryFile;
 }
 

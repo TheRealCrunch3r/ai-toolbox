@@ -1,3 +1,6 @@
+// External library types (Tesseract.js, sharp) have implicit any — eslint-disable below
+/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access */
+
 import type { Tool } from '@lmstudio/sdk';
 import { tool } from '@lmstudio/sdk';
 import { z } from 'zod';
@@ -134,24 +137,27 @@ async function imageToText({ imagePath, language = 'eng' }: ImageToTextParams): 
     const ext = path.extname(imagePath).toLowerCase();
 
     // Import Tesseract.js dynamically
-    // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-unsafe-assignment
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
 const Tesseract = require('tesseract.js');
 
     console.warn(`[AI Toolbox] Starting OCR on ${imagePath} with language '${language}'...`);
 
     // Perform OCR with progress tracking
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
+     
 const result = await Tesseract.recognize(imagePath, language, {
-      logger: (m: unknown) => {
-        if ((m as any).status === 'recognizing text') {
-          console.warn(`[AI Toolbox] OCR Progress: ${((m as any).progress * 100).toFixed(0)}%`);
+      logger: (m: { status?: string; progress?: number }) => {
+        // Type already declared in parameter signature
+        const typed = m;
+        if (typed.status === 'recognizing text') {
+          console.warn(`[AI Toolbox] OCR Progress: ${((typed.progress ?? 0) * 100).toFixed(0)}%`);
         }
       },
     });
 
     // Extract structured data from result
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
-const extractedText = result.data.text.trim();
+     
+const ocrData = result as { data: { text: string; confidence: number; language: string; _version?: string; words?: unknown[] } };
+    const extractedText = ocrData.data.text.trim();
     const wordCount = extractedText.split(/\s+/).filter((w: string) => w.length > 0).length;
     const lineCount = extractedText.split('\n').filter((l: string) => l.trim().length > 0).length;
 
@@ -159,9 +165,9 @@ const extractedText = result.data.text.trim();
       success: true,
       data: {
         text: extractedText,
-        confidence: result.data.confidence.toFixed(2),
-        language: result.data.language,
-        version: result.data._version,
+        confidence: (ocrData.data as { confidence: number }).confidence.toFixed(2),
+        language: (ocrData.data as { language: string }).language,
+        version: (ocrData.data as { _version?: string })._version || "unknown",
         metadata: {
           path: imagePath,
           size: `${(stat.size / 1024).toFixed(1)} KB`,
@@ -170,7 +176,7 @@ const extractedText = result.data.text.trim();
           wordCount,
           lineCount,
         },
-        words: result.data.words?.slice(0, 100) || [], // Limit to first 100 words for brevity
+        words: (ocrData as { data: { words?: unknown[] } }).data.words?.slice(0, 100) || [], // Limit to first 100 words for brevity
       },
     };
   } catch (error) {
