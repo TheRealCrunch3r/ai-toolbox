@@ -6,7 +6,6 @@
 import type { PluginConfig } from './config';
 import { DEFAULT_CONFIG } from './config';
 import * as fs from 'fs/promises';
-import * as os from 'os'; // Added for safe temp directory fallback
 import * as path from 'path';
 import { encode, decode } from '@msgpack/msgpack';
 
@@ -19,38 +18,35 @@ interface StateEntry {
 }
 
 /** Minimal logger for state manager (avoids circular dependency with index.ts) */
+const isTestEnvironment = !!process.env.JEST_WORKER_ID;
+
 const logger = {
-  warn: (msg: string) => typeof process.stderr.write === 'function' && process.stderr.write(`[StateManager] ${msg}\n`),
-  info: (msg: string) => typeof process.stdout.write === 'function' && process.stdout.write(`[StateManager] ${msg}\n`),
+  warn: (msg: string) => !isTestEnvironment && typeof process.stderr.write === 'function' && process.stderr.write(`[StateManager] ${msg}\n`),
+  info: (msg: string) => !isTestEnvironment && typeof process.stdout.write === 'function' && process.stdout.write(`[StateManager] ${msg}\n`),
 };
 
+/** Plugin root directory (always valid) */
+const PLUGIN_ROOT = path.join(__dirname, '..');
+
 /**
- * Default memory file location (in CURRENT WORKING DIRECTORY)
+ * Resolve the memory file location — ALWAYS in a valid working directory.
+ * Falls back to plugin root when configured workingDir is stale/invalid (e.g., deleted test temp).
  */
 async function getMemoryFilePath(): Promise<string> {
-  const cwd = getWorkingDir();
-  
-  // Safety check: ensure we are in a valid directory
+  let cwd = getWorkingDir();
+
+  // Validate: ensure it's an actual accessible directory, not a deleted test path
   try {
     await fs.access(cwd);
     const stats = await fs.stat(cwd);
-    if (!stats.isDirectory()) {
-      throw new Error('Not a directory');
-    }
+    if (!stats.isDirectory()) throw new Error('Not a directory');
   } catch {
-    logger.warn(`Working directory is invalid or inaccessible: ${cwd}. Using OS temp directory as fallback.`);
-    
-    // Use OS temp dir instead of plugin root to avoid permission issues in tests/sandboxes
-    const safeDir = path.join(os.tmpdir(), 'ai-toolbox-state');
-    try {
-      await fs.mkdir(safeDir, { recursive: true });
-    } catch {} // Ignore if already exists or other minor errors
-    
-    return path.join(safeDir, '.ai_toolbox_memory.msgpack');
+    // WorkingDir is stale (e.g. from workingDir.test.ts temp dir cleanup) — use plugin root
+    logger.warn(`Configured workingDir invalid: ${cwd}. Falling back to plugin root.`);
+    cwd = PLUGIN_ROOT;
   }
 
-  const memoryFile = path.join(cwd, '.ai_toolbox_memory.msgpack');
-  return memoryFile;
+  return path.join(cwd, '.ai_toolbox_memory.msgpack');
 }
 
 export class StateManager {
@@ -97,7 +93,7 @@ export class StateManager {
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
         logger.warn(`Failed to initialize state manager: ${message}`);
-        this.memoryFile = path.join(__dirname, '..', '.ai_toolbox_memory.msgpack'); // Fallback
+        this.memoryFile = path.join(PLUGIN_ROOT, '.ai_toolbox_memory.msgpack'); // Fallback
       }
     })();
   }
@@ -224,6 +220,11 @@ export class StateManager {
    */
   private async saveToFile(): Promise<void> {
     try {
+      // 🔥 🔥 🔥 FIX: Re-resolve memory file path on EVERY save. 
+      // This ensures data persists to the *actual* current working directory, 
+      // even if the LLM changed directories via `change_directory` during runtime.
+      this.memoryFile = await getMemoryFilePath(); 
+      
       const data = Array.from(this.state.entries()).map(([_key, entry]) => ({
         key: entry.key,
         value: entry.value,

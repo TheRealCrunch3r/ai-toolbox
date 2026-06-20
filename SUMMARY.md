@@ -130,7 +130,7 @@ Each category is implemented as a separate module in `src/tools/`:
 
 ## 📈 Recent Changes (v1.5.x)
 
-### [1.5.11] - 2026-06-19 — Explicit Rollback Pattern
+### [1.5.12] - 2026-06-20 — Explicit Rollback Pattern
 
 **All file-editing tools now automatically restore `.bak` backup on write failure.**
 

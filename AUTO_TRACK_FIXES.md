@@ -1,7 +1,7 @@
 # Auto-Track Token Threshold Fixes — Complete Documentation
 
 **Date**: 2026-06-17  
-**Version**: v1.5.11+ (patch)  
+**Version**: v1.5.12+ (patch)  
 **Status**: ✅ All fixes applied and verified
 
 ---

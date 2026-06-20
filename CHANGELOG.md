@@ -4,9 +4,53 @@ All notable changes to AI Toolbox plugin.
 
 ---
 
+## [1.5.12] - 2026-06-20
+
+### 🔥 ** Session Summary Persistence Fix — Dynamic Working Directory Resolution**
+
+**`save_session_summary` and all StateManager operations now correctly save data to the current working directory, even if directories are changed mid-session via `change_directory`.**
+
+#### What Changed
+- **Fixed**: `src/stateManager.ts` re-evaluates memory file path on every write via `getMemoryFilePath()` in the `saveToFile()` method (line ~340)
+- Added single line: `this.memoryFile = await getMemoryFilePath();` at start of `saveToFile()`
+
+#### Why This Matters
+Before this fix, StateManager captured its target file path only once during initialization. If you ran `change_directory` mid-session to switch from the plugin root to a workspace directory, all subsequent saves (including session summaries) would silently land in the old location — meaning data appeared "lost" when checking the current working directory's filesystem directly.
+
+#### How It Works
+```typescript
+// src/stateManager.ts (AFTER fix)
+private async saveToFile(): Promise<void> {
+  try {
+    // 🔥 ** Re-resolve memory file path on EVERY save 
+    this.memoryFile = await getMemoryFilePath(); 
+    
+    const data = Array.from(this.state.entries()).map(([_key, entry]) => ({...}));
+    // ... rest of method
+  }
+}
+```
+
+**Total**: 1-line fix in `stateManager.ts`, zero breaking changes.
+
+---
+
+### 🐛 Bug Fixes
+
+#### AutoTracker FSM State Handling Fix
+- **Fixed**: `checkAndSaveTokenThreshold` now correctly handles pre-triggered threshold states
+- **Root很 Fixed**: `error` variable reference in `fileSystemTools.ts` (line 608) — corrected catch block parameter binding
+- **Fixed**: `deleteEnd` possibly undefined in `textProcessingTools.ts` (line 354) — added fallback to `linesArr.length`
+- **Fixed**: ESLint unused variable warnings for `error` parameters in catch blocks (lines 411, 511) — removed unused parameters
+
+#### Version Bump
+- Updated version from `1.5.10` → `1.5.12` across all documentation files
+
+---
+
 ## [1.5.11] - 2026-06-19
 
-### 🛡️ Reliability Improvements — Explicit Rollback Pattern
+### 🛡一 Reliability Improvements — Explicit Rollback Pattern
 
 **All file-editing tools now include automatic .bak rollback on atomic write failure.**
 

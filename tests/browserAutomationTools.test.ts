@@ -2,7 +2,7 @@
  * Tests for Browser Automation Tools
  */
 
-import { registerBrowserTools } from '../src/tools/browserAutomationTools';
+import { registerBrowserTools, cleanupBrowserSession } from '../src/tools/browserAutomationTools';
 import { DEFAULT_CONFIG } from '../src/config';
 
 // Mock puppeteer
@@ -46,6 +46,11 @@ describe('Browser Automation Tools', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     tools = registerBrowserTools(DEFAULT_CONFIG);
+  });
+
+  afterAll(async () => {
+    // Clear the 5-minute inactivity cleanup timer set by BrowserSessionManager.dispose()
+    await cleanupBrowserSession();
   });
 
   test('should register browser tools', () => {

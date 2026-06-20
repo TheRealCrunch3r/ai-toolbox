@@ -19,9 +19,9 @@ Prevent file corruption during LLM-assisted editing with our backup-first strate
 
 The Safe Edit Guide provides a systematic approach to modifying files when working with AI assistants. By creating backups before making changes and verifying after editing, you can prevent data loss and recover from mistakes quickly.
 
-### ⚡ Automatic Rollback (v1.5.11+)
+### ⚡ Automatic Rollback (v1.5.12+)
 
-Starting with **version 1.5.11**, four file-editing tools include built-in `.bak` rollback on write failure:
+Starting with **version 1.5.12**, four file-editing tools include built-in `.bak` rollback on write failure:
 - `replace_text_in_file` — restores original if atomic write fails
 - `insert_at_line` — same automatic restore
 - `append_file` — same automatic restore

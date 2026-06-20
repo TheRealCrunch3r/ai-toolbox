@@ -13,6 +13,7 @@
 - [Security](#-security)
 - [Architecture](#-architecture)
 - [Development](#-development)
+- [Release History](#-release-history)
 - [Dependencies](#-dependencies)
 - [License](#-license)
 
@@ -247,7 +248,7 @@ npm install
 npm run build
 ```
 
-### Safe Edit Workflow (v1.5.11+)
+### Safe Edit Workflow (v1.5.12+)
 
 Prevent file corruption during LLM-assisted editing with our backup-first strategy:
 
@@ -283,6 +284,78 @@ node scripts/safe_edit.js cleanup --keep=0
 | `archiver` | ^8.0.0 | ZIP archive creation |
 | `unzipper` | ^0.12.3 | ZIP extraction |
 | `zod` | ^3.25.0 | Runtime type validation |
+
+---
+
+## 📜 Release History
+
+### v1.5.12 — Session Summary Persistence Fix (2026-06-20)
+
+**Critical🔥 Session summary tool now correctly saves data to the current working directory, even if directories are changed mid-session via `change_directory`.**
+
+#### What Changed
+- **Fixed**: `src/stateManager.ts` re-evaluates memory file path on every write via `getMemoryFilePath()` in the `saveToFile()` method (line ~340)
+- Added single line: `this.memoryFile = await getMemoryFilePath();` at start of `saveToFile()`
+
+#### Why This Matters
+Before this fix, StateManager captured its target file path only once during initialization. If you ran `change_directory` mid-session to switch from the plugin root to a workspace directory, all subsequent saves (including session summaries) would silently land in the old location — meaning data appeared "lost" when checking the current working directory's filesystem directly.
+
+#### How It Works
+```typescript
+// src/stateManager.ts (AFTER fix)
+private async saveToFile(): Promise<void> {
+  try {
+    // 🔥 ** Re-resolve memory file path on EVERY save 
+    this.memoryFile = await getMemoryFilePath(); 
+    
+    const data = Array.from(this.state.entries()).map(([_key, entry]) => ({...}));
+    // ... rest of method
+  }
+}
+```
+
+**Total**: 1-line fix in zero breaking changes. Back `stateManager.ts`, zero breaking changes.
+
+---
+
+### v1.5.11 — Explicit Rollback Pattern (2026-06-19)
+
+All file-editing tools now include automatic .bak rollback on atomic write failure:
+- **Fixed**: `replace_text_in_file` — automatic restore from `.bak` backup if atomic write fails
+- **Fixed**: `insert_at_line` — same rollback pattern applied
+- **Fixed**: `append_file` — same rollback pattern applied
+- **Fixed**: `delete_lines_in_file` — same rollback pattern applied
+
+---
+
+### v1.5.10 — Text Transformation Tools Security Hardening (2026-06-18)
+
+All text transformation tools now include comprehensive safety features:
+- ✅ Binary file detection (null byte check in first 8KB)
+- ✅ File size limits (10MB maximum)
+- ✅ Atomic writes (temp file + rename pattern)
+- ✅ Optional backup mechanism (.bak files)
+- ✅ Parameter validation (non-empty strings, max sizes)
+
+---
+
+### v1.5.9 — Auto-Track Token Threshold System (2026-06-18)
+
+Automatic session memory saving when context window approaches capacity:
+- **Auto-tracking enabled by default**: `autoTrackingEnabled` changed from `false` → `true`
+- **Configurable token threshold**: New `autoTrackTokenThreshold` setting (default: 75%) triggers automatic session memory save
+- **Full auto-save implementation** (now msgpack since v1.5.7): Added `checkAndSaveTokenThreshold()` and `autoSaveSessionMemory()` methods
+
+---
+
+### v1.5.0 — Major101 tools across 16 categories:
+- File system operations
+- Web research and browser automation
+- Git/GitHub integration
+- Text processing utilities
+- System monitoring and diagnostics
+
+📖 **Full Changelog:** See [CHANGELOG.md](./CHANGELOG.md) for all release details.
 
 ---
 

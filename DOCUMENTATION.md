@@ -1,14 +1,14 @@
 # Documentation Update Summary — v1.5.x (2026-06-17)
 
-**Date**: 2026-06-17  
+**Date**: 2026-06-20  
 **Author**: AI Toolbox Development Team  
-**Status**: ✅ Complete
+**Status**: ✅ Complete (v1.5.12)
 
 ---
 
 ## Overview
 
-This document summarizes all documentation updates made to reflect the **security hardening**, **memory system fixes**, **TypeScript compilation cleanup**, **performance optimizations (sync → async)**, and **documentation accuracy corrections** across versions 1.4.x (v1.4.6 → v1.4.10), v1.5.0, and v1.5.10.
+This document summarizes all documentation updates made to reflect the **security hardening**, **memory system fixes**, **TypeScript compilation cleanup**, **performance optimizations (sync → async)**, and **documentation accuracy corrections** across versions 1.4.x (v1.4.6 → v1.4.10), v1.5.0, v1.5.10, and v1.5.12.
 
 All documentation has been reconstructed based on actual source code analysis to ensure 100% accuracy with the current implementation.
 
@@ -25,6 +25,35 @@ All documentation has been reconstructed based on actual source code analysis to
 ---
 
 ## 🆕 Latest Updates
+
+### Session Summary Persistence Fix — Dynamic Working Directory Resolution (v1.5.12)
+
+This update documents the critical 一直 session summary tool now correctly saves data to the current working directory, even if directories are changed mid-session via `change_directory`.
+
+#### What Changed
+- **Fixed**: `src/stateManager.ts` re-evaluates memory file path on every write via `getMemoryFilePath()` in the `saveToFile()` method (line ~340)
+- Added single line: `this.memoryFile = await getMemoryFilePath();` at start of `saveToFile()`
+
+#### Why This Matters
+Before this fix, StateManager captured its target file path only once during initialization. If you ran `change_directory` mid-session to switch from the plugin root to a workspace directory, all subsequent saves (including session summaries) would silently **silent land in the old location — meaning data appeared "lost" when checking the current working directory's filesystem directly.
+
+#### How It Works
+```typescript
+// src/stateManager.ts (AFTER fix)
+private async saveToFile(): Promise<void> {
+  try {
+    // 🔥 ** Re-resolve memory file path on EVERY save 
+    this.memoryFile = await getMemoryFilePath(); 
+    
+    const data = Array.from(this.state.entries()).map(([_key, entry]) => ({...}));
+    // ... rest of method
+  }
+}
+```
+
+**Total**: 1-line fix in `stateManager.ts`, zero breaking changes.
+
+---
 
 ### Auto-Tracking Enabled by Default + Token Threshold Auto-Save (2026-06-15)
 
@@ -253,7 +282,7 @@ All changes verified with comprehensive test suite:
 ## 📋 Next Steps
 
 1. Commit all changes with message: `docs: reconstruct documentation from source code analysis`
-2. Tag release as v1.5.11 in package.json and CHANGELOG.md (if not already done)
+2. Tag release as v1.5.12 in package.json and CHANGELOG.md (if not already done)
 3. Update LM Studio plugin manifest if needed
 4. Run full test suite to verify no regressions: `npm test`
 

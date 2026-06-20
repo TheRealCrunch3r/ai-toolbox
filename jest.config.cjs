@@ -7,38 +7,61 @@ module.exports = {
   testEnvironment: 'node',
   roots: ['<rootDir>/tests'],
   testMatch: ['**/*.test.ts'],
+  maxWorkers: 1, // Prevent OOM — lazy loading 13+ tool modules (up to 76KB) across parallel workers exhausts V8 heap during ts-jest compilation
+
   transformIgnorePatterns: ['node_modules/'],
   transform: {
-    '^.+\.tsx?$': [
+    '^.+\\.tsx?$': [
       'ts-jest',
       {
         tsconfig: 'tsconfig.test.json',
       },
     ],
   },
-  // Handle NodeNext .js import extensions and resolve dynamic imports to mocks
   moduleNameMapper: {
-    // Project source files with explicit .js extension (NodeNext style)
-    '^(\.{1,2}/src/.*)\.js$': '<rootDir>/src/$1',
-    '^(\.{1,2}/tests/.*)\.js$': '<rootDir>/tests/$1',
-    // Explicit mappings for relative imports from src/tools/ (../file.js -> src/file.ts)
-    '^\.\./security\.js$': '<rootDir>/src/security.ts',
-    '^\.\./config\.js$': '<rootDir>/src/config.ts',
-    '^\.\./workingDir\.js$': '<rootDir>/src/workingDir.ts',
-    '^\.\./performanceUtils\.js$': '<rootDir>/src/performanceUtils.ts',
-    '^\.\./fuzzySearch\.js$': '<rootDir>/src/fuzzySearch.ts',
-    // Map ContextStorageManager module directly to mock (catch-all for any path ending with this)
-    '.*/tools/contextManagementTools\.js$': '<rootDir>/tests/__mocks__/contextManagementTools.ts',
-    '.*contextManagementTools\.js$': '<rootDir>/tests/__mocks__/contextManagementTools.ts',  
-    // Mock ESM-only packages
+    // ── Source file .js rewrites (NodeNext style — keep for static imports) ──
+    '^(\\.{1,2}/src/.*)\\.js$': '<rootDir>/src/$1',
+    '^(\\.{1,2}/tests/.*)\\.js$': '<rootDir>/tests/$1',
+
+    // ── Tool modules imported statically by other src files (../foo.js → ../foo.ts) ──
+    '^\\.\\./security\\.js$': '<rootDir>/src/security.ts',
+    '^\\.\\./config\\.js$': '<rootDir>/src/config.ts',
+    '^\\.\\./workingDir\\.js$': '<rootDir>/src/workingDir.ts',
+    '^\\.\\./performanceUtils\\.js$': '<rootDir>/src/performanceUtils.ts',
+    '^\\.\\./fuzzySearch\\.js$': '<rootDir>/src/fuzzySearch.ts',
+
+    // ── Tool modules dynamically imported by toolsProvider.ts via import('./tools/xxx.js') ──
+    // These are resolved relative to <rootDir>/src/, so the path is './tools/xxx.js'
+    // We redirect each one to a manual mock in __mocks__/ that returns empty tool arrays.
+    '^\\./tools/fileSystemTools\\.js$': '<rootDir>/tests/__mocks__/fileSystemTools.ts',
+    '^\\./tools/webResearchTools\\.js$': '<rootDir>/tests/__mocks__/webResearchTools.ts',
+    '^\\./tools/browserAutomationTools\\.js$': '<rootDir>/tests/__mocks__/browserAutomationTools.ts',
+    '^\\./tools/gitGithubTools\\.js$': '<rootDir>/tests/__mocks__/gitGithubTools.ts',
+    '^\\./tools/databaseTools\\.js$': '<rootDir>/tests/__mocks__/databaseTools.ts',
+    '^\\./tools/documentTools\\.js$': '<rootDir>/tests/__mocks__/documentTools.ts',
+    '^\\./tools/backgroundCommandTools\\.js$': '<rootDir>/tests/__mocks__/backgroundCommandTools.ts',
+    '^\\./tools/imageProcessingTools\\.js$': '<rootDir>/tests/__mocks__/imageProcessingTools.ts',
+    '^\\./tools/httpClientTools\\.js$': '<rootDir>/tests/__mocks__/httpClientTools.ts',
+    '^\\./tools/vectorRagTools\\.js$': '<rootDir>/tests/__mocks__/vectorRagTools.ts',
+    '^\\./tools/textProcessingTools\\.js$': '<rootDir>/tests/__mocks__/textProcessingTools.ts',
+    '^\\./tools/uiGenerationTools\\.js$': '<rootDir>/tests/__mocks__/uiGenerationTools.ts',
+    '^\\./tools/contextManagementTools\\.js$': '<rootDir>/tests/__mocks__/contextManagementTools.ts',
+
+    // ── Additional dynamic imports in toolsProvider.ts (no .js extension) ──
+    '^\\./tools/executionTools$': '<rootDir>/tests/__mocks__/executionTools.ts',
+    '^\\./tools/utilityTools$': '<rootDir>/tests/__mocks__/utilityTools.ts',
+    '^\\./tools/backupTools$': '<rootDir>/tests/__mocks__/backupTools.ts',
+
+    // ── lineOperations — no .js extension, always loaded (P0 fix) ──
+    '^\\./tools/lineOperations$': '<rootDir>/tests/__mocks__/lineOperations.ts',
+
+    // ── Package-level mock redirects (ESM-only deps) ──
     '^archiver$': '<rootDir>/tests/__mocks__/archiver.ts',
     '^unzipper$': '<rootDir>/tests/__mocks__/unzipper.ts',
   },
-  collectCoverageFrom: [
-    'src/**/*.ts',
-    '!src/index.ts',
-  ],
+  collectCoverageFrom: ['src/**/*.ts', '!src/index.ts'],
   coverageDirectory: 'coverage',
   verbose: true,
   testTimeout: 10000,
+  globalTeardown: '<rootDir>/jest.global-teardown.js',
 };

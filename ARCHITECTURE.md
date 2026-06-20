@@ -193,26 +193,45 @@ class ToolRegistry {
 
 ### StateManager (`src/stateManager.ts`)
 
-Persistent state with debounced disk writes:
+Persistent state management with dynamic path resolution:
 
 ```typescript
 class StateManager {
   private state: Map<string, StateEntry>;
-  private runningSize: number;  // O(1) size tracking
+  private maxSize: number;
+  private persistenceEnabled: boolean;
+  private memoryFile!: string; // Resolved at runtime
   
-  set(key, value): void         // Debounced save (500ms)
-  get<T>(key): T | undefined
-  delete(key): boolean
-  getAllKeys(): Promise<string[]>
-  clear(): void
+  set(key, value): void         // In-memory + async disk write
+  get<T>(key): T | undefined    // In-memory retrieval
+  delete(key): boolean          // In-memory + async disk update
+  getAllKeys(): Promise<string[]> // Waits for initialization
+  clear(): void                 // Resets in-memory state
 }
 ```
 
 **Key Features:**
-- Atomic file writes (temp file + rename)
-- Corruption recovery with backup file
-- Size limit enforcement with running totals
-- Debounced persistence to avoid excessive disk I/O
+- **Dynamic Dynamic Path Resolution**: `saveToFile()` re-evaluates `getMemoryFilePath()` on every write, ensuring data persists to the actual current working directory even if directories are changed mid-session via `change_directory`.
+- Atomic file writes (temp file + rename) with corruption recovery
+- Size limit enforcement using O(1) running totals
+- Fire-and-forget async persistence (non-blocking tool execution)
+- Initialization-wait pattern (`_ready` promise) to prevent race conditions
+
+**Session Summary Tool Flow:**
+```typescript
+// save_session_summary writes:
+await stateManager.set(`${summaryId}_data`, sessionSummary); // Updates Map + triggers saveToFile()
+await stateManager.set(`${summaryId}_timestamp`, Date.now()); // Same flow
+
+// get_session_summary reads:
+const keys = await stateManager.getAllKeys(); // Waits for loadFromFile(), returns all keys
+const summaryData = stateManager.get(summaryKey); // Direct in-memory lookup (no disk I/O)
+```
+
+**Working Directory Integration:**
+- `StateManager` initializes via `getMemoryFilePath()` → resolves to `{current_working_dir}/.ai_toolbox_memory.msgpack`
+- On every save, the path is re-resolved to catch any runtime directory changes
+- After plugin reload/restart, StateManager loads from whatever directory was active at that moment
 
 ### ContextStorageManager (`src/tools/contextManagementTools.ts`)
 
