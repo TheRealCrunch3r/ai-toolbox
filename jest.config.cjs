@@ -20,8 +20,8 @@ module.exports = {
   },
   moduleNameMapper: {
     // ── Source file .js rewrites (NodeNext style — keep for static imports) ──
-    '^(\\.{1,2}/src/.*)\\.js$': '<rootDir>/src/$1',
-    '^(\\.{1,2}/tests/.*)\\.js$': '<rootDir>/tests/$1',
+    '^\\.\\./src/(.*)\\.js$': '<rootDir>/src/$1',
+    '^\\.\\./tests/(.*)\\.js$': '<rootDir>/tests/$1',
 
     // ── Tool modules imported statically by other src files (../foo.js → ../foo.ts) ──
     '^\\.\\./security\\.js$': '<rootDir>/src/security.ts',
@@ -33,27 +33,28 @@ module.exports = {
     // ── Tool modules dynamically imported by toolsProvider.ts via import('./tools/xxx.js') ──
     // These are resolved relative to <rootDir>/src/, so the path is './tools/xxx.js'
     // We redirect each one to a manual mock in __mocks__/ that returns empty tool arrays.
-    '^\\./tools/fileSystemTools\\.js$': '<rootDir>/tests/__mocks__/fileSystemTools.ts',
-    '^\\./tools/webResearchTools\\.js$': '<rootDir>/tests/__mocks__/webResearchTools.ts',
-    '^\\./tools/browserAutomationTools\\.js$': '<rootDir>/tests/__mocks__/browserAutomationTools.ts',
-    '^\\./tools/gitGithubTools\\.js$': '<rootDir>/tests/__mocks__/gitGithubTools.ts',
-    '^\\./tools/databaseTools\\.js$': '<rootDir>/tests/__mocks__/databaseTools.ts',
-    '^\\./tools/documentTools\\.js$': '<rootDir>/tests/__mocks__/documentTools.ts',
-    '^\\./tools/backgroundCommandTools\\.js$': '<rootDir>/tests/__mocks__/backgroundCommandTools.ts',
-    '^\\./tools/imageProcessingTools\\.js$': '<rootDir>/tests/__mocks__/imageProcessingTools.ts',
-    '^\\./tools/httpClientTools\\.js$': '<rootDir>/tests/__mocks__/httpClientTools.ts',
-    '^\\./tools/vectorRagTools\\.js$': '<rootDir>/tests/__mocks__/vectorRagTools.ts',
-    '^\\./tools/textProcessingTools\\.js$': '<rootDir>/tests/__mocks__/textProcessingTools.ts',
-    '^\\./tools/uiGenerationTools\\.js$': '<rootDir>/tests/__mocks__/uiGenerationTools.ts',
-    '^\\./tools/contextManagementTools\\.js$': '<rootDir>/tests/__mocks__/contextManagementTools.ts',
+    '^\\.\\/tools/fileSystemTools\\.js$': '<rootDir>/tests/__mocks__/fileSystemTools.ts',
+    '^\\.\\/tools/webResearchTools\\.js$': '<rootDir>/tests/__mocks__/webResearchTools.ts',
+    '^\\.\\/tools/browserAutomationTools\\.js$': '<rootDir>/tests/__mocks__/browserAutomationTools.ts',
+    '^\\.\\/tools/gitGithubTools\\.js$': '<rootDir>/tests/__mocks__/gitGithubTools.ts',
+    '^\\.\\/tools/databaseTools\\.js$': '<rootDir>/tests/__mocks__/databaseTools.ts',
+    '^\\.\\/tools/documentTools\\.js$': '<rootDir>/tests/__mocks__/documentTools.ts',
+    '^\\.\\/tools/backgroundCommandTools\\.js$': '<rootDir>/tests/__mocks__/backgroundCommandTools.ts',
+    '^\\.\\/tools/imageProcessingTools\\.js$': '<rootDir>/tests/__mocks__/imageProcessingTools.ts',
+    '^\\.\\/tools/httpClientTools\\.js$': '<rootDir>/tests/__mocks__/httpClientTools.ts',
+    '^\\.\\/tools/vectorRagTools\\.js$': '<rootDir>/tests/__mocks__/vectorRagTools.ts',
+    '^\\.\\/tools/textProcessingTools\\.js$': '<rootDir>/tests/__mocks__/textProcessingTools.ts',
+    '^\\.\\/tools/contextManagementTools\\.js$': '<rootDir>/tests/__mocks__/contextManagementTools.ts',
+    '^\\.\\/tools/uiGenerationTools\\.js$': '<rootDir>/tests/__mocks__/uiGenerationTools.ts',
 
-    // ── Additional dynamic imports in toolsProvider.ts (no .js extension) ──
-    '^\\./tools/executionTools$': '<rootDir>/tests/__mocks__/executionTools.ts',
-    '^\\./tools/utilityTools$': '<rootDir>/tests/__mocks__/utilityTools.ts',
-    '^\\./tools/backupTools$': '<rootDir>/tests/__mocks__/backupTools.ts',
+    // ── Always-loaded tool modules (no config toggle) ──
+    '^\\.\\/tools/lineOperations\\.js$': '<rootDir>/tests/__mocks__/lineOperations.ts',
+    '^\\.\\/tools/backupTools\\.js$': '<rootDir>/tests/__mocks__/backupTools.ts',
+    '^\\.\\/tools/executionTools\\.js$': '<rootDir>/tests/__mocks__/executionTools.ts',
+    '^\\.\\/tools/utilityTools\\.js$': '<rootDir>/tests/__mocks__/utilityTools.ts',
 
-    // ── lineOperations — no .js extension, always loaded (P0 fix) ──
-    '^\\./tools/lineOperations$': '<rootDir>/tests/__mocks__/lineOperations.ts',
+    // ── Fallback: catch any other ./tools/*.js dynamic imports not explicitly mapped ──
+    '^\\.\\/tools/(.*)\\.js$': '<rootDir>/tests/__mocks__/$1.ts',
 
     // ── Package-level mock redirects (ESM-only deps) ──
     '^archiver$': '<rootDir>/tests/__mocks__/archiver.ts',
@@ -64,4 +65,6 @@ module.exports = {
   verbose: true,
   testTimeout: 10000,
   globalTeardown: '<rootDir>/jest.global-teardown.js',
+  forceExit: true,
+  detectOpenHandles: true,
 };

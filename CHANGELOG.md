@@ -4,14 +4,75 @@ All notable changes to AI Toolbox plugin.
 
 ---
 
+## [1.5.14] - 2026-06-20
+
+### 🐛 **Test Isolation Fix — StateManager getAllKeys() respects persistence flag**
+
+**`getAllKeys()` now correctly skips disk reload when `statePersistenceEnabled === false`.**
+
+#### What Changed
+- Fixed `src/stateManager.ts` `getAllKeys()` to return in-memory keys directly when persistence is disabled
+- Previously unconditionally reloaded from disk on every call — even in tests where persistence was off
+- Now behaves correctly based on config: returns memory-only when disabled, reloads-from-disk when enabled
+
+#### Root Cause
+Tests create StateManager with `statePersistenceEnabled: false` and expect clean isolation. But `getAllKeys()` always called `loadFromFile()`, which read any `.ai_toolbox_memory.msgpack` left from previous runs — injecting stale keys like `'last_insert_at_line'` into the in-memory Map.
+
+#### How It Works
+```typescript
+// src/stateManager.ts getAllKeys() (AFTER fix)
+async getAllKeys(): Promise<string[]> {
+  await this.ensureReady();
+  
+  if (!this.persistenceEnabled) {
+    // Persistence disabled — return in-memory keys directly without disk I/O.
+    return Array.from(this.state.keys());
+  }
+  
+  // ... rest: reload from disk when persistence is enabled (handles working dir changes)
+}
+```
+
+**Total**: 1-line guard added, zero breaking changes, backward compatible.
+
+---
+
+## [1.5.13] - 2026-06-20
+
+### 🐛 **Jest moduleNameMapper Regex Fix — Dynamic Import Resolution**
+
+**Test suite now passes successfully after fixing MODULE_NOT_FOUND errors for dynamically imported tool modules.**
+
+#### What Changed
+- Fixed all tool module dynamic import patterns in `jest.config.cjs` from two-dot (`'\\\\.\\\\.'`) to single-dot (`'\\\\./'`) regex matching
+- Removed conflicting ESM config file (`jest.config.js`) — only CommonJS format used with `"type": "commonjs"` package
+- Added missing module mappings for `textProcessingTools`, `contextManagementTools`, `uiGenerationTools`
+- Added fallback catch-all rule to automatically mock future tool modules without manual config updates
+
+#### Root Cause
+Jest's `moduleNameMapper` regex patterns used `'\\\\.\\\\./tools/...'` (matching two dots → `../tools/...`) but actual imports in `src/toolsProvider.ts` use `'./tools/xxx.js'` (one dot). This caused Jest to fall through to the filesystem resolver, which failed because `.js` files don't exist at runtime (only `.ts` source does).
+
+#### How It Works
+```javascript
+// BEFORE (broken — matches ../tools/...):
+'^\\\\.\\\\./tools/fileSystemTools\\\\.js$': '<rootDir>/tests/__mocks__/fileSystemTools.ts',
+
+// AFTER (correct — matches ./tools/...):
+'^\\\\.\\\\/tools/fileSystemTools\\\\.js$': '<rootDir>/tests/__mocks__/fileSystemTools.ts',
+```
+
+**Total**: 17 lines changed in `jest.config.cjs`, zero breaking changes, test suite now passes.
+
+---
+
 ## [1.5.12] - 2026-06-20
 
-### 🔥 ** Session Summary Persistence Fix — Dynamic Working Directory Resolution**
+### 🔥 **Session Summary Persistence Fix — Dynamic Working Directory Resolution**
 
 **`save_session_summary` and all StateManager operations now correctly save data to the current working directory, even if directories are changed mid-session via `change_directory`.**
 
 #### What Changed
-- **Fixed**: `src/stateManager.ts` re-evaluates memory file path on every write via `getMemoryFilePath()` in the `saveToFile()` method (line ~340)
+- Fixed `src/stateManager.ts` re-evaluates memory file path on every write via `getMemoryFilePath()` in the `saveToFile()` method (line ~340)
 - Added single line: `this.memoryFile = await getMemoryFilePath();` at start of `saveToFile()`
 
 #### Why This Matters
@@ -22,7 +83,7 @@ Before this fix, StateManager captured its target file path only once during ini
 // src/stateManager.ts (AFTER fix)
 private async saveToFile(): Promise<void> {
   try {
-    // 🔥 ** Re-resolve memory file path on EVERY save 
+    // 🔥 Re-resolve memory file path on EVERY save 
     this.memoryFile = await getMemoryFilePath(); 
     
     const data = Array.from(this.state.entries()).map(([_key, entry]) => ({...}));
@@ -35,22 +96,9 @@ private async saveToFile(): Promise<void> {
 
 ---
 
-### 🐛 Bug Fixes
-
-#### AutoTracker FSM State Handling Fix
-- **Fixed**: `checkAndSaveTokenThreshold` now correctly handles pre-triggered threshold states
-- **Root很 Fixed**: `error` variable reference in `fileSystemTools.ts` (line 608) — corrected catch block parameter binding
-- **Fixed**: `deleteEnd` possibly undefined in `textProcessingTools.ts` (line 354) — added fallback to `linesArr.length`
-- **Fixed**: ESLint unused variable warnings for `error` parameters in catch blocks (lines 411, 511) — removed unused parameters
-
-#### Version Bump
-- Updated version from `1.5.10` → `1.5.12` across all documentation files
-
----
-
 ## [1.5.11] - 2026-06-19
 
-### 🛡一 Reliability Improvements — Explicit Rollback Pattern
+### 🛡️ Reliability Improvements — Explicit Rollback Pattern
 
 **All file-editing tools now include automatic .bak rollback on atomic write failure.**
 
@@ -87,7 +135,6 @@ try {
 
 ### 🐛 Bug Fixes
 
-
 #### AutoTracker FSM State Handling Fix
 - **Fixed**: `checkAndSaveTokenThreshold` now correctly handles pre-triggered threshold states
 - **Root Cause**: FSM guard prevented re-evaluation when threshold was manually triggered before calling the method
@@ -104,7 +151,7 @@ try {
 
 ---
 
-## 2026-06-18
+## [2026-06-18]
 
 ### 🔴 CRITICAL SECURITY & CORRECTNESS FIXES
 

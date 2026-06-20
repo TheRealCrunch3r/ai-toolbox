@@ -166,10 +166,39 @@ export class StateManager {
   }
 
   /**
-   * Get all state keys. FIX: Waits for initialization if not ready yet.
+   * Get all state keys. When persistence is enabled, reloads from disk before 
+   * returning to ensure we see the latest data (handles working dir changes mid-session).
+   * When persistence is disabled, returns in-memory state only (no disk I/O).
    */
   async getAllKeys(): Promise<string[]> {
-    await this.ensureReady(); // FIX: Ensure data is loaded before reading keys
+    await this.ensureReady(); // Ensure initial construction is complete
+    
+    if (!this.persistenceEnabled) {
+      // Persistence disabled — return in-memory keys directly without disk I/O.
+      // This ensures test isolation and avoids stale data from previous runs.
+      return Array.from(this.state.keys());
+    }
+    
+    // 🔥 CRITICAL FIX: Re-load from disk BEFORE returning keys when persistence is enabled. 
+    // This ensures that if getWorkingDir() returned a different path between save and read 
+    // (e.g., via change_directory), we always read from the file at the CURRENT working directory, 
+    // not stale in-memory data.
+    const currentPath = await getMemoryFilePath();
+    
+    logger.info(`getAllKeys: reloading state from ${currentPath}`);
+    
+    try {
+      // Temporarily swap memoryFile to read the correct file
+      const savedMemoryFile = this.memoryFile;
+      this.memoryFile = currentPath;
+      await this.loadFromFile();
+      this.memoryFile = savedMemoryFile;
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.warn(`Failed to reload state from disk in getAllKeys: ${message}`);
+      // Fall back to returning in-memory keys if reload fails
+    }
+    
     return Array.from(this.state.keys());
   }
 

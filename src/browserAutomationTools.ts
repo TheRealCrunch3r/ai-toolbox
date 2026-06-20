@@ -260,7 +260,7 @@ export function registerBrowserTools(_config: PluginConfig): Tool[] {
               }
             } catch (actionError) { // M4 FIX: handle individual action errors
               const msg = actionError instanceof Error ? actionError.message : String(actionError);
-              console.warn(`Browser action failed (${action.type}): ${msg}`);
+              console.error(`Browser action failed (${action.type}): ${msg}`);
             }
           }
         }

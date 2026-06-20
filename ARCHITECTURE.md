@@ -211,7 +211,8 @@ class StateManager {
 ```
 
 **Key Features:**
-- **Dynamic Dynamic Path Resolution**: `saveToFile()` re-evaluates `getMemoryFilePath()` on every write, ensuring data persists to the actual current working directory even if directories are changed mid-session via `change_directory`.
+- **Dynamic Path Resolution**: `saveToFile()` re-evaluates `getMemoryFilePath()` on every write, ensuring data persists to the actual current working directory even if directories are changed mid-session via `change_directory`.
+- **Persistence-Aware getAllKeys()**: When `persistenceEnabled === false`, returns in-memory keys directly (test isolation). When enabled, reloads from disk before returning (handles working dir changes mid-session).
 - Atomic file writes (temp file + rename) with corruption recovery
 - Size limit enforcement using O(1) running totals
 - Fire-and-forget async persistence (non-blocking tool execution)

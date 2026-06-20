@@ -1,22 +1,17 @@
 /**
  * Tests for ToolsProvider (tool execution and filtering)
- * 
- * Jest's moduleNameMapper intercepts dynamic import() calls when configured.
  */
 
-import { createToolsProvider, ToolsProvider } from '../src/toolsProvider';
-import { DEFAULT_CONFIG } from '../src/config';
+import { createToolsProvider, ToolsProvider } from '../src/toolsProvider.js';
+import { DEFAULT_CONFIG } from '../src/config.js';
 
 describe('ToolsProvider', () => {
   let provider: ToolsProvider;
 
   beforeEach(() => {
     jest.clearAllMocks();
-    // Force fresh module reload for each test (clears cached registry)
-    delete require.cache[require.resolve('../src/toolsProvider')];
-    const freshModule = require('../src/toolsProvider');
-    
-    provider = new freshModule.ToolsProvider({ ...DEFAULT_CONFIG, fileSystem: true, godMode: false });
+    // Create a fresh provider for each test — this naturally resets the internal registry cache
+    provider = new ToolsProvider({ ...DEFAULT_CONFIG, fileSystem: true, godMode: false });
   });
 
   test('should return available tools filtered by config', async () => {
@@ -24,7 +19,7 @@ describe('ToolsProvider', () => {
 
     expect(tools.length).toBeGreaterThan(0);
 
-    // Verify mock lineOperations tools are included (they're always loaded)
+    // Verify lineOperations tools are included (they're always loaded)
     const toolNames = tools.map((t: any) => t.name);
     expect(toolNames).toContain('insert_at_line');
   });
@@ -50,10 +45,8 @@ describe('ToolsProvider', () => {
   });
 
   test('should respect config tool gating', async () => {
-    delete require.cache[require.resolve('../src/toolsProvider')];
-    const freshModule = require('../src/toolsProvider');
-    
-    const disabledProvider = new freshModule.ToolsProvider({
+    // Fresh provider with different config — internal registry starts empty and loads fresh
+    const disabledProvider = new ToolsProvider({
       ...DEFAULT_CONFIG,
       fileSystem: false,
       webSearch: false,
@@ -66,12 +59,9 @@ describe('ToolsProvider', () => {
   });
 
   test('should create provider with factory function', () => {
-    delete require.cache[require.resolve('../src/toolsProvider')];
-    const freshModule = require('../src/toolsProvider');
-    
-    const p2 = freshModule.createToolsProvider({ ...DEFAULT_CONFIG, fileSystem: true });
+    const p2 = createToolsProvider({ ...DEFAULT_CONFIG, fileSystem: true });
     
     expect(p2).toBeDefined();
-    expect(p2 instanceof freshModule.ToolsProvider).toBe(true);
+    expect(p2 instanceof ToolsProvider).toBe(true);
   });
 });

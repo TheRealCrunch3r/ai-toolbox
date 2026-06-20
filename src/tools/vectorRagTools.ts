@@ -263,7 +263,7 @@ async function ragIndexFiles({
           }
         }
       } catch (error) {
-        console.warn(`[AI Toolbox] Could not read directory ${dir}:`, error);
+        console.error(`[AI Toolbox] Could not read directory ${dir}:`, error);
       }
       
       return results;
@@ -304,7 +304,7 @@ async function ragIndexFiles({
         
         indexedCount += chunks.length;
       } catch (error) {
-        console.warn(`[AI Toolbox] Could not index ${filePath}:`, error);
+        console.error(`[AI Toolbox] Could not index ${filePath}:`, error);
         skippedCount++;
       }
 
@@ -314,7 +314,7 @@ async function ragIndexFiles({
       }
     }
 
-    console.warn('\n[AI Toolbox] Indexing complete');
+    console.log('\n[AI Toolbox] Indexing complete');
 
     return {
       success: true,

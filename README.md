@@ -289,6 +289,33 @@ node scripts/safe_edit.js cleanup --keep=0
 
 ## 📜 Release History
 
+### v1.5.14 — Test Isolation Fix for StateManager getAllKeys() (2026-06-20)
+
+**`getAllKeys()` now correctly respects the `statePersistenceEnabled` configuration flag.**
+
+#### What Changed
+- Fixed `src/stateManager.ts` `getAllKeys()` to skip disk reload when `persistenceEnabled === false`
+- Previously, `getAllKeys()` unconditionally reloaded from disk on every call — even in tests where persistence was disabled — causing stale data contamination from previous runs
+- Now returns in-memory keys directly when persistence is off (test isolation), while still reloading from disk when persistence is enabled (handles working directory changes mid-session)
+
+#### Why This Matters
+Before this fix, running `getAllKeys()` after calling `clear()` would immediately reload any `.ai_toolbox_memory.msgpack` file left on disk from a previous session — making tests fail and breaking test isolation. The fix ensures the method behaves correctly based on the actual persistence configuration rather than always touching the filesystem.
+
+**Total**: 1-line guard added in `getAllKeys()`, zero breaking changes, backward compatible.
+
+---
+
+### v1.5.13 — Jest moduleNameMapper Regex Fix (2026-06-20)
+
+**Test suite now passes after fixing MODULE_NOT_FOUND errors for dynamically imported tool modules.**
+
+#### What Changed
+- Fixed all tool module dynamic import patterns in `jest.config.cjs` from two-dot to single-dot regex matching
+- Removed conflicting ESM config file (`jest.config.js`)
+- Added missing module mappings and fallback catch-all rule
+
+---
+
 ### v1.5.12 — Session Summary Persistence Fix (2026-06-20)
 
 **Critical🔥 Session summary tool now correctly saves data to the current working directory, even if directories are changed mid-session via `change_directory`.**

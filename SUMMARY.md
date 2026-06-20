@@ -130,6 +130,22 @@ Each category is implemented as a separate module in `src/tools/`:
 
 ## 📈 Recent Changes (v1.5.x)
 
+### [1.5.14] - 2026-06-20 — Critical StateManager Read Path Fix
+
+**`get_session_summary` now correctly re-reads from the CURRENT working directory on every call.**
+
+Fixed `stateManager.ts` `getAllKeys()` to ALWAYS reload state from disk before returning keys (previously only loaded once at construction). This ensures reads see the latest data even if working directory changed mid-session via `change_directory`.
+
+---
+
+### [1.5.13] - 2026-06-20 — Jest moduleNameMapper Regex Fix
+
+**Test suite now passes after fixing MODULE_NOT_FOUND errors for dynamically imported tool modules.**
+
+Fixed all tool module dynamic import patterns in `jest.config.cjs` from two-dot (`'\\.\\.'`) to single-dot (`'\\./'`) regex matching. Removed conflicting ESM config file and added missing module mappings with a fallback catch-all rule.
+
+---
+
 ### [1.5.12] - 2026-06-20 — Explicit Rollback Pattern
 
 **All file-editing tools now automatically restore `.bak` backup on write failure.**

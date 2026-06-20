@@ -27,7 +27,7 @@ export async function createBackup(filePath: string): Promise<string | null> {
     
     return backupPath;
   } catch (error) {
-    console.warn(`[backupUtils] Failed to create backup for ${filePath}:`, error instanceof Error ? error.message : String(error));
+    console.error(`[backupUtils] Failed to create backup for ${filePath}:`, error instanceof Error ? error.message : String(error));
     return null;
   }
 }

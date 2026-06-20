@@ -118,6 +118,14 @@ describe('AutoTracker FSM & Core Functionality', () => {
   // ==================== BUFFER OVERFLOW & SAFETY CAP ====================
 
   describe('Buffer Overflow Safety Cap', () => {
+    beforeEach(() => {
+      jest.useFakeTimers();
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
     it('should accumulate actions in buffer up to safety limit (50)', () => {
       for (let i = 0; i < 49; i++) {
         tracker.analyzeMessage(`I decided to implement option ${i}`);
@@ -132,8 +140,8 @@ describe('AutoTracker FSM & Core Functionality', () => {
         tracker.analyzeMessage(`I decided to implement option ${i}`);
       }
       
-      // Allow fire-and-forget flush to complete
-      await new Promise(resolve => setTimeout(resolve, 100));
+      // Advance fake timers to allow fire-and-forget flush to complete
+      jest.runAllTimers();
       
       expect(tracker.getBufferedActionCount()).toBe(0); // Buffer should be cleared after flush
     });
@@ -412,6 +420,9 @@ describe('AutoTracker FSM & Core Functionality', () => {
     });
 
     it('should handle checkAndSaveTokenThreshold failure gracefully', async () => {
+      // Suppress console.error for this test
+      jest.spyOn(console, 'error').mockImplementation(() => {});
+
       // Create a new tracker with an injected failing storage manager for this test only
       class FailingContextStorageManager {
         addEntry() { return Promise.reject(new Error('Mock storage error')); }

@@ -2,13 +2,13 @@
 
 **Date**: 2026-06-20  
 **Author**: AI Toolbox Development Team  
-**Status**: ✅ Complete (v1.5.12)
+**Status**: ✅ Complete (v1.5.14)
 
 ---
 
 ## Overview
 
-This document summarizes all documentation updates made to reflect the **security hardening**, **memory system fixes**, **TypeScript compilation cleanup**, **performance optimizations (sync → async)**, and **documentation accuracy corrections** across versions 1.4.x (v1.4.6 → v1.4.10), v1.5.0, v1.5.10, and v1.5.12.
+This document summarizes all documentation updates made to reflect the **security hardening**, **memory system fixes**, **TypeScript compilation cleanup**, **performance optimizations (sync → async)**, and **documentation accuracy corrections** across versions 1.4.x (v1.4.6 → v1.4.10), v1.5.0, v1.5.9–v1.5.14.
 
 All documentation has been reconstructed based on actual source code analysis to ensure 100% accuracy with the current implementation.
 
@@ -26,16 +26,91 @@ All documentation has been reconstructed based on actual source code analysis to
 
 ## 🆕 Latest Updates
 
+### Critical StateManager Read Path Fix — Working Directory Persistence (v1.5.14)
+
+This update documents the critical bug fix ensuring `getAllKeys()` correctly respects the `statePersistenceEnabled` configuration flag, providing test isolation while maintaining working directory awareness in production.
+
+#### What Changed
+- **Fixed**: `src/stateManager.ts` `getAllKeys()` now returns in-memory keys directly when `persistenceEnabled === false` (test isolation)
+- When persistence is enabled, still reloads from disk before returning keys (handles working dir changes mid-session)
+- Previously unconditionally reloaded from disk on every call — even in tests where persistence was disabled
+
+#### Why This Matters
+Before this fix, running `getAllKeys()` after calling `clear()` would immediately reload any `.ai_toolbox_memory.msgpack` file left on disk from a previous session — injecting stale keys like `'last_insert_at_line'` into the in-memory Map. Tests with `statePersistenceEnabled: false` expected clean isolation but got contaminated data.
+
+The fix ensures the method behaves correctly based on configuration:
+- **Disabled** → Memory-only (fast, test-isolated)
+- **Enabled** → Reload-from-disk (handles working directory changes mid-session)
+
+#### How It Works
+```typescript
+// src/stateManager.ts getAllKeys() (AFTER fix)
+async getAllKeys(): Promise<string[]> {
+  await this.ensureReady(); // Ensure initial construction is complete
+  
+  if (!this.persistenceEnabled) {
+    // Persistence disabled — return in-memory keys directly without disk I/O.
+    return Array.from(this.state.keys());
+  }
+  
+  // 🔥 CRITICAL FIX: Re-load from disk BEFORE returning keys when persistence enabled
+  const currentPath = await getMemoryFilePath();
+  
+  logger.info(`getAllKeys: reloading state from ${currentPath}`);
+  
+  try {
+    const savedMemoryFile = this.memoryFile;
+    this.memoryFile = currentPath;
+    await this.loadFromFile(); // Reloads Map with fresh data from correct file
+    this.memoryFile = savedMemoryFile;
+  } catch (err: unknown) {
+    logger.warn(`Failed to reload state from disk: ${String(err)}`);
+  }
+  
+  return Array.from(this.state.keys());
+}
+```
+
+**Total**: 1-line guard added, zero breaking changes, backward compatible.
+
+---
+
+### Jest moduleNameMapper Regex Fix — Dynamic Import Resolution (v1.5.13)
+
+This update documents the resolution of `MODULE_NOT_FOUND` errors that broke the test suite for dynamically imported tool modules.
+
+#### What Changed
+- **Fixed**: All tool module dynamic import patterns in `jest.config.cjs` changed from two-dot (`'\\.\\.'`) to single-dot (`'\\./'`) regex matching
+- **Removed**: Conflicting ESM config file (`jest.config.js`) — only CommonJS format used with `"type": "commonjs"` package
+- **Added**: Missing module mappings for `textProcessingTools`, `contextManagementTools`, `uiGenerationTools`
+- **Added**: Fallback catch-all rule to automatically mock future tool modules without manual config updates
+
+#### Root Cause
+Jest's `moduleNameMapper` regex patterns used `'\\.\\./tools/...'` (matching two dots → `../tools/...`) but actual imports in `src/toolsProvider.ts` use `'./tools/xxx.js'` (one dot). This caused Jest to fall through to the filesystem resolver, which failed because `.js` files don't exist at runtime (only `.ts` source does).
+
+#### How It Works
+```javascript
+// BEFORE (broken — matches ../tools/...):
+'^\\.\\./tools/fileSystemTools\\.js$': '<rootDir>/tests/__mocks__/fileSystemTools.ts',
+
+// AFTER (correct — matches ./tools/...):
+'^\\.\\/tools/fileSystemTools\\.js$': '<rootDir>/tests/__mocks__/fileSystemTools.ts',
+```
+
+**Total**: 17 lines changed in `jest.config.cjs`, zero breaking changes, test suite now passes.
+
+---
+
 ### Session Summary Persistence Fix — Dynamic Working Directory Resolution (v1.5.12)
 
-This update documents the critical 一直 session summary tool now correctly saves data to the current working directory, even if directories are changed mid-session via `change_directory`.
+This update documents the critical session summary tool now correctly saves data to the current working directory, even if directories are changed mid-session via `change_directory`.
 
 #### What Changed
 - **Fixed**: `src/stateManager.ts` re-evaluates memory file path on every write via `getMemoryFilePath()` in the `saveToFile()` method (line ~340)
 - Added single line: `this.memoryFile = await getMemoryFilePath();` at start of `saveToFile()`
 
 #### Why This Matters
-Before this fix, StateManager captured its target file path only once during initialization. If you ran `change_directory` mid-session to switch from the plugin root to a workspace directory, all subsequent saves (including session summaries) would silently **silent land in the old location — meaning data appeared "lost" when checking the current working directory's filesystem directly.
+Before this fix, StateManager captured its target file path only once during initialization. If you ran `change_directory` mid-session to switch from the plugin root to a workspace directory, all subsequent saves (including session summaries) would silently land in the old location — meaning data appeared "lost" when checking the current working directory's filesystem directly.
 
 #### How It Works
 ```typescript
@@ -237,7 +312,7 @@ Heavy dependencies loaded on first use to minimize startup time:
 - [x] All references to tools and features match current implementation
 
 ### CHANGELOG.md
-- [x] Version entries follow Keep a Changelog format
+- [x] Version entries follow Keep a Changelog format with proper ordering (v1.5.14 → v1.5.0)
 - [x] Dates and version numbers consistent with package.json
 - [x] Breaking changes clearly marked
 - [x] Security fixes documented with CVE references where applicable
@@ -248,10 +323,11 @@ Heavy dependencies loaded on first use to minimize startup time:
 
 | File | Changes Made |
 |------|-------------|
-| `README.md` | Rebuilt from scratch based on source code analysis. Corrected tool counts, configuration tables, and dependencies. |
-| `ARCHITECTURE.md` | Rebuilt with accurate system overview diagram (16 modules), corrected tool counts in architecture sections. |
+| `README.md` | Rebuilt from scratch based on source code analysis. Corrected tool counts, configuration tables, and dependencies. Updated v1.5.14 release notes for StateManager test isolation fix. |
+| `ARCHITECTURE.md` | Rebuilt with accurate system overview diagram (16 modules), corrected tool counts in architecture sections. Added persistence-aware getAllKeys() description to StateManager module. |
 | `TOOLS_REFERENCE.md` | Complete reconstruction with all 101 tools documented accurately based on actual Zod schemas and implementations. |
-| `DOCUMENTATION.md` | This file — cleaned up duplicate sections, verified version history against source code timestamps. |
+| `DOCUMENTATION.md` | This file — cleaned up duplicate sections, verified version history against source code timestamps. Fixed Chinese character typo and updated status to v1.5.14. |
+| `CHANGELOG.md` | Rewritten from scratch with correct version ordering (v1.5.14 → v1.5.0) and accurate fix descriptions based on actual git changes. |
 
 ---
 
@@ -281,10 +357,10 @@ All changes verified with comprehensive test suite:
 
 ## 📋 Next Steps
 
-1. Commit all changes with message: `docs: reconstruct documentation from source code analysis`
-2. Tag release as v1.5.12 in package.json and CHANGELOG.md (if not already done)
+1. Commit all changes with message: `docs: update documentation for v1.5.14 — StateManager test isolation fix`
+2. Tag release as v1.5.14 in package.json and CHANGELOG.md
 3. Update LM Studio plugin manifest if needed
-4. Run full test suite to verify no regressions: `npm test`
+4. Run full test suite to verify no regressions: `npm run test`
 
 ---
 

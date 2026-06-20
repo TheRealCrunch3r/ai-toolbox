@@ -11,12 +11,6 @@ import { StateManager } from './stateManager';
 import { BackgroundCommandManager } from './backgroundCommands';
 
 // ==================== P0: LAZY MODULE RESOLVER MAP ====================
-type LazyRegistrar = (
-  config: PluginConfig,
-  stateManager?: StateManager,
-  bgManager?: BackgroundCommandManager,
-) => Tool[];
-
 const REGISTER_MAP: Record<string, () => Promise<{ registerFileSystemTools: (c: PluginConfig) => Tool[] } | { registerWebResearchTools: (c: PluginConfig) => Tool[] } | { registerBrowserTools: (c: PluginConfig) => Tool[] } | { registerGitTools: (c: PluginConfig) => Tool[] } | { registerDatabaseTools: (c: PluginConfig) => Tool[] } | { registerDocumentTools: (c: PluginConfig) => Tool[] } | { registerBackgroundCommandTools: (c: PluginConfig, b: BackgroundCommandManager) => Tool[] } | { registerImageProcessingTools: (c: PluginConfig) => Tool[] } | { registerHttpClientTools: (c: PluginConfig) => Tool[] } | { registerRagTools: (c: PluginConfig) => Tool[] } | { registerTextProcessingTools: (c: PluginConfig) => Tool[] } | { registerUiGenerationTools: (c: PluginConfig) => Tool[] } | { registerContextManagementTools: (c: PluginConfig) => Tool[] }>> = {
   fileSystem:      () => import('./tools/fileSystemTools.js').then(m => m.registerFileSystemTools as never),
   webSearch:       () => import('./tools/webResearchTools.js').then(m => m.registerWebResearchTools as never),
@@ -34,12 +28,8 @@ const REGISTER_MAP: Record<string, () => Promise<{ registerFileSystemTools: (c: 
 };
 
 // Execution tools loaded dynamically too — their individual flags filter what gets registered
-const EXEC_TOOL_FILE = './tools/executionTools';
 
 // Utility / line-ops / backup are always loaded but resolved lazily on first use
-const UTILITY_FILE = './tools/utilityTools';
-const LINE_OPS_FILE = './tools/lineOperations';
-const BACKUP_FILE = './tools/backupTools';
 
 /** Minimal config-hash for cache invalidation */
 function hashConfig(cfg: PluginConfig): string {
@@ -87,22 +77,21 @@ class ToolRegistry {
           const registrar = registrarRaw as never as (c: PluginConfig, s?: StateManager, b?: BackgroundCommandManager) => Tool[];
           registrar(config, stateManager, bgCommandManager).forEach((t: Tool) => this.toolMap.set(t.name, t as TypedTool));
         } catch (err) {
-          console.warn(`[ToolsProvider] Failed to load tools for category '${category}':`, err);
+          console.error(`[ToolsProvider] Failed to load tools for category '${category}':`, err);
         }
       }
 
       // Load line operations (always available — no toggle)
-      const LineOpsRegistrar = await import(LINE_OPS_FILE).then(m => m.registerLineOperationsTools);
+      const LineOpsRegistrar = await import('./tools/lineOperations.js').then(m => m.registerLineOperationsTools);
       LineOpsRegistrar(config).forEach((t: Tool) => this.toolMap.set(t.name, t as TypedTool));
 
       // Load backup tools (always available — no toggle)
-      const BackupRegistrar = await import(BACKUP_FILE).then(m => m.registerBackupTools);
+      const BackupRegistrar = await import('./tools/backupTools.js').then(m => m.registerBackupTools);
       BackupRegistrar(config).forEach((t: Tool) => this.toolMap.set(t.name, t as TypedTool));
 
       // Execution tools — filtered by individual enable flags
-      let execRegistered = false;
       if (config.executionJavaScript || config.executionPython || config.executionTerminal || config.executionShell) {
-        const ExecRegistrar = await import(EXEC_TOOL_FILE).then(m => m.registerExecutionTools);
+        const ExecRegistrar = await import('./tools/executionTools.js').then(m => m.registerExecutionTools);
         const allExecTools = ExecRegistrar(config);
 
         if (isExecutionToolEnabled(config, 'javascript')) {
@@ -121,13 +110,11 @@ class ToolRegistry {
           const shellTool = allExecTools.find((t: Tool) => t.name === 'execute_command');
           if (shellTool) this.toolMap.set(shellTool.name, shellTool as TypedTool);
         }
-
-        execRegistered = true;
       }
 
       // Utility tools are always registered (no specific config flag) — lazy loaded on first call
       const getEnabledTools = () => Array.from(this.toolMap.keys());
-      const UtilityRegistrar = await import(UTILITY_FILE).then(m => m.registerUtilityTools);
+      const UtilityRegistrar = await import('./tools/utilityTools.js').then(m => m.registerUtilityTools);
       UtilityRegistrar(config, stateManager, getEnabledTools).forEach((t: Tool) => this.toolMap.set(t.name, t as TypedTool));
 
       this._isLoaded = true;

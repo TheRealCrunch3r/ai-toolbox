@@ -136,7 +136,7 @@ async function searchWithFallbackChain(
     try {
       const searchFn = SEARCH_ENGINES[engine];
       if (!searchFn) {
-        console.warn(`Search engine "${engine}" not found, skipping`);
+        console.log(`Search engine "${engine}" not found, skipping`);
         continue;
       }
 
@@ -144,7 +144,7 @@ async function searchWithFallbackChain(
 
       // Validate result count - warn if low results
       if (results.length < 2) {
-        console.warn(`Low search results for "${query}": ${results.length} results from ${engine}`);
+        console.log(`Low search results for "${query}": ${results.length} results from ${engine}`);
       }
 
       return {
@@ -153,7 +153,7 @@ async function searchWithFallbackChain(
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      console.warn(`Search engine "${engine}" failed: ${message}`);
+      console.log(`Search engine "${engine}" failed: ${message}`);
       // Try next engine in the chain
       continue;
     }
