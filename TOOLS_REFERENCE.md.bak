@@ -822,11 +822,9 @@ Delete a saved memory entry by its ID (returned from save_memory or get_memory).
 
 ---
 
-### `save_session_summary` 📝 💡 **v1.5.15+ Compressed Storage**
+### `save_session_summary` 📝
 
-Save a structured session summary for cross-session continuity. Includes accomplishments, pending tasks, decisions made, and context for the next session. 
-
-**Storage**: Payload is automatically compressed using `zlib.gzipSync(level: 9)` before storage (bypasses 10k SDK limit, ~30% size reduction). Legacy uncompressed summaries continue to work via backward-compatible fallback parser.
+Save a structured session summary for cross-session continuity. Includes accomplishments, pending tasks, decisions made, and context for the next session.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -836,19 +834,10 @@ Save a structured session summary for cross-session continuity. Includes accompl
 | `decisions_made` | `string` | No | Key architectural or implementation decisions made during this session |
 | `context_for_next_session` | `string` | No | Important context, file locations, or setup steps needed for the next session |
 
-**Returns**: `{ success: true, data: { saved: boolean, summary_id: string, message: string, original_size_bytes: number, compressed_chars: number, preview: { task_description: string, timestamp: string } } }`
+**Returns**: `{ success: true, data: { saved: boolean } }`
 
 ---
 
-### `get_session_summary` 📖
-
-Retrieve the most recent saved session summary for continuity across sessions. Automatically decompresses zlib-compressed payloads (v1.5.15+) with fallback to legacy uncompressed JSON format.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| (none) | — | — | — |
-
-**Returns**: `{ success: true, data: { summaries: Array<{id: string, timestamp: string, task_description: string, accomplishments: string, pending_tasks: string, decisions_made: string, context_for_next_session: string}>, count: number, message: string, total_summaries_stored: number } }`
 ### `get_session_summary`
 
 Retrieve the most recent saved session summary for continuity across sessions.
