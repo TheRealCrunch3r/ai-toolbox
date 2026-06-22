@@ -314,7 +314,7 @@ async function ragIndexFiles({
       }
     }
 
-    console.log('\n[AI Toolbox] Indexing complete');
+    process.stdout.write('\n[AI Toolbox] Indexing complete\n');
 
     return {
       success: true,

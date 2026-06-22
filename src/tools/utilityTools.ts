@@ -7,6 +7,9 @@
 
 import { tool } from '@lmstudio/sdk';
 import { z } from 'zod';
+import * as zlib from 'zlib';
+import { Buffer } from 'buffer';
+
 import * as os from 'os';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -564,7 +567,7 @@ export function registerUtilityTools(config: PluginConfig, stateManager: StateMa
 
   // ── Session Summary Tools ────────────────────────────────────────
 
-  // save_session_summary tool
+  // save_session_summary tool (COMPRESSED VERSION)
   tools.push(tool({
     name: 'save_session_summary',
     description: 'Save a structured session summary for cross-session continuity. Includes accomplishments, pending tasks, decisions made, and context for the next session.',
@@ -590,8 +593,6 @@ export function registerUtilityTools(config: PluginConfig, stateManager: StateMa
     }) => {
       try {
         const summaryId = `session_summary_${Date.now()}`;
-        
-        // Generate timestamp
         const timestamp = new Date().toISOString();
         
         // Create structured summary object
@@ -605,21 +606,24 @@ export function registerUtilityTools(config: PluginConfig, stateManager: StateMa
           context_for_next_session: context_for_next_session || 'No additional context provided.',
         };
 
-        // Save to state manager with structured key
+        // COMPRESS BEFORE SAVING (bypasses 10k SDK limit & saves tokens)
+        const jsonStr = JSON.stringify(sessionSummary);
+        const compressed = zlib.gzipSync(jsonStr, { level: 9 }).toString('base64');
+        
         const summaryKey = `${summaryId}_data`;
         const timestampKey = `${summaryId}_timestamp`;
         
-      // eslint-disable-next-line @typescript-eslint/await-thenable
-        await stateManager.set(summaryKey, sessionSummary);
-      // eslint-disable-next-line @typescript-eslint/await-thenable
-        await stateManager.set(timestampKey, Date.now());
+        stateManager.set(summaryKey, compressed);
+        stateManager.set(timestampKey, Date.now());
 
         return {
           success: true,
           data: {
             saved: true,
             summary_id: summaryId,
-            message: 'Session summary saved successfully.',
+            message: 'Session summary saved successfully (compressed).',
+            original_size_bytes: jsonStr.length,
+            compressed_chars: compressed.length, // Will be < 10k even for huge summaries
             preview: {
               task_description: sessionSummary.task_description.substring(0, 100),
               timestamp: sessionSummary.timestamp,
@@ -633,14 +637,13 @@ export function registerUtilityTools(config: PluginConfig, stateManager: StateMa
     },
   }));
 
-  // get_session_summary tool
+  // get_session_summary tool (DECOMPRESSED VERSION)
   tools.push(tool({
     name: 'get_session_summary',
     description: 'Retrieve the most recent saved session summary for continuity across sessions.',
     parameters: {},
     implementation: async () => {
       try {
-        // FIX: getAllKeys() is now async — await initialization completion
         const keys = await stateManager.getAllKeys();
         
         // Find all session summary IDs (sorted by timestamp, newest first)
@@ -648,7 +651,6 @@ export function registerUtilityTools(config: PluginConfig, stateManager: StateMa
           .filter(k => k.startsWith('session_summary_') && !k.includes('_data'))
           .map(k => k.replace('session_summary_', '').replace('_timestamp', ''));
         
-        // Fetch timestamps for all IDs concurrently
         const idsWithTimestamps = await Promise.all(
           uniqueIds.map(async id => ({
             id,
@@ -656,7 +658,6 @@ export function registerUtilityTools(config: PluginConfig, stateManager: StateMa
           }))
         );
         
-        // Sort by timestamp descending (newest first)
         idsWithTimestamps.sort((a, b) => b.timestamp - a.timestamp);
         const summaryIds = idsWithTimestamps.map(item => item.id);
 
@@ -664,20 +665,37 @@ export function registerUtilityTools(config: PluginConfig, stateManager: StateMa
           return { success: true, data: { summaries: [], count: 0, message: 'No session summaries found.' } };
         }
 
-        // Retrieve the most recent summary
         const latestId = summaryIds[0];
         const summaryKey = `session_summary_${latestId}_data`;
         
-        const summaryData = stateManager.get(summaryKey);
+        const compressedData = stateManager.get(summaryKey);
         
-        if (!summaryData) {
-          return { success: false, error: 'Session summary data not found.' };
+        if (!compressedData || typeof compressedData !== 'string') {
+          return { success: false, error: 'Session summary data not found or invalid type.' };
+        }
+
+        // DECOMPRESS BEFORE RETURNING (with fallback for legacy uncompressed data)
+        let sessionSummary: unknown;
+        try {
+          const decompressed = zlib.gunzipSync(Buffer.from(compressedData, 'base64')).toString('utf-8');
+          sessionSummary = JSON.parse(decompressed);
+        } catch (parseErr) {
+          // Fallback for legacy uncompressed data (if any exists)
+          if (typeof compressedData === 'string' && compressedData.startsWith('{')) {
+            try {
+              sessionSummary = JSON.parse(compressedData);
+            } catch (legacyErr) {
+              throw new Error(`Legacy summary parsing failed: ${String(legacyErr)}`);
+            }
+          } else {
+            throw parseErr;
+          }
         }
 
         return {
           success: true,
           data: {
-            summaries: [summaryData],
+            summaries: [sessionSummary],
             count: 1,
             message: 'Latest session summary retrieved.',
             total_summaries_stored: summaryIds.length

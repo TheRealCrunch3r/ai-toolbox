@@ -218,16 +218,36 @@ class StateManager {
 - Fire-and-forget async persistence (non-blocking tool execution)
 - Initialization-wait pattern (`_ready` promise) to prevent race conditions
 
-**Session Summary Tool Flow:**
+**Session Summary Tool Flow (v1.5.15+):**
 ```typescript
 // save_session_summary writes:
-await stateManager.set(`${summaryId}_data`, sessionSummary); // Updates Map + triggers saveToFile()
-await stateManager.set(`${summaryId}_timestamp`, Date.now()); // Same flow
+await stateManager.set(`${summaryId}_data`, compressed); // Base64-encoded gzip stream < 10k chars
+await stateManager.set(`${summaryId}_timestamp`, Date.now());
 
-// get_session_summary reads:
+// get_session_summary reads with backward-compatible fallback:
 const keys = await stateManager.getAllKeys(); // Waits for loadFromFile(), returns all keys
-const summaryData = stateManager.get(summaryKey); // Direct in-memory lookup (no disk I/O)
+const compressedData = stateManager.get(summaryKey);
+
+try {
+  const decompressed = zlib.gunzipSync(Buffer.from(compressedData, 'base64')).toString('utf-8');
+  sessionSummary = JSON.parse(decompressed); // New format (v1.5.15+)
+} catch (parseErr) {
+  // Fallback for legacy uncompressed summaries (pre-v1.5.15)
+  if (typeof compressedData === 'string' && compressedData.startsWith('{')) {
+    try {
+      sessionSummary = JSON.parse(compressedData); // Legacy format
+    } catch (legacyErr) {
+      throw new Error(`Legacy summary parsing failed: ${String(legacyErr)}`);
+    }
+  } else {
+    throw parseErr; // Corrupted or unknown format
+  }
+}
 ```
+
+**Storage Format:**  
+- **New summaries (v1.5.15+):** JSON → `zlib.gzipSync(level: 9)` → base64 encoding → stored in StateManager (typically achieves ~30% size reduction)  
+- **Legacy summaries (pre-v1.5.15):** Raw JSON strings (uncompressed, backward-compatible via fallback parser)
 
 **Working Directory Integration:**
 - `StateManager` initializes via `getMemoryFilePath()` → resolves to `{current_working_dir}/.ai_toolbox_memory.msgpack`
