@@ -34,20 +34,20 @@ export class ContextStorageManager {
   
   constructor() {
     this.storagePath = path.join(getWorkingDir(), '.ai_toolbox_context.msgpack');
-    console.log(`[ContextStorage] Initialized with storage path: ${this.storagePath}`);
+    console.warn(`[ContextStorage] Initialized with storage path: ${this.storagePath}`);
   }
 
   /** Load context entries from disk — ASYNC === */
   async load(): Promise<ContextEntry[]> {  // MADE ASYNC
     try {
       if (!await fs.access(this.storagePath).then(() => true).catch(() => false)) {  // ASYNC access check
-        console.log(`[ContextStorage.load] File does not exist yet: ${this.storagePath}`);
+        console.warn(`[ContextStorage.load] File does not exist yet: ${this.storagePath}`);
         return [];
       }
       
       const buffer = await fs.readFile(this.storagePath);  // Read as Buffer (msgpack format)
       const entries = decode(buffer) as ContextEntry[];
-      console.log(`[ContextStorage.load] Loaded ${entries.length} entries from disk`);
+      console.warn(`[ContextStorage.load] Loaded ${entries.length} entries from disk`);
       return entries;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -62,7 +62,7 @@ export class ContextStorageManager {
       const dir = path.dirname(this.storagePath);
       if (!await fs.access(dir).then(() => true).catch(() => false)) {  // ASYNC access check
         await fs.mkdir(dir, { recursive: true });  // ASYNC mkdir
-        console.log(`[ContextStorage.save] Created directory: ${dir}`);
+        console.warn(`[ContextStorage.save] Created directory: ${dir}`);
       }
       
       // Write atomically (temp file + rename) — ASYNC ===
@@ -70,7 +70,7 @@ export class ContextStorageManager {
       const encoded = encode(entries);  // Encode to msgpack Buffer
       await fs.writeFile(tempPath, encoded);  // ASYNC write (Buffer format)
       await fs.rename(tempPath, this.storagePath);  // ASYNC rename
-      console.log(`[ContextStorage.save] Saved ${entries.length} entries to disk (${(encoded.byteLength / 1024).toFixed(1)} KB)`);
+      console.warn(`[ContextStorage.save] Saved ${entries.length} entries to disk (${(encoded.byteLength / 1024).toFixed(1)} KB)`);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.error(`[ContextStorage.save] Failed to save context storage: ${message}`);

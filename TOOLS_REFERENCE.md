@@ -124,6 +124,74 @@ Replace a specific string in a file with a new string.
 | `old_string` | `string` | Yes | The exact text to replace (must be unique) |
 | `new_string` | `string` | Yes | The text to insert in place of old_string |
 
+---
+
+### 🔍 `grepFile` 🆕 **v1.5.16 — Single File Search Workaround**
+
+Search within a single file for pattern matches. This is the workaround function that replaces the broken system-level `grep_files(path="file.ts")` call which fails silently.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `filePath` | `string` | Yes | Path to the file to search (relative or absolute) |
+| `pattern` | `string` | Yes | Regex pattern to match (case-insensitive by default) |
+
+**Returns**: `{ success: true, data: { matches: [{ file: string, line_number: number, content: string }], count: number } }`
+
+> **Usage**: Always use this instead of `grep_files(path="file.ts", pattern)` — the system tool fails silently on single files.
+> ```typescript
+> // ✅ CORRECT
+> const results = await grepFile('src/promptPreprocessor.ts', 'maxTokens');
+> 
+> // ❌ WRONG — will fail silently
+> grep_files(path="src/promptPreprocessor.ts", pattern="maxTokens")
+> ```
+
+---
+
+### 🔍 `grepDir` 🆕 **v1.5.16 — Directory Search with Filters**
+
+Search across multiple files in a directory for pattern matches. Supports optional regex-based filename filtering (e.g., only `.ts` files).
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `dirPath` | `string` | Yes | Path to the directory to search |
+| `pattern` | `string` | Yes | Regex pattern to match (case-insensitive) |
+| `includePattern` | `string` | No | Optional regex filter for filenames (e.g., `'\\.ts$'`) |
+
+**Returns**: `{ success: true, data: { matches: [{ file: string, line_number: number, content: string }], count: number } }`
+
+> **Usage**: Use for directory-wide searches when you need filename filtering.
+> ```typescript
+> const results = await grepDir('src', 'autoTracker', '\\\\.ts$');
+> // Only matches .ts files containing "autoTracker"
+> ```
+
+---
+
+### 🔍 `grepSearch` 🆕 **v1.5.16 — Unified Search (Auto-Detect File vs Directory)**
+
+Unified search function that automatically detects whether the target is a file or directory and routes to the appropriate handler. Recommended for most use cases.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `target` | `string` | Yes | Path to file or directory (auto-detected) |
+| `pattern` | `string` | Yes | Regex pattern to match (case-insensitive) |
+| `includePattern` | `string` | No | Optional regex filter for filenames when target is a directory |
+
+**Returns**: `{ success: true, data: { matches: [{ file: string, line_number: number, content: string }], count: number } }`
+
+> **Usage**: Recommended entry point — handles both files and directories automatically.
+> ```typescript
+> // Works with files OR directories!
+> const results1 = await grepSearch('src/promptPreprocessor.ts', 'threshold');  // File
+> const results2 = await grepSearch('src', 'autoTracker');                     // Directory
+> 
+> // With filename filter (only applies when target is directory)
+> const results3 = await grepSearch('src', 'threshold', '\\\\.js$');           // Only .js files
+> ```
+
+---
+
 **Returns**: `{ success: true, data: { replaced: boolean } }`
 
 ---

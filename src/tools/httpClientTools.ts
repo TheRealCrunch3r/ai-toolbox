@@ -100,7 +100,7 @@ async function httpRequest({ method, url, headers = {}, body }: HttpRequestParam
       }
     }
 
-    console.log(`[AI Toolbox] HTTP ${method.toUpperCase()} ${url}`);
+    console.warn(`[AI Toolbox] HTTP ${method.toUpperCase()} ${url}`);
 
     // Make the request with timeout
     const controller = new AbortController();
@@ -148,7 +148,7 @@ async function httpGetJson({ url, headers = {} }: HttpGetJsonParams): Promise<un
     const validation = validateUrl(url);
     if (!validation.valid) return { success: false, error: validation.error };
 
-    console.log(`[AI Toolbox] HTTP GET ${url}`);
+    console.warn(`[AI Toolbox] HTTP GET ${url}`);
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 30000);
@@ -202,7 +202,7 @@ async function httpPostJson({ url, data, headers = {} }: HttpPostJsonParams): Pr
     const validation = validateUrl(url);
     if (!validation.valid) return { success: false, error: validation.error };
 
-    console.log(`[AI Toolbox] HTTP POST ${url}`);
+    console.warn(`[AI Toolbox] HTTP POST ${url}`);
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 30000);

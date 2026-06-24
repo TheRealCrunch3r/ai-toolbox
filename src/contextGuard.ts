@@ -132,27 +132,27 @@ export class ContextGuard {
     const threshold = this.config.tokenLimit * 0.9;
 
     if (currentTokens < threshold) {
-      console.log(`[ContextGuard] Token count (${currentTokens}) below threshold (${threshold}). No compression needed.`);
+      console.warn(`[ContextGuard] Token count (${currentTokens}) below threshold (${threshold}). No compression needed.`);
       this._lastCompressionInfo = { compressed: false };
       return messages;
     }
 
     const originalTokenCount = currentTokens;
 
-    console.log(`[ContextGuard] Compressing history: ${messages.length} messages, ${currentTokens} tokens (threshold: ${threshold})`);
+    console.warn(`[ContextGuard] Compressing history: ${messages.length} messages, ${currentTokens} tokens (threshold: ${threshold})`);
 
     const keepLast = 10;
     const toCompress = messages.slice(0, -keepLast);
     
     if (toCompress.length === 0) {
-      console.log(`[ContextGuard] No messages to compress (only ${messages.length} total, keeping last ${keepLast})`);
+      console.warn(`[ContextGuard] No messages to compress (only ${messages.length} total, keeping last ${keepLast})`);
       return messages;
     }
 
     // Use local model for summarization
     if (this.lmClient && this.config.summaryModel) {
       try {
-        console.log(`[ContextGuard] Loading model: ${this.config.summaryModel}`);
+        console.warn(`[ContextGuard] Loading model: ${this.config.summaryModel}`);
         const model = await this.lmClient.llm.model(this.config.summaryModel);
         
         // Build summary prompt with conversation history
@@ -181,7 +181,7 @@ ${historyText}
 
 SUMMARY:`;
         
-        console.log(`[ContextGuard] Sending summarization request for ${toCompress.length} messages...`);
+        console.warn(`[ContextGuard] Sending summarization request for ${toCompress.length} messages...`);
         
         // Use respond() for chat-based interaction (more reliable than complete())
         const response = model.respond(
@@ -193,7 +193,7 @@ SUMMARY:`;
         const result = await response.result();
         const summary = result.content || `[ContextGuard Summary: ${toCompress.length} older messages compressed.]`;
         
-        console.log(`[ContextGuard] Summarization complete. Generated ${summary.length} chars.`);
+        console.warn(`[ContextGuard] Summarization complete. Generated ${summary.length} chars.`);
         
         // Count tokens after compression
         const compressedPreview = [
@@ -236,12 +236,12 @@ SUMMARY:`;
         console.error(`[ContextGuard] Stack: ${(error as Error).stack}`);
       }
     } else {
-      console.log(`[ContextGuard] No LM client or summary model configured. Using fallback.`);
+      console.warn(`[ContextGuard] No LM client or summary model configured. Using fallback.`);
     }
 
     // Fallback if no model, error, or summarization failed
     const fallbackSummary = `[ContextGuard Summary: ${toCompress.length} older messages compressed to save context. Original content unavailable due to compression failure or missing model.]`;
-    console.log(`[ContextGuard] Using fallback summary for ${toCompress.length} messages`);
+    console.warn(`[ContextGuard] Using fallback summary for ${toCompress.length} messages`);
     
     // Track compression info (estimate tokens saved)
     const estimatedTokensSaved = Math.round(originalTokenCount * 0.7); // Estimate ~70% savings
@@ -412,7 +412,7 @@ SUMMARY:`;
         const stats = statSync(filePath);
         this.trackedFiles.set(filePath, { compressed: true, truncated: false, originalSize: stats.size });
       } catch {
-        console.log(`[ContextGuard] Cannot mark file as compressed - file not found: ${filePath}`);
+        console.error(`[ContextGuard] Cannot mark file as compressed - file not found: ${filePath}`);
       }
     }
   }

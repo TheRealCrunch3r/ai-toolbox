@@ -140,7 +140,7 @@ async function imageToText({ imagePath, language = 'eng' }: ImageToTextParams): 
     // eslint-disable-next-line @typescript-eslint/no-require-imports
 const Tesseract = require('tesseract.js');
 
-    console.log(`[AI Toolbox] Starting OCR on ${imagePath} with language '${language}'...`);
+    console.warn(`[AI Toolbox] Starting OCR on ${imagePath} with language '${language}'...`);
 
     // Perform OCR with progress tracking
      
@@ -149,7 +149,7 @@ const result = await Tesseract.recognize(imagePath, language, {
         // Type already declared in parameter signature
         const typed = m;
         if (typed.status === 'recognizing text') {
-          console.log(`[AI Toolbox] OCR Progress: ${((typed.progress ?? 0) * 100).toFixed(0)}%`);
+          console.warn(`[AI Toolbox] OCR Progress: ${((typed.progress ?? 0) * 100).toFixed(0)}%`);
         }
       },
     });

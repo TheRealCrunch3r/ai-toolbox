@@ -25,7 +25,7 @@ async function resolveBackupDirectory(): Promise<string> {
     }
   } catch {}
   
-  console.log(`[Backup] Working directory "${workingDir}" is invalid. Falling back to plugin root.`);
+  console.warn(`[Backup] Working directory "${workingDir}" is invalid. Falling back to plugin root.`);
   resetWorkingDir();
   return path.join(getWorkingDir(), '.ai_toolbox_backups');
 }
@@ -456,7 +456,7 @@ EXAMPLE USAGE:
             await fsp.rm(tempDir, { recursive: true, force: true });  // ASYNC rm
           } catch (cleanupErr) {
             const errMsg = cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr);
-            console.log(`[Backup] Warning: Could not cleanup temp dir ${tempDir}: ${errMsg}`);
+            console.error(`[Backup] Warning: Could not cleanup temp dir ${tempDir}: ${errMsg}`);
           }
         }
 

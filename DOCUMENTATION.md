@@ -2,13 +2,13 @@
 
 **Date**: 2026-06-20  
 **Author**: AI Toolbox Development Team  
-**Status**: ✅ Complete (v1.5.14)
+**Status**: ✅ Complete (v1.5.15)
 
 ---
 
 ## Overview
 
-This document summarizes all documentation updates made to reflect the **security hardening**, **memory system fixes**, **TypeScript compilation cleanup**, **performance optimizations (sync → async)**, and **documentation accuracy corrections** across versions 1.4.x (v1.4.6 → v1.4.10), v1.5.0, v1.5.9–v1.5.14.
+This document summarizes all documentation updates made to reflect the **security hardening**, **memory system fixes**, **TypeScript compilation cleanup**, **performance optimizations (sync → async)**, and **documentation accuracy corrections** across versions 1.4.x (v1.4.6 → v1.4.10), v1.5.0, v1.5.9–v1.5.15, and v1.5.15.
 
 All documentation has been reconstructed based on actual source code analysis to ensure 100% accuracy with the current implementation.
 
@@ -91,7 +91,7 @@ try {
 
 ---
 
-### Critical StateManager Read Path Fix — Working Directory Persistence (v1.5.14)
+### Critical StateManager Read Path Fix — Working Directory Persistence (v1.5.15)
 
 This update documents the critical bug fix ensuring `getAllKeys()` correctly respects the `statePersistenceEnabled` configuration flag, providing test isolation while maintaining working directory awareness in production.
 
@@ -377,7 +377,7 @@ Heavy dependencies loaded on first use to minimize startup time:
 - [x] All references to tools and features match current implementation
 
 ### CHANGELOG.md
-- [x] Version entries follow Keep a Changelog format with proper ordering (v1.5.14 → v1.5.0)
+- [x] Version entries follow Keep a Changelog format with proper ordering (v1.5.15 → v1.5.0)
 - [x] Dates and version numbers consistent with package.json
 - [x] Breaking changes clearly marked
 - [x] Security fixes documented with CVE references where applicable
@@ -388,11 +388,11 @@ Heavy dependencies loaded on first use to minimize startup time:
 
 | File | Changes Made |
 |------|-------------|
-| `README.md` | Rebuilt from scratch based on source code analysis. Corrected tool counts, configuration tables, and dependencies. Updated v1.5.14 release notes for StateManager test isolation fix. |
+| `README.md` | Rebuilt from scratch based on source code analysis. Corrected tool counts, configuration tables, and dependencies. Updated v1.5.15 release notes for StateManager test isolation fix. |
 | `ARCHITECTURE.md` | Rebuilt with accurate system overview diagram (16 modules), corrected tool counts in architecture sections. Added persistence-aware getAllKeys() description to StateManager module. |
 | `TOOLS_REFERENCE.md` | Complete reconstruction with all 101 tools documented accurately based on actual Zod schemas and implementations. |
-| `DOCUMENTATION.md` | This file — cleaned up duplicate sections, verified version history against source code timestamps. Fixed Chinese character typo and updated status to v1.5.14. |
-| `CHANGELOG.md` | Rewritten from scratch with correct version ordering (v1.5.14 → v1.5.0) and accurate fix descriptions based on actual git changes. |
+| `DOCUMENTATION.md` | This file — cleaned up duplicate sections, verified version history against source code timestamps. Fixed Chinese character typo and updated status to v1.5.15. |
+| `CHANGELOG.md` | Rewritten from scratch with correct version ordering (v1.5.15 → v1.5.0) and accurate fix descriptions based on actual git changes. |
 
 ---
 
@@ -422,8 +422,8 @@ All changes verified with comprehensive test suite:
 
 ## 📋 Next Steps
 
-1. Commit all changes with message: `docs: update documentation for v1.5.14 — StateManager test isolation fix`
-2. Tag release as v1.5.14 in package.json and CHANGELOG.md
+1. Commit all changes with message: `docs: update documentation for v1.5.15 — StateManager test isolation fix`
+2. Tag release as v1.5.15 in package.json and CHANGELOG.md
 3. Update LM Studio plugin manifest if needed
 4. Run full test suite to verify no regressions: `npm run test`
 
