@@ -1,10 +1,33 @@
-# 🔧 grep_files Workaround — Documentation
+# 🔧 grep_files — File vs Directory Detection Fix & Workaround
 
 ## 📋 Overview
 
-The built-in `grep_files` tool has a known bug that causes silent failures when searching within individual files. This document explains the issue, root cause, and the workaround solution implemented in this project.
+The built-in `grep_files` tool had a known bug that caused silent failures when searching within individual files. This document explains the issue, root cause, the fix implemented in this project (v1.5.17), and the workaround module for advanced use cases.
 
 ---
+
+## ✅ Status — Fixed in v1.5.17
+
+**The core bug is now fixed at the source.** Starting with version 1.5.17, `grep_files` auto-detects whether the `path` parameter points to a file or directory and handles both correctly:
+
+| Path Type | Before (v1.5.16) | After (v1.5.17+) |
+|-----------|------------------|------------------|
+| File path (e.g., `src/file.ts`) | ❌ Silent failure, 0 results | ✅ Works — searches within the file directly |
+| Directory path (e.g., `src/`) | ✅ Works correctly | ✅ Still works correctly |
+
+**No changes needed in your code.** The fix is transparent and backward-compatible.
+
+---
+
+### When to Use the Workaround Module (`fileSearch.ts`)
+
+The workaround module is **no longer required for basic file searches**, but it provides advanced features:
+- Include/exclude filename filtering on single files (not supported by `grep_files` for files)
+- Unified API that auto-detects file vs directory
+- Standalone utility functions if you need grep-like behavior outside the plugin tools
+
+---
+
 
 ## ⚠️ The Problem
 

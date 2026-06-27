@@ -1765,7 +1765,43 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
           }
         }
 
-        await walkDirectory(targetDir);  // ASYNC call
+        // ==================== FIX: Auto-detect file vs directory (Bug #1) ====================
+        let targetStats: _fs.Stats;
+        try {
+          targetStats = await fs.stat(targetDir);
+        } catch {
+          return handleError(new Error(`Path not found or inaccessible: '${targetDir}'`));
+        }
+
+        if (targetStats.isFile()) {
+          // ==================== TARGET IS A FILE — search within it directly ====================
+          console.warn(`[grep_files] Detected single file '${targetDir}' — searching in-file instead of listing directory`);
+          try {
+            const content = await fs.readFile(targetDir, 'utf-8');
+            const lines = content.split('\n');
+
+            for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
+              if (regex.test(lines[lineIdx])) {
+                const rawContent = lines[lineIdx].trim();
+                const maxCl = max_content_length ?? 150;
+
+                matches.push({
+                  file: path.relative(targetDir, targetDir),
+                  line_number: lineIdx + 1,
+                  content: (rawContent.length > maxCl ? rawContent.slice(0, maxCl) + '…' : rawContent),
+                });
+                resultsCount++;
+
+                if (resultsCount >= MAX_RESULTS) break;
+              }
+            }
+          } catch {
+            return handleError(new Error(`Failed to read file '${targetDir}'`));
+          }
+        } else {
+          // ==================== TARGET IS A DIRECTORY — walk and search recursively ====================
+          await walkDirectory(targetDir);  // ASYNC call
+        }
 
         return { 
           success: true, 

@@ -1,6 +1,52 @@
 # 📝 CHANGELOG
 
 All notable changes to AI Toolbox plugin.
+## [1.5.18] - 2026-06-27
+
+### 🔧 Cross-Platform Test Fix — `grep_files` Path Separator Normalization
+**Fixed test assertions in `tests/grep_files.test.ts` to correctly handle Windows backslash vs forward slash path differences.**
+
+#### What Changed
+- **Root Cause**: Jest tests on Windows used raw file paths with backslashes (`\`) in assertions, while the tool normalizes or returns paths with forward slashes (`/`). This caused 4 assertion failures when comparing expected vs actual results.
+- **Fix**: Added `.replace(/\\/g, '/')` normalization to all file-path expectations in `tests/grep_files.test.ts` (lines 82-84, 109-113, 132-136, 234-238) before comparison.
+- **Impact**: Test suite now passes reliably on both Windows and POSIX systems without path-separator mismatches.
+
+**Total**: 4 assertion blocks updated in `tests/grep_files.test.ts`, zero breaking changes.
+
+---
+
+### 🐛 AutoTracker FSM Re-Trigger Logic Fix
+**Fixed incorrect state re-evaluation in `checkTokenThreshold()` that caused false-positive threshold triggers.**
+
+#### What Changed
+- **Root Cause**: The FSM guard block in `src/autoTracker.ts` (~line 215-220) incorrectly re-evaluated and returned `true` when the state was already `THRESHOLD_REACHED`. This meant the method would fire repeatedly on subsequent calls instead of only triggering once on the IDLE → THRESHOLD_REACHED transition.
+- **Fix**: Removed the incorrect re-evaluation block. The method now correctly returns `true` *only* during the initial state transition, preventing duplicate checkpoint prompts and ensuring accurate threshold tracking.
+- **Impact**: AutoTracker token threshold checks now fire exactly once per session cycle, aligning with FSM design intent and preventing redundant memory saves or UI prompts.
+
+**Total**: 1 logic block removed from `src/autoTracker.ts`, zero breaking changes.
+
+
+
+## [1.5.17] - 2026-06-24
+
+### 🔧 `grep_files` Fix — Auto-detect file vs directory (Bug #1)
+
+**Fixed the `grep_files` tool to correctly handle single file paths instead of silently returning zero results.**
+
+#### What Changed
+- **Root Cause**: The `walkDirectory()` function called `fs.readdir(targetDir)` unconditionally. When a file path was passed as the `path` parameter, `readdir()` failed silently (a file has no children), returning an empty array with zero matches — never throwing an error.
+- **Fix**: Added `fs.stat(targetDir)` check before walking. If the target is a file (`stats.isFile()`), search within it directly by reading and scanning lines. If it's a directory, use the existing recursive walk logic.
+- **Behavior**: Users can now pass either a file path or a directory to `grep_files(path=..., pattern=...)` and get correct results in both cases.
+
+#### Impact
+- Single-file grep searches no longer return empty results silently
+- No breaking changes — full backward compatibility with existing directory-based calls
+- The workaround module (`src/utils/fileSearch.ts`) remains available for advanced use cases (include/exclude filtering on single files) but is no longer required as a workaround for the core bug
+
+**Total**: ~30 lines added to `src/tools/fileSystemTools.ts`, zero breaking changes.
+
+---
+
 
 ## [1.5.16] - 2026-06-24
 

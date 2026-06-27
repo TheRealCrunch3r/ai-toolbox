@@ -212,9 +212,9 @@ export class AutoTracker {
       this.transitionTo(AutoTrackState.THRESHOLD_REACHED, `usage=${usagePercentage.toFixed(1)}%`);
       return true;
     }
-
+    // Already in THRESHOLD_REACHED or other states (CONFIRMED, DECLINED) — do not re-trigger per FSM design
     if (this.currentState !== AutoTrackState.IDLE) {
-      console.warn(`[AutoTracker] [THRESHOLD] Skipped: already in ${this.currentState} state this session`);
+      console.warn(`[AutoTracker] [THRESHOLD] Skipped: already in ${this.currentState} state`);
     }
 
     return false;

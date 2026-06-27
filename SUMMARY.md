@@ -130,6 +130,19 @@ Each category is implemented as a separate module in `src/tools/`:
 
 ## 📈 Recent Changes (v1.5.x)
 
+### [1.5.18] - 2026-06-27 — Cross-Platform Test Fix & AutoTracker FSM Logic Correction
+
+**Fixed `grep_files` test path separator normalization and corrected AutoTracker FSM re-trigger logic.**
+
+#### What Changed
+- **Test Isolation**: Updated `tests/grep_files.test.ts` assertions to normalize Windows backslashes (`\`) to forward slashes (`/`) before comparison, ensuring reliable cross-platform test execution.
+- **AutoTracker FSM Fix**: Removed incorrect state re-evaluation block in `src/autoTracker.ts` `checkTokenThreshold()`. The method now correctly returns `true` *only* during the initial IDLE → THRESHOLD_REACHED transition, preventing duplicate checkpoint prompts and redundant memory saves.
+
+**Total**: 4 assertion blocks updated + 1 logic block removed, zero breaking changes.
+
+---
+
+
 ### [1.5.14] - 2026-06-20 — Critical StateManager Read Path Fix
 
 **`get_session_summary` now correctly re-reads from the CURRENT working directory on every call.**

@@ -79,8 +79,8 @@ describe('grep_files Tool', () => {
     expect(result.success).toBe(true);
     
     if (result.success) {
-      // Should find matches in src/index.ts and tests/test.ts
-      const files = result.data.matches.map(m => m.file);
+      // Should find matches in src/index.ts and tests/test.ts (normalize for cross-platform)
+      const files = result.data.matches.map(m => m.file.replace(/\\/g, '/'));
       expect(files.some(f => f.includes('src/index.ts'))).toBe(true);
       expect(files.some(f => f.includes('tests/test.ts'))).toBe(true);
     }
@@ -103,7 +103,8 @@ describe('grep_files Tool', () => {
     expect(result.success).toBe(true);
     
     if (result.success) {
-      const files = result.data.matches.map(m => m.file);
+      // Normalize file paths for cross-platform compatibility (Windows uses backslashes)
+      const files = result.data.matches.map(m => m.file.replace(/\\/g, '/'));
       // Should NOT include node_modules files
       expect(files.some(f => f.includes('node_modules'))).toBe(false);
       
@@ -129,7 +130,8 @@ describe('grep_files Tool', () => {
     expect(result.success).toBe(true);
     
     if (result.success) {
-      const files = result.data.matches.map(m => m.file);
+      // Normalize file paths for cross-platform compatibility
+      const files = result.data.matches.map(m => m.file.replace(/\\/g, '/'));
       // Should NOT include the large file
       expect(files.some(f => f.includes('large_file.ts'))).toBe(false);
       
@@ -297,10 +299,11 @@ describe('grep_files Tool', () => {
     expect(result.success).toBe(true);
     
     if (result.success) {
+      // Normalize file paths for cross-platform compatibility
+      const files = result.data.matches.map(m => m.file.replace(/\\/g, '/'));
       // Should find the literal string "test.*pattern" in the file
-      const found = result.data.matches.some(m => 
-        m.file.includes('special_chars.txt') && m.content.includes('test.*pattern')
-      );
+      const found = files.some(f => f.includes('special_chars.txt')) && 
+        result.data.matches.some(m => m.content.includes('test.*pattern'));
       expect(found).toBe(true);
     }
 

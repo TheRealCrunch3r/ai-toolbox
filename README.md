@@ -292,6 +292,16 @@ node scripts/safe_edit.js cleanup --keep=0
 
 ## 📜 Release History
 
+### v1.5.18 — Cross-Platform Test Fix & AutoTracker FSM Logic Correction (2026-06-27)
+
+**Fixed `grep_files` test path separator normalization and corrected AutoTracker FSM re-trigger logic.**
+
+#### What Changed
+- **Test Isolation**: Updated `tests/grep_files.test.ts` assertions to normalize Windows backslashes (`\`) to forward slashes (`/`) before comparison, ensuring reliable cross-platform test execution.
+- **AutoTracker FSM Fix**: Removed incorrect state re-evaluation block in `src/autoTracker.ts` `checkTokenThreshold()`. The method now correctly returns `true` *only* during the initial IDLE → THRESHOLD_REACHED transition, preventing duplicate checkpoint prompts and redundant memory saves.
+
+---
+
 ### v1.5.15 — Session Summary Compression & Token Savings (2026-06-22)
 
 **Session summaries now use `zlib.gzipSync()` compression to bypass the 10k SDK parameter limit and reduce token consumption by ~30%.**
