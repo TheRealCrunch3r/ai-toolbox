@@ -60,7 +60,9 @@ export function registerLineOperationsTools(_config: PluginConfig): Tool[] {
 
           // Read file content
           const content = fs.readFileSync(fullPath, 'utf-8');
-          const lines = content.split('\n');
+          // ========== FIX: Detect original line ending style ==========
+          const hasCRLF_dl = content.includes('\r\n');
+          const lines = hasCRLF_dl ? content.split('\r\n') : content.split('\n');
 
           // Check if line range is within bounds
           const actualEndLine = end_line ?? start_line;
@@ -83,7 +85,7 @@ export function registerLineOperationsTools(_config: PluginConfig): Tool[] {
 
           // Write back atomically (write to temp file then rename)
           const tmpPath = `${fullPath}.tmp`;
-          fs.writeFileSync(tmpPath, lines.join('\n'), 'utf-8');
+          fs.writeFileSync(tmpPath, hasCRLF_dl ? lines.join('\r\n') : lines.join('\n'), 'utf-8');
           fs.renameSync(tmpPath, fullPath);
 
           return {

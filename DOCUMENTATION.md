@@ -349,7 +349,7 @@ Heavy dependencies loaded on first use to minimize startup time:
 ## ✅ Verification Checklist
 
 ### README.md
-- [x] Tool count corrected to 101 total across 16 categories
+- [x] Tool count corrected to 109 total across 17 categories
 - [x] All tool names verified against source code
 - [x] Configuration table matches `config.ts` Zod schema exactly
 - [x] Dependencies section updated with latest versions from package.json
@@ -363,7 +363,7 @@ Heavy dependencies loaded on first use to minimize startup time:
 - [x] Security pipeline documented correctly
 
 ### TOOLS_REFERENCE.md
-- [x] All 101 tools documented with accurate parameter tables
+- [x] All 109 tools documented with accurate parameter tables
 - [x] Return types match actual implementations
 - [x] Tool categories and counts verified against source code
 - [x] Examples use correct parameter names and types
@@ -390,7 +390,7 @@ Heavy dependencies loaded on first use to minimize startup time:
 |------|-------------|
 | `README.md` | Rebuilt from scratch based on source code analysis. Corrected tool counts, configuration tables, and dependencies. Updated v1.5.15 release notes for StateManager test isolation fix. |
 | `ARCHITECTURE.md` | Rebuilt with accurate system overview diagram (16 modules), corrected tool counts in architecture sections. Added persistence-aware getAllKeys() description to StateManager module. |
-| `TOOLS_REFERENCE.md` | Complete reconstruction with all 101 tools documented accurately based on actual Zod schemas and implementations. |
+| `TOOLS_REFERENCE.md` | Complete reconstruction with all 109 tools documented accurately based on actual Zod schemas and implementations. |
 | `DOCUMENTATION.md` | This file — cleaned up duplicate sections, verified version history against source code timestamps. Fixed Chinese character typo and updated status to v1.5.15. |
 | `CHANGELOG.md` | Rewritten from scratch with correct version ordering (v1.5.15 → v1.5.0) and accurate fix descriptions based on actual git changes. |
 

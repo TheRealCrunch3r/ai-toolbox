@@ -113,24 +113,21 @@ const SEARCH_ENGINES: Record<string, (query: string) => Promise<SearchResultItem
   'bing': searchBing,
 };
 
-/** Hardcoded fallback order (when primary engine fails) */
-const FALLBACK_ORDER = ['ddg-api', 'ddg-fetch', 'google', 'bing'];
+/** Hardcoded fallback order — DuckDuckGo API is always tried first (Google/Bing block automated requests) */
+const FALLBACK_ORDER: readonly string[] = ['ddg-api', 'ddg-fetch', 'google', 'bing'];
 
 // ==================== Fallback Chain Logic ====================
 
 /**
  * Web search with automatic fallback.
- * Starts with the Config engine and automatically tries the next in the chain.
+ * DuckDuckGo API is always the primary engine — UI config is ignored to prevent broken search.
  */
 async function searchWithFallbackChain(
   query: string,
-  config: PluginConfig
+  _config: PluginConfig
 ): Promise<{ success: boolean; data?: { query: string; results: SearchResultItem[]; count: number; engine: string }; error?: string }> {
-  // Start engine from Config (Single Select)
-  const primaryEngine = config.searchFallbackChain || 'ddg-api';
-  
-  // Fallback chain: primary engine + all others in defined order
-  const chain = [primaryEngine, ...FALLBACK_ORDER.filter(e => e !== primaryEngine)];
+  // DuckDuckGo API is always first — it's the only engine that doesn't block automated requests
+  const chain = [...FALLBACK_ORDER];
 
   for (const engine of chain) {
     try {

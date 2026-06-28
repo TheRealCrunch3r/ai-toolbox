@@ -1,6 +1,6 @@
 # 🧰 AI Toolbox — LM Studio Plugin
 
-> **101 tools** across 16 categories: file system, web research, browser automation, Git/GitHub, database, document parsing, background commands, code execution, utilities, image processing, HTTP client, vector RAG, text processing, interactive UI generation, auto-context management, and backup & restore.
+> **109 tools** across 17 categories: file system, web research, browser automation, Git/GitHub, database, document parsing, background commands, code execution, utilities, image processing, HTTP client, vector RAG, text processing, interactive UI generation, auto-context management, backup & restore, and line operations.
 
 ---
 
@@ -110,7 +110,7 @@ The plugin is installed as an LM Studio plugin. Ensure you have:
 
 1. **Load the plugin** in LM Studio's plugin settings
 2. **Configure tool access** — individual tool categories can be toggled on/off
-3. **Start a chat** and the LLM can now use any of the 101 tools
+3. **Start a chat** and the LLM can now use any of the 109 tools
 
 ### Example: Search the Web
 
@@ -291,6 +291,22 @@ node scripts/safe_edit.js cleanup --keep=0
 ---
 
 ## 📜 Release History
+
+### v1.5.19 — Windows CRLF Line Ending Preservation Fix (2026-06-28)
+
+**Fixed silent line ending corruption across 5 file-modifying tools on Windows systems.**
+
+All tools that split file content into lines (`insert_at_line`, `delete_lines_in_file`, `text_transform` line-range mode, `line_operations`, `delete_lines`) now detect `\r\n` (CRLF) before splitting and preserve it on output. Files with Windows-style line endings are no longer silently converted to LF.
+
+- `insert_at_line` — CRLF preserved on insert
+- `delete_lines_in_file` — CRLF preserved on delete
+- `text_transform` (line-range mode) — CRLF preserved when using `lines` parameter
+- `line_operations` — CRLF preserved on insert/delete/move
+- `delete_lines` — CRLF preserved on delete
+
+**Total**: 10 code changes across 3 files, zero breaking changes.
+
+---
 
 ### v1.5.18 — Cross-Platform Test Fix & AutoTracker FSM Logic Correction (2026-06-27)
 

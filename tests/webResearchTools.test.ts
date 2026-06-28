@@ -20,18 +20,16 @@ jest.mock('html-to-text', () => ({
   htmlToText: jest.fn().mockReturnValue('Plain text content'),
 }));
 
-// Mock fetchWithRetry from performanceUtils
-jest.mock('../src/performanceUtils', () => {
-  const actual = jest.requireActual('../src/performanceUtils');
-  return {
-    ...actual,
-    fetchWithRetry: jest.fn().mockResolvedValue({
-      ok: true,
-      text: () => Promise.resolve('<html><body>Test content</body></html>'),
-      json: () => Promise.resolve({ query: { search: [{ title: 'Test', snippet: 'Test snippet' }] } }),
-    }),
-  };
-});
+// Mock fetchWithRetry from performanceUtils — COMPLETE mock to prevent ALL real network calls
+// IMPORTANT: Do NOT use jest.requireActual() here — it loads the real module which can make network requests
+jest.mock('../src/performanceUtils', () => ({
+  fetchWithRetry: jest.fn().mockResolvedValue({
+    ok: true,
+    status: 200,
+    text: () => Promise.resolve('<html><body>Test content</body></html>'),
+    json: () => Promise.resolve({ query: { search: [{ title: 'Test', snippet: 'Test snippet' }] } }),
+  }),
+}));
 
 describe('Web Research Tools', () => {
   let tools: ReturnType<typeof registerWebResearchTools>;
@@ -59,8 +57,11 @@ describe('Web Research Tools', () => {
       (search as jest.Mock).mockRejectedValueOnce(new Error('Network error'));
       const tool = tools?.find(t => t.name === 'web_search');
       const result = await tool?.implementation({ query: 'test' });
-      // Should fall back to next engine, not fail completely
+      
+      // Should fall back to next engine and succeed
       expect(result).toBeDefined();
+      expect((result as any).success).toBe(true);
+      expect((result as any).data?.engine).not.toBe('ddg-api');
     });
   });
 

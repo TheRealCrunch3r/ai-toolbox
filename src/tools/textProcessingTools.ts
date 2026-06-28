@@ -126,7 +126,9 @@ export function registerTextProcessingTools(_config: PluginConfig): Tool[] {
 
         if (lines?.start !== undefined || lines?.end !== undefined) {
           // Apply transformation to specific line range
-          const linesArray = content.split('\n');
+          // ========== FIX: Preserve original line endings ==========
+          const hasCRLF_tt = content.includes('\r\n');
+          const linesArray = hasCRLF_tt ? content.split('\r\n') : content.split('\n');
           const startLine = Math.max(1, lines.start ?? 1);
           let endLine = Math.min(lines.end ?? linesArray.length, linesArray.length);
 
@@ -150,7 +152,7 @@ export function registerTextProcessingTools(_config: PluginConfig): Tool[] {
             }
           }
 
-          transformedContent = linesArray.join('\n');
+          transformedContent = hasCRLF_tt ? linesArray.join('\r\n') : linesArray.join('\n');
         } else {
           // Apply transformation to entire file
           const allMatches = content.match(regex);
@@ -330,7 +332,9 @@ export function registerTextProcessingTools(_config: PluginConfig): Tool[] {
           return handleError(error);
         }
 
-        const linesArr = file_content.split('\n');
+        // ========== FIX: Detect original line ending style ==========
+        const hasCRLF_lo = file_content.includes('\r\n');
+        const linesArr = hasCRLF_lo ? file_content.split('\r\n') : file_content.split('\n');
         let changes_made = 0;
 
         switch (operation) {
@@ -399,7 +403,8 @@ export function registerTextProcessingTools(_config: PluginConfig): Tool[] {
 
         // ========== P1 FIX: Atomic Write (Bug #4) ==========
         try {
-          await writeFileAtomic(fullPath, linesArr.join('\n'));
+          const finalContent = hasCRLF_lo ? linesArr.join('\r\n') : linesArr.join('\n');
+          await writeFileAtomic(fullPath, finalContent);
         } catch (error) {
           return handleError(error);
         }

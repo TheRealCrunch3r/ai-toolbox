@@ -46,7 +46,7 @@ Deep dive into the AI Toolbox plugin's system architecture, design patterns, and
 │  │  │  └───────────┼──────────────────────┼─────────────┘  │  │  │
 │  │  │              │                      │                │  │  │
 │  │  │  ┌───────────┴──────────────────────┴─────────────┐  │  │  │
-│  │  │  │              Tool Modules (16 files)            │  │  │  │
+│  │  │  │              Tool Modules (17 files)            │  │  │  │
 │  │  │  │  ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ │  │  │  │
 │  │  │  │  │fileSys │ │webRes  │ │browser │ │  git   │ │  │  │  │
 │  │  │  │  │ (21)   │ │ (4)    │ │  (5)   │ │ (13)   │ │  │  │  │
@@ -59,9 +59,13 @@ Deep dive into the AI Toolbox plugin's system architecture, design patterns, and
 │  │  │  │  │ image  │ │ http   │ │ vector │ │   UI   │ │  │  │  │
 │  │  │  │  │ (4)    │ │ (3)    │ │ RAG(4) │ │ Gen(3) │ │  │  │  │
 │  │  │  │  └────────┘ └────────┘ └────────┘ └────────┘ │  │  │  │
+│  │  │  │  ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ │  │  │  │
+│  │  │  │  │ docParse│ │textProc│ │ Context │ │ Backup │ │  │  │  │
+│  │  │  │  │  (1)   │ │  (3)   │ │ Mgmt(7) │ │ (4)    │ │  │  │  │
+│  │  │  │  └────────┘ └────────┘ └────────┘ └────────┘ │  │  │  │
 │  │  │  │  ┌────────┐                                   │  │  │  │
-│  │  │  │  │ Context │                                   │  │  │  │
-│  │  │  │  │ Mgmt(7) │                                   │  │  │  │
+│  │  │  │  │ LineOps │                                   │  │  │  │
+│  │  │  │  │  (3)    │                                   │  │  │  │
 │  │  │  │  └────────┘                                   │  │  │  │
 │  │  │  └─────────────────────────────────────────────┘  │  │  │
 │  │  └───────────────────────────────────────────────────┘  │  │
@@ -90,7 +94,7 @@ export function main(context: PluginContext) {
   // 2. Register prompt preprocessor (Document RAG + ContextGuard)
   context.withPromptPreprocessor(preprocess);
   
-  // 3. Register tools provider (all 101 tools)
+  // 3. Register tools provider (all 109 tools)
   context.withToolsProvider(toolsProvider);
   
   // 4. Setup cleanup handlers
@@ -668,11 +672,11 @@ src/
 │   ├── de.ts
 │   ├── zh-CN.ts
 │   └── zh-TW.ts
-├── tools/                      # Tool category modules (16 files)
-│   ├── fileSystemTools.ts      # 20 file system tools
+├── tools/                      # Tool category modules (17 files)
+│   ├── fileSystemTools.ts      # 21 file system tools
 │   ├── webResearchTools.ts     # 4 web research tools
 │   ├── browserAutomationTools.ts # 5 browser tools
-│   ├── gitGithubTools.ts       # 14 Git/GitHub tools
+│   ├── gitGithubTools.ts       # 13 Git/GitHub tools
 │   ├── databaseTools.ts        # 1 database tool
 │   ├── documentTools.ts        # 1 document parsing tool
 │   ├── backgroundCommandTools.ts # 3 background command tools
@@ -681,9 +685,11 @@ src/
 │   ├── imageProcessingTools.ts # 4 image processing tools
 │   ├── httpClientTools.ts      # 3 HTTP client tools
 │   ├── vectorRagTools.ts       # 4 vector RAG tools
+│   ├── textProcessingTools.ts  # 3 text processing tools
 │   ├── uiGenerationTools.ts    # Interactive UI Generation (3 tools)
 │   ├── contextManagementTools.ts # Auto-Context Management (7 tools)
-│   └── backupTools.ts          # Backup & Restore (4 tools)
+│   ├── backupTools.ts          # Backup & Restore (4 tools)
+│   └── lineOperations.ts       # Line-level text operations (3 tools)
 └── types/                      # Type definitions
     └── types.d.ts
 

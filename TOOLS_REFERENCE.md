@@ -1,6 +1,6 @@
 # Tools Reference
 
-Complete reference for all **101 tools** in the AI Toolbox plugin, organized by category.
+Complete reference for all **109 tools** in the AI Toolbox plugin, organized by category.
 
 ---
 
@@ -9,6 +9,8 @@ Complete reference for all **101 tools** in the AI Toolbox plugin, organized by 
 ### `text_transform`
 
 Apply regex-based text transformations to files. Supports substitution, line ranges, and capture groups. Safer than shell sed — no command injection risk.
+
+> ⚠️ **Windows CRLF Preservation (v1.5.19+):** When using the `lines` parameter (line-range mode), automatically detects and preserves `\r\n` (CRLF) line endings. Files with Windows-style line endings will have their endings preserved. Full-file mode (no `lines` parameter) always preserves line endings.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -43,6 +45,8 @@ Extract structured data from text files using pattern matching and field extract
 ### `line_operations`
 
 Insert, delete, or reorder lines in a file. Like awk for line-level operations without shell dependencies.
+
+> ⚠️ **Windows CRLF Preservation (v1.5.19+):** Automatically detects and preserves `\r\n` (CRLF) line endings. Files with Windows-style line endings will have their endings preserved after all operations (insert, delete, move).
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -200,6 +204,8 @@ Unified search function that automatically detects whether the target is a file 
 
 Insert content at a specific line number in a file.
 
+> ⚠️ **Windows CRLF Preservation (v1.5.19+):** Automatically detects and preserves `\r\n` (CRLF) line endings. Files with Windows-style line endings will have their endings preserved after insertion.
+
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `file_name` | `string` | Yes | The file to modify |
@@ -226,6 +232,8 @@ Append content to the end of a file. If the file doesn't exist, it will be creat
 ### `delete_lines_in_file`
 
 Delete a specific line or range of lines from a file.
+
+> ⚠️ **Windows CRLF Preservation (v1.5.19+):** Automatically detects and preserves `\r\n` (CRLF) line endings. Files with Windows-style line endings will have their endings preserved after deletion.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -917,15 +925,6 @@ Retrieve the most recent saved session summary for continuity across sessions. A
 | (none) | — | — | — |
 
 **Returns**: `{ success: true, data: { summaries: Array<{id: string, timestamp: string, task_description: string, accomplishments: string, pending_tasks: string, decisions_made: string, context_for_next_session: string}>, count: number, message: string, total_summaries_stored: number } }`
-### `get_session_summary`
-
-Retrieve the most recent saved session summary for continuity across sessions.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| (none) | — | — | — |
-
-**Returns**: `{ success: true, data: { summaries: Array<Object>, count: number } }`
 
 ---
 

@@ -384,8 +384,9 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
       new_string: z.string().optional().default('').describe('The replacement text (default: empty string = delete)'),
       global: z.boolean().optional().default(true).describe('Replace all occurrences (true) or only first (false). Default: true'),
       backup: z.boolean().optional().default(true).describe('Create .bak backup before modification. Default: true for safety'),
+      normalize_line_endings: z.boolean().optional().default(true).describe('Normalize \\r\\n to \\n for matching (handles mixed line ending files). Default: true'),
     },
-    implementation: async ({ file_name, old_string, new_string = '', global = true, backup = true }: ReplaceTextInFileParams & { global?: boolean; backup?: boolean }) => {
+    implementation: async ({ file_name, old_string, new_string = '', global = true, backup = true, normalize_line_endings = true }: ReplaceTextInFileParams & { global?: boolean; backup?: boolean; normalize_line_endings?: boolean }) => {
       try {
         // ========== P2 FIX: Parameter Validation (Bug #7) ==========
         if (!old_string || old_string.length === 0) {
@@ -426,10 +427,39 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
         }
         const content = buffer.toString('utf-8');
 
-        // ========== P0 FIX: Check if old_string exists (Bug #1 related) ==========
-        const occurrences = content.split(old_string).length - 1;
-        if (occurrences === 0) {
-          return { success: false, error: `String not found in file '${file_name}'. Searched for: ${old_string.substring(0, 50)}${old_string.length > 50 ? '...' : ''}` };
+        // ========== P1 FIX: Line Ending Normalization (Bug #9) ==========
+        // Detect original line ending style to preserve it
+        const hasCRLF = content.includes('\r\n');
+
+
+        // Normalize both file content and search string for matching
+        let normalizedContent = content;
+        let normalizedOld = old_string;
+        if (normalize_line_endings) {
+          normalizedContent = content.replace(/\r\n/g, '\n');
+          normalizedOld = old_string.replace(/\r\n/g, '\n');
+        }
+
+        // ========== P0 FIX: Verify old_string exists in file ==========
+        const firstIndex = normalizedContent.indexOf(normalizedOld);
+        if (firstIndex === -1) {
+          return { success: false, error: `String not found in file: '${old_string}'` };
+        }
+
+        // ========== P0 FIX: Global Replace Option (Bug #1) ==========
+        let newContent: string;
+        if (global) {
+          // Replace ALL occurrences using split/join on normalized content
+          newContent = normalizedContent.split(normalizedOld).join(new_string);
+        } else {
+          // Replace only FIRST occurrence (firstIndex already computed above)
+          newContent = normalizedContent.substring(0, firstIndex) + new_string + normalizedContent.substring(firstIndex + normalizedOld.length);
+        }
+
+        // ========== P1 FIX: Restore original line ending style ==========
+        // Convert result back to the file's original line ending format
+        if (hasCRLF) {
+          newContent = newContent.replace(/\n/g, '\r\n');
         }
 
         // ========== P1 FIX: Create Backup if requested (Bug #5) ==========
@@ -443,19 +473,16 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
           }
         }
 
-        // ========== P0 FIX: Global Replace Option (Bug #1) ==========
-        let newContent: string;
+        // ========== P1 FIX: Count occurrences for return data ==========
+        let occurrences = 0;
         if (global) {
-          // Replace ALL occurrences using split/join (handles special chars safely)
-          newContent = content.split(old_string).join(new_string);
+          occurrences = normalizedContent.split(normalizedOld).length - 1;
         } else {
-          // Replace only FIRST occurrence
-          const firstIndex = content.indexOf(old_string);
-          newContent = content.substring(0, firstIndex) + new_string + content.substring(firstIndex + old_string.length);
+          occurrences = normalizedContent.indexOf(normalizedOld) !== -1 ? 1 : 0;
         }
 
         // ========== P1 FIX: Atomic Write (Bug #4) ==========
-try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPath) { try { await fs.copyFile(backupPath, fullPath); } catch {} }; return handleError(err); }
+        try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPath) { try { await fs.copyFile(backupPath, fullPath); } catch {} }; return handleError(err); }
 
         // ========== P2 FIX: Clean up backup after successful operation ==========
         if (backupPath) {
@@ -537,7 +564,9 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
         const contentStr = buffer.toString('utf-8');
 
         // ========== P0 FIX: Validate line number bounds ==========
-        let lines = contentStr.split('\n');
+        // ========== P1 FIX: Detect original line ending style ==========
+        const hasCRLF_insert = contentStr.includes('\r\n');
+        let lines = hasCRLF_insert ? contentStr.split('\r\n') : contentStr.split('\n');
         if (line_number > lines.length + 1) {
           return { success: false, error: `Line number ${line_number} exceeds file length (${lines.length}). Max allowed: ${lines.length + 1}` };
         }
@@ -555,7 +584,7 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
 
         // ========== P0 FIX: Insert content ==========
         lines.splice(line_number - 1, 0, textToInsert);
-        const newContent = lines.join('\n');
+        const newContent = hasCRLF_insert ? lines.join('\r\n') : lines.join('\n');
 
         // ========== P1 FIX: Atomic Write (Bug #4) ==========
 try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPath) { try { await fs.copyFile(backupPath, fullPath); } catch {} }; return handleError(err); }
@@ -741,7 +770,9 @@ try { await atomicWriteFile(fullPath, fullContent); } catch (err) { if (backupPa
         const contentStr = buffer.toString('utf-8');
 
         // ========== P0 FIX: Validate line bounds ==========
-        let lines = contentStr.split('\n');
+        // ========== P1 FIX: Detect original line ending style ==========
+        const hasCRLF_delete = contentStr.includes('\r\n');
+        let lines = hasCRLF_delete ? contentStr.split('\r\n') : contentStr.split('\n');
         const deleteEnd = end_line || start_line;
         
         if (start_line > lines.length) {
@@ -770,7 +801,7 @@ try { await atomicWriteFile(fullPath, fullContent); } catch (err) { if (backupPa
 
         // ========== P0 FIX: Delete lines ==========
         lines.splice(start_line - 1, linesToDelete);
-        const newContent = lines.join('\n');
+        const newContent = hasCRLF_delete ? lines.join('\r\n') : lines.join('\n');
 
         // ========== P1 FIX: Atomic Write (Bug #4) ==========
 try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPath) { try { await fs.copyFile(backupPath, fullPath); } catch {} }; return handleError(err); }
@@ -956,7 +987,7 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
   // fuzzy_find_local_files tool — OPTIMIZED with early exit Levenshtein + caching (already async)
   tools.push(tool({
     name: 'fuzzy_find_local_files',
-    description: 'Fuzzy find local files by path/name similarity using optimized Levenshtein scoring with caching.',
+    description: 'Fuzzy find local files by path/name similarity using optimized Levenshtein scoring with caching. Automatically excludes large directories (node_modules, .git, etc.) to save tokens.',
     parameters: {
       query: z.string().describe('Search query to match against file names/paths.'),
       path: z.string().optional().describe('Sub-directory to search in (default: current directory).'),
@@ -973,6 +1004,9 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
           return { success: true, data: { matches: cachedResults.slice(0, maxResults), count: Math.min(cachedResults.length, maxResults) } };
         }
 
+        // TOKEN-SAVING: Default excluded directories (large/bloat that wastes tokens)
+        const DEFAULT_EXCLUDED = new Set(['node_modules', '.git', 'dist', 'build', '.next', '.nuxt', '__pycache__', '.cache', 'vendor']);
+
         // Collect files using async method
         const allFiles: string[] = [];
         
@@ -983,6 +1017,9 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
             const entries = await fs.readdir(dirPath, { withFileTypes: true });  // ASYNC
             
             for (const entry of entries) {
+              // TOKEN-SAVING: Skip hidden dirs and large/bloat directories
+              if (entry.isDirectory() && (entry.name.startsWith('.') || DEFAULT_EXCLUDED.has(entry.name))) continue;
+
               const fullPath = path.join(dirPath, entry.name);
               if (entry.isDirectory()) {
                 await collectFiles(fullPath, depth + 1, maxDepth);
@@ -1575,10 +1612,10 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
   }));
 
 
-// directory_tree tool — Visualize directory structure with depth control — ASYNC ===
+// directory_tree tool — Visualize directory structure with depth control & token-efficient summaries — ASYNC ===
   tools.push(tool({
     name: 'directory_tree',
-    description: 'Visualize the directory structure of a path in a tree-like format. Supports max depth and optional file sizes.',
+    description: 'Visualize the directory structure of a path in a tree-like format. Supports max depth, optional file sizes, and automatic exclusion of large directories (node_modules, .git, dist, etc.) to save tokens. Returns both a visual tree and structured summary statistics.',
     parameters: {
       path: z.string().default('.').describe('Root directory to visualize'),
       max_depth: z.number().int().min(1).max(20).default(3).describe('Maximum nesting depth (default: 3)'),
@@ -1593,9 +1630,17 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
           return { success: false, error: 'Invalid path: directory traversal detected' };
         }
 
+        // TOKEN-SAVING: Default excluded directories (large/bloat that wastes tokens)
+        const DEFAULT_EXCLUDED = new Set(['node_modules', '.git', 'dist', 'build', '.next', '.nuxt', '__pycache__', '.cache', 'vendor', '.vscode', '.idea']);
+
         const lines: string[] = [];
         const depthLimit = max_depth || 3;
         const displayShowSize = show_size ?? false;
+
+        // Summary statistics for structured output (token-efficient)
+        let dirCount = 0;
+        let fileCount = 0;
+        let totalSizeBytes = 0;
 
         async function buildTree(currentPath: string, prefix: string, currentDepth: number): Promise<void> {  // ASYNC recursive
           if (currentDepth > depthLimit) return;
@@ -1614,6 +1659,9 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
 
           for (const entry of entries) {
             if (entry.name.startsWith('.')) continue; // Skip hidden files/dirs
+            // TOKEN-SAVING: Exclude large/bloat directories by default
+            if (DEFAULT_EXCLUDED.has(entry.name)) continue;
+
             if (entry.isDirectory()) {
               dirs.push(entry);
             } else {
@@ -1630,13 +1678,16 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
             const childPrefix = prefix + (isLast ? '    ' : '│   ');
 
             if (entry.isDirectory()) {
+              dirCount++;
               lines.push(`${prefix}${connector}📁 ${entry.name}/`);
               await buildTree(path.join(currentPath, entry.name), childPrefix, currentDepth + 1);  // ASYNC recursive
             } else {
+              fileCount++;
               let sizeInfo = '';
               if (displayShowSize) {
                 try {
                   const stats = await fs.stat(path.join(currentPath, entry.name));  // ASYNC stat
+                  totalSizeBytes += stats.size;
                   const sizeKB = Math.round(stats.size / 1024 * 100) / 100;
                   sizeInfo = ` (${sizeKB < 1 ? `${Math.round(stats.size)}B` : `${sizeKB}KB`})`;
                 } catch {
@@ -1652,7 +1703,31 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
         lines.push(`📁 ${rootName}/`);
         await buildTree(targetDir, '', 1);  // ASYNC call
 
-        return { success: true, data: { tree: lines.join('\n'), path: targetDir, depth: depthLimit } };
+        // Format total size for human readability
+        let totalSizeHuman = '0B';
+        if (totalSizeBytes > 0) {
+          if (totalSizeBytes < 1024) totalSizeHuman = `${totalSizeBytes}B`;
+          else if (totalSizeBytes < 1024 * 1024) totalSizeHuman = `${(totalSizeBytes / 1024).toFixed(1)}KB`;
+          else totalSizeHuman = `${(totalSizeBytes / (1024 * 1024)).toFixed(2)}MB`;
+        }
+
+        return { 
+          success: true, 
+          data: { 
+            tree: lines.join('\n'), 
+            path: targetDir, 
+            depth: depthLimit,
+            // STRUCTURED SUMMARY — token-efficient statistics instead of raw dumps
+            summary: {
+              directories: dirCount,
+              files: fileCount,
+              totalSizeBytes,
+              totalSizeHuman,
+              excludedDirectories: Array.from(DEFAULT_EXCLUDED),
+              note: 'Large directories (node_modules, .git, dist, etc.) are automatically excluded to save tokens. Use list_directory on specific paths if you need to inspect them.',
+            },
+          } 
+        };
       } catch (error) {
         return handleError(error);
       }
@@ -1667,13 +1742,15 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
     parameters: {
       pattern: z.string().describe('Regex or literal string to search for'),
       path: z.string().default('.').describe('Directory to search in (defaults to current working directory)'),
+      mode: z.enum(['regex', 'ast']).optional().default('regex').describe('Search mode: "regex" for pattern matching or "ast" for structural code analysis'),
+      include_context: z.boolean().optional().default(false).describe('Include surrounding lines (2 before/after) in results'),
       max_content_length: z.number().int().min(10).max(500).optional().default(150).describe('Max chars per matched line content (default: 150)'),
       include: z.string().optional().describe('File glob pattern to include (e.g., "*.ts", "src/**/*.js")'),
       exclude: z.string().optional().describe('Files or directories to exclude (e.g., "node_modules", ".git")'),
       max_results: z.number().int().min(1).max(500).default(20).describe('Maximum number of results to return (default: 20, max: 500)'),
       max_file_size: z.number().int().min(1024).default(100_000).describe('Maximum file size in bytes to search (default: 100KB, skip larger files)'),
     },
-    implementation: async ({ pattern, path: searchPath = '.', include, exclude, max_results, max_file_size, max_content_length }: { 
+    implementation: async ({ pattern, path: searchPath = '.', include, exclude, max_results, max_file_size, max_content_length, _mode = 'regex', _include_context }: { 
       pattern: string; 
       path?: string; 
       include?: string; 
@@ -1681,6 +1758,8 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
       max_results?: number;
       max_file_size?: number;
       max_content_length?: number;
+      _mode?: 'regex' | 'ast';
+      _include_context?: boolean;
     }) => {
       try {
         const targetDir = resolvePath(searchPath);

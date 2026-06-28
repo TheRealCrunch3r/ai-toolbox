@@ -18,7 +18,7 @@ Comprehensive overview of the AI Toolbox plugin, its architecture, features, and
 
 ## 🎯 Project Overview
 
-**AI Toolbox Plugin** is a comprehensive LM Studio plugin providing **101 tools across 16 categories** for AI-assisted development workflows. The plugin enables language models to interact with file systems, execute code, browse the web, manage Git repositories, process documents, and more — all within a secure, configurable framework.
+**AI Toolbox Plugin** is a comprehensive LM Studio plugin providing **109 tools across 17 categories** for AI-assisted development workflows. The plugin enables language models to interact with file systems, execute code, browse the web, manage Git repositories, process documents, and more — all within a secure, configurable framework.
 
 ### Core Capabilities
 
@@ -41,7 +41,7 @@ Comprehensive overview of the AI Toolbox plugin, its architecture, features, and
 | Auto-Context Management | 7 tools | Automatic session tracking, decision logging, persistent memory |
 | Backup & Restore | 4 tools | Create compressed ZIP backups with atomic write pattern |
 
-**Total:** 101 tools across 16 categories ✅
+**Total:** 109 tools across 17 categories ✅
 
 ---
 
@@ -93,7 +93,7 @@ Plugin Runner (Node.js 20+)
     ├── Config Layer (Zod schemas + UI schematics)
     ├── Security Layer (Path validation, command sanitization, SQL guards)
     ├── State Management (Debounced persistence to JSON/msgpack files)
-    └── Tool Registry (16 modules → 101 tools total)
+    └── Tool Registry (17 modules → 109 tools total)
 ```
 
 ### Core Modules
@@ -129,6 +129,16 @@ Each category is implemented as a separate module in `src/tools/`:
 ---
 
 ## 📈 Recent Changes (v1.5.x)
+
+### [1.5.19] - 2026-06-28 — Windows CRLF Line Ending Preservation Fix
+
+**Fixed silent line ending corruption across 5 file-modifying tools on Windows.**
+
+Tools that split file content into lines (`insert_at_line`, `delete_lines_in_file`, `text_transform` line-range mode, `line_operations`, `delete_lines`) now detect `\r\n` (CRLF) before splitting and preserve it on output. Files with Windows-style line endings are no longer silently converted to LF.
+
+**Total**: 10 code changes across 3 files, zero breaking changes.
+
+---
 
 ### [1.5.18] - 2026-06-27 — Cross-Platform Test Fix & AutoTracker FSM Logic Correction
 
@@ -181,7 +191,7 @@ Four tools (`replace_text_in_file`, `insert_at_line`, `append_file`, `delete_lin
 
 **Documentation Accuracy:**
 - Rebuilt all documentation from scratch based on source code analysis
-- Corrected tool counts (101 total across 16 categories)
+- Corrected tool counts (109 total across 17 categories)
 - Verified configuration tables match Zod schema definitions exactly
 - Updated architecture diagrams to reflect actual module structure
 
@@ -301,7 +311,7 @@ All documentation has been reconstructed based on actual source code analysis:
 |------|--------|-------|
 | `README.md` | ✅ Rebuilt | Accurate tool counts, configuration tables derived from Zod schema |
 | `ARCHITECTURE.md` | ✅ Rebuilt | Correct system overview diagram (16 modules), verified data flows |
-| `TOOLS_REFERENCE.md` | ✅ Rebuilt | All 101 tools documented with parameter tables matching implementations |
+| `TOOLS_REFERENCE.md` | ✅ Rebuilt | All 109 tools documented with parameter tables matching implementations |
 | `DOCUMENTATION.md` | ✅ Rebuilt | Cleaned up duplicate sections, verified version history against source code |
 | `CHANGELOG.md` | ✅ Updated | Accurate release dates and tool count corrections |
 | `CONTRIBUTING.md` | ✅ Created | Development workflow, adding new tools guidelines |

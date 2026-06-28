@@ -127,6 +127,7 @@ interface SearchResult {
 /**
  * Recursively search for files matching a pattern using async/await with concurrency control.
  * Much faster than synchronous readdirSync for large directory trees.
+ * Automatically excludes large/bloat directories (node_modules, .git, etc.) to save tokens.
  */
 export async function findFilesAsync(
   dirPath: string,
@@ -136,6 +137,9 @@ export async function findFilesAsync(
 ): Promise<SearchResult> {
   const results: string[] = [];
   const patternLower = pattern.toLowerCase();
+
+  // TOKEN-SAVING: Default excluded directories (large/bloat that wastes tokens)
+  const DEFAULT_EXCLUDED = new Set(['node_modules', '.git', 'dist', 'build', '.next', '.nuxt', '__pycache__', '.cache', 'vendor']);
 
   async function searchDir(currentPath: string, depth: number): Promise<void> {
     if (depth > maxDepth) return;
@@ -150,8 +154,10 @@ export async function findFilesAsync(
         }
       }
 
-      // Collect subdirectories for parallel processing
-      const subdirs = entries.filter(e => e.isDirectory()).map(e => path.join(currentPath, e.name));
+      // Collect subdirectories for parallel processing — TOKEN-SAVING: exclude large dirs
+      const subdirs = entries
+        .filter(e => e.isDirectory() && !DEFAULT_EXCLUDED.has(e.name) && !e.name.startsWith('.'))
+        .map(e => path.join(currentPath, e.name));
       
       if (subdirs.length > 0) {
         // Process directories in batches to avoid overwhelming the system

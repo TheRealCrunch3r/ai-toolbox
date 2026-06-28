@@ -1,6 +1,31 @@
 # 📝 CHANGELOG
 
 All notable changes to AI Toolbox plugin.
+## [1.5.19] - 2026-06-28
+
+### 🐛 Windows Line Ending (CRLF) Preservation Fix — All File-Modifying Tools
+
+**Fixed silent line ending corruption across 5 file-modifying tools on Windows systems.**
+
+#### What Changed
+- **Root Cause**: Tools that split file content into lines (`insert_at_line`, `delete_lines_in_file`, `text_transform` line-range mode, `line_operations`, `delete_lines`) used `content.split('\n')` and `lines.join('\n')`, which silently converted all `\r\n` (CRLF) line endings to `\n` (LF) on every operation.
+- **Fix**: Added `hasCRLF = content.includes('\r\n')` detection before line splitting. When CRLF is detected, tools now use `content.split('\r\n')` and `lines.join('\r\n')` to preserve the original line ending style.
+- **Tools Fixed**:
+  - `insert_at_line` (fileSystemTools.ts) — now preserves CRLF on insert operations
+  - `delete_lines_in_file` (fileSystemTools.ts) — now preserves CRLF on delete operations
+  - `text_transform` line-range mode (textProcessingTools.ts) — now preserves CRLF when using `lines` parameter
+  - `line_operations` (textProcessingTools.ts) — now preserves CRLF on insert/delete/move operations
+  - `delete_lines` (lineOperations.ts) — now preserves CRLF on delete operations
+
+#### Impact
+- Windows files with CRLF line endings are no longer silently converted to LF
+- Files with LF endings continue to work unchanged (no regression)
+- Files with mixed line endings are standardized to the dominant style (same behavior as `replace_text_in_file` fix)
+
+**Total**: 10 code changes across 3 files, zero breaking changes.
+
+---
+
 ## [1.5.18] - 2026-06-27
 
 ### 🔧 Cross-Platform Test Fix — `grep_files` Path Separator Normalization
