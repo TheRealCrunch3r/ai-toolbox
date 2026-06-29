@@ -404,19 +404,48 @@ Visualize the directory structure of a path in a tree-like format. Supports dept
 
 Search for a pattern in files across a directory. Returns structured matches with file, line number, and content. Includes **three-layer token consumption controls** to prevent context window overflow from large codebase searches.
 
+#### Regex Mode (default)
+
+Searches using regex pattern matching with automatic ReDoS protection (unsafe patterns treated as literals).
+
+#### AST Mode (`mode: 'ast'`) — v1.5.x
+
+Structural code analysis using `@typescript-eslint/parser`. Supports pattern keywords that map to AST node types:
+
+| Pattern Keyword | AST Node Types Searched |
+|----------------|------------------------|
+| `import` | `ImportDeclaration` |
+| `function` | `FunctionDeclaration`, `FunctionExpression`, `ArrowFunctionExpression`, `MethodDefinition` |
+| `class` | `ClassDeclaration` |
+| `throw` | `ThrowStatement` |
+| `try` | `TryStatement` |
+| `return` | `ReturnStatement` |
+| `variable` | `VariableDeclaration` |
+| `export` | `ExportNamedDeclaration`, `ExportDefaultDeclaration` |
+| `loop` | `ForStatement`, `WhileStatement` |
+| `if` | `IfStatement` |
+| `error` / `catch` | `ThrowStatement`, `TryStatement` |
+| Module name (e.g., `"lodash"`) | `ImportDeclaration` with matching source |
+
+> ⚠️ **AST Fallback (v1.5.20+):** When AST parsing fails (e.g., invalid TypeScript), the tool gracefully falls back to regex mode for that file. Previously this fallback crashed silently due to a missing `regex` parameter — now fixed.
+
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `pattern` | `string` | Yes | Regex or literal string to search for |
 | `path` | `string` | No | Directory to search in (default: current working directory) |
+| `mode` | `'regex' \\| 'ast'` | No | Search mode: `"regex"` for pattern matching or `"ast"` for structural code analysis (default: `"regex"`) |
+| `include_context` | `boolean` | No | Include surrounding context (function signatures, class context, JSDoc comments) in results (default: `false`) |
 | `max_content_length` | `number` | No | Max chars per matched line content (**default: 150**, range: 10–500). Truncated lines receive a `…` suffix. |
 | `include` | `string` | No | File glob pattern to include (e.g., `"*.ts"`, `"src/**/*.js"`) |
 | `exclude` | `string` | No | Files or directories to exclude (e.g., `"node_modules"`, `".git"`) |
 | `max_results` | `number` | No | Maximum number of results (**default: 20**, range: 1–500). Search stops early once reached; `truncated: true` signals more available. |
 | `max_file_size` | `number` | No | Max file size in bytes to search (**default: 100,000** / 100KB). Files exceeding this limit are silently skipped via early `fs.stat()` before content is read — prevents loading multi-MB build artifacts. |
 
-**Returns**: `{ success: true, data: { matches: [{ file: string, line_number: number, content: string }], count: number, truncated: boolean } }`
+**Returns**: `{ success: true, data: { matches: [{ file: string, line_number: number, content: string, node_type?: string }], count: number, truncated: boolean, mode: string } }`
 
 > **Token Impact:** A broad pattern like `.js` across a 10k-file project is reduced from >100k tokens to <400 tokens (99.6% reduction). Large build artifacts are skipped entirely before reading.
+>
+> **AST Mode Return:** Results include `node_type` field identifying the AST node type (e.g., `"FunctionDeclaration"`, `"ThrowStatement"`).
 
 ---
 

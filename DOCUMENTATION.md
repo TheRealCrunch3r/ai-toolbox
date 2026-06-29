@@ -1,8 +1,8 @@
 # Documentation Update Summary — v1.5.x (2026-06-17)
 
-**Date**: 2026-06-20  
+**Date**: 2026-06-29  
 **Author**: AI Toolbox Development Team  
-**Status**: ✅ Complete (v1.5.15)
+**Status**: ✅ Complete (v1.5.20)
 
 ---
 
@@ -29,6 +29,34 @@ All documentation has been reconstructed based on actual source code analysis to
 - [Session Summary Compression (v1.5.15)](#-session-summary-compression-v1515)
 
 ---
+
+### `grep_files` AST Mode Fallback Fix — Missing Regex Parameter (v1.5.20 — 2026-06-29)
+
+This update documents the fix for 3 failing AST mode tests in the `grep_files` tool caused by a missing `regex` parameter in the AST fallback path.
+
+#### What Changed
+- **Fixed**: `src/tools/fileSystemTools.ts` line ~1835 — Added missing `regex` parameter to `processWithRegex()` call in AST fallback case
+- **Changed**: `return processWithRegex(content, relativePath);` → `return processWithRegex(content, relativePath, regex);`
+- **Impact**: All 3 AST mode tests now pass (previously 3 failing out of 19 total)
+
+#### Root Cause
+The AST fallback case called `processWithRegex(content, relativePath)` without the required third parameter `compiledRegex: RegExp`. This caused `compiledRegex` to be `undefined`, resulting in a `TypeError` when `compiledRegex.test(...)` was invoked. The error was caught by the inner try-catch, causing files to be silently skipped and `result.success` to become `false`.
+
+#### How It Works
+```typescript
+// BEFORE (broken — missing 3rd parameter):
+if (!ast) {
+  return processWithRegex(content, relativePath);
+}
+
+// AFTER (fixed — passes pre-validated regex):
+if (!ast) {
+  return processWithRegex(content, relativePath, regex);
+}
+```
+
+**Total**: 1 line changed, zero breaking changes.
+
 
 ## 🆕 Latest Updates
 
@@ -413,7 +441,7 @@ These documentation updates correspond to the following source code locations:
 
 All changes verified with comprehensive test suite:
 
-- ✅ **19 test suites, 265 tests** — all passing (from v1.4.2 test suite fixes)
+- ✅ **19 tests** — all passing (from v1.4.2 test suite fixes, including 3 AST mode tests fixed in v1.5.20)
 - ✅ **TypeScript compilation clean** (`npx tsc --noEmit` — 0 errors, 0 warnings)
 - ✅ **ESLint passes** with zero errors (`npm run lint`)
 - ✅ **Build succeeds** (`npm run build`)

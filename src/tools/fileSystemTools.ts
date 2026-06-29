@@ -1,3 +1,4 @@
+import { parse as parseTS } from '@typescript-eslint/parser';
 import type { Tool } from '@lmstudio/sdk';
 import { tool } from '@lmstudio/sdk';
 import { z } from 'zod';
@@ -17,6 +18,32 @@ import {
   countTypeScriptFiles,
   getAnalysisTimeout,
 } from '../performanceUtils.js';
+// ==================== AST Types ====================
+// Local type definitions for AST nodes (avoids external type dependency issues)
+interface ASTLocation {
+  line: number;
+  column: number;
+}
+
+interface ASTLoc {
+  start: ASTLocation;
+  end: ASTLocation;
+}
+
+interface ASTBaseNode {
+  type: string;
+  loc?: ASTLoc;
+  range?: [number, number];
+  [key: string]: unknown;
+}
+
+interface ASTProgram extends ASTBaseNode {
+  body: ASTBaseNode[];
+  sourceType?: string;
+  comments?: unknown[];
+  tokens?: unknown[];
+}
+
 
 // ==================== Typed Params Interfaces ====================
 
@@ -1750,16 +1777,16 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
       max_results: z.number().int().min(1).max(500).default(20).describe('Maximum number of results to return (default: 20, max: 500)'),
       max_file_size: z.number().int().min(1024).default(100_000).describe('Maximum file size in bytes to search (default: 100KB, skip larger files)'),
     },
-    implementation: async ({ pattern, path: searchPath = '.', include, exclude, max_results, max_file_size, max_content_length, _mode = 'regex', _include_context }: { 
-      pattern: string; 
-      path?: string; 
-      include?: string; 
+    implementation: async ({ pattern, path: searchPath = '.', mode = 'regex', include, exclude, max_results, max_file_size, max_content_length, include_context = false }: {
+      pattern: string;
+      path?: string;
+      mode?: 'regex' | 'ast';
+      include?: string;
       exclude?: string;
       max_results?: number;
       max_file_size?: number;
       max_content_length?: number;
-      _mode?: 'regex' | 'ast';
-      _include_context?: boolean;
+      include_context?: boolean;
     }) => {
       try {
         const targetDir = resolvePath(searchPath);
@@ -1768,28 +1795,164 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
           return { success: false, error: 'Invalid path: directory traversal detected' };
         }
 
-        // Validate regex for safety
+        // Configuration with defaults - TOKEN LIMITING
+        const MAX_RESULTS = max_results ?? 20;
+        const MAX_FILE_SIZE = max_file_size ?? 100_000; // 100KB default
+        const MAX_CONTENT_LENGTH = max_content_length ?? 150;
+        let resultsCount = 0;
+        const matches: Array<{ file: string; line_number: number; content: string; node_type?: string; context?: { function_signature?: string; class_context?: string; docblock?: string } }> = [];
+
+        // ==================== REGEX VALIDATION ====================
         let regex: RegExp;
         try {
-          const safePattern = isSafeRegex(pattern) ? pattern : escapeRegExp(pattern);
-          regex = new RegExp(safePattern, 'i'); // Case-insensitive by default
+          regex = new RegExp(pattern, 'i');
+          // If valid but unsafe (ReDoS risk), escape special chars for literal matching
+          if (!isSafeRegex(pattern)) {
+            regex = new RegExp(escapeRegExp(pattern), 'i');
+          }
         } catch {
           return handleError(new Error(`Invalid regex pattern: ${pattern}`));
         }
 
-        // Configuration with defaults - TOKEN LIMITING
-        const MAX_RESULTS = max_results ?? 20;
-        const MAX_FILE_SIZE = max_file_size ?? 100_000; // 100KB default
-        let resultsCount = 0;
-        const matches: Array<{ file: string; line_number: number; content: string }> = [];
+        /**
+         * Process a single file for matches (both regex and AST modes).
+         */
+        async function processFile(fullPath: string, relativePath: string): Promise<void> {
+          if (resultsCount >= MAX_RESULTS) return;
 
-        async function walkDirectory(dirPath: string): Promise<void> {  // ASYNC recursive traversal
+          try {
+            // Early size check BEFORE reading file
+            const stats = await fs.stat(fullPath);
+            if (stats.size > MAX_FILE_SIZE) return;
+
+            const content = await fs.readFile(fullPath, 'utf-8');
+
+            if (mode === 'ast') {
+              // ==================== AST MODE ====================
+              const ast = parseToAST(content, fullPath);
+              if (!ast) {
+                // AST parsing failed — fall back to regex for this file
+                return processWithRegex(content, relativePath, regex);
+              }
+
+              const astMatches = searchAST(ast, content, pattern, relativePath, include_context, MAX_RESULTS - resultsCount);
+
+              for (const astMatch of astMatches) {
+                if (resultsCount >= MAX_RESULTS) break;
+
+                const matchEntry = {
+                  file: astMatch.file,
+                  line_number: astMatch.line_number,
+                  content: astMatch.content.length > MAX_CONTENT_LENGTH ? astMatch.content.slice(0, MAX_CONTENT_LENGTH) + '…' : astMatch.content,
+                  ...(astMatch.nodeType && { node_type: astMatch.nodeType }),
+                  ...(include_context && astMatch.context && {
+                    context: {
+                      ...(astMatch.context.functionSignature && { function_signature: astMatch.context.functionSignature }),
+                      ...(astMatch.context.classContext && { class_context: astMatch.context.classContext }),
+                      ...(astMatch.context.docblock && { docblock: astMatch.context.docblock }),
+                    },
+                  }),
+                };
+                matches.push(matchEntry);
+                resultsCount++;
+              }
+            } else {
+              // ==================== REGEX MODE ====================
+              await processWithRegex(content, relativePath, regex);
+            }
+          } catch {
+            // Skip binary files or unreadable files
+          }
+        }
+
+        /**
+         * Process file with regex pattern matching.
+         */
+        async function processWithRegex(content: string, relativePath: string, compiledRegex: RegExp): Promise<void> {
+          const lines = content.split('\n');
+
+          for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
+            if (compiledRegex.test(lines[lineIdx])) {
+              const rawContent = lines[lineIdx].trim();
+
+              const matchEntry: { file: string; line_number: number; content: string; context?: { function_signature?: string; class_context?: string; docblock?: string } } = {
+                file: relativePath,
+                line_number: lineIdx + 1,
+                content: rawContent.length > MAX_CONTENT_LENGTH ? rawContent.slice(0, MAX_CONTENT_LENGTH) + '…' : rawContent,
+              };
+
+              // Context-aware grep: extract surrounding context
+              if (include_context) {
+                matchEntry.context = {
+                  function_signature: extractFunctionContext(lines, lineIdx),
+                  class_context: extractClassContext(lines, lineIdx),
+                  docblock: extractDocblock(lines, lineIdx),
+                };
+              }
+
+              matches.push(matchEntry);
+              resultsCount++;
+
+              if (resultsCount >= MAX_RESULTS) return;
+            }
+          }
+        }
+
+        /**
+         * Extract function signature context from surrounding lines.
+         */
+        function extractFunctionContext(lines: string[], currentLine: number): string | undefined {
+          // Look backwards for function declaration
+          for (let i = currentLine; i >= Math.max(0, currentLine - 20); i--) {
+            const line = lines[i].trim();
+            if (line.startsWith('function') || line.includes('=>') || line.includes(': function')) {
+              return line;
+            }
+            // Stop at class declaration or empty block
+            if (line.startsWith('class ') || line === '}') break;
+          }
+          return undefined;
+        }
+
+        /**
+         * Extract class context from surrounding lines.
+         */
+        function extractClassContext(lines: string[], currentLine: number): string | undefined {
+          // Look backwards for class declaration
+          for (let i = currentLine; i >= Math.max(0, currentLine - 50); i--) {
+            const line = lines[i].trim();
+            if (line.startsWith('class ')) {
+              return line;
+            }
+          }
+          return undefined;
+        }
+
+        /**
+         * Extract JSDoc comment above the current line.
+         */
+        function extractDocblock(lines: string[], currentLine: number): string | undefined {
+          const docLines: string[] = [];
+          for (let i = currentLine - 1; i >= 0; i--) {
+            const line = lines[i].trim();
+            if (line.startsWith('*') || line.startsWith('/**') || line.endsWith('*/')) {
+              docLines.unshift(line);
+            } else if (line === '') {
+              if (docLines.length > 0) break;
+            } else {
+              break;
+            }
+          }
+          return docLines.length > 0 ? docLines.join('\n') : undefined;
+        }
+
+        async function walkDirectory(dirPath: string): Promise<void> {
           // OPTIMIZATION: Early exit if we have enough results
           if (resultsCount >= MAX_RESULTS) return;
 
           let entries: _fs.Dirent[];
           try {
-            entries = await fs.readdir(dirPath, { withFileTypes: true });  // ASYNC read
+            entries = await fs.readdir(dirPath, { withFileTypes: true });
           } catch {
             return; // Skip inaccessible directories
           }
@@ -1801,7 +1964,7 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
             if (exclude && entry.name.includes(exclude)) continue;
 
             if (entry.isDirectory()) {
-              await walkDirectory(fullPath);  // ASYNC recursive
+              await walkDirectory(fullPath);
             } else if (entry.isFile()) {
               // OPTIMIZATION: Early exit check inside loop too
               if (resultsCount >= MAX_RESULTS) return;
@@ -1811,35 +1974,8 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
                 continue;
               }
 
-              try {
-                // OPTIMIZATION: Early size check BEFORE reading file - CRITICAL FOR TOKEN SAVINGS — ASYNC stat
-                const stats = await fs.stat(fullPath);  // ASYNC stat
-                if (stats.size > MAX_FILE_SIZE) {
-                  continue; // Skip large files to prevent token explosion
-                }
-
-                const content = await fs.readFile(fullPath, 'utf-8');  // ASYNC read
-                const lines = content.split('\n');
-
-                for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
-                  if (regex.test(lines[lineIdx])) {
-                    const rawContent = lines[lineIdx].trim();
-                    const maxCl = max_content_length ?? 150;
-                    
-                    matches.push({
-                      file: path.relative(targetDir, fullPath),
-                      line_number: lineIdx + 1,
-                      content: (rawContent.length > maxCl ? rawContent.slice(0, maxCl) + '…' : rawContent),
-                    });
-                    resultsCount++;
-
-                    // OPTIMIZATION: Early termination after max results
-                    if (resultsCount >= MAX_RESULTS) return;
-                  }
-                }
-              } catch {
-                // Skip binary files or unreadable files
-              }
+              const relativePath = path.relative(targetDir, fullPath);
+              await processFile(fullPath, relativePath);
             }
           }
         }
@@ -1855,40 +1991,20 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
         if (targetStats.isFile()) {
           // ==================== TARGET IS A FILE — search within it directly ====================
           console.warn(`[grep_files] Detected single file '${targetDir}' — searching in-file instead of listing directory`);
-          try {
-            const content = await fs.readFile(targetDir, 'utf-8');
-            const lines = content.split('\n');
-
-            for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
-              if (regex.test(lines[lineIdx])) {
-                const rawContent = lines[lineIdx].trim();
-                const maxCl = max_content_length ?? 150;
-
-                matches.push({
-                  file: path.relative(targetDir, targetDir),
-                  line_number: lineIdx + 1,
-                  content: (rawContent.length > maxCl ? rawContent.slice(0, maxCl) + '…' : rawContent),
-                });
-                resultsCount++;
-
-                if (resultsCount >= MAX_RESULTS) break;
-              }
-            }
-          } catch {
-            return handleError(new Error(`Failed to read file '${targetDir}'`));
-          }
+          await processFile(targetDir, path.basename(targetDir));
         } else {
           // ==================== TARGET IS A DIRECTORY — walk and search recursively ====================
-          await walkDirectory(targetDir);  // ASYNC call
+          await walkDirectory(targetDir);
         }
 
-        return { 
-          success: true, 
-          data: { 
+        return {
+          success: true,
+          data: {
             matches,
             count: resultsCount,
             truncated: resultsCount >= MAX_RESULTS,
-          } 
+            mode,
+          },
         };
       } catch (error) {
         return handleError(error);
@@ -1908,6 +2024,327 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
     return regex.test(filename);
   }
 
+
+  // ==================== AST-Based Search Helpers ====================
+
+  /** AST Node types that can contain meaningful code patterns */
+  type ASTNodeType =
+    | 'FunctionDeclaration'
+    | 'FunctionExpression'
+    | 'ArrowFunctionExpression'
+    | 'MethodDefinition'
+    | 'ClassDeclaration'
+    | 'VariableDeclaration'
+    | 'ImportDeclaration'
+    | 'ExportNamedDeclaration'
+    | 'ExportDefaultDeclaration'
+    | 'TryStatement'
+    | 'ThrowStatement'
+    | 'ReturnStatement'
+    | 'IfStatement'
+    | 'ForStatement'
+    | 'WhileStatement';
+
+  /** Result of AST pattern matching */
+  interface ASTMatch {
+    file: string;
+    line_number: number;
+    content: string;
+    nodeType: ASTNodeType;
+    context?: {
+      functionSignature?: string;
+      classContext?: string;
+      docblock?: string;
+    };
+  }
+
+  /**
+   * Parse TypeScript/JavaScript source code into an AST.
+   * Returns null if parsing fails (graceful degradation).
+   */
+  function parseToAST(content: string, filePath: string): ASTProgram | null {
+    try {
+      // Determine language based on file extension
+      const isJSX = filePath.endsWith('.tsx') || filePath.endsWith('.jsx');
+
+      const ast = parseTS(content, {
+        sourceType: 'module',
+        ecmaVersion: 2022,
+        ecmaFeatures: {
+          jsx: isJSX,
+        },
+        loc: true,
+        range: true,
+        comment: true,
+        tokens: false,
+        // Allow top-level await and other modern features
+        allowInvalidAST: false,
+      }) as unknown as ASTProgram;
+
+      return ast;
+    } catch {
+      // If parsing fails, return null — the caller should fall back to regex
+      return null;
+    }
+  }
+
+  /**
+   * Recursively walk the AST and visit each node.
+   * Stops early if the visitor returns true.
+   */
+  function walkAST(
+    node: ASTBaseNode | ASTProgram,
+    visitor: (node: ASTBaseNode, parent: ASTBaseNode | null) => boolean | void,
+    parent: ASTBaseNode | null = null,
+  ): void {
+    if (visitor(node, parent)) return; // Early exit if visitor returns true
+
+    const keys = Object.keys(node);
+    for (const key of keys) {
+      const value = (node as Record<string, unknown>)[key];
+      if (!value) continue;
+
+      if (Array.isArray(value)) {
+        for (const item of value) {
+          if (item && typeof item === 'object' && 'type' in item) {
+            walkAST(item as ASTBaseNode, visitor, node);
+          }
+        }
+      } else if (typeof value === 'object' && 'type' in value) {
+        walkAST(value as ASTBaseNode, visitor, node);
+      }
+    }
+  }
+
+  /**
+   * Get the text content of an AST node from the source.
+   */
+  function getNodeText(node: ASTBaseNode, source: string): string {
+    if (!node.range) return '';
+    const [start, end] = node.range;
+    return source.substring(start, end).trim();
+  }
+
+  /**
+   * Get the line number of an AST node.
+   */
+  function getLineNumber(node: ASTBaseNode): number {
+    if (node.loc && node.loc.start) {
+      return node.loc.start.line;
+    }
+    return 0;
+  }
+
+  /**
+   * Extract the function signature containing a node.
+   */
+  function findEnclosingFunction(
+    targetNode: ASTBaseNode,
+    program: ASTProgram,
+    source: string,
+  ): string | undefined {
+    let foundSignature: string | undefined;
+
+    walkAST(program, (node) => {
+      if (foundSignature) return true; // Early exit
+      if (
+        node.type === 'FunctionDeclaration' ||
+        node.type === 'FunctionExpression' ||
+        node.type === 'ArrowFunctionExpression' ||
+        node.type === 'MethodDefinition'
+      ) {
+        // Check if target is within this function's range
+        if (node.range && targetNode.range) {
+          const [funcStart, funcEnd] = node.range;
+          const [targetStart, targetEnd] = targetNode.range;
+          if (targetStart >= funcStart && targetEnd <= funcEnd) {
+            foundSignature = getNodeText(node, source);
+            return true;
+          }
+        }
+      }
+    });
+
+    return foundSignature;
+  }
+
+  /**
+   * Extract the class declaration containing a node.
+   */
+  function findEnclosingClass(
+    targetNode: ASTBaseNode,
+    program: ASTProgram,
+    source: string,
+  ): string | undefined {
+    let foundClass: string | undefined;
+
+    walkAST(program, (node) => {
+      if (foundClass) return true;
+      if (node.type === 'ClassDeclaration' || node.type === 'ClassExpression') {
+        if (node.range && targetNode.range) {
+          const [classStart, classEnd] = node.range;
+          const [targetStart, targetEnd] = targetNode.range;
+          if (targetStart >= classStart && targetEnd <= classEnd) {
+            // Get just the class declaration line (not the whole body)
+            const classText = getNodeText(node, source);
+            const firstBrace = classText.indexOf('{');
+            foundClass = firstBrace > 0 ? classText.substring(0, firstBrace).trim() : classText;
+            return true;
+          }
+        }
+      }
+    });
+
+    return foundClass;
+  }
+
+  /**
+   * Extract JSDoc comment above a node.
+   */
+  function findDocblock(
+    targetNode: ASTBaseNode,
+    source: string,
+  ): string | undefined {
+    if (!targetNode.range) return undefined;
+    const [targetStart] = targetNode.range;
+    const linesBefore = source.substring(0, targetStart).split('\n');
+
+    // Look backwards for JSDoc comment
+    let docLines: string[] = [];
+    for (let i = linesBefore.length - 1; i >= 0; i--) {
+      const line = linesBefore[i].trim();
+      if (line.startsWith('*') || line.startsWith('/**') || line.endsWith('*/')) {
+        docLines.unshift(line);
+      } else if (line === '') {
+        // Allow one empty line between docblock and code
+        if (docLines.length > 0) break;
+      } else {
+        break;
+      }
+    }
+
+    return docLines.length > 0 ? docLines.join('\n') : undefined;
+  }
+
+  /**
+   * Search AST for patterns matching the query.
+   * Supports queries like:
+   * - "import" → find all import declarations
+   * - "function" → find all function declarations/expressions
+   * - "class" → find all class declarations
+   * - "throw" → find all throw statements
+   * - "try" → find all try/catch blocks
+   * - "return" → find all return statements
+   * - "variable" → find all variable declarations
+   * - "export" → find all export declarations
+   * - "loop" → find all for/while loops
+   * - "if" → find all if statements
+   * - "lodash" → find imports from 'lodash'
+   * - "error" → find throws and catches with 'error' in them
+   */
+  function searchAST(
+    ast: ASTProgram,
+    source: string,
+    pattern: string,
+    filePath: string,
+    includeContext: boolean,
+    maxResults: number,
+  ): ASTMatch[] {
+    const matches: ASTMatch[] = [];
+    const patternLower = pattern.toLowerCase();
+
+    // Define node type mappings for pattern matching
+    const nodeTypeMap: Record<string, ASTNodeType[]> = {
+      import: ['ImportDeclaration'],
+      function: ['FunctionDeclaration', 'FunctionExpression', 'ArrowFunctionExpression', 'MethodDefinition'],
+      class: ['ClassDeclaration'],
+      throw: ['ThrowStatement'],
+      try: ['TryStatement'],
+      return: ['ReturnStatement'],
+      variable: ['VariableDeclaration'],
+      export: ['ExportNamedDeclaration', 'ExportDefaultDeclaration'],
+      loop: ['ForStatement', 'WhileStatement'],
+      if: ['IfStatement'],
+    };
+
+    // Check if pattern matches a specific module name (e.g., "lodash", "react")
+    const modulePattern = /^(?:from\s+)?['"]([^'"]+)['"]$/;
+    const moduleMatch = pattern.match(modulePattern);
+
+    walkAST(ast, (node) => {
+      if (matches.length >= maxResults) return true;
+
+      const nodeType = node.type as ASTNodeType;
+      const lineNumber = getLineNumber(node);
+
+      // Handle module-specific imports (e.g., "lodash")
+      if (moduleMatch && nodeType === 'ImportDeclaration') {
+        const importNode = node as ASTBaseNode & { source: { value: string } };
+        const sourceText = importNode.source?.value || '';
+        if (sourceText.includes(moduleMatch[1])) {
+          const match: ASTMatch = {
+            file: filePath,
+            line_number: lineNumber,
+            content: getNodeText(node, source),
+            nodeType: 'ImportDeclaration',
+          };
+          if (includeContext) {
+            match.context = {
+              docblock: findDocblock(node, source),
+            };
+          }
+          matches.push(match);
+        }
+        return;
+      }
+
+      // Check if pattern matches any configured node types
+      let shouldMatch = false;
+
+      for (const [key, types] of Object.entries(nodeTypeMap)) {
+        if (patternLower.includes(key)) {
+          if (types.includes(nodeType)) {
+            shouldMatch = true;
+            break;
+          }
+        }
+      }
+
+      // Special handling for "error" pattern — matches throws and try/catches
+      if (patternLower.includes('error') || patternLower.includes('catch')) {
+        if (nodeType === 'ThrowStatement') {
+          shouldMatch = true;
+        }
+        if (nodeType === 'TryStatement') {
+          const tryNode = node as Record<string, unknown>;
+          if (tryNode.handler || tryNode.finalizer) {
+            shouldMatch = true;
+          }
+        }
+      }
+
+      if (shouldMatch) {
+        const match: ASTMatch = {
+          file: filePath,
+          line_number: lineNumber,
+          content: getNodeText(node, source),
+          nodeType,
+        };
+
+        if (includeContext) {
+          match.context = {
+            functionSignature: findEnclosingFunction(node, ast, source),
+            classContext: findEnclosingClass(node, ast, source),
+            docblock: findDocblock(node, source),
+          };
+        }
+
+        matches.push(match);
+      }
+    });
+
+    return matches.slice(0, maxResults);
+  }
 
   return tools;
 }

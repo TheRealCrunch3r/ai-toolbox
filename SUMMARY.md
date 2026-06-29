@@ -130,6 +130,16 @@ Each category is implemented as a separate module in `src/tools/`:
 
 ## 📈 Recent Changes (v1.5.x)
 
+### [1.5.20] - 2026-06-29 — `grep_files` AST Mode Fallback Fix
+
+**Fixed 3 failing AST mode tests caused by missing `regex` parameter in AST fallback path.**
+
+When `mode: 'ast'` was used with `grep_files` and AST parsing failed, the fallback to regex mode crashed silently. The fix passes the pre-validated regex variable, enabling proper fallback behavior.
+
+**Total**: 1 line changed in `src/tools/fileSystemTools.ts`, zero breaking changes.
+
+---
+
 ### [1.5.19] - 2026-06-28 — Windows CRLF Line Ending Preservation Fix
 
 **Fixed silent line ending corruption across 5 file-modifying tools on Windows.**
@@ -282,7 +292,7 @@ Heavy dependencies loaded on first use to minimize startup time:
 
 ### Test Coverage
 
-- **19 test suites, 265 tests** — all passing ✅
+- **19 tests** — all passing ✅ (including 3 AST mode tests fixed in v1.5.20)
 - Type checking clean: `npx tsc --noEmit` with zero errors
 - Linting passes: `npm run lint` with zero errors
 

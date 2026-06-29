@@ -292,6 +292,17 @@ node scripts/safe_edit.js cleanup --keep=0
 
 ## 📜 Release History
 
+### v1.5.20 — `grep_files` AST Mode Fallback Fix (2026-06-29)
+
+**Fixed 3 failing AST mode tests caused by missing `regex` parameter in AST fallback path.**
+
+When `mode: 'ast'` was used with `grep_files` and AST parsing failed (e.g., for invalid TypeScript), the fallback to regex mode crashed silently due to a missing `regex` parameter being passed to `processWithRegex()`. The fix passes the pre-validated regex variable, enabling proper fallback behavior.
+
+- `grep_files` (fileSystemTools.ts) — AST fallback now correctly passes regex parameter
+- All 19/19 tests now pass (3 previously failing AST mode tests)
+
+---
+
 ### v1.5.19 — Windows CRLF Line Ending Preservation Fix (2026-06-28)
 
 **Fixed silent line ending corruption across 5 file-modifying tools on Windows systems.**

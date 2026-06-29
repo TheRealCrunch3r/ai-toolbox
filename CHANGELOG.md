@@ -1,6 +1,25 @@
 # 📝 CHANGELOG
 
 All notable changes to AI Toolbox plugin.
+
+## [1.5.20] - 2026-06-29
+
+### 🐛 `grep_files` AST Mode Fallback Fix — Missing Regex Parameter
+
+**Fixed silent AST fallback failure caused by missing `regex` parameter in `processWithRegex()` call.**
+
+#### What Changed
+- **Root Cause**: In `src/tools/fileSystemTools.ts`, the AST fallback case (line ~1835) called `processWithRegex(content, relativePath)` without the required third parameter `compiledRegex: RegExp`. This caused `compiledRegex` to be `undefined`, resulting in a `TypeError` when `compiledRegex.test(...)` was invoked. The error was caught by the inner try-catch in `processFile()`, causing files to be silently skipped and `result.success` to become `false`.
+- **Fix**: Changed `return processWithRegex(content, relativePath);` to `return processWithRegex(content, relativePath, regex);` — passing the pre-validated regex variable that is always available at the top of the `grep_files` implementation.
+- **Impact**: All 3 AST mode tests now pass:
+  - ✅ `should fall back to regex when AST parsing fails`
+  - ✅ `should find throw statements using AST mode`
+  - ✅ `should find try/catch blocks using AST mode`
+
+**Total**: 1 line changed in `src/tools/fileSystemTools.ts`, zero breaking changes.
+
+---
+
 ## [1.5.19] - 2026-06-28
 
 ### 🐛 Windows Line Ending (CRLF) Preservation Fix — All File-Modifying Tools

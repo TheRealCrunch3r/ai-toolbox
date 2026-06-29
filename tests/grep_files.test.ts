@@ -332,4 +332,243 @@ describe('grep_files Tool', () => {
       expect(result.data.count).toBeGreaterThan(0);
     }
   });
+  // ==================== AST MODE TESTS ====================
+
+  test('should support AST mode for structural pattern matching', async () => {
+    const grepTool = getGrepTool();
+    if (!grepTool) throw new Error('grep_files tool not found');
+
+    const result = await grepTool.implementation({
+      pattern: 'function',
+      path: testDir,
+      mode: 'ast',
+      max_results: 20,
+      include: undefined,
+      exclude: undefined,
+      max_content_length: 150,
+      max_file_size: 100_000,
+      include_context: false,
+    });
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      // Should find function declarations via AST
+      expect(result.data.count).toBeGreaterThan(0);
+      // AST results should have node_type
+      const hasNodeType = result.data.matches.some(m => m.node_type === 'FunctionDeclaration');
+      expect(hasNodeType).toBe(true);
+    }
+  });
+
+  test('should find imports using AST mode', async () => {
+    const grepTool = getGrepTool();
+    if (!grepTool) throw new Error('grep_files tool not found');
+
+    const result = await grepTool.implementation({
+      pattern: 'import',
+      path: testDir,
+      mode: 'ast',
+      max_results: 20,
+      include: undefined,
+      exclude: undefined,
+      max_content_length: 150,
+      max_file_size: 100_000,
+      include_context: false,
+    });
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      // Should find import declarations
+      expect(result.data.count).toBeGreaterThan(0);
+      const hasImportType = result.data.matches.some(m => m.node_type === 'ImportDeclaration');
+      expect(hasImportType).toBe(true);
+    }
+  });
+
+  test('should find variables using AST mode', async () => {
+    const grepTool = getGrepTool();
+    if (!grepTool) throw new Error('grep_files tool not found');
+
+    const result = await grepTool.implementation({
+      pattern: 'variable',
+      path: testDir,
+      mode: 'ast',
+      max_results: 20,
+      include: undefined,
+      exclude: undefined,
+      max_content_length: 150,
+      max_file_size: 100_000,
+      include_context: false,
+    });
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      // Should find variable declarations
+      expect(result.data.count).toBeGreaterThan(0);
+      const hasVarType = result.data.matches.some(m => m.node_type === 'VariableDeclaration');
+      expect(hasVarType).toBe(true);
+    }
+  });
+
+  test('should include context when include_context is true', async () => {
+    const grepTool = getGrepTool();
+    if (!grepTool) throw new Error('grep_files tool not found');
+
+    const result = await grepTool.implementation({
+      pattern: 'const',
+      path: testDir,
+      mode: 'regex',
+      max_results: 20,
+      include: undefined,
+      exclude: undefined,
+      max_content_length: 150,
+      max_file_size: 100_000,
+      include_context: true,
+    });
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      // At least some results should have context
+      const hasContext = result.data.matches.some(m => m.context !== undefined);
+      expect(hasContext).toBe(true);
+    }
+  });
+
+  test('should return mode in response', async () => {
+    const grepTool = getGrepTool();
+    if (!grepTool) throw new Error('grep_files tool not found');
+
+    const result = await grepTool.implementation({
+      pattern: 'test',
+      path: testDir,
+      mode: 'ast',
+      max_results: 5,
+      include: undefined,
+      exclude: undefined,
+      max_content_length: 150,
+      max_file_size: 100_000,
+      include_context: false,
+    });
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      expect(result.data.mode).toBe('ast');
+    }
+  });
+
+  test('should fall back to regex when AST parsing fails', async () => {
+    const grepTool = getGrepTool();
+    if (!grepTool) throw new Error('grep_files tool not found');
+
+    // Create a file with invalid TypeScript that can't be parsed as AST
+    const invalidFile = path.join(testDir, 'invalid.ts');
+    await fs.writeFile(invalidFile, 'this is not valid typescript {{{{{{');
+
+    const result = await grepTool.implementation({
+      pattern: 'this is not valid',
+      path: testDir,
+      mode: 'ast',
+      max_results: 20,
+      include: undefined,
+      exclude: undefined,
+      max_content_length: 150,
+      max_file_size: 100_000,
+      include_context: false,
+    });
+
+    // Should still succeed by falling back to regex
+    expect(result.success).toBe(true);
+
+    // Cleanup
+    await fs.unlink(invalidFile);
+  });
+
+  test('should find throw statements using AST mode', async () => {
+    const grepTool = getGrepTool();
+    if (!grepTool) throw new Error('grep_files tool not found');
+
+    // Create a file with throw statements
+    const throwFile = path.join(testDir, 'errors.ts');
+    await fs.writeFile(throwFile, `
+function validate(x: number) {
+  if (x < 0) {
+    throw new Error('x must be positive');
+  }
+  try {
+    doSomething();
+  } catch (e) {
+    throw e;
+  }
+}
+    `);
+
+    const result = await grepTool.implementation({
+      pattern: 'throw',
+      path: testDir,
+      mode: 'ast',
+      max_results: 20,
+      include: undefined,
+      exclude: undefined,
+      max_content_length: 150,
+      max_file_size: 100_000,
+      include_context: false,
+    });
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      // Should find throw statements
+      const throwMatches = result.data.matches.filter(m => m.node_type === 'ThrowStatement');
+      expect(throwMatches.length).toBeGreaterThan(0);
+    }
+
+    // Cleanup
+    await fs.unlink(throwFile);
+  });
+
+  test('should find try/catch blocks using AST mode', async () => {
+    const grepTool = getGrepTool();
+    if (!grepTool) throw new Error('grep_files tool not found');
+
+    // Create a file with try/catch
+    const tryFile = path.join(testDir, 'trycatch.ts');
+    await fs.writeFile(tryFile, `
+async function fetchData() {
+  try {
+    const response = await fetch('/api/data');
+    return response.json();
+  } catch (error) {
+    console.error(error);
+  }
+}
+    `);
+
+    const result = await grepTool.implementation({
+      pattern: 'try',
+      path: testDir,
+      mode: 'ast',
+      max_results: 20,
+      include: undefined,
+      exclude: undefined,
+      max_content_length: 150,
+      max_file_size: 100_000,
+      include_context: false,
+    });
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      // Should find try statements
+      const tryMatches = result.data.matches.filter(m => m.node_type === 'TryStatement');
+      expect(tryMatches.length).toBeGreaterThan(0);
+    }
+
+    // Cleanup
+    await fs.unlink(tryFile);
+  });
 });
