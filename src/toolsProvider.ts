@@ -317,7 +317,8 @@ export async function toolsProvider(ctl: ToolsProviderController, _lmClient?: un
   }
 
   // Return all available tools - SDK automatically registers them
-  return registry.getAll();
+  // Sort alphabetically for consistent UI ordering
+  return registry.getAll().sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /**

@@ -81,6 +81,30 @@ Deep dive into the AI Toolbox plugin's system architecture, design patterns, and
 
 ---
 
+## 🛠️ Build Configuration
+
+The project uses **Tsup** (esbuild-based bundler) for fast, zero-config compilation to both ESM and CJS formats.
+
+### Path Aliases
+- `tsconfig.json` defines `@/*` → `src/*` for IDE and TypeScript support.
+- `tsup.config.ts` maps `@` → `path.resolve(__dirname, 'src')` to ensure the bundler resolves aliases correctly in the final output.
+- Works identically on Windows, Linux, and macOS. No runtime path resolution plugins required.
+
+### Output Targets
+- **Format**: `esm` + `cjs` (dual-package compatibility)
+- **Target**: `es2020` / `node` platform
+- **External Dependencies**: `@lmstudio/sdk`, `puppeteer`, `sharp`, `tesseract.js`, `simple-git`, `pdf-parse`, `mammoth`, `archiver`, `unzipper`, `node-notifier`, `pixelmatch`, `pngjs`
+- **Declarations**: Auto-generated `.d.ts` files via `dts: true`
+
+### Build Commands
+```bash
+npm run build      # Compiles src/ → dist/ with sourcemaps
+npm run typecheck  # Validates types without emitting (tsc --noEmit)
+npm run lint       # ESLint static analysis
+```
+
+---
+
 ## 🔄 Plugin Lifecycle
 
 ### 1. Initialization
@@ -94,7 +118,7 @@ export function main(context: PluginContext) {
   // 2. Register prompt preprocessor (Document RAG + ContextGuard)
   context.withPromptPreprocessor(preprocess);
   
-  // 3. Register tools provider (all 109 tools)
+  // 3. Register tools provider (all 108 tools)
   context.withToolsProvider(toolsProvider);
   
   // 4. Setup cleanup handlers

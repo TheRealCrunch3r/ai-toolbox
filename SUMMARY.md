@@ -18,7 +18,7 @@ Comprehensive overview of the AI Toolbox plugin, its architecture, features, and
 
 ## 🎯 Project Overview
 
-**AI Toolbox Plugin** is a comprehensive LM Studio plugin providing **109 tools across 17 categories** for AI-assisted development workflows. The plugin enables language models to interact with file systems, execute code, browse the web, manage Git repositories, process documents, and more — all within a secure, configurable framework.
+**AI Toolbox Plugin** is a comprehensive LM Studio plugin providing **110 tools across 20 categories** for AI-assisted development workflows. The plugin enables language models to interact with file systems, execute code, browse the web, manage Git repositories, process documents, and more — all within a secure, configurable framework.
 
 ### Core Capabilities
 
@@ -32,7 +32,7 @@ Comprehensive overview of the AI Toolbox plugin, its architecture, features, and
 | Document Parsing | 1 tool | PDF, DOCX, TXT document reading (disk paths + attachments) |
 | Background Commands | 3 tools | Long-running process management with timeout control |
 | Execution | 5 tools | Sandboxed JS/Python + full shell commands (pipes, redirects) |
-| Utilities | 28 tools | Clipboard, notifications, system info, memory, session summaries |
+| Utilities | 24 tools | Clipboard, notifications, system info, memory, session summaries, JSON query, env management |
 | Image Processing | 4 tools | OCR (Tesseract.js), screenshots (Win32 API), image comparison |
 | HTTP Client | 3 tools | REST API client with SSRF protection |
 | Vector RAG | 4 tools | Semantic search with local embeddings, persistent state |
@@ -41,7 +41,7 @@ Comprehensive overview of the AI Toolbox plugin, its architecture, features, and
 | Auto-Context Management | 7 tools | Automatic session tracking, decision logging, persistent memory |
 | Backup & Restore | 4 tools | Create compressed ZIP backups with atomic write pattern |
 
-**Total:** 109 tools across 17 categories ✅
+**Total:** 110 tools across 20 categories ✅
 
 ---
 
@@ -93,7 +93,7 @@ Plugin Runner (Node.js 20+)
     ├── Config Layer (Zod schemas + UI schematics)
     ├── Security Layer (Path validation, command sanitization, SQL guards)
     ├── State Management (Debounced persistence to JSON/msgpack files)
-    └── Tool Registry (17 modules → 109 tools total)
+    └── Tool Registry (20 modules → 108 tools total)
 ```
 
 ### Core Modules
@@ -117,7 +117,7 @@ Each category is implemented as a separate module in `src/tools/`:
 - `documentTools.ts` — 1 document parsing tool (PDF/DOCX/TXT)
 - `backgroundCommandTools.ts` — 3 background command tools
 - `executionTools.ts` — 5 execution tools (JS, Python, shell, terminal, tests)
-- `utilityTools.ts` — ~28 utility tools (clipboard, notifications, system info)
+- `utilityTools.ts` — 24 utility tools (clipboard, notifications, system info, JSON query, env management)
 - `imageProcessingTools.ts` — 4 image processing tools (OCR, screenshots, comparison)
 - `httpClientTools.ts` — 3 HTTP client tools (GET/POST with SSRF protection)
 - `vectorRagTools.ts` — 4 vector RAG tools (indexing, querying, clearing, web content)
@@ -129,6 +129,18 @@ Each category is implemented as a separate module in `src/tools/`:
 ---
 
 ## 📈 Recent Changes (v1.5.x)
+
+### [1.5.23] - 2026-06-30 — `git_stash`, `git_blame` & `markdown_table_gen` Tools
+
+**Added `json_query` and `env_update` tools, plus `@/` path aliases and ESLint fixes.**
+
+- **`json_query`**: jq-style JSON field extraction with dot notation (`.key`, `.array[0]`, `.array[*]`), path validation, query depth limit (50), 10MB file cap
+- **`env_update`**: Safe .env key-value management with key name validation, create/update logic, newline enforcement
+- **Path Aliases**: `@/` → `src/` in `tsconfig.json` and `tsup.config.ts`
+- **TypeScript Fix**: Resolved `TS2352` in `refactorCodeTools.ts` with intermediate `unknown` cast
+- **ESLint Fixes**: Fixed unused parameter (`idx` → `_idx`) and redundant type assertions (`as string` on `segment`)
+
+---
 
 ### [1.5.20] - 2026-06-29 — `grep_files` AST Mode Fallback Fix
 
@@ -201,7 +213,7 @@ Four tools (`replace_text_in_file`, `insert_at_line`, `append_file`, `delete_lin
 
 **Documentation Accuracy:**
 - Rebuilt all documentation from scratch based on source code analysis
-- Corrected tool counts (109 total across 17 categories)
+- Corrected tool counts (108 total across 20 categories)
 - Verified configuration tables match Zod schema definitions exactly
 - Updated architecture diagrams to reflect actual module structure
 
@@ -225,16 +237,104 @@ Four tools (`replace_text_in_file`, `insert_at_line`, `append_file`, `delete_lin
 - Full auto-save implementation with msgpack storage since v1.5.7
 - Integrated into promptPreprocessor Step 0.5 for checkpoint saving
 
-### 🧰 New Tools Added
+### 🆕 New Tools Added (v1.5.23)
 
-| Tool | Category | Purpose |
-|------|----------|---------|
-| `analyze_project` | File System | TypeScript diagnostics, circular dependency detection, ESLint analysis |
-| `file_diff` | File System | Side-by-side file comparison with unified diff output |
-| `directory_tree` | File System | Visualize directory structure in tree-like format |
-| `grep_files` | File System | Search files with three-layer token consumption controls |
-| `run_tests` | Execution | Execute test suites (Jest, PyTest, Go test) |
-| `rag_web_content` | Vector RAG | Fetch web content and extract relevant chunks via semantic search |
+#### `git_stash` — Git Stash Management
+**Purpose:** Manage git stashes: save, pop, drop, or list uncommitted changes.
+**Parameters:**
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `action` | `'save' \| 'pop' \| 'drop' \| 'list'` | Yes | Stash action to perform |
+| `message` | `string` | No (required for save) | Optional: Stash message |
+**Features:** Full stash lifecycle management, lazy-loaded `simple-git` with proper type assertions, path validation via `validatePath` + `resolvePath`.
+
+---
+
+#### `git_blame` — Per-Line Commit History
+**Purpose:** Get commit history for specific lines in a file.
+**Parameters:**
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `file_path` | `string` | Yes | Path to the file to blame |
+| `line_number` | `number` | No | Specific line number (if omitted, blames entire file) |
+**Returns:** Array of `{ commitHash, author, timestamp, line, originalLine, summary }` objects.
+
+---
+
+#### `markdown_table_gen` — Markdown Table Generation
+**Purpose:** Generate valid Markdown tables from arrays of objects with headers, alignment, and truncation.
+**Parameters:**
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `data` | `Array<Record<string, unknown>>` | Yes | Array of objects to convert |
+| `headers` | `string[]` | No | Custom header names (uses object keys if omitted) |
+| `max_column_width` | `number` | No | Max width per column before truncation (default: 40) |
+| `truncate_ellipsis` | `string` | No | Ellipsis character (default: `…`) |
+
+---
+
+#### `json_query` — JSON Field Extraction (jq Equivalent)
+**Purpose:** Extract specific fields from JSON files using jq-style dot notation queries.
+**Parameters:**
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `file_path` | `string` | Yes | Path to the JSON file |
+| `query` | `string` | Yes | Query path (e.g., `".data.users[0].name"` or `".*.id"`) |
+| `output_format` | `'json' \| 'text'` | No | Output format: json for structured output, text for raw value (default: text) |
+**Features:** Supports `.key`, `.key.subkey`, `.array[0]`, `.array[*]` (wildcard) syntax. Path validation (no directory traversal). Query depth limit: 50 segments. File size cap: 10MB. Implements `safeJsonQuery()` helper with comprehensive error handling.
+
+---
+
+#### `env_update` — Environment Variable Management
+**Purpose:** Add or update key-value pairs in `.env` files.
+**Parameters:**
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `file_path` | `string` | Yes | Path to the .env file |
+| `key` | `string` | Yes | Environment variable key (alphanumeric + underscores only) |
+| `value` | `string` | Yes | Environment variable value |
+| `ensure_newline` | `boolean` | No | Ensure the file ends with a newline (default: true) |
+**Features:** Key validation (must start with letter/underscore). Creates key if missing, updates if present. Ensures file ends with newline. File creation if `.env` doesn't exist.
+
+---
+
+#### `analyze_project` — Static Analysis
+**Purpose:** Run TypeScript diagnostics, ESLint, circular dependency checks, and import analysis.
+**Parameters:**
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `categories` | `'typecheck' \| 'circular' \| 'eslint' \| 'config' \| 'imports'` | No | Analysis categories to run (default: all) |
+| `max_imports_warning` | `number` | No | Max imports per file before warning (default: 20) |
+
+---
+
+#### `file_diff` — Side-by-Side Comparison
+**Purpose:** Compare two files and return a unified diff with +/- markers and line numbers.
+
+---
+
+#### `directory_tree` — Directory Visualization
+**Purpose:** Visualize the directory structure of a path in a tree-like format. Supports max depth, optional file sizes, and automatic exclusion of large directories.
+
+---
+
+#### `grep_files` — Enhanced Search
+**Purpose:** Search files with regex or AST mode. Includes three-layer token consumption controls (`max_content_length`, `max_file_size`, `max_results`). Fixed AST fallback path in v1.5.20.
+
+---
+
+#### `run_tests` — Test Execution
+**Purpose:** Execute test suites (Jest, PyTest, Go test) with timeout protection.
+
+---
+
+#### `rag_web_content` — Web Content RAG
+**Purpose:** Fetch content from a URL and use RAG to find and return only the text chunks most relevant to a specific query.
+
+---
+
+#### `find_replace_all` — Multi-File Search & Replace
+**Purpose:** Search and replace text across multiple files in a directory using regex. Supports dry-run mode and safety confirmations. Added in v1.5.20.
 
 ---
 
@@ -301,9 +401,10 @@ Heavy dependencies loaded on first use to minimize startup time:
 | Tool | Version | Purpose |
 |------|---------|---------|
 | TypeScript | ^5.9.3 | Strict mode type checking (zero errors) |
-| tsup | ^8.3.5 | Bundler for production builds |
+| tsup | ^8.3.5 | Bundler for production builds (ESM + CJS) |
 | Jest | ^30.0.0 | Test framework with ESM mocking |
 | ESLint | ^9.15.0 | Code quality enforcement |
+| `@/` Path Aliases | Configured | Simplified import resolution (`src/*` → `@/*`) |
 
 ### Dependency Security
 
@@ -321,7 +422,7 @@ All documentation has been reconstructed based on actual source code analysis:
 |------|--------|-------|
 | `README.md` | ✅ Rebuilt | Accurate tool counts, configuration tables derived from Zod schema |
 | `ARCHITECTURE.md` | ✅ Rebuilt | Correct system overview diagram (16 modules), verified data flows |
-| `TOOLS_REFERENCE.md` | ✅ Rebuilt | All 109 tools documented with parameter tables matching implementations |
+| `TOOLS_REFERENCE.md` | ✅ Rebuilt | All 110 tools documented with parameter tables matching implementations |
 | `DOCUMENTATION.md` | ✅ Rebuilt | Cleaned up duplicate sections, verified version history against source code |
 | `CHANGELOG.md` | ✅ Updated | Accurate release dates and tool count corrections |
 | `CONTRIBUTING.md` | ✅ Created | Development workflow, adding new tools guidelines |
@@ -346,6 +447,6 @@ All documentation has been reconstructed based on actual source code analysis:
 
 ## 📝 Notes
 
-This summary is based on actual source code analysis performed on 2026-06-17. All tool counts, feature descriptions, and security controls reflect the current implementation in version 1.5.x.
+This summary is based on actual source code analysis performed on 2026-06-30. All tool counts, feature descriptions, and security controls reflect the current implementation in version 1.5.x.
 
 For questions or issues, please refer to the individual documentation files linked above or contact the maintainers through appropriate channels.

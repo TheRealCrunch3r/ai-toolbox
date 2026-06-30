@@ -2346,5 +2346,167 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
     return matches.slice(0, maxResults);
   }
 
+  // find_replace_all tool — Multi-file search & replace with regex, dry-run support, and safety guards
+  tools.push(tool({
+    name: 'find_replace_all',
+    description: 'Search and replace text across multiple files in a directory using regex. Supports dry-run mode and safety confirmations.',
+    parameters: {
+      directory: z.string().optional().describe('The directory to search in (defaults to current working directory)'),
+      pattern: z.string().describe('Regex pattern to search for'),
+      replacement: z.string().default('').describe('The replacement string'),
+      dry_run: z.boolean().optional().default(true).describe('Preview changes without modifying files. Default: true for safety'),
+      confirm: z.boolean().optional().default(false).describe('Explicitly confirm file modifications. Required if dry_run is false'),
+      backup: z.boolean().optional().default(true).describe('Create .bak backup before modification. Default: true'),
+      file_extensions: z.array(z.string()).optional().describe('Optional file extensions to filter (e.g., ["ts", "js", "md"])'),
+      max_files: z.number().int().min(1).max(1000).optional().default(100).describe('Maximum number of files to process'),
+      max_file_size: z.number().int().min(1024).default(100_000).describe('Maximum file size in bytes to process (default: 100KB)'),
+    },
+    implementation: async ({ directory, pattern, replacement, dry_run = true, confirm = false, backup = true, file_extensions, max_files = 100, max_file_size = 100_000 }) => {
+      try {
+        // Safety: dry_run defaults to true. Modifications require explicit confirm: true.
+        if (!dry_run && !confirm) {
+          return { success: false, error: 'Modification requested but dry_run is true. Set dry_run: false and confirm: true to modify files.' };
+        }
+
+        const targetDir = directory ? resolvePath(directory) : getWorkingDir();
+        if (!validatePath(directory || '.', getWorkingDir())) {
+          return { success: false, error: 'Invalid path: directory traversal detected' };
+        }
+
+        // Validate regex safely
+        let regex: RegExp;
+        try {
+          regex = new RegExp(pattern, 'gi');
+          if (!isSafeRegex(pattern)) {
+            return { success: false, error: 'Unsafe regex pattern detected (ReDoS risk). Please use a simpler pattern.' };
+          }
+        } catch {
+          return handleError(new Error(`Invalid regex pattern: ${pattern}`));
+        }
+
+        // File walking & processing
+        const filesProcessed: Array<{ file: string; matches: number }> = [];
+        const filesSkipped: Array<{ file: string; reason: string }> = [];
+        let totalMatches = 0;
+
+        async function walkDir(dirPath: string): Promise<void> {
+          if (filesProcessed.length >= max_files) return;
+          
+          let entries: _fs.Dirent[];
+          try {
+            entries = await fs.readdir(dirPath, { withFileTypes: true });
+          } catch {
+            return;
+          }
+
+          for (const entry of entries) {
+            if (filesProcessed.length >= max_files) return;
+            
+            const fullPath = path.join(dirPath, entry.name);
+            
+            if (entry.isDirectory()) {
+              await walkDir(fullPath);
+            } else if (entry.isFile()) {
+              // Extension filter
+              const ext = path.extname(entry.name).replace('.', '').toLowerCase();
+              if (file_extensions && !file_extensions.map(e => e.toLowerCase()).includes(ext)) {
+                continue;
+              }
+
+              // Size limit
+              let stats: _fs.Stats;
+              try {
+                stats = await fs.stat(fullPath);
+              } catch {
+                continue;
+              }
+              if (stats.size > max_file_size) {
+                filesSkipped.push({ file: path.relative(targetDir, fullPath), reason: 'exceeds max file size' });
+                continue;
+              }
+
+              // Binary check
+              const buffer = await fs.readFile(fullPath);
+              const checkBuffer = buffer.subarray(0, Math.min(buffer.length, 8192));
+              if (checkBuffer.includes(0)) {
+                filesSkipped.push({ file: path.relative(targetDir, fullPath), reason: 'binary file' });
+                continue;
+              }
+
+              const content = buffer.toString('utf-8');
+              
+              // Count matches
+              const matches = content.match(regex);
+              const matchCount = matches ? matches.length : 0;
+              
+              if (matchCount > 0) {
+                totalMatches += matchCount;
+                filesProcessed.push({ file: path.relative(targetDir, fullPath), matches: matchCount });
+                
+                // If not dry run, perform replacement
+                if (!dry_run) {
+                  const newContent = content.replace(regex, replacement);
+                  
+                  // Backup
+                  let backupPath: string | null = null;
+                  if (backup) {
+                    backupPath = fullPath + '.bak';
+                    try { await fs.copyFile(fullPath, backupPath); } catch (e: unknown) {
+                      throw new Error(`Failed to create backup at ${backupPath}: ${(e as Error).message}`);
+                    }
+                  }
+
+                  // Atomic write
+                  try { await atomicWriteFile(fullPath, newContent); } catch (err) {
+                    if (backupPath) { try { await fs.copyFile(backupPath, fullPath); } catch {} };
+                    throw new Error(`Failed to save file: ${(err as Error).message}`);
+                  }
+
+                  if (backupPath) {
+                    try { await fs.unlink(backupPath); } catch {}
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        try {
+          await walkDir(targetDir);
+        } catch (err) {
+          return handleError(err);
+        }
+
+        if (dry_run) {
+          return {
+            success: true,
+            data: {
+              dryRun: true,
+              totalMatches,
+              filesAffected: filesProcessed.length,
+              files: filesProcessed,
+              skipped: filesSkipped,
+              message: 'Dry run complete. Set dry_run: false and confirm: true to apply changes.',
+            },
+          };
+        }
+
+        return {
+          success: true,
+          data: {
+            dryRun: false,
+            totalMatches,
+            filesModified: filesProcessed.length,
+            files: filesProcessed,
+            skipped: filesSkipped,
+            message: 'Changes applied successfully.',
+          },
+        };
+      } catch (error) {
+        return handleError(error);
+      }
+    },
+  }));
+
   return tools;
 }

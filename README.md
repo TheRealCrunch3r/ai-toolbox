@@ -1,6 +1,6 @@
 # 🧰 AI Toolbox — LM Studio Plugin
 
-> **109 tools** across 17 categories: file system, web research, browser automation, Git/GitHub, database, document parsing, background commands, code execution, utilities, image processing, HTTP client, vector RAG, text processing, interactive UI generation, auto-context management, backup & restore, and line operations.
+> **110 tools** across 20 categories: file system, web research, browser automation, Git/GitHub, database, document parsing, background commands, code execution, utilities, image processing, HTTP client, vector RAG, text processing, interactive UI generation, auto-context management, backup & restore, line operations, data visualization, markdown preview, and refactor code.
 
 ---
 
@@ -39,13 +39,16 @@
 | 🎨 **Interactive UI Generation** | Generate and render HTML/CSS/JS components (buttons, forms, charts, dashboards) |
 | 💾 **Backup & Restore** | Create compressed ZIP backups of plugin state with path traversal protection |
 | 🧠 **Auto-Context Management** | Automatic session tracking, decision logging, and persistent memory retrieval |
+| 📊 **Data Visualization** | Generate charts, graphs, and data visualizations |
+| 📝 **Markdown Preview** | Preview and render Markdown files |
+| 🔄 **Refactor Code** | Automated code refactoring utilities |
 
 ---
 
 ## 🗂️ Tool Categories
 
-### File System (21 tools)
-`list_directory` · `read_file` · `save_file` · `replace_text_in_file` · `insert_at_line` · `append_file` · `delete_lines_in_file` · `make_directory` · `move_file` · `copy_file` · `delete_path` · `delete_files_by_pattern` · `find_files` · `fuzzy_find_local_files` · `get_file_metadata` · `change_directory` · `analyze_project` · `file_diff` · `directory_tree` · `grep_files`
+### File System (22 tools)
+`list_directory` · `read_file` · `read_file_chunked` · `save_file` · `replace_text_in_file` · `insert_at_line` · `append_file` · `delete_lines_in_file` · `make_directory` · `move_file` · `copy_file` · `delete_path` · `delete_files_by_pattern` · `find_files` · `fuzzy_find_local_files` · `get_file_metadata` · `change_directory` · `analyze_project` · `file_diff` · `directory_tree` · `grep_files` · `find_replace_all`
 
 ### Web Research (4 tools)
 `web_search` · `wikipedia_search` · `fetch_web_content` · `rag_web_content`
@@ -68,11 +71,8 @@
 ### Execution (5 tools)
 `run_javascript` · `run_python` · `execute_command` · `run_in_terminal` · `run_tests`
 
-### Utilities (28 tools)
-`save_memory` · `get_memory` · `search_memory` · `delete_memory` · `save_session_summary` · `get_session_summary` · `get_system_info` · `read_clipboard` · `write_clipboard` · `send_notification` · `findLMStudioHome` · `get_enabled_tools` · `system_monitor` · `process_list` · `env_inspect` · `hash_file` · `token_count` · `convert_format` · `secret_scan` · `port_check` · `package_manage` · `detect_os_environment` · `get_current_working_directory`
-
-> **💡 Session Summary Compression (v1.5.15+):**  
-> Session summaries are now automatically compressed using `zlib.gzipSync(level: 9)` before storage, bypassing LM Studio's 10k character SDK parameter limit while reducing token consumption by ~30%. Legacy uncompressed summaries continue to work seamlessly via backward-compatible fallback parser.
+### Utilities (24 tools)
+`save_memory` · `get_memory` · `search_memory` · `delete_memory` · `save_session_summary` · `get_session_summary` · `get_system_info` · `read_clipboard` · `write_clipboard` · `send_notification` · `findLMStudioHome` · `get_enabled_tools` · `system_monitor` · `process_list` · `env_inspect` · `hash_file` · `token_count` · `convert_format` · `secret_scan` · `port_check` · `package_manage` · `detect_os_environment` · `get_current_working_directory` · `json_query` · `env_update`
 
 ### Image Processing (4 tools)
 `image_to_text` · `describe_image` · `screenshot_desktop` · `compare_images`
@@ -95,6 +95,18 @@
 ### Backup & Restore (4 tools)
 `create_backup` · `list_backups` · `restore_backup` · `delete_backup`
 
+### Line Operations (1 tool)
+`delete_lines`
+
+### Data Visualization (1 tool)
+`data_visualization`
+
+### Markdown Preview (1 tool)
+`markdown_preview`
+
+### Refactor Code (1 tool)
+`refactor_code`
+
 ---
 
 ## 🚀 Quick Start
@@ -110,7 +122,7 @@ The plugin is installed as an LM Studio plugin. Ensure you have:
 
 1. **Load the plugin** in LM Studio's plugin settings
 2. **Configure tool access** — individual tool categories can be toggled on/off
-3. **Start a chat** and the LLM can now use any of the 109 tools
+3. **Start a chat** and the LLM can now use any of the 110 tools
 
 ### Example: Search the Web
 
@@ -251,6 +263,20 @@ npm install
 npm run build
 ```
 
+### Module Path Aliases (`@/`)
+
+The project now supports absolute path aliases via `tsconfig.json` and `tsup.config.ts`. You can replace deeply nested relative imports (e.g., `../../../utils/helpers`) with clean, semantic aliases:
+
+```typescript
+// ✅ Modern import style
+import { resetBabelCache } from '@/utils/babel.js';
+import type { Tool } from '@/types/index.js';
+
+// ⚠️ Relative imports still work but are deprecated for new code
+```
+
+This improves cross-platform compatibility, simplifies refactoring, and reduces import clutter. The Tsup bundler resolves `@/` to `src/` automatically during the build process.
+
 ### Safe Edit Workflow (v1.5.12+)
 
 Prevent file corruption during LLM-assisted editing with our backup-first strategy:
@@ -291,6 +317,44 @@ node scripts/safe_edit.js cleanup --keep=0
 ---
 
 ## 📜 Release History
+
+### v1.5.23 — `git_stash` & `git_blame` Tools (2026-06-30)
+
+**Added two new Git tools and comprehensive TypeScript/ESLint hardening.**
+
+#### New Tools
+
+- **`git_stash`** — Manage git stashes: save, pop, drop, or list uncommitted changes. Essential for safe version control workflows.
+
+- **`git_blame`** — Get commit history for specific lines in a file. Returns author, timestamp, and commit hash for each line.
+
+- **`markdown_table_gen`** — Generate valid Markdown tables from arrays of objects with headers, alignment, and truncation support.
+
+#### ESLint & TypeScript Fixes
+- `gitGithubTools.ts`: Fixed interface scope issues, added proper `eslint-disable` blocks for `simple-git` dynamic typing
+- `textProcessingTools.ts`: Added `markdown_table_gen` tool, fixed `no-base-to-string` warnings
+- All `simple-git` calls use safe `as any` casts with explicit eslint-disable directives
+
+**Total**: 3 new tools, comprehensive TypeScript/ESLint hardening, zero breaking changes.
+
+---
+
+### v1.5.22 — New Tools: `json_query` & `env_update` (2026-06-30)
+
+**Added two new utility tools for JSON field extraction and environment variable management.**
+
+#### New Tools
+
+- **`json_query`** — Extract specific fields from JSON files using jq-style dot notation queries. Supports `.key`, `.key.subkey`, `.array[0]`, `.array[*]` (wildcard). Includes path validation, query depth limits (50 segments), and 10MB file size cap.
+
+- **`env_update`** — Add or update key-value pairs in `.env` files. Creates the key if missing, updates it if present. Validates key names (alphanumeric + underscores, must start with letter/underscore). Ensures file ends with newline.
+
+#### ESLint Fixes
+- `utilityTools.ts`: Fixed unused callback parameter (`idx` → `_idx`) and removed redundant type assertions (`as string` on `nextNextSeg`/`nextSeg`/`segment`)
+
+**Total**: 2 new tools, 3 ESLint fixes, zero breaking changes.
+
+---
 
 ### v1.5.20 — `grep_files` AST Mode Fallback Fix (2026-06-29)
 

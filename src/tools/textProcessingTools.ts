@@ -423,5 +423,79 @@ export function registerTextProcessingTools(_config: PluginConfig): Tool[] {
     },
   }));
 
+
+  // markdown_table_gen tool — Pure JS/TS utility
+  tools.push(tool({
+    name: 'markdown_table_gen',
+    description: 'Generate a valid Markdown table from an array of objects. Handles headers, alignment, and truncation for clean reporting output.',
+    parameters: {
+      data: z.array(z.record(z.string(), z.unknown())).describe('Array of objects to convert to table rows'),
+      headers: z.array(z.string()).optional().describe('Optional: Custom header names. If omitted, uses object keys.'),
+      max_column_width: z.number().int().min(10).max(100).optional().default(40).describe('Maximum width per column before truncation (default: 40)'),
+      truncate_ellipsis: z.string().optional().default('…').describe('Ellipsis character for truncated values (default: …)'),
+    },
+    implementation: async ({ data, headers, max_column_width, truncate_ellipsis }: { 
+      data: Array<Record<string, unknown>>; 
+      headers?: string[]; 
+      max_column_width?: number; 
+      truncate_ellipsis?: string; 
+    }) => {
+      try {
+        if (!data || data.length === 0) {
+          return { success: false, error: 'markdown_table_gen requires a non-empty "data" array' };
+        }
+
+        // Determine headers
+        const columnHeaders = headers || Object.keys(data[0]);
+        const rowCount = data.length;
+
+        // Calculate column widths
+        const colWidths: number[] = [];
+        for (let i = 0; i < columnHeaders.length; i++) {
+          let maxW = columnHeaders[i].length;
+          for (let j = 0; j < rowCount; j++) {
+            const val = data[j][columnHeaders[i]];
+            // eslint-disable-next-line @typescript-eslint/no-base-to-string
+            const strVal = val === null || val === undefined ? '' : String(val);
+            maxW = Math.max(maxW, strVal.length);
+          }
+          // Cap width at max_column_width
+          colWidths.push(Math.min(maxW, max_column_width || 40));
+        }
+
+        // Helper to format cell
+        const formatCell = (val: unknown, width: number): string => {
+          // eslint-disable-next-line @typescript-eslint/no-base-to-string
+          const str = val === null || val === undefined ? '' : String(val);
+          if (str.length > width) {
+            return str.substring(0, width - 1) + (truncate_ellipsis || '…');
+          }
+          return str.padEnd(width);
+        };
+
+        // Build table rows
+        const separator = colWidths.map(w => '-'.repeat(w)).join('|');
+        const headerRow = '|' + columnHeaders.map((h, i) => formatCell(h, colWidths[i])).join('|') + '|';
+        const dataRows = data.map(row => 
+          '|' + columnHeaders.map((h, i) => formatCell(row[h], colWidths[i])).join('|') + '|'
+        );
+
+        const markdownTable = [headerRow, separator, ...dataRows].join('\n');
+
+        return { success: true, data: { 
+          markdown_table: markdownTable,
+          columns: columnHeaders.length,
+          rows: rowCount,
+          column_widths: colWidths,
+          preview: markdownTable.substring(0, 500) + (markdownTable.length > 500 ? '\n... (truncated)' : '')
+        }};
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return { success: false, error: message };
+      }
+    },
+  }));
+
+
   return tools;
 }

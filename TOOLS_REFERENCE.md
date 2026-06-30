@@ -1,6 +1,6 @@
 # Tools Reference
 
-Complete reference for all **109 tools** in the AI Toolbox plugin, organized by category.
+Complete reference for all **110 tools** in the AI Toolbox plugin, organized by category.
 
 ---
 
@@ -61,7 +61,7 @@ Insert, delete, or reorder lines in a file. Like awk for line-level operations w
 
 ---
 
-## File System Tools (21)
+## File System Tools (22)
 
 ### `list_directory`
 
@@ -87,6 +87,20 @@ Read content from a file in the current working directory. Automatically chunks 
 **Returns**: `{ success: true, data: { content: string, filePath: string } }` or structured chunks for large files.
 
 > ⚠️ **IMPORTANT:** If `read_file` returns truncated output (content cut off), you **MUST** retry with [`read_file_chunked`](#read_file_chunked) to get the full content. Do not keep calling `read_file` with larger `max_length` values — it will still truncate.
+
+---
+
+### `read_file_chunked` 🆕 **RECOMMENDED for large files**
+
+Read a file in chunks to bypass character limits. **ALWAYS use this instead of `read_file` if read_file returned truncated output, or if you know the file is very large (>50k chars).** Returns structured chunks with start/end indices and truncation status.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `file_name` | `string` | Yes | File path |
+| `chunk_size` | `number` | No | Max characters per chunk (default: 50000, max: 50000) |
+| `max_chunks` | `number` | No | Maximum number of chunks to return (default: 20) |
+
+**Returns**: `{ success: true, data: { filePath: string, totalCharacters: number, chunksReturned: number, isTruncated: boolean, chunks: [{ index: number, content: string, startChar: number, endChar: number, truncated: boolean }] } }`
 
 ---
 
@@ -446,6 +460,75 @@ Structural code analysis using `@typescript-eslint/parser`. Supports pattern key
 > **Token Impact:** A broad pattern like `.js` across a 10k-file project is reduced from >100k tokens to <400 tokens (99.6% reduction). Large build artifacts are skipped entirely before reading.
 >
 > **AST Mode Return:** Results include `node_type` field identifying the AST node type (e.g., `"FunctionDeclaration"`, `"ThrowStatement"`).
+
+---
+
+### 🔒 `grep_files` Token Consumption Hardening 🆕
+
+Search for a pattern in files across a directory. Returns structured matches with file, line number, and content. Includes **three-layer token consumption controls** to prevent context window overflow from large codebase searches.
+
+#### Regex Mode (default)
+
+Searches using regex pattern matching with automatic ReDoS protection (unsafe patterns treated as literals).
+
+#### AST Mode (`mode: 'ast'`) — v1.5.x
+
+Structural code analysis using `@typescript-eslint/parser`. Supports pattern keywords that map to AST node types:
+
+| Pattern Keyword | AST Node Types Searched |
+|----------------|------------------------|
+| `import` | `ImportDeclaration` |
+| `function` | `FunctionDeclaration`, `FunctionExpression`, `ArrowFunctionExpression`, `MethodDefinition` |
+| `class` | `ClassDeclaration` |
+| `throw` | `ThrowStatement` |
+| `try` | `TryStatement` |
+| `return` | `ReturnStatement` |
+| `variable` | `VariableDeclaration` |
+| `export` | `ExportNamedDeclaration`, `ExportDefaultDeclaration` |
+| `loop` | `ForStatement`, `WhileStatement` |
+| `if` | `IfStatement` |
+| `error` / `catch` | `ThrowStatement`, `TryStatement` |
+| Module name (e.g., `"lodash"`) | `ImportDeclaration` with matching source |
+
+> ⚠️ **AST Fallback (v1.5.20+):** When AST parsing fails (e.g., invalid TypeScript), the tool gracefully falls back to regex mode for that file. Previously this fallback crashed silently due to a missing `regex` parameter — now fixed.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `pattern` | `string` | Yes | Regex or literal string to search for |
+| `path` | `string` | No | Directory to search in (default: current working directory) |
+| `mode` | `'regex' \\| 'ast'` | No | Search mode: `"regex"` for pattern matching or `"ast"` for structural code analysis (default: `"regex"`) |
+| `include_context` | `boolean` | No | Include surrounding context (function signatures, class context, JSDoc comments) in results (default: `false`) |
+| `max_content_length` | `number` | No | Max chars per matched line content (**default: 150**, range: 10–500). Truncated lines receive a `…` suffix. |
+| `include` | `string` | No | File glob pattern to include (e.g., `"*.ts"`, `"src/**/*.js"`) |
+| `exclude` | `string` | No | Files or directories to exclude (e.g., `"node_modules"`, `".git"`) |
+| `max_results` | `number` | No | Maximum number of results (**default: 20**, range: 1–500). Search stops early once reached; `truncated: true` signals more available. |
+| `max_file_size` | `number` | No | Max file size in bytes to search (**default: 100,000** / 100KB). Files exceeding this limit are silently skipped via early `fs.stat()` before content is read — prevents loading multi-MB build artifacts. |
+
+**Returns**: `{ success: true, data: { matches: [{ file: string, line_number: number, content: string, node_type?: string }], count: number, truncated: boolean, mode: string } }`
+
+> **Token Impact:** A broad pattern like `.js` across a 10k-file project is reduced from >100k tokens to <400 tokens (99.6% reduction). Large build artifacts are skipped entirely before reading.
+>
+> **AST Mode Return:** Results include `node_type` field identifying the AST node type (e.g., `"FunctionDeclaration"`, `"ThrowStatement"`).
+
+---
+
+### 🔍 `find_replace_all` 🆕 **v1.5.20+**
+
+Search and replace text across multiple files in a directory using regex. Supports dry-run mode and safety confirmations. Defaults to `dry_run: true` to prevent accidental mass modifications.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `directory` | `string` | No | Directory to search in (default: current working directory) |
+| `pattern` | `string` | Yes | Regex pattern to search for |
+| `replacement` | `string` | No | The replacement string (default: empty) |
+| `dry_run` | `boolean` | No | Preview changes without modifying files (**default: true** for safety) |
+| `confirm` | `boolean` | No | Explicitly confirm file modifications. Required if `dry_run` is false (**default: false**) |
+| `backup` | `boolean` | No | Create .bak backup before modification (**default: true**) |
+| `file_extensions` | `string[]` | No | Optional file extensions to filter (e.g., `["ts", "js", "md"]`) |
+| `max_files` | `number` | No | Maximum number of files to process (**default: 100**, range: 1–1000) |
+| `max_file_size` | `number` | No | Max file size in bytes to process (**default: 100,000** / 100KB) |
+
+**Returns**: `{ success: true, data: { dryRun: boolean, totalMatches: number, filesAffected: number, files: Array<{file: string, matches: number}>, skipped: Array<{file: string, reason: string}> } }`
 
 ---
 
@@ -876,7 +959,7 @@ Execute a test suite using Jest, PyTest, or Go test. Runs in the current working
 
 ---
 
-## Utility Tools (28)
+## Utility Tools (24)
 
 ### `save_memory` 🧠
 
@@ -1168,6 +1251,46 @@ Get the current working directory. Use this before generating file operations wi
 | (none) | — | — | — |
 
 **Returns**: `{ success: true, data: { current_working_directory: string } }`
+
+---
+
+### 🔍 `json_query` 🆕 **v1.5.22 — JSON Field Extraction (jq Equivalent)**
+
+Extract specific fields from JSON files using a query path (like jq). Supports dot notation, array indexing, and wildcard (*) access.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `file_path` | `string` | Yes | Path to the JSON file |
+| `query` | `string` | Yes | Query path (e.g., `".data.users[0].name"` or `".*.id"`) |
+| `output_format` | `'json' \| 'text'` | No | Output format: json for structured output, text for raw value (default: text) |
+
+**Returns**: `{ success: true, data: { file: string, query: string, output: string, type: string } }`
+
+> **Supported Query Syntax**:
+> - `.key` — Access top-level key
+> - `.key.subkey` — Nested object access
+> - `.array[0]` — Array index access
+> - `.array[*]` — Wildcard access (returns all array elements)
+> - `key` — Root access (without leading dot)
+>
+> **Security**: Validates path (no directory traversal), limits query depth to 50 segments, caps file size at 10MB.
+
+---
+
+### 📝 `env_update` 🆕 **v1.5.22 — Environment Variable Management**
+
+Add or update a key-value pair in an `.env` file. Creates the key if missing, updates it if present, and ensures the file ends with a newline.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `file_path` | `string` | Yes | Path to the .env file |
+| `key` | `string` | Yes | Environment variable key (alphanumeric + underscores only) |
+| `value` | `string` | Yes | Environment variable value |
+| `ensure_newline` | `boolean` | No | Ensure the file ends with a newline (default: true) |
+
+**Returns**: `{ success: true, data: { file: string, key: string, value: string, action: 'added' \| 'updated', endsWithNewline: boolean } }`
+
+> **Key Validation**: Must start with a letter or underscore, followed by alphanumeric characters or underscores. Matches standard .env convention.
 
 ---
 
@@ -1508,6 +1631,70 @@ Delete a backup file from the current working directory's backups folder. ⚠️
 | `confirm` | `boolean` | Yes | ⚠️ MUST be true to confirm deletion. This is a safety check. |
 
 **Returns**: `{ success: true, data: { deletedFile: string } }`
+
+---
+
+## Line Operations Tools (1)
+
+### `delete_lines` 🗑️
+
+Delete a specific line or range of lines from a file with safety features including binary protection, size limits, and atomic writes.
+
+> ⚠️ **Windows CRLF Preservation:** Automatically detects and preserves `\\r\\n` (CRLF) line endings.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `file_name` | `string` | Yes | The file to modify |
+| `start_line` | `number` | Yes | Starting line number (1-indexed) |
+| `end_line` | `number` | No | Ending line number (inclusive). If omitted, only deletes start_line. |
+
+**Returns**: `{ success: true, data: { deletedLines: string, linesDeleted: number, remainingLines: number, filePath: string } }`
+
+---
+
+## Data Visualization Tools (1)
+
+### `data_visualization` 📊
+
+Generate charts, graphs, and data visualizations. Returns HTML/CSS/JS code for rendering interactive visualizations.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `chart_type` | `string` | Yes | Type of chart (e.g., 'bar', 'line', 'pie') |
+| `data` | `Object` | Yes | Data to visualize |
+| `title` | `string` | No | Chart title |
+
+**Returns**: `{ success: true, data: { html: string } }`
+
+---
+
+## Markdown Preview Tools (1)
+
+### `markdown_preview` 📝
+
+Preview and render Markdown files. Converts Markdown to HTML and displays it in the browser.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `file_path` | `string` | Yes | Path to the Markdown file |
+
+**Returns**: `{ success: true, data: { rendered: boolean } }`
+
+---
+
+## Refactor Code Tools (1)
+
+### `refactor_code` 🔄
+
+Automated code refactoring utilities. Supports common refactoring patterns like extract function, inline variable, and rename symbol.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `file_path` | `string` | Yes | Path to the file to refactor |
+| `refactor_type` | `string` | Yes | Type of refactoring to perform |
+| `parameters` | `Object` | No | Additional parameters for the refactoring |
+
+**Returns**: `{ success: true, data: { refactored: boolean } }`
 
 ---
 

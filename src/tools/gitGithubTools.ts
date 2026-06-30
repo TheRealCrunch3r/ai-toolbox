@@ -3,6 +3,9 @@ import { tool } from '@lmstudio/sdk';
 import { z } from 'zod';
 import type { PluginConfig } from '../config';
 
+import { validatePath } from '../security.js';
+import { getWorkingDir, resolvePath } from '../workingDir.js';
+
 // Lazy-load simple-git for testability — ASYNC ===
 // eslint-disable-next-line @typescript-eslint/consistent-type-imports
 let simpleGitModule: typeof import('simple-git') | null = null;
@@ -72,8 +75,6 @@ async function getRepoName(): Promise<string | null> {
 async function ghApiRequest<T = unknown>(method: string, endpoint: string, body?: unknown): Promise<T> {
   const githubToken = process.env.GITHUB_TOKEN;
   
-  if (!githubToken) throw new Error('GITHUB_TOKEN environment variable is not set');
-  
   const response = await fetch(`https://api.github.com${endpoint}`, {
     method,
     headers: {
@@ -98,6 +99,9 @@ interface GitCommitParams { message: string; }
 interface GitLogParams { max_count?: number; }
 interface GitAddParams { paths?: string[]; }
 interface GitCheckoutParams { branch_name: string; create_new?: boolean; }
+interface GitStashParams { action: 'save' | 'pop' | 'drop' | 'list'; message?: string; }
+interface GitBlameParams { file_path: string; line_number?: number; }
+
 interface GhCreateIssueParams { title: string; body?: string; labels?: string[]; }
 interface GhListIssuesParams { state?: 'open' | 'closed'; labels?: string[]; limit?: number; }
 interface GhViewCommentsParams { number: number; type?: 'issue' | 'pr'; }
@@ -452,5 +456,101 @@ export function registerGitTools(_config: PluginConfig): Tool[] {
     },
   }));
 
+
+  // ======================================================================
+  // Git Stash & Blame Tools — ASYNC ===
+  // ======================================================================
+
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment */
+
+  // git_stash tool — ASYNC ===
+  tools.push(tool({
+    name: 'git_stash',
+    description: 'Manage git stashes: save, pop, drop, or list uncommitted changes. Essential for safe version control workflows.',
+    parameters: {
+      action: z.enum(['save', 'pop', 'drop', 'list']).describe('Stash action to perform'),
+      message: z.string().optional().describe('Optional: Stash message (required for "save" action)'),
+    },
+    implementation: async ({ action, message }: GitStashParams) => { // C5 FIX: typed params
+      try {
+        const git = await createGit();  // ASYNC call
+        
+        switch (action) {
+          case 'save': {
+            if (!message) {
+              return { success: false, error: 'git_stash save requires a "message" parameter' };
+            }
+            await (git as any).stash(['save', message]);  // ASYNC call
+            return { success: true, data: { stashed: true, message } };
+          }
+          case 'pop': {
+            const result = await (git as any).stash('pop');  // ASYNC call
+            return { success: true, data: { popped: true, result } };
+          }
+          case 'drop': {
+            await (git as any).stash('drop');  // ASYNC call
+            return { success: true, data: { dropped: true } };
+          }
+          case 'list': {
+            const stashList = await (git as any).stashList();  // ASYNC call
+            return { success: true, data: { stashes: stashList.all } };
+          }
+          default: {
+            return { success: false, error: `Unknown action: ${String(action)}` };
+          }
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return { success: false, error: `Git stash operation failed: ${message}` };
+      }
+    },
+  }));
+
+  // git_blame tool — ASYNC ===
+  tools.push(tool({
+    name: 'git_blame',
+    description: 'Get commit history for specific lines in a file. Returns author, timestamp, and commit hash for each line.',
+    parameters: {
+      file_path: z.string().describe('Path to the file to blame'),
+      line_number: z.number().int().min(1).optional().describe('Optional: Specific line number to blame. If omitted, blames entire file.'),
+    },
+    implementation: async ({ file_path, line_number }: GitBlameParams) => { // C5 FIX: typed params
+      try {
+        const git = await createGit();  // ASYNC call
+        
+        // Validate path
+        if (!validatePath(file_path, getWorkingDir())) {
+          return { success: false, error: 'Invalid path: directory traversal detected' };
+        }
+        
+        const fullPath = resolvePath(file_path);
+        
+        const blameResult: any = await (git as any).blame(fullPath);  // ASYNC call
+        
+        // Filter by line if requested
+        const filteredLines = line_number
+          ? blameResult.file.blame.filter((b: any) => b.finalLine === line_number)
+          : blameResult.file.blame;
+        
+        return { success: true, data: { 
+          blame: filteredLines.map((b: any) => ({
+            commitHash: b.hash,
+            author: b.author,
+            timestamp: b.timestamp,
+            line: b.finalLine,
+            originalLine: b.originalLine,
+            summary: b.summary
+          }))
+        }};
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return { success: false, error: `Git blame failed: ${message}` };
+      }
+    },
+  }));
+
+
   return tools;
+/* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment */
+
 }

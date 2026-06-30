@@ -1,4 +1,5 @@
 import { defineConfig } from 'tsup';
+import path from 'node:path';
 
 export default defineConfig({
   entry: ['src/index.ts'],
@@ -24,4 +25,7 @@ export default defineConfig({
   target: 'es2020',
   platform: 'node',
   tsconfig: './tsconfig.json',
+  alias: {
+    '@': path.resolve(__dirname, 'src'),
+  },
 });

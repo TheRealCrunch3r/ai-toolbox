@@ -1576,6 +1576,111 @@ RECOMMENDED USAGE:
   
 
 
+  // ── ✅ NEW TOOLS: json_query & env_update ──────────────────────────────────
+
+  // json_query tool — Extract specific fields from JSON files (jq equivalent)
+  tools.push(tool({
+    name: 'json_query',
+    description: 'Extract specific fields from JSON files using a query path (like jq). Supports dot notation, array indexing, and wildcard (*) access.',
+    parameters: {
+      file_path: z.string().describe('Path to the JSON file'),
+      query: z.string().describe('Query path (e.g., ".data.users[0].name" or ".*.id")'),
+      output_format: z.enum(['json', 'text']).default('text').describe('Output format: json for structured output, text for raw value'),
+    },
+    implementation: async ({ file_path, query, output_format }: { readonly file_path: string; readonly query: string; readonly output_format: string }) => {
+      try {
+        if (!validatePath(file_path, getWorkingDir())) {
+          return { success: false, error: 'Invalid path: directory traversal detected' };
+        }
+        const fullPath = resolvePath(file_path);
+        const stats = fs.statSync(fullPath);
+        if (!stats.isFile()) {
+          return { success: false, error: `Not a regular file: ${fullPath}` };
+        }
+        // Prevent reading excessively large JSON files (>10MB)
+        if (stats.size > 10 * 1_048_576) {
+          return { success: false, error: 'File too large for JSON query (>10MB)' };
+        }
+        const content = fs.readFileSync(fullPath, 'utf-8');
+        let data: unknown;
+        try {
+          data = JSON.parse(content);
+        } catch {
+          return { success: false, error: 'Invalid JSON file. Please ensure the file contains valid JSON.' };
+        }
+        // Parse query and extract value
+        const result = safeJsonQuery(data, query);
+        if (!result.success) {
+          return { success: false, error: result.error };
+        }
+        const formattedOutput = output_format === 'json'
+          ? JSON.stringify(result.value, null, 2)
+          : String(result.value);
+        return { success: true, data: { file: fullPath, query, output: formattedOutput, type: typeof result.value } };
+      } catch (error) {
+        return handleError(error);
+      }
+    },
+  }));
+
+  // env_update tool — Safely add or update environment variables in .env files
+  tools.push(tool({
+    name: 'env_update',
+    description: 'Add or update a key-value pair in an .env file. Creates the key if missing, updates it if present, and ensures the file ends with a newline.',
+    parameters: {
+      file_path: z.string().describe('Path to the .env file'),
+      key: z.string().describe('Environment variable key (alphanumeric + underscores only)'),
+      value: z.string().describe('Environment variable value'),
+      ensure_newline: z.boolean().default(true).describe('Ensure the file ends with a newline (default: true)'),
+    },
+    implementation: async ({ file_path, key, value, ensure_newline }: { readonly file_path: string; readonly key: string; readonly value: string; readonly ensure_newline: boolean }) => {
+      try {
+        if (!validatePath(file_path, getWorkingDir())) {
+          return { success: false, error: 'Invalid path: directory traversal detected' };
+        }
+        const fullPath = resolvePath(file_path);
+        // Validate key name (alphanumeric + underscores, must start with letter or underscore)
+        if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
+          return { success: false, error: 'Invalid key name. Must start with a letter or underscore, followed by alphanumeric characters or underscores.' };
+        }
+        let content = '';
+        try {
+          content = fs.readFileSync(fullPath, 'utf-8');
+        } catch {
+          // File doesn't exist — create it
+          content = '';
+        }
+        // Check if key exists and update/add accordingly
+        const lines = content.split('\n');
+        let found = false;
+        const updatedLines = lines.map(line => {
+          // Match lines that start with the key followed by =
+          if (line.trim().startsWith(key + '=')) {
+            found = true;
+            return `${key}=${value}`;
+          }
+          return line;
+        });
+        if (!found) {
+          updatedLines.push(`${key}=${value}`);
+        }
+        // Ensure file ends with newline if requested
+        if (ensure_newline) {
+          const lastLine = updatedLines[updatedLines.length - 1];
+          if (lastLine !== '' && lastLine !== undefined) {
+            updatedLines.push('');
+          }
+        }
+        const finalContent = updatedLines.join('\n');
+        fs.writeFileSync(fullPath, finalContent, 'utf-8');
+        return { success: true, data: { file: fullPath, key, value, action: found ? 'updated' : 'added', endsWithNewline: true } };
+      } catch (error) {
+        return handleError(error);
+      }
+    },
+  }));
+
+
   return tools;
 }
 
@@ -1654,4 +1759,112 @@ current_working_directory: getWorkingDir()
       },
     }),
   ];
+}
+
+
+// ==================== JSON Query Helper ====================
+
+/**
+ * Safe JSON path query helper — mimics jq-style dot notation queries.
+ * Supports: .key, .key.subkey, .array[0], .array[*] (wildcard), root access
+ */
+function safeJsonQuery(data: unknown, query: string): { success: boolean; value?: unknown; error?: string } {
+  // Normalize query: ensure it starts with a dot for consistency
+  let normalizedQuery = query.startsWith('.') ? query : `.${query}`;
+  
+  // Security: limit query depth to prevent excessive traversal
+  const depth = (normalizedQuery.match(/\./g) || []).length + (normalizedQuery.match(/\[/g) || []).length;
+  if (depth > 50) {
+    return { success: false, error: 'Query too complex (max 50 path segments allowed)' };
+  }
+  
+  // Parse the query into segments
+  const segments: Array<string | number> = [];
+  // Split by dots, then handle array indices
+  const parts = normalizedQuery.split('.').filter(p => p !== '');
+  
+  for (const part of parts) {
+    if (part === '*') {
+      segments.push('*'); // Wildcard
+    } else if (part.match(/^\[\s*(\d+)\s*\]$/)) {
+      // Array index: [0], [1], etc.
+      const index = parseInt(part.match(/^\[\s*(\d+)\s*\]$/)?.[1] || '0', 10);
+      segments.push(index);
+    } else if (part.match(/^\[\s*\]\]$/)) {
+      // Empty brackets — treat as wildcard for arrays
+      segments.push('*');
+    } else {
+      // Object key
+      segments.push(part);
+    }
+  }
+  
+  // Traverse the data
+  let current: unknown = data;
+  
+  for (let i = 0; i < segments.length; i++) {
+    const segment = segments[i];
+    
+    if (segment === '*') {
+      // Wildcard: return all values if current is an array
+      if (Array.isArray(current)) {
+        current = current.map((item, _idx) => {
+          // Continue traversal from this item
+          let result: unknown = item;
+          for (let j = i + 1; j < segments.length; j++) {
+            const nextSeg = segments[j];
+            if (nextSeg === '*') {
+              if (Array.isArray(result)) {
+                result = result.map((subItem) => {
+                  let subResult: unknown = subItem;
+                  for (let k = j + 1; k < segments.length; k++) {
+                    const nextNextSeg = segments[k];
+                    if (typeof subResult === 'object' && subResult !== null && nextNextSeg !== '*') {
+                      subResult = (subResult as Record<string, unknown>)[nextNextSeg];
+                    } else if (typeof subResult === 'object' && subResult !== null) {
+                      subResult = undefined;
+                    }
+                  }
+                  return subResult;
+                });
+              } else {
+                result = [];
+              }
+            } else {
+              if (typeof result === 'object' && result !== null && nextSeg !== '*') {
+                result = (result as Record<string, unknown>)[nextSeg];
+              } else if (typeof result === 'object' && result !== null) {
+                result = undefined;
+              }
+            }
+          }
+          return result;
+        });
+        return { success: true, value: current };
+      } else {
+        return { success: false, error: 'Wildcard (*) can only be used on arrays, not objects' };
+      }
+    } else if (typeof segment === 'number') {
+      // Array index
+      if (Array.isArray(current)) {
+        current = current[segment];
+      } else {
+        return { success: false, error: `Cannot access array index ${segment} on non-array value` };
+      }
+    } else {
+      // Object key
+      if (typeof current === 'object' && current !== null && !Array.isArray(current)) {
+        current = (current as Record<string, unknown>)[segment];
+      } else {
+        return { success: false, error: `Cannot access key '${segment}' on non-object value` };
+      }
+    }
+    
+    // Check for undefined/null mid-traversal
+    if (current === undefined || current === null) {
+      return { success: false, error: `Path '${normalizedQuery}' not found — intermediate value is null/undefined` };
+    }
+  }
+  
+  return { success: true, value: current };
 }

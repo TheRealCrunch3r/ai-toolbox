@@ -350,6 +350,8 @@ export async function preprocess(
           });
 
           const maxTokens = contextGuard.getTokenLimit(); // Actual context window capacity (not compression threshold at 90%)
+      // 🔹 DEBUG: Log token counts to verify threshold logic
+      console.warn(`[AutoTracker DEBUG] tokenCount: ${tokenCount}, maxTokens: ${maxTokens}, threshold: ${contextGuard.getThreshold()}`);
           
           // Check if user replied YES to a previous warning
           const userTextLower = userMessage.getText().toLowerCase();
@@ -361,6 +363,10 @@ export async function preprocess(
             
             console.warn('[Auto-Track] User confirmed backup, triggering session checkpoint...');
             await autoTracker.checkAndSaveTokenThreshold(tokenCount, maxTokens, history.getLength());
+            
+            // Reset state after checkpoint to allow future triggers
+            autoTracker.resetTokenThreshold();
+            
             pendingWarning = undefined; 
           } else {
             // Consume any pending warning (clears it so it doesn't repeat)

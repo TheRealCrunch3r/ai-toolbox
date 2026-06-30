@@ -113,7 +113,7 @@ Create a new file in `src/tools/` directory (e.g., `newToolModule.ts`):
 ```typescript
 import { tool, type Tool } from '@lmstudio/sdk';
 import { z } from 'zod';
-import type { PluginConfig } from '../config.js';
+import type { PluginConfig } from '@/config.js'; // ✅ Use @/ alias for cleaner imports
 
 interface NewToolParams {
   parameter1: string;
