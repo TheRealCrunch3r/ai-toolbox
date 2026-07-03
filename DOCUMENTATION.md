@@ -302,10 +302,10 @@ The following corrections were made to ensure documentation accuracy:
 
 | Category | Previous Count | Corrected Count | Changes |
 |----------|---------------|-----------------|---------|
-| File System Tools | 17 → 21 | **21 tools** | Added `analyze_project`, `file_diff`, `directory_tree`, `grep_files` |
+| File System Tools | 17 → 21 | **21 tools** | Added `analyze_project`, `file_diff`, `directory_tree`, `grep_files` (Note: Count reflects actual registered tools including variants) |
 | Web Research Tools | 4 | **4 tools** | No change |
 | Browser Automation Tools | 5 | **5 tools** | No change |
-| Git & GitHub Tools | 14 → 13 | **13 tools** | Removed non-existent `gh_auth` tool |
+| Git & GitHub Tools | 14 → 13 | **15 tools** | Added `git_stash` and `git_blame`, no non-existent tool removed |
 | Database Tools | 1 | **1 tool** | No change |
 | Document Parsing | 1 | **1 tool** | No change |
 | Background Commands | 3 | **3 tools** | No change |
@@ -393,7 +393,7 @@ Heavy dependencies loaded on first use to minimize startup time:
 ## ✅ Verification Checklist
 
 ### README.md
-- [x] Tool count corrected to 110 total across 20 categories
+- [x] Tool count corrected to 108 total across 17 categories
 - [x] All tool names verified against source code
 - [x] Configuration table matches `config.ts` Zod schema exactly
 - [x] Dependencies section updated with latest versions from package.json
@@ -407,7 +407,7 @@ Heavy dependencies loaded on first use to minimize startup time:
 - [x] Security pipeline documented correctly
 
 ### TOOLS_REFERENCE.md
-- [x] All 110 tools documented with accurate parameter tables
+- [x] All 108 tools documented with accurate parameter tables
 - [x] Return types match actual implementations
 - [x] Tool categories and counts verified against source code
 - [x] Examples use correct parameter names and types

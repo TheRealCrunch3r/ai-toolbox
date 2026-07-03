@@ -101,3 +101,12 @@ declare module 'mammoth' {
   function extractRawText(options: ExtractRawTextOptions): Promise<ExtractResult>;
   export default { extractRawText };
 }
+
+
+declare module 'markdown-it' {
+  class MarkdownItClass {
+    constructor(options?: Record<string, unknown>);
+    render(source: string): string;
+  }
+  export default MarkdownItClass;
+}

@@ -60,9 +60,9 @@ export const ConfigSchema = z.object({
 
   // Execution tools — individual toggles (granular control)
 
-  executionJavaScript: z.boolean().default(false).describe('Allow run_javascript tool'),
+  executionJavaScript: z.boolean().default(true).describe('Allow run_javascript tool'),
 
-  executionPython: z.boolean().default(false).describe('Allow run_python tool'),
+  executionPython: z.boolean().default(true).describe('Allow run_python tool'),
 
   executionTerminal: z.boolean().default(false).describe('Allow run_in_terminal tool'),
 
@@ -208,11 +208,11 @@ export const DEFAULT_CONFIG: PluginConfig = {
 
 
 
-  // Execution tools — all disabled by default (dangerous!)
+  // Execution tools — granular control (JavaScript & Python enabled by default)
 
-  executionJavaScript: false,
+  executionJavaScript: true,
   
-  executionPython: false,
+  executionPython: true,
   
   executionTerminal: false,
   

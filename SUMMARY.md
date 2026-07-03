@@ -18,30 +18,30 @@ Comprehensive overview of the AI Toolbox plugin, its architecture, features, and
 
 ## 🎯 Project Overview
 
-**AI Toolbox Plugin** is a comprehensive LM Studio plugin providing **110 tools across 20 categories** for AI-assisted development workflows. The plugin enables language models to interact with file systems, execute code, browse the web, manage Git repositories, process documents, and more — all within a secure, configurable framework.
+**AI Toolbox Plugin** is a comprehensive LM Studio plugin providing **108 tools across 17 categories** for AI-assisted development workflows. The plugin enables language models to interact with file systems, execute code, browse the web, manage Git repositories, process documents, and more — all within a secure, configurable framework.
 
 ### Core Capabilities
 
 | Category | Tool Count | Purpose |
 |----------|------------|---------|
-| File System | 21 tools | Read, write, search, and manage files with path validation |
+| File System | 17 tools | Read, write, search, and manage files with path validation |
 | Web Research | 4 tools | Multi-engine search (DDG, Google, Bing) with automatic fallback |
 | Browser Automation | 5 tools | Headless Puppeteer browser with persistent sessions |
-| Git & GitHub | 13 tools | Full Git operations + GitHub API integration |
+| Git & GitHub | 15 tools | Full Git operations + GitHub API integration |
 | Database | 1 tool | Read-only SQLite queries with SQL validation |
 | Document Parsing | 1 tool | PDF, DOCX, TXT document reading (disk paths + attachments) |
 | Background Commands | 3 tools | Long-running process management with timeout control |
 | Execution | 5 tools | Sandboxed JS/Python + full shell commands (pipes, redirects) |
-| Utilities | 24 tools | Clipboard, notifications, system info, memory, session summaries, JSON query, env management |
+| Utilities | ~29 tools | Clipboard, notifications, system info, memory, session summaries, JSON query, env management |
 | Image Processing | 4 tools | OCR (Tesseract.js), screenshots (Win32 API), image comparison |
 | HTTP Client | 3 tools | REST API client with SSRF protection |
 | Vector RAG | 4 tools | Semantic search with local embeddings, persistent state |
-| Text Processing | 3 tools | Regex substitutions (`text_transform`), field extraction (`text_extract`) |
+| Text Processing | 5 tools | Regex substitutions (`text_transform`), field extraction (`text_extract`), line operations, markdown table gen |
 | Interactive UI Generation | 3 tools | Generate and render HTML/CSS/JS components (buttons, forms, charts) |
 | Auto-Context Management | 7 tools | Automatic session tracking, decision logging, persistent memory |
 | Backup & Restore | 4 tools | Create compressed ZIP backups with atomic write pattern |
 
-**Total:** 110 tools across 20 categories ✅
+**Total:** 108 tools across 17 categories ✅
 
 ---
 
@@ -93,7 +93,7 @@ Plugin Runner (Node.js 20+)
     ├── Config Layer (Zod schemas + UI schematics)
     ├── Security Layer (Path validation, command sanitization, SQL guards)
     ├── State Management (Debounced persistence to JSON/msgpack files)
-    └── Tool Registry (20 modules → 108 tools total)
+    └── Tool Registry (16 modules → 108 tools total)
 ```
 
 ### Core Modules
@@ -109,19 +109,19 @@ Plugin Runner (Node.js 20+)
 ### Tool Categories (16 modules)
 
 Each category is implemented as a separate module in `src/tools/`:
-- `fileSystemTools.ts` — 20 file system tools
+- `fileSystemTools.ts` — 17 file system tools
 - `webResearchTools.ts` — 4 web research tools
 - `browserAutomationTools.ts` — 5 browser automation tools
-- `gitGithubTools.ts` — 13 Git/GitHub tools (6 git + 7 GitHub API)
+- `gitGithubTools.ts` — 15 Git/GitHub tools (6 git + 9 GitHub API)
 - `databaseTools.ts` — 1 database tool (SQLite queries)
 - `documentTools.ts` — 1 document parsing tool (PDF/DOCX/TXT)
 - `backgroundCommandTools.ts` — 3 background command tools
 - `executionTools.ts` — 5 execution tools (JS, Python, shell, terminal, tests)
-- `utilityTools.ts` — 24 utility tools (clipboard, notifications, system info, JSON query, env management)
+- `utilityTools.ts` — ~29 utility tools (clipboard, notifications, system info, JSON query, env management)
 - `imageProcessingTools.ts` — 4 image processing tools (OCR, screenshots, comparison)
 - `httpClientTools.ts` — 3 HTTP client tools (GET/POST with SSRF protection)
 - `vectorRagTools.ts` — 4 vector RAG tools (indexing, querying, clearing, web content)
-- `textProcessingTools.ts` — 3 text processing tools (transform, extract, line operations)
+- `textProcessingTools.ts` — 5 text processing tools (transform, extract, line operations, markdown table gen)
 - `uiGenerationTools.ts` — 3 UI generation tools (buttons, forms, charts, dashboards)
 - `contextManagementTools.ts` — 7 auto-context management tools (summary, memory, search)
 - `backupTools.ts` — 4 backup & restore tools (create, list, restore, delete)
@@ -213,7 +213,7 @@ Four tools (`replace_text_in_file`, `insert_at_line`, `append_file`, `delete_lin
 
 **Documentation Accuracy:**
 - Rebuilt all documentation from scratch based on source code analysis
-- Corrected tool counts (108 total across 20 categories)
+- Corrected tool counts (108 total across 17 categories)
 - Verified configuration tables match Zod schema definitions exactly
 - Updated architecture diagrams to reflect actual module structure
 
@@ -422,7 +422,7 @@ All documentation has been reconstructed based on actual source code analysis:
 |------|--------|-------|
 | `README.md` | ✅ Rebuilt | Accurate tool counts, configuration tables derived from Zod schema |
 | `ARCHITECTURE.md` | ✅ Rebuilt | Correct system overview diagram (16 modules), verified data flows |
-| `TOOLS_REFERENCE.md` | ✅ Rebuilt | All 110 tools documented with parameter tables matching implementations |
+| `TOOLS_REFERENCE.md` | ✅ Rebuilt | All 108 tools documented with parameter tables matching implementations |
 | `DOCUMENTATION.md` | ✅ Rebuilt | Cleaned up duplicate sections, verified version history against source code |
 | `CHANGELOG.md` | ✅ Updated | Accurate release dates and tool count corrections |
 | `CONTRIBUTING.md` | ✅ Created | Development workflow, adding new tools guidelines |

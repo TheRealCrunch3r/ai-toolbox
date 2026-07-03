@@ -9,6 +9,15 @@ import type { ContextGuard } from './contextGuard';
 import { setAttachments, listAttachments } from './attachmentManager';
 import { autoTracker } from './autoTracker';
 
+interface ExtendedMessage {
+  role?: string;
+  content?: unknown;
+  toolCalls?: unknown[];
+  tool_calls?: unknown[];
+  files?: unknown[];
+  images?: unknown[];
+}
+
 // --- Temporal Awareness Helpers (merged from up_to_date) ---
 interface DateTimeCache {
   compact: string;
@@ -315,6 +324,33 @@ async function retrieveFromPdfs(
   }));
 }
 
+interface ExtendedMessage {
+  role?: string;
+  content?: unknown;
+  toolCalls?: unknown[];
+  tool_calls?: unknown[];
+  files?: unknown[];
+  images?: unknown[];
+}
+
+interface ExtendedMessage {
+  role?: string;
+  content?: unknown;
+  toolCalls?: unknown[];
+  tool_calls?: unknown[];
+  files?: unknown[];
+  images?: unknown[];
+}
+
+interface ExtendedMessage {
+  role?: string;
+  content?: unknown;
+  toolCalls?: unknown[];
+  tool_calls?: unknown[];
+  files?: unknown[];
+  images?: unknown[];
+}
+
 export async function preprocess(
   ctl: PromptPreprocessorController,
   userMessage: ChatMessage
@@ -324,71 +360,38 @@ export async function preprocess(
   // 🔹 Declare pendingWarning at the top so it's accessible across all steps
   let pendingWarning: string | undefined;
   
-  // Step 0.5: ContextGuard auto-compression (before any processing)
+  // Step 0.5: ContextGuard auto-compression & token tracking
   if (contextGuard) {
     try {
       const history = await ctl.pullHistory();
       history.append(userMessage);
       const messages = history.getMessagesArray() as unknown as { role?: string; content?: unknown; [key: string]: unknown }[];
-      const tokenCount = await contextGuard.countTokens(messages);
-      const threshold = contextGuard.getThreshold();
-
-      // 🔹 NEW: Token threshold check with user confirmation prompt + YES reply handler
       
-      try {
-        const pluginConfig = ctl.getPluginConfig(configSchematics);
-        const autoTrackingEnabled = pluginConfig.get('autoTrackingEnabled') ?? true;
-        
-        if (autoTrackingEnabled) {
-          autoTracker.updateConfig({
-            autoTrackingEnabled: true,
-            autoTrackDecisions: pluginConfig.get('autoTrackDecisions') ?? true,
-            autoTrackCompletions: pluginConfig.get('autoTrackCompletions') ?? true,
-            autoTrackErrors: pluginConfig.get('autoTrackErrors') ?? true,
-            autoSummaryInterval: pluginConfig.get('autoSummaryInterval') ?? 50,
-            autoTrackTokenThreshold: (pluginConfig.get('autoTrackTokenThreshold')) ?? 75,
-          });
-
-          const maxTokens = contextGuard.getTokenLimit(); // Actual context window capacity (not compression threshold at 90%)
-      // 🔹 DEBUG: Log token counts to verify threshold logic
-      console.warn(`[AutoTracker DEBUG] tokenCount: ${tokenCount}, maxTokens: ${maxTokens}, threshold: ${contextGuard.getThreshold()}`);
-          
-          // Check if user replied YES to a previous warning
-          const userTextLower = userMessage.getText().toLowerCase();
-          const isYesReply = /^\s*(yes|y)\s*$/.test(userTextLower) || /yes\s+(please|proceed|go)/i.test(userTextLower);
-
-          if (isYesReply && autoTracker.hasPendingWarning()) {
-            // Reset threshold flag so checkAndSaveTokenThreshold can re-evaluate fresh
-            autoTracker.resetTokenThreshold();
-            
-            console.warn('[Auto-Track] User confirmed backup, triggering session checkpoint...');
-            await autoTracker.checkAndSaveTokenThreshold(tokenCount, maxTokens, history.getLength());
-            
-            // Reset state after checkpoint to allow future triggers
-            autoTracker.resetTokenThreshold();
-            
-            pendingWarning = undefined; 
-          } else {
-            // Consume any pending warning (clears it so it doesn't repeat)
-            const warn = autoTracker.consumePendingConfirmation();
-            
-            if (!warn) {
-              // No previous warning → check threshold now for the first time this session
-              const { triggered, warning } = autoTracker.checkAndGeneratePrompt(tokenCount, maxTokens);
-              pendingWarning = triggered ? warning : undefined;
-            } else {
-              // User said "NO" — reset flag so it can re-evaluate on next token climb, and clear warning
-              autoTracker.resetTokenThreshold();
-              console.warn('[Auto-Track] User declined checkpoint — threshold flag reset for next evaluation');
-              pendingWarning = undefined; // 🔹 FIX #3: Don't re-inject the same warning forever
-            }
-          }
-        } else {
-          autoTracker.updateConfig({ autoTrackingEnabled: false });
+      // Safely extract files/images, handling both arrays and single objects
+      let toolCallCount = 0;
+      let imageCount = 0;
+      for (const msg of messages) {
+        const typedMsg = msg as ExtendedMessage;
+        if (typedMsg.toolCalls || typedMsg.tool_calls) {
+          toolCallCount += typedMsg.toolCalls?.length || typedMsg.tool_calls?.length || 0;
         }
-      } catch (e) {
-        console.warn('[Auto-Track] Token threshold check failed:', e);
+        
+        const fileObj = typedMsg.files || typedMsg.images;
+        if (fileObj && Array.isArray(fileObj) && fileObj.length > 0) {
+          imageCount += fileObj.length;
+        } else if (fileObj && typeof fileObj === 'object') {
+          // Handle single object case
+          imageCount += 1;
+        }
       }
+      console.warn(`[TokenDebug] Total Tool calls: ${toolCallCount}, Total Files/Images: ${imageCount}`);
+
+      // Calculate tokens for threshold check
+      const tokenCount = await contextGuard.countTokens(messages, imageCount);
+      const threshold = contextGuard.getThreshold();
+      
+      // 🔹 DEBUG: Log token counts to verify threshold logic
+      console.warn(`[AutoTracker DEBUG] tokenCount: ${tokenCount}, maxTokens: ${contextGuard.getTokenLimit()}, threshold: ${threshold}`);
 
       if (tokenCount > threshold) {
         console.warn(`[ContextGuard] Token count ${tokenCount} exceeds threshold ${threshold}, compressing...`);
@@ -453,7 +456,13 @@ export async function preprocess(
   // Step 1: Directory detection (highest priority)
   const detectedPath = detectDirectoryPath(userPrompt);
   if (detectedPath) {
-    return injectWorkingDirectoryPrompt(userPrompt + attachmentNotice, detectedPath) + getTemporalSuffix(ctl);
+    let base = injectWorkingDirectoryPrompt(userPrompt + attachmentNotice, detectedPath) + getTemporalSuffix(ctl);
+    
+    // 🔹 Inject checkpoint warning even if directory is detected
+    if (pendingWarning) {
+      base += `\\n\\n--- SYSTEM INSTRUCTION ---\\n${pendingWarning}\\n--------------------------`;
+    }
+    return base;
   }
   
   // Step 2: Document RAG processing (if enabled)

@@ -142,10 +142,10 @@ new ToolsProvider(config)
     ├── BackgroundCommandManager ──► Initialize process tracker
     └── ToolRegistry.registerAll()
             │
-            ├── registerFileSystemTools()    ──► 21 tools
+            ├── registerFileSystemTools()    ──► 17 tools
             ├── registerWebResearchTools()   ──► 4 tools
             ├── registerBrowserTools()       ──► 5 tools
-            ├── registerGitTools()           ──► 13 tools
+            ├── registerGitTools()           ──► 15 tools
             ├── registerDatabaseTools()      ──► 1 tool
             ├── registerDocumentTools()      ──► 1 tool
             ├── registerBackgroundCommandTools() ─► 3 tools
@@ -697,10 +697,10 @@ src/
 │   ├── zh-CN.ts
 │   └── zh-TW.ts
 ├── tools/                      # Tool category modules (17 files)
-│   ├── fileSystemTools.ts      # 21 file system tools
+│   ├── fileSystemTools.ts      # 17 file system tools
 │   ├── webResearchTools.ts     # 4 web research tools
 │   ├── browserAutomationTools.ts # 5 browser tools
-│   ├── gitGithubTools.ts       # 13 Git/GitHub tools
+│   ├── gitGithubTools.ts       # 15 Git/GitHub tools
 │   ├── databaseTools.ts        # 1 database tool
 │   ├── documentTools.ts        # 1 document parsing tool
 │   ├── backgroundCommandTools.ts # 3 background command tools

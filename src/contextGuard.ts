@@ -68,12 +68,16 @@ export class ContextGuard {
    * Counts tokens efficiently with caching.
    * Accounts for message structure (role prefixes, separators) to match actual LLM token consumption.
    */
-  async countTokens(messages: ContextMessage[]): Promise<number> {
+  async countTokens(messages: ContextMessage[], imageCount: number = 0): Promise<number> {
+    // DEBUG: Log message count to verify history integrity
+    console.warn(`[ContextGuard] [COUNT] Processing ${messages.length} messages.`);
+    
     // FIX #1: Hash-based cache invalidation - validates ALL messages, not just last one
     if (this.cachedTokenCount !== null) {
       const currentHash = this.computeMessageHash(messages);
       
       if (this._lastMessageHash === currentHash) {
+        console.warn(`[ContextGuard] [COUNT] Cache hit: returning ${this.cachedTokenCount}`);
         return this.cachedTokenCount;
       }
     }
@@ -85,16 +89,36 @@ export class ContextGuard {
     let count = 0;
     for (const msg of messages) {
       const role = msg.role || 'user';
-      const content: string = typeof msg.content === 'string' 
-        ? msg.content 
-        : msg.content != null && typeof msg.content !== 'string'
-          ? JSON.stringify(msg.content)
-          : '';
+      
+      // Try to get content string, fallback to getText() if content is empty
+      let contentStr: string = '';
+      if (typeof msg.content === 'string') {
+        contentStr = msg.content;
+      } else if (msg.content != null && typeof msg.content !== 'string') {
+        contentStr = JSON.stringify(msg.content);
+      } else {
+        // Fallback for ChatMessage objects with empty content
+        const typedMsg = msg as Record<string, unknown>;
+        const getTextFn = typedMsg.getText;
+        if (typeof getTextFn === 'function') {
+          contentStr = ((getTextFn as unknown as () => string)()) || '';
+        }
+      }
+      
+      // DEBUG: Log content length to verify message integrity
+      console.warn(`[ContextGuard] [COUNT] Message content length: ${contentStr.length} chars (role: ${role})`);
       
       // Account for message structure: role prefix + separator + content
       // This matches how LLMs actually consume tokens in chat completion API
-      const structuredText = `<|start|>assistant<|name|>${role}<|end|>\n${content}`;
+      const structuredText = `<|start|>assistant<|name|>${role}<|end|>\n${contentStr}`;
       count += this.encoder.encode(structuredText).length;
+    }
+    
+    // Add estimated tokens for images (LM Studio uses ~500-1000 tokens per image)
+    if (imageCount > 0) {
+      const imageTokens = imageCount * 500; // Conservative estimate
+      count += imageTokens;
+      console.warn(`[ContextGuard] [COUNT] Adding ${imageTokens} tokens for ${imageCount} images.`);
     }
     
     // Add a small overhead for system prompt and BOS token (typically ~4-8 tokens)
@@ -103,6 +127,7 @@ export class ContextGuard {
     this.cachedTokenCount = count;
     this._lastMessageHash = this.computeMessageHash(messages);  // FIX #1: Store hash
     
+    console.warn(`[ContextGuard] [COUNT] Total count: ${count} tokens for ${messages.length} messages.`);
     return count;
   }
 
@@ -299,6 +324,13 @@ SUMMARY:`;
    */
   getTokenLimit(): number {
     return this.config.tokenLimit;
+  }
+
+  /**
+   * Updates the configuration dynamically.
+   */
+  updateConfig(newConfig: Partial<ContextGuardConfig>): void {
+    this.config = { ...this.config, ...newConfig };
   }
 
   /**

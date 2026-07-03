@@ -2,11 +2,12 @@ import type { Tool } from '@lmstudio/sdk';
 import { tool } from '@lmstudio/sdk';
 import { z } from 'zod';
 import type { PluginConfig } from '../config.js';
-import MarkdownIt from 'markdown-it';
+
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import open from 'open';
+import MarkdownIt from 'markdown-it';
 
 /** Typed params interface */
 interface MarkdownPreviewParams {
