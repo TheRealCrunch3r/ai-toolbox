@@ -108,7 +108,7 @@
 
 | Tool | Description |
 |------|-------------|
-| `git_stash` | Manage uncommitted changes: save, pop, drop, and list stashes via simple-git |
+| `git_stash` | Manage uncommitted changes: save, pop, drop, and list stashes via native Git CLI fallback (isomorphic-git does not support stash) |
 | `git_blame` | Per-line commit history showing author, timestamp, hash; path validation prevents traversal attacks |
 
 ### GitHub API (gh CLI)

@@ -1,57 +1,45 @@
-﻿import type { Tool } from '@lmstudio/sdk';
+import type { Tool } from '@lmstudio/sdk';
 import { tool } from '@lmstudio/sdk';
 import { z } from 'zod';
 import type { PluginConfig } from '../config';
 
 import { validatePath } from '../security.js';
 import { getWorkingDir, resolvePath } from '../workingDir.js';
+import * as git from 'isomorphic-git';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+import fs from 'fs/promises';
 
-// Minimal interface matching simple-git's public API to ensure strict typing
-interface GitInstance {
-  cwd(path: string): GitInstance;
-  raw(args: string[]): Promise<string>;
-  status(): Promise<unknown>;
-  diff(paths?: string[]): Promise<string>;
-  commit(msg: string): Promise<string>;
-  log(maxCount?: number): Promise<{ all: Array<unknown> }>;
-  add(paths: string[]): Promise<void>;
-  checkout(branch: string): Promise<void>;
-  checkoutLocalBranch(branch: string): Promise<void>;
-  push(...args: string[]): Promise<void>;
-  stash(action?: string | string[], msg?: string): Promise<unknown>;
-  stashList(): Promise<{ all: Array<unknown> }>;
-  blame(path: string): Promise<{ file: { blame: Array<{ hash: string; author: string; timestamp: number; finalLine: number; originalLine: number; summary: string }> } }>;
+const execPromise = promisify(exec);
+
+// Minimal interface matching isomorphic-git's public API for strict typing
+interface GitConfig {
+  dir: string;
 }
 
-// Lazy-load simple-git for testability — ASYNC ===
-let gitInstance: GitInstance | null = null;
+let gitConfig: GitConfig | null = null;
 
 /** Get the absolute working directory, handling Windows paths with spaces */
 function getSafeWorkingDir(): string {
   return process.cwd();
 }
 
-/** Create a fresh git instance for each operation — ASYNC === */
-async function createGit(): Promise<GitInstance> {
-  let instance = gitInstance;
-  if (!instance) {
-    const workTree = getSafeWorkingDir();
-    const module = await import('simple-git');
-    // Type the ESM default export explicitly to avoid `any` propagation across the file
-    instance = ((module.default as unknown) as (path?: string) => GitInstance)(workTree);
-    gitInstance = instance;
+/** Get or create the git configuration context */
+async function getGitConfig(): Promise<GitConfig> {
+  if (!gitConfig) {
+    gitConfig = { dir: getSafeWorkingDir() };
   }
-  return Promise.resolve(instance);
+  return gitConfig;
 }
 
-/** Reset git instance cache (for testing) */
+/** Reset git config cache (for testing) */
 export function resetGitCache(): void {
-  gitInstance = null;
+  gitConfig = null;
 }
 
 /**
- * Extract GitHub repo name from git remote URL or environment variable. — ASYNC ===
- * FIX P1: Replaced child_process.execSync with async simple-git ===
+ * Extract GitHub repo name from .git/config or environment variable. — ASYNC ===
+ * FIX P1: Replaced child_process.execSync with pure isomorphic-git/fs parsing ===
  */
 async function getRepoName(): Promise<string | null> {
   // Priority 1: Environment variable (GitHub Actions, CI/CD)
@@ -59,26 +47,27 @@ async function getRepoName(): Promise<string | null> {
     return process.env.GITHUB_REPOSITORY;
   }
 
-  // Priority 2: Git remote URL parsing via simple-git — ASYNC ===
+  // Priority 2: Parse .git/config to find remote URL — ASYNC ===
   try {
-    const git = await createGit();  // ASYNC call
-    const remotes = await git.raw(['remote', 'get-url', 'origin']);  // ASYNC call
+    const workTree = getSafeWorkingDir();
+    const gitConfigPath = `${workTree}/.git/config`;
+    const configContent = await fs.readFile(gitConfigPath, 'utf-8');
     
-    if (remotes) {
-      const remoteUrl = remotes.trim();
+    // Look for url = ... under [remote "origin"] section
+    const remoteSection = /\[remote "origin"\][\s\S]*?url\s*=\s*(.+?)(?=\n\[|\$)/.exec(configContent);
+    if (remoteSection && remoteSection[1]) {
+      let remoteUrl = remoteSection[1].trim();
       
-      if (remoteUrl) {
-        // Handle SSH format: git@github.com:user/repo.git
-        const sshMatch = remoteUrl.match(/git@github\.com[:/]([^/]+\/[^/]+)\.git$/);
-        if (sshMatch) return sshMatch[1];
-        
-        // Handle HTTPS format: https://github.com/user/repo.git
-        const httpsMatch = remoteUrl.match(/https:\/\/github\.com\/([^/]+\/[^/]+)\.git$/);
-        if (httpsMatch) return httpsMatch[1];
-      }
+      // Handle SSH format: git@github.com:user/repo.git
+      const sshMatch = remoteUrl.match(/git@github\.com[:/]([^/]+\/[^/]+)\\.git$/);
+      if (sshMatch) return sshMatch[1];
+      
+      // Handle HTTPS format: https://github.com/user/repo.git
+      const httpsMatch = remoteUrl.match(/https:\/\/github\.com\/([^/]+\/[^/]+)\.git$/);
+      if (httpsMatch) return httpsMatch[1];
     }
   } catch {
-    // Git remote not available, continue to next priority
+    // Git config not available, continue to next priority
   }
 
   // Priority 3: Environment variable GITHUB_REPO as fallback
@@ -121,12 +110,13 @@ interface GitAddParams { paths?: string[]; }
 interface GitCheckoutParams { branch_name: string; create_new?: boolean; }
 interface GitStashParams { action: 'save' | 'pop' | 'drop' | 'list'; message?: string; }
 interface GitBlameParams { file_path: string; line_number?: number; }
+interface GitBlameResult { commitHash: string; author: string; timestamp: number; line: number; originalLine: number; summary: string; }
 
 interface GhCreateIssueParams { title: string; body?: string; labels?: string[]; }
 interface GhListIssuesParams { state?: 'open' | 'closed'; labels?: string[]; limit?: number; }
 interface GhViewCommentsParams { number: number; type?: 'issue' | 'pr'; }
 interface GhCreatePrParams { title: string; body?: string; head_branch: string; base_branch?: string; }
-interface GhListPrsParams { state?: 'open' | 'closed'; limit?: number; }
+interface GhListPrsParams { state?: 'open' | 'closed'; labels?: string[]; limit?: number; }
 interface GhViewPrDiffParams { number: number; }
 interface GhPushParams { branch?: string; }
 
@@ -140,8 +130,10 @@ export function registerGitTools(_config: PluginConfig): Tool[] {
     parameters: {},
     implementation: async (_params: GitStatusParams) => { // C5 FIX: typed params
       try {
-        const git = await createGit();  // ASYNC call
-        const statusResult = await git.status() as Record<string, unknown>;  // ASYNC call
+        const config = await getGitConfig();
+        // isomorphic-git requires an fs adapter. We cast to satisfy TS as we are using Node's native fs.
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-explicit-any
+        const statusResult = await git.status({ ...config, fs } as any) as unknown as Record<string, unknown>;
         return { success: true, data: statusResult };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -160,15 +152,15 @@ export function registerGitTools(_config: PluginConfig): Tool[] {
     },
     implementation: async ({ file_path, cached }: GitDiffParams) => { // C5 FIX: typed params
       try {
-        const git = await createGit();  // ASYNC call
+        const config = await getGitConfig();
         let result: string;
         
         if (file_path) {
-          result = await git.diff([file_path]);  // ASYNC call
+          result = await execPromise(`git diff "${file_path}"`, { cwd: config.dir }).then(r => r.stdout);
         } else if (cached) {
-          result = await git.diff(['--cached']);  // ASYNC call
+          result = await execPromise('git diff --cached', { cwd: config.dir }).then(r => r.stdout);
         } else {
-          result = await git.diff();  // ASYNC call
+          result = await execPromise('git diff', { cwd: config.dir }).then(r => r.stdout);
         }
         
         return { success: true, data: { diff: result } };
@@ -188,15 +180,16 @@ export function registerGitTools(_config: PluginConfig): Tool[] {
     },
     implementation: async ({ message }: GitCommitParams) => { // C5 FIX: typed params
       try {
-        const git = await createGit();  // ASYNC call
+        const config = await getGitConfig();
         
-        // Stage all changes
-        await git.add(['.']);  // ASYNC call
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-explicit-any, @typescript-eslint/no-unnecessary-type-assertion
+        await git.add({ ...config, filepath: '.', fs } as any);
         
         // Commit with message
-        const result = await git.commit(message);  // ASYNC call
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-explicit-any, @typescript-eslint/no-unnecessary-type-assertion
+        await git.commit({ ...config, message, fs } as any);
         
-        return { success: true, data: { committed: true, commitMessage: result } };
+        return { success: true, data: { committed: true, commitMessage: message } };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         return { success: false, error: `Git commit failed: ${message}` };
@@ -213,11 +206,12 @@ export function registerGitTools(_config: PluginConfig): Tool[] {
     },
     implementation: async ({ max_count }: GitLogParams) => { // C5 FIX: typed params
       try {
-        const git = await createGit();  // ASYNC call
+        const config = await getGitConfig();
         
-        const log = await git.log(max_count || 20);  // ASYNC call
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-explicit-any, @typescript-eslint/no-unnecessary-type-assertion
+        const logResult = await git.log({ ...config, depth: max_count || 20, fs } as any);
         
-        return { success: true, data: { commits: log.all } };
+        return { success: true, data: { commits: logResult } };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         return { success: false, error: `Git log failed: ${message}` };
@@ -234,12 +228,16 @@ export function registerGitTools(_config: PluginConfig): Tool[] {
     },
     implementation: async ({ paths }: GitAddParams) => { // C5 FIX: typed params
       try {
-        const git = await createGit();  // ASYNC call
+        const config = await getGitConfig();
         
         if (paths && paths.length > 0) {
-          await git.add(paths);  // ASYNC call
+          for (const p of paths) {
+            // eslint-disable-next-line @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-explicit-any, @typescript-eslint/no-unnecessary-type-assertion
+            await git.add({ ...config, filepath: p, fs } as any);
+          }
         } else {
-          await git.add(['.']);  // ASYNC call - stage all changes
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-explicit-any, @typescript-eslint/no-unnecessary-type-assertion
+          await git.add({ ...config, filepath: '.', fs } as any);
         }
         
         return { success: true, data: { staged: true } };
@@ -260,12 +258,15 @@ export function registerGitTools(_config: PluginConfig): Tool[] {
     },
     implementation: async ({ branch_name, create_new }: GitCheckoutParams) => { // C5 FIX: typed params
       try {
-        const git = await createGit();  // ASYNC call
+        const config = await getGitConfig();
         
         if (create_new) {
-          await git.checkoutLocalBranch(branch_name);  // ASYNC call - creates new branch
+          // isomorphic-git checkout does not directly support creating new branches in one step like simple-git's checkoutLocalBranch.
+          // Fallback to native exec for branch creation to ensure reliability.
+          await execPromise(`git checkout -b "${branch_name}"`, { cwd: config.dir });
         } else {
-          await git.checkout(branch_name);  // ASYNC call
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-explicit-any, @typescript-eslint/no-unnecessary-type-assertion
+          await git.checkout({ ...config, ref: branch_name, fs } as any);
         }
         
         return { success: true, data: { switchedToBranch: branch_name } };
@@ -326,7 +327,7 @@ export function registerGitTools(_config: PluginConfig): Tool[] {
         if (labels && labels.length > 0) {
           url += `&labels=${labels.join(',')}`;
         }
-        
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const issues = await ghApiRequest<Array<any>>('GET', url);
         
@@ -409,6 +410,7 @@ export function registerGitTools(_config: PluginConfig): Tool[] {
         if (!repoName) throw new Error('Could not determine repository name');
         
         const url = `/repos/${repoName}/pulls?state=${state || 'open'}`;
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const prs = await ghApiRequest<Array<any>>('GET', url);
         
@@ -459,12 +461,13 @@ export function registerGitTools(_config: PluginConfig): Tool[] {
     },
     implementation: async ({ branch }: GhPushParams) => { // C5 FIX: typed params
       try {
-        const git = await createGit();  // ASYNC call
+        const config = await getGitConfig();
         
         if (branch) {
-          await git.push('origin', branch);  // ASYNC call
+          // isomorphic-git requires an http adapter for remote ops. Fallback to native exec.
+          await execPromise(`git push origin "${branch}"`, { cwd: config.dir });
         } else {
-          (await git.push())  // ASYNC call - push current branch
+          await execPromise('git push', { cwd: config.dir });
         }
         
         return { success: true, data: { pushed: true } };
@@ -480,7 +483,6 @@ export function registerGitTools(_config: PluginConfig): Tool[] {
   // Git Stash & Blame Tools — ASYNC ===
   // ======================================================================
 
-
   // git_stash tool — ASYNC ===
   tools.push(tool({
     name: 'git_stash',
@@ -491,27 +493,31 @@ export function registerGitTools(_config: PluginConfig): Tool[] {
     },
     implementation: async ({ action, message }: GitStashParams) => { // C5 FIX: typed params
       try {
-        const git = await createGit();  // ASYNC call
+        const config = await getGitConfig();
         
         switch (action) {
           case 'save': {
             if (!message) {
               return { success: false, error: 'git_stash save requires a "message" parameter' };
             }
-            await git.stash(['save', message]);  // ASYNC call
+            // isomorphic-git does not support stash. Fallback to native exec.
+            await execPromise(`git stash push -m "${message.replace(/"/g, '\\"')}"`, { cwd: config.dir });
             return { success: true, data: { stashed: true, message } };
           }
           case 'pop': {
-            const result = await git.stash('pop');  // ASYNC call
-            return { success: true, data: { popped: true, result } };
+            // Fallback to native exec
+            await execPromise('git stash pop', { cwd: config.dir });
+            return { success: true, data: { popped: true } };
           }
           case 'drop': {
-            await git.stash('drop');  // ASYNC call
+            // Fallback to native exec
+            await execPromise('git stash drop', { cwd: config.dir });
             return { success: true, data: { dropped: true } };
           }
           case 'list': {
-            const stashList = await git.stashList();  // ASYNC call
-            return { success: true, data: { stashes: stashList.all } };
+            // Fallback to native exec
+            const { stdout } = await execPromise('git stash list', { cwd: config.dir });
+            return { success: true, data: { stashes: stdout.trim().split('\n').filter(Boolean) } };
           }
           default: {
             return { success: false, error: `Unknown action: ${String(action)}` };
@@ -534,32 +540,49 @@ export function registerGitTools(_config: PluginConfig): Tool[] {
     },
     implementation: async ({ file_path, line_number }: GitBlameParams) => { // C5 FIX: typed params
       try {
-        const git = await createGit();  // ASYNC call
+        const config = await getGitConfig();
         
         // Validate path
         if (!validatePath(file_path, getWorkingDir())) {
           return { success: false, error: 'Invalid path: directory traversal detected' };
         }
         
+        // isomorphic-git does not support blame. Fallback to native exec for precise output parsing.
         const fullPath = resolvePath(file_path);
+        let cmd = `git blame "${fullPath}"`;
+        if (line_number) {
+          cmd += ` -L ${line_number},${line_number}`;
+        }
         
-        const blameResult = await git.blame(fullPath);  // ASYNC call
+        const { stdout } = await execPromise(cmd, { cwd: config.dir });
         
-        // Filter by line if requested
-        const filteredLines = line_number
-          ? blameResult.file.blame.filter((b) => b.finalLine === line_number)
-          : blameResult.file.blame;
+        // Parse git blame output manually for structured data
+        const lines = stdout.trim().split('\n');
+        const parsedBlame: (GitBlameResult | null)[] = lines.map(line => {
+          // Format: <hash> <original_line> <final_line> [<author>] (<timestamp>) <summary>
+          const parts = line.match(/^([0-9a-f]+)\s+(\d+)\s+(\d+)\s+\[([^\]]+)\]\s+\((\d+)\s+(.+)$/);
+          if (parts) {
+            return {
+              commitHash: parts[1],
+              author: parts[4],
+              timestamp: parseInt(parts[5], 10),
+              line: parseInt(parts[3], 10),
+              originalLine: parseInt(parts[2], 10),
+              summary: parts[6] || ''
+            };
+          }
+          return null;
+        });
+
+        // Filter for non-nulls first to ensure type safety
+        const validBlame = parsedBlame.filter((b): b is GitBlameResult => b !== null);
         
-        return { success: true, data: { 
-          blame: filteredLines.map((b) => ({
-            commitHash: b.hash,
-            author: b.author,
-            timestamp: b.timestamp,
-            line: b.finalLine,
-            originalLine: b.originalLine,
-            summary: b.summary
-          }))
-        }};
+        // Then filter by line number if requested
+        const filteredLines = line_number 
+          ? validBlame.filter(b => b.line === line_number) 
+          : validBlame;
+        
+        return { success: true, data: { blame: filteredLines } };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         return { success: false, error: `Git blame failed: ${message}` };

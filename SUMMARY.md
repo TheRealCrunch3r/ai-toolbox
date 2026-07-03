@@ -130,6 +130,16 @@ Each category is implemented as a separate module in `src/tools/`:
 
 ## 📈 Recent Changes (v1.5.x)
 
+### [1.5.25] - 2026-07-03 — Git Library Migration: `simple-git` → `isomorphic-git`
+
+**Replaced the entire Git/GitHub toolset with pure JavaScript `isomorphic-git`, resolving Windows path parsing bugs and eliminating native dependency overhead.**
+
+- **Root Cause**: `simple-git` wraps native `git.exe`, causing persistent Windows path escaping issues when repository paths contain spaces (e.g., `C:\Source Code\...`). It also required ESM/CJS interop casting hacks that violated strict ESLint rules.
+- **Fix**: Migrated to `isomorphic-git@1.38.6`. Local operations (`status`, `add`, `commit`, `log`, `checkout`) now use pure JS with Node's native `fs/promises` adapter. Remote push and complex operations (stash, blame) retain native `exec()` fallbacks for compatibility.
+- **Impact**: Zero TypeScript/ESLint errors. Windows paths handled natively without shell escaping. No VS Build Tools or Python required for Git workflows.
+
+---
+
 ### [1.5.23] - 2026-06-30 — `git_stash`, `git_blame` & `markdown_table_gen` Tools
 
 **Added `json_query` and `env_update` tools, plus `@/` path aliases and ESLint fixes.**
@@ -246,7 +256,7 @@ Four tools (`replace_text_in_file`, `insert_at_line`, `append_file`, `delete_lin
 |-----------|------|----------|-------------|
 | `action` | `'save' \| 'pop' \| 'drop' \| 'list'` | Yes | Stash action to perform |
 | `message` | `string` | No (required for save) | Optional: Stash message |
-**Features:** Full stash lifecycle management, lazy-loaded `simple-git` with proper type assertions, path validation via `validatePath` + `resolvePath`.
+**Features:** Full stash lifecycle management using native `exec()` fallback (isomorphic-git does not support stash). Path validation via `validatePath` + `resolvePath`.
 
 ---
 

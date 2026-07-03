@@ -73,7 +73,7 @@ Deep dive into the AI Toolbox plugin's system architecture, design patterns, and
 │                                                               │  │
 │  ┌─────────────────────────────────────────────────────────┐  │  │
 │  │                  External Dependencies                  │  │  │
-│  │  Puppeteer │ simple-git │ Tesseract.js │ pdf-parse      │  │  │
+│  │  Puppeteer │ isomorphic-git │ Tesseract.js │ pdf-parse      │  │  │
 │  │  duck-duck-scrape │ node:sqlite │ node-notifier        │  │  │
 │  └─────────────────────────────────────────────────────────┘  │  │
 └───────────────────────────────────────────────────────────────┘
@@ -93,7 +93,7 @@ The project uses **Tsup** (esbuild-based bundler) for fast, zero-config compilat
 ### Output Targets
 - **Format**: `esm` + `cjs` (dual-package compatibility)
 - **Target**: `es2020` / `node` platform
-- **External Dependencies**: `@lmstudio/sdk`, `puppeteer`, `sharp`, `tesseract.js`, `simple-git`, `pdf-parse`, `mammoth`, `archiver`, `unzipper`, `node-notifier`, `pixelmatch`, `pngjs`
+- **External Dependencies**: `@lmstudio/sdk`, `puppeteer`, `sharp`, `tesseract.js`, `isomorphic-git`, `pdf-parse`, `mammoth`, `archiver`, `unzipper`, `node-notifier`, `pixelmatch`, `pngjs`
 - **Declarations**: Auto-generated `.d.ts` files via `dts: true`
 
 ### Build Commands

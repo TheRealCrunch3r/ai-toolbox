@@ -164,7 +164,7 @@ npm test
 | `@lmstudio/sdk` | ^1.5.0 | Core SDK for LM Studio plugin development |
 | `@dqbd/tiktoken` | ^1.0.22 | Accurate token counting for ContextGuard |
 | `puppeteer` | ^24.0.0 | Browser automation |
-| `simple-git` | ^3.22.0 | Git operations |
+| `isomorphic-git` | ^1.38.6 | Pure JS Git operations (migrated from simple-git in v1.5.25) |
 | `sharp` | ^0.33.5 | Image processing |
 | `tesseract.js` | ^7.0.0 | OCR engine |
 | `pdf-parse` | ^1.1.1 | PDF document parsing |
