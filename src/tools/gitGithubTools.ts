@@ -131,9 +131,7 @@ export function registerGitTools(_config: PluginConfig): Tool[] {
     implementation: async (_params: GitStatusParams) => { // C5 FIX: typed params
       try {
         const config = await getGitConfig();
-        // isomorphic-git requires an fs adapter. We cast to satisfy TS as we are using Node's native fs.
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-explicit-any
-        const statusResult = await git.status({ ...config, filepath: '.', fs } as any) as unknown as Record<string, unknown>;
+        const statusResult = await git.status({ ...config, filepath: '.', fs }) as unknown as Record<string, unknown>;
         return { success: true, data: statusResult };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
