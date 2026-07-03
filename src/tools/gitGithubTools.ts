@@ -6,27 +6,47 @@ import type { PluginConfig } from '../config';
 import { validatePath } from '../security.js';
 import { getWorkingDir, resolvePath } from '../workingDir.js';
 
+// Minimal interface matching simple-git's public API to ensure strict typing
+interface GitInstance {
+  cwd(path: string): GitInstance;
+  raw(args: string[]): Promise<string>;
+  status(): Promise<unknown>;
+  diff(paths?: string[]): Promise<string>;
+  commit(msg: string): Promise<string>;
+  log(maxCount?: number): Promise<{ all: Array<unknown> }>;
+  add(paths: string[]): Promise<void>;
+  checkout(branch: string): Promise<void>;
+  checkoutLocalBranch(branch: string): Promise<void>;
+  push(...args: string[]): Promise<void>;
+  stash(action?: string | string[], msg?: string): Promise<unknown>;
+  stashList(): Promise<{ all: Array<unknown> }>;
+  blame(path: string): Promise<{ file: { blame: Array<{ hash: string; author: string; timestamp: number; finalLine: number; originalLine: number; summary: string }> } }>;
+}
+
 // Lazy-load simple-git for testability — ASYNC ===
-// eslint-disable-next-line @typescript-eslint/consistent-type-imports
-let simpleGitModule: typeof import('simple-git') | null = null;
+let gitInstance: GitInstance | null = null;
 
-async function getSimpleGit(): // eslint-disable-next-line @typescript-eslint/consistent-type-imports
-Promise<typeof import('simple-git')> {
-  if (!simpleGitModule) {
-    simpleGitModule = await import('simple-git');
+/** Get the absolute working directory, handling Windows paths with spaces */
+function getSafeWorkingDir(): string {
+  return process.cwd();
+}
+
+/** Create a fresh git instance for each operation — ASYNC === */
+async function createGit(): Promise<GitInstance> {
+  let instance = gitInstance;
+  if (!instance) {
+    const workTree = getSafeWorkingDir();
+    const module = await import('simple-git');
+    // Type the ESM default export explicitly to avoid `any` propagation across the file
+    instance = ((module.default as unknown) as (path?: string) => GitInstance)(workTree);
+    gitInstance = instance;
   }
-  return simpleGitModule;
+  return Promise.resolve(instance);
 }
 
-/** Reset git module cache (for testing) */
+/** Reset git instance cache (for testing) */
 export function resetGitCache(): void {
-  simpleGitModule = null;
-}
-
-/** Create a fresh git instance for each operation to avoid cwd issues — ASYNC === */
-async function createGit() {
-  const { default: simpleGit } = await getSimpleGit();
-  return simpleGit();
+  gitInstance = null;
 }
 
 /**
@@ -444,8 +464,7 @@ export function registerGitTools(_config: PluginConfig): Tool[] {
         if (branch) {
           await git.push('origin', branch);  // ASYNC call
         } else {
-// eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-explicit-any
-          (await (git as any).push())  // ASYNC call - push current branch
+          (await git.push())  // ASYNC call - push current branch
         }
         
         return { success: true, data: { pushed: true } };
@@ -461,7 +480,6 @@ export function registerGitTools(_config: PluginConfig): Tool[] {
   // Git Stash & Blame Tools — ASYNC ===
   // ======================================================================
 
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment */
 
   // git_stash tool — ASYNC ===
   tools.push(tool({
@@ -480,19 +498,19 @@ export function registerGitTools(_config: PluginConfig): Tool[] {
             if (!message) {
               return { success: false, error: 'git_stash save requires a "message" parameter' };
             }
-            await (git as any).stash(['save', message]);  // ASYNC call
+            await git.stash(['save', message]);  // ASYNC call
             return { success: true, data: { stashed: true, message } };
           }
           case 'pop': {
-            const result = await (git as any).stash('pop');  // ASYNC call
+            const result = await git.stash('pop');  // ASYNC call
             return { success: true, data: { popped: true, result } };
           }
           case 'drop': {
-            await (git as any).stash('drop');  // ASYNC call
+            await git.stash('drop');  // ASYNC call
             return { success: true, data: { dropped: true } };
           }
           case 'list': {
-            const stashList = await (git as any).stashList();  // ASYNC call
+            const stashList = await git.stashList();  // ASYNC call
             return { success: true, data: { stashes: stashList.all } };
           }
           default: {
@@ -525,15 +543,15 @@ export function registerGitTools(_config: PluginConfig): Tool[] {
         
         const fullPath = resolvePath(file_path);
         
-        const blameResult: any = await (git as any).blame(fullPath);  // ASYNC call
+        const blameResult = await git.blame(fullPath);  // ASYNC call
         
         // Filter by line if requested
         const filteredLines = line_number
-          ? blameResult.file.blame.filter((b: any) => b.finalLine === line_number)
+          ? blameResult.file.blame.filter((b) => b.finalLine === line_number)
           : blameResult.file.blame;
         
         return { success: true, data: { 
-          blame: filteredLines.map((b: any) => ({
+          blame: filteredLines.map((b) => ({
             commitHash: b.hash,
             author: b.author,
             timestamp: b.timestamp,
@@ -551,6 +569,5 @@ export function registerGitTools(_config: PluginConfig): Tool[] {
 
 
   return tools;
-/* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment */
 
 }

@@ -1,6 +1,31 @@
 # 📝 CHANGELOG
 
 All notable changes to AI Toolbox plugin.
+## [1.5.24] - 2026-07-03
+
+### 🔧 TypeScript & ESLint Hardening — `gitGithubTools.ts` Dynamic Import Fix
+
+**Resolved critical TS2349 error and eliminated 64+ unsafe type assertions in Git/GitHub tools.**
+
+#### What Changed
+- **Root Cause**: The dynamic import of `simple-git` (v3.36.0) caused a `TS2349: Cannot invoke an expression whose type lacks a call signature` error due to ESM/CJS interop and missing explicit default export casting. Additionally, the code relied heavily on `(git as any)` casts, violating strict ESLint rules (`no-explicit-any`, `no-unsafe-call`, `no-unsafe-member-access`).
+- **Fix**: 
+  - Extracted the default export from the ESM module namespace using explicit casting: `((module.default as unknown) as (path?: string) => GitInstance)(workTree)`
+  - Defined a strict local `GitInstance` interface matching simple-git v3.36.0's public API to prevent `any` leakage across the file
+  - Removed all unnecessary `(git as any)` type assertions that violated `@typescript-eslint/no-unnecessary-type-assertion`
+  - Resolved 64+ ESLint `no-unsafe-*` warnings by properly typing the dynamic import instead of casting to `any`
+  - Fixed `createGit()` function with a proper async caching pattern and null-safe access using local variable capture for thread safety
+  - Cleaned up unused `eslint-disable`/`enable` directives that were blocking code quality checks
+
+#### Impact
+- Zero TypeScript errors (`npx tsc --noEmit`)
+- Zero ESLint warnings (`npx eslint src/tools/gitGithubTools.ts`)
+- Fully typed Git operations with strict type safety, eliminating runtime `any` propagation risks
+- Thread-safe async initialization in `createGit()` using local variable capture
+
+**Total**: 1 file hardened (`src/tools/gitGithubTools.ts`), zero breaking changes.
+
+
 
 ## [1.5.23] - 2026-06-30
 
