@@ -133,7 +133,7 @@ export function registerGitTools(_config: PluginConfig): Tool[] {
         const config = await getGitConfig();
         // isomorphic-git requires an fs adapter. We cast to satisfy TS as we are using Node's native fs.
         // eslint-disable-next-line @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-explicit-any
-        const statusResult = await git.status({ ...config, fs } as any) as unknown as Record<string, unknown>;
+        const statusResult = await git.status({ ...config, filepath: '.', fs } as any) as unknown as Record<string, unknown>;
         return { success: true, data: statusResult };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
