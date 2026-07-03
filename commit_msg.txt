@@ -1,0 +1,5 @@
+fix(git): restore git_diff/git_commit after corrupted edits
+
+- Restored missing config variable and if-block structure in git_diff
+- Replaced isomorphic-git commit() with native shell command (author config error)
+- Removed unnecessary type assertion that triggered lint warning

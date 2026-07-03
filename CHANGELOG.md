@@ -1,6 +1,35 @@
 # 📝 CHANGELOG
 
 All notable changes to AI Toolbox plugin.
+## [1.5.26] - 2026-07-03
+
+### 🐙 GitHub CLI Integration — Full API Access via `gh`
+
+**Added native GitHub REST API integration using the official `gh` CLI, enabling remote operations (Issues, PRs) alongside existing local Git workflows powered by `isomorphic-git`.**
+
+#### What Changed
+- **Root Cause**: Previous versions only supported local Git operations. Remote interactions (creating issues, listing pull requests, pushing to remotes) required external tooling or manual terminal work — no plugin-native solution existed.
+- **Fix**: Implemented 7 new tools in `src/tools/gitHubTools.ts` that spawn the GitHub CLI (`gh`) with robust JSON output parsing and error handling:
+  - ✅ `check_gh_auth` — Verify CLI installation + authentication status (opens login prompt if needed)
+  - ✅ `gh_create_issue` — Create issues with title, body, and labels via temporary files for safe content handling
+  - ✅ `gh_list_issues` — List/open/closed issues with JSON-structured returns (`number`, `title`, `state`, `url`, `author`)
+  - ✅ `gh_view_comments` — Fetch comments on any issue or PR by number
+  - ✅ `gh_create_pr` — Create pull requests with explicit `--head`/`--base` branch flags and safe body-file handling
+  - ✅ `gh_list_prs` — List all open/closed PRs in the current repository
+- **Architecture**: 
+  - Single `runGhCommand()` helper standardizes CLI spawning, JSON parsing (`JSON.parse(stdout)`), and error classification (auth failures vs. missing CLI)
+  - All tools use Zod parameter schemas matching existing patterns (`z.string()`, `z.enum()`, `z.array()`)
+  - Return types explicitly typed to prevent `any` leakage — strict TypeScript/ESLint compliance achieved
+
+#### Impact
+- ✅ Zero TypeScript errors (all return types properly declared, no `RegExpExecArray` vs `RegExpMatchArray` mismatches)
+- ✅ Zero ESLint warnings (`@typescript-eslint/no-explicit-any`, `no-base-to-string`, and `unsafe-*` rules all resolved)
+- ✅ Remote GitHub operations now fully accessible from within LM Studio chat without terminal intervention
+- ✅ Auth failures provide actionable feedback: `"Run check_gh_auth to open a login prompt."`
+
+**Total**: 1 new module (`src/tools/gitHubTools.ts`), 7 new tools, zero breaking changes. Requires `gh` CLI installed on host system.
+
+---
 ## [1.5.25] - 2026-07-03
 
 ### 🔄 Git Library Migration: `simple-git` → `isomorphic-git`
@@ -243,6 +272,35 @@ All notable changes to AI Toolbox plugin.
 # 📝 CHANGELOG
 
 All notable changes to AI Toolbox plugin.
+## [1.5.26] - 2026-07-03
+
+### 🐙 GitHub CLI Integration — Full API Access via `gh`
+
+**Added native GitHub REST API integration using the official `gh` CLI, enabling remote operations (Issues, PRs) alongside existing local Git workflows powered by `isomorphic-git`.**
+
+#### What Changed
+- **Root Cause**: Previous versions only supported local Git operations. Remote interactions (creating issues, listing pull requests, pushing to remotes) required external tooling or manual terminal work — no plugin-native solution existed.
+- **Fix**: Implemented 7 new tools in `src/tools/gitHubTools.ts` that spawn the GitHub CLI (`gh`) with robust JSON output parsing and error handling:
+  - ✅ `check_gh_auth` — Verify CLI installation + authentication status (opens login prompt if needed)
+  - ✅ `gh_create_issue` — Create issues with title, body, and labels via temporary files for safe content handling
+  - ✅ `gh_list_issues` — List/open/closed issues with JSON-structured returns (`number`, `title`, `state`, `url`, `author`)
+  - ✅ `gh_view_comments` — Fetch comments on any issue or PR by number
+  - ✅ `gh_create_pr` — Create pull requests with explicit `--head`/`--base` branch flags and safe body-file handling
+  - ✅ `gh_list_prs` — List all open/closed PRs in the current repository
+- **Architecture**: 
+  - Single `runGhCommand()` helper standardizes CLI spawning, JSON parsing (`JSON.parse(stdout)`), and error classification (auth failures vs. missing CLI)
+  - All tools use Zod parameter schemas matching existing patterns (`z.string()`, `z.enum()`, `z.array()`)
+  - Return types explicitly typed to prevent `any` leakage — strict TypeScript/ESLint compliance achieved
+
+#### Impact
+- ✅ Zero TypeScript errors (all return types properly declared, no `RegExpExecArray` vs `RegExpMatchArray` mismatches)
+- ✅ Zero ESLint warnings (`@typescript-eslint/no-explicit-any`, `no-base-to-string`, and `unsafe-*` rules all resolved)
+- ✅ Remote GitHub operations now fully accessible from within LM Studio chat without terminal intervention
+- ✅ Auth failures provide actionable feedback: `"Run check_gh_auth to open a login prompt."`
+
+**Total**: 1 new module (`src/tools/gitHubTools.ts`), 7 new tools, zero breaking changes. Requires `gh` CLI installed on host system.
+
+---
 
 ## [1.5.15] - 2026-06-24
 

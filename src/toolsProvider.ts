@@ -15,7 +15,7 @@ const REGISTER_MAP: Record<string, () => Promise<{ registerFileSystemTools: (c: 
   fileSystem:      () => import('./tools/fileSystemTools.js').then(m => m.registerFileSystemTools as never),
   webSearch:       () => import('./tools/webResearchTools.js').then(m => m.registerWebResearchTools as never),
   browserAutomation: () => import('./tools/browserAutomationTools.js').then(m => m.registerBrowserTools as never),
-  gitOperations:   () => import('./tools/gitGithubTools.js').then(m => m.registerGitTools as never),
+  gitOperations:   () => import('./tools/gitHubTools.js').then(m => m.registerGitTools as never),
   databaseQueries: () => import('./tools/databaseTools.js').then(m => m.registerDatabaseTools as never),
   documentParsing: () => import('./tools/documentTools.js').then(m => m.registerDocumentTools as never),
   backgroundCommands: () => import('./tools/backgroundCommandTools.js').then(m => m.registerBackgroundCommandTools as never),

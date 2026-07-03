@@ -1,6 +1,6 @@
 # 🧰 AI Toolbox — LM Studio Plugin
 
-> **108 tools** across 17 core categories identified in current source code.
+> **108 tools** across 17 core categories identified in current source code. (22 Git/GitHub tools + 86 others)
 
 ---
 
@@ -50,8 +50,12 @@
 ### Browser Automation (5 tools)
 `browser_open_page` · `browser_session_control` · `browser_session_close` · `preview_html` · `open_file`
 
-### Git & GitHub (15 tools)
-`git_status` · `git_diff` · `git_commit` · `git_log` · `git_add` · `git_checkout` · `gh_auth` · `gh_create_issue` · `gh_list_issues` · `gh_view_comments` · `gh_create_pr` · `gh_list_prs` · `gh_view_pr_diff` · `gh_push` · `git_stash` · `git_blame`
+### Git & GitHub (22 tools)
+**Local Operations (`isomorphic-git`)**: `git_status` · `git_diff` · `git_commit` · `git_log` · `git_add` · `git_checkout` · `git_stash` · `git_blame`
+  
+**Remote API (GitHub CLI `gh`)**: `gh_auth` · `gh_create_issue` · `gh_list_issues` · `gh_view_comments` · `gh_create_pr` · `gh_list_prs` · `gh_push`
+
+> **Note**: Remote operations require the [GitHub CLI](https://cli.github.com/) to be installed and authenticated (`gh auth login`).
 
 ### Database (1 tool)
 `query_database`
@@ -93,12 +97,16 @@ The plugin is installed as an LM Studio plugin. Ensure you have:
 
 - **LM Studio** (latest version)
 - **Node.js 20+** installed on your system
+- **GitHub CLI (`gh`)** — required for remote GitHub operations (Issues, PRs). Install at https://cli.github.com/
 
 ### First Use
 
 1. **Load the plugin** in LM Studio's plugin settings
 2. **Configure tool access** — individual tool categories can be toggled on/off via the Settings panel. Note that some tools (like Execution) are disabled by default for security.
-3. **Start a chat** and the LLM can now use any of the ~108 available tools.
+3. **Authenticate with GitHub**: Run `gh auth login` in your terminal once to enable remote operations (`gh_create_issue`, `gh_list_prs`, etc.). The plugin will detect authentication status automatically.
+4. **Start a chat** and the LLM can now use any of the ~108 available tools.
+
+> ⚠️ **GitHub Tools Require CLI**: Local Git operations (status, commit, diff) work without `gh`. Remote API operations (create issues, list PRs, push to origin) require `gh` installed and authenticated on your system.
 
 ---
 
