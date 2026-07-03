@@ -150,10 +150,8 @@ export function registerGitTools(_config: PluginConfig): Tool[] {
     },
     implementation: async ({ file_path, cached }: GitDiffParams) => { // C5 FIX: typed params
       try {
-        const config = await getGitConfig();
-        let result: string;
-        
-        if (file_path) {
+        // Commit with message using native exec (isomorphic-git requires author config)
+        await execPromise(`git commit -m "${message.replace(/"/g, '\\"')}"`, { cwd: config.dir });
           result = await execPromise(`git diff "${file_path}"`, { cwd: config.dir }).then(r => r.stdout);
         } else if (cached) {
           result = await execPromise('git diff --cached', { cwd: config.dir }).then(r => r.stdout);
@@ -180,13 +178,12 @@ export function registerGitTools(_config: PluginConfig): Tool[] {
       try {
         const config = await getGitConfig();
         
+        // Stage all changes using isomorphic-git
         // eslint-disable-next-line @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-explicit-any, @typescript-eslint/no-unnecessary-type-assertion
         await git.add({ ...config, filepath: '.', fs } as any);
         
-        // Commit with message
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-explicit-any, @typescript-eslint/no-unnecessary-type-assertion
-        await git.commit({ ...config, message, fs } as any);
-        
+        // Commit with message using native exec (isomorphic-git requires author config)
+        const { stdout, stderr } = await execPromise(`git commit -m "${message.replace(/"/g, '\\"')}"`, { cwd: config.dir });
         return { success: true, data: { committed: true, commitMessage: message } };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
