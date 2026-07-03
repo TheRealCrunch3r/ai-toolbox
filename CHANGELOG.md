@@ -26,6 +26,10 @@ All notable changes to AI Toolbox plugin.
 
 **Total**: 1 dependency replaced (`simple-git` → `isomorphic-git`), 1 file refactored (`src/tools/gitGithubTools.ts`), zero breaking changes for end users.
 
+#### 🔧 Hotfix: `git_status` Missing Required `filepath` Parameter (v1.5.25.1)
+- **Issue**: `isomorphic-git@1.38.6` requires a `filepath` parameter in its `status()` call, but the migration code omitted it — causing `git_status` to fail with `"The function requires a 'filepath' parameter but none was provided."`
+- **Fix**: Added `filepath: '.'` to all `git.status()`, `git.add()`, `git.commit()`, `git.log()`, and `git.checkout()` calls. Verified via runtime testing that all operations succeed with `{ dir, filepath, fs }` parameters.
+- **Verification**: All 4 isomorphic-git API tests pass — status, add, log, checkout confirmed working through compiled CJS bundle (`dist/index.js`).
 
 ## [1.5.24] - 2026-07-03
 
