@@ -1776,8 +1776,9 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
       exclude: z.string().optional().describe('Files or directories to exclude (e.g., "node_modules", ".git")'),
       max_results: z.number().int().min(1).max(500).default(20).describe('Maximum number of results to return (default: 20, max: 500)'),
       max_file_size: z.number().int().min(1024).default(100_000).describe('Maximum file size in bytes to search (default: 100KB, skip larger files)'),
+      max_concurrent_files: z.number().int().min(1).max(32).optional().default(8).describe('Maximum files to process concurrently for performance tuning'),
     },
-    implementation: async ({ pattern, path: searchPath = '.', mode = 'regex', include, exclude, max_results, max_file_size, max_content_length, include_context = false }: {
+    implementation: async ({ pattern, path: searchPath = '.', mode = 'regex', include, exclude, max_results, max_file_size, max_content_length, include_context = false, max_concurrent_files }: {
       pattern: string;
       path?: string;
       mode?: 'regex' | 'ast';
@@ -1786,6 +1787,7 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
       max_results?: number;
       max_file_size?: number;
       max_content_length?: number;
+      max_concurrent_files?: number;
       include_context?: boolean;
     }) => {
       try {
@@ -1819,6 +1821,7 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
          * Process a single file for matches (both regex and AST modes).
          */
         async function processFile(fullPath: string, relativePath: string): Promise<void> {
+          // STRICT LIMIT CHECK before any processing begins
           if (resultsCount >= MAX_RESULTS) return;
 
           try {
@@ -1836,9 +1839,11 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
                 return processWithRegex(content, relativePath, regex);
               }
 
-              const astMatches = searchAST(ast, content, pattern, relativePath, include_context, MAX_RESULTS - resultsCount);
+              const remaining = MAX_RESULTS - resultsCount;
+              const astMatches = searchAST(ast, content, pattern, relativePath, include_context, remaining);
 
               for (const astMatch of astMatches) {
+                // STRICT LIMIT CHECK inside AST match loop too
                 if (resultsCount >= MAX_RESULTS) break;
 
                 const matchEntry = {
@@ -1873,6 +1878,9 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
           const lines = content.split('\n');
 
           for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
+            // STRICT LIMIT CHECK before processing each line
+            if (resultsCount >= MAX_RESULTS) return;
+
             if (compiledRegex.test(lines[lineIdx])) {
               const rawContent = lines[lineIdx].trim();
 
@@ -1893,40 +1901,55 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
 
               matches.push(matchEntry);
               resultsCount++;
-
-              if (resultsCount >= MAX_RESULTS) return;
             }
           }
         }
 
         /**
-         * Extract function signature context from surrounding lines.
+         * Extract function signature context from surrounding lines (with caching).
          */
+        const signatureCache = new Map<string, { func?: string; cls?: string }>();
+
         function extractFunctionContext(lines: string[], currentLine: number): string | undefined {
-          // Look backwards for function declaration
+          // Check cache first using a composite key
+          const cacheKey = `func-${lines.length}-${currentLine}`;
+          const cached = signatureCache.get(cacheKey);
+          if (cached?.func !== undefined) return cached.func === '' ? undefined : cached.func;
+
+          let result: string | undefined;
           for (let i = currentLine; i >= Math.max(0, currentLine - 20); i--) {
             const line = lines[i].trim();
             if (line.startsWith('function') || line.includes('=>') || line.includes(': function')) {
-              return line;
+              result = line;
+              break;
             }
             // Stop at class declaration or empty block
             if (line.startsWith('class ') || line === '}') break;
           }
-          return undefined;
+
+          signatureCache.set(cacheKey, { func: result ?? '' });
+          return result;
         }
 
         /**
-         * Extract class context from surrounding lines.
+         * Extract class context from surrounding lines (with caching).
          */
         function extractClassContext(lines: string[], currentLine: number): string | undefined {
-          // Look backwards for class declaration
+          const cacheKey = `cls-${lines.length}-${currentLine}`;
+          const cached = signatureCache.get(cacheKey);
+          if (cached?.cls !== undefined) return cached.cls === '' ? undefined : cached.cls;
+
+          let result: string | undefined;
           for (let i = currentLine; i >= Math.max(0, currentLine - 50); i--) {
             const line = lines[i].trim();
             if (line.startsWith('class ')) {
-              return line;
+              result = line;
+              break;
             }
           }
-          return undefined;
+
+          signatureCache.set(cacheKey, { cls: result ?? '' });
+          return result;
         }
 
         /**
@@ -1947,7 +1970,7 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
           return docLines.length > 0 ? docLines.join('\n') : undefined;
         }
 
-        async function walkDirectory(dirPath: string): Promise<void> {
+        async function walkDirectory(dirPath: string, concurrencyLimit: number): Promise<void> {
           // OPTIMIZATION: Early exit if we have enough results
           if (resultsCount >= MAX_RESULTS) return;
 
@@ -1958,19 +1981,20 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
             return; // Skip inaccessible directories
           }
 
-          for (const entry of entries) {
-            const fullPath = path.join(dirPath, entry.name);
+          const batchPromises: Array<Promise<void>> = [];
 
+          for (const entry of entries) {
             // Check exclude patterns
             if (exclude && entry.name.includes(exclude)) continue;
 
+            const fullPath = path.join(dirPath, entry.name);
+
             if (entry.isDirectory()) {
-              await walkDirectory(fullPath);
+              batchPromises.push(walkDirectory(fullPath, concurrencyLimit));
             } else if (entry.isFile()) {
               // OPTIMIZATION: Early exit check inside loop too
-              if (resultsCount >= MAX_RESULTS) return;
+              if (resultsCount >= MAX_RESULTS) break;
 
-              // Check include pattern
               // Check include pattern
               const relPath = path.relative(targetDir, fullPath);
               if (include && !matchGlob(relPath, entry.name, include) && !matchGlob(relPath, relPath, include)) {
@@ -1978,8 +2002,20 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
               }
 
               const relativePath = path.relative(targetDir, fullPath);
-              await processFile(fullPath, relativePath);
+              
+              // Limit concurrency: batch processing with Promise.all
+              if (batchPromises.length >= concurrencyLimit) {
+                await Promise.all(batchPromises.splice(0, batchPromises.length));
+                if (resultsCount >= MAX_RESULTS) return;
+              }
+
+              batchPromises.push(processFile(fullPath, relativePath));
             }
+          }
+
+          // Process remaining promises in final batch
+          if (batchPromises.length > 0) {
+            await Promise.all(batchPromises);
           }
         }
 
@@ -1995,8 +2031,9 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
           // ==================== TARGET IS A FILE — search within it directly ====================
           console.warn(`[grep_files] Detected single file '${targetDir}' — searching in-file instead of listing directory`);
         } else {
-          // ==================== TARGET IS A DIRECTORY — walk and search recursively ====================
-          await walkDirectory(targetDir);
+          // ==================== TARGET IS A DIRECTORY — walk and search recursively (concurrent) ====================
+          const concurrencyLimit = max_concurrent_files ?? 8;
+          await walkDirectory(targetDir, concurrencyLimit);
         }
 
         return {
