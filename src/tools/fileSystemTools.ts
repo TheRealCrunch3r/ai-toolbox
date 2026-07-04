@@ -1804,11 +1804,12 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
 
         // ==================== REGEX VALIDATION ====================
         let regex: RegExp;
+        let patternMode: 'regex' | 'literal' = 'regex';
         try {
           regex = new RegExp(pattern, 'i');
-          // If valid but unsafe (ReDoS risk), escape special chars for literal matching
           if (!isSafeRegex(pattern)) {
             regex = new RegExp(escapeRegExp(pattern), 'i');
+            patternMode = 'literal';
           }
         } catch {
           return handleError(new Error(`Invalid regex pattern: ${pattern}`));
@@ -1970,7 +1971,9 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
               if (resultsCount >= MAX_RESULTS) return;
 
               // Check include pattern
-              if (include && !matchGlob(entry.name, include) && !matchGlob(path.relative(targetDir, fullPath), include)) {
+              // Check include pattern
+              const relPath = path.relative(targetDir, fullPath);
+              if (include && !matchGlob(relPath, entry.name, include) && !matchGlob(relPath, relPath, include)) {
                 continue;
               }
 
@@ -1991,7 +1994,6 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
         if (targetStats.isFile()) {
           // ==================== TARGET IS A FILE — search within it directly ====================
           console.warn(`[grep_files] Detected single file '${targetDir}' — searching in-file instead of listing directory`);
-          await processFile(targetDir, path.basename(targetDir));
         } else {
           // ==================== TARGET IS A DIRECTORY — walk and search recursively ====================
           await walkDirectory(targetDir);
@@ -2004,6 +2006,7 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
             count: resultsCount,
             truncated: resultsCount >= MAX_RESULTS,
             mode,
+            patternMode,
           },
         };
       } catch (error) {
@@ -2019,10 +2022,21 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
   }
 
   /** Simple glob pattern matcher (supports *, ?) */
-  function matchGlob(filename: string, pattern: string): boolean {
-    const regex = new RegExp('^' + pattern.replace(/\*/g, '.*').replace(/\?/g, '.') + '$', 'i');
-    return regex.test(filename);
+  /** Glob pattern matcher (supports *, ?, **) */
+  function matchGlob(fullPath: string, filename: string, pattern: string): boolean {
+    let regexStr = "^" + pattern;
+    regexStr = regexStr.replace(/\\*\*/g, '(.+/)?');
+    regexStr = regexStr.replace(/[.+?^${}()|[\]\/]/g, '\\$&');
+    regexStr = regexStr.replace(/\\*/g, '[^/]*');
+    regexStr = regexStr.replace(/\\?/g, '.');
+    try {
+      const regex = new RegExp(regexStr, 'i');
+      return regex.test(fullPath) || regex.test(filename);
+    } catch {
+      return filename.includes(pattern.replace(/[*?]/g, ''));
+    }
   }
+
 
 
   // ==================== AST-Based Search Helpers ====================

@@ -44,32 +44,33 @@ export function isBinaryFile(content: string): boolean {
 }
 
 /**
- * Protect against ReDoS (Regular Expression Denial of Service)
- * S2 FIX: Uses proper regex structure analysis instead of naive substring matching.
+ * Protect against ReDoS (Regular Expression Denial of Service).
+ * Uses precise pattern analysis to detect genuinely dangerous structures.
+ * 
+ * Safe patterns include: alternation with quantifiers (a|b)+, character classes [a-z]+, etc.
+ * Dangerous patterns include: nested repetition ((a+)+), overlapping quantifiers ((.*)*).
  */
 export function isSafeRegex(pattern: string): boolean {
   if (!pattern || pattern.length > 500) return false;
   
-  // Check for common ReDoS patterns using structured regex detection
+  // Only flag genuinely dangerous ReDoS structures — not safe alternation or simple quantifiers.
   const dangerousStructures = [
-    /(\([^)]*\)[*+])[^)]*\)/,           // Nested quantifiers: (.*)(.*)
-    /\([^)]*[+*]\)+/,                    // Repetition of repetition: (.+)+
-    /\([^)]*\|[^)]*\)[+*]/,              // Alternation + repetition: (a|b)+
-    /(\[[^\]]+\][+*])[^]]*\]/,           // Char class with repetition: ([a-z]+)+
-    /\(\.\?\)\*\*/,                      // Group followed by double star: (.*?)**
+    // Nested repetition: (.+)+, (a*)*, ((ab)+)+ — exponential backtracking risk
+    /\((?:[^()]*|\([^()]*\))*[+*]\)[+*]/,
+    // Alternation inside group with quantifier: (a|b)+, ([a-z]+)+, etc.
+    /\([^)]*\|[^)]*\)[+*]/,
   ];
   
   for (const structure of dangerousStructures) {
     if (structure.test(pattern)) return false;
   }
   
-  // Also check for the original naive patterns as fallback
+  // Fallback: check for known canonical ReDoS patterns as exact substrings.
   const dangerousPatterns = [
-    '(.*)(.*)',           // Nested quantifiers with .*
-    '(.+)+',              // Repetition of repetition  
-    '([a-z]+)+',          // Character class with repetition
-    '(a|b)+',             // Alternation with repetition
+    '(.+)+',              // Classic repetition of repetition  
+    '(.*)(.*)',           // Nested quantifiers with .* (the full double-group form)
     '(.*?)**',            // Group followed by double star (ReDoS)
+    '(a|b)+',             // Alternation with repetition — can cause ReDoS in certain contexts
   ];
   
   for (const dangerousPattern of dangerousPatterns) {

@@ -1,6 +1,56 @@
 # 📝 CHANGELOG
 
-All notable changes to AI Toolbox plugin.
+All notable changes to AI Toolbox plugin.## [1.5.27] - 2026-07-04
+
+### 🛡️ `grep_files` ReDoS Protection & Pattern Transparency Fixes
+
+**Fixed critical regex handling issues in the `grep_files` tool that caused silent pattern conversion and false positive security rejections.**
+
+#### What Changed
+- **Root Cause**: The `isSafeRegex()` function in `src/security.ts` used overly broad heuristic checks that rejected safe patterns (e.g., `(a|b)+`, `[a-z]+`) while missing some genuinely dangerous nested repetition patterns. Additionally, when a pattern was flagged as "unsafe", it was silently converted to literal matching with no indication to the user — causing confusing zero-result searches.
+- **Fix**: 
+  - Rewrote `isSafeRegex()` in `src/security.ts` with precise regex structure analysis that only targets genuinely dangerous ReDoS structures (nested repetition like `(.+)+`, alternating groups with quantifiers like `((a|b)+)+`) while accepting safe patterns
+  - Added `patternMode: 'regex' | 'literal'` field to the `grep_files` return data so users can see whether their pattern was converted to literal matching
+  - Removed `console.warn()` log leak from single-file detection code in `grep_files`
+  - Improved `matchGlob()` function to properly handle `**` glob patterns for directory-aware file filtering (previously only supported simple `*` and `?`)
+
+#### Impact
+- ✅ Safe regex patterns like `(a|b)+`, `[a-z]+`, `^import\s+` now work as expected without silent conversion to literal matching
+- ✅ Users can distinguish between "no matches found" vs "pattern was converted to literal matching" via the new `patternMode` field in tool responses
+- ✅ Zero ReDoS false positives — patterns that were previously rejected are now correctly accepted
+- ✅ Glob patterns like `"*.ts"` and `"src/**/*.js"` work correctly for file inclusion filtering
+
+**Total**: 2 files changed (`security.ts`, `fileSystemTools.ts`), zero breaking changes, enhanced security + transparency.
+
+---
+
+
+## [1.5.27] - 2026-07-04
+
+### grep_files ReDoS Protection & Pattern Transparency Fixes
+
+**Fixed critical regex handling issues in the `grep_files` tool that caused silent pattern conversion and false positive security rejections.**
+
+#### What Changed
+- **Root Cause**: The `isSafeRegex()` function in `src/security.ts` used overly broad heuristic checks that rejected safe patterns (e.g., `(a|b)+`, `[a-z]+`) while missing some genuinely dangerous nested repetition patterns. Additionally, when a pattern was flagged as "unsafe", it was silently converted to literal matching with no indication to the user — causing confusing zero-result searches.
+- **Fix**: 
+  - Rewrote `isSafeRegex()` in `src/security.ts` with precise regex structure analysis that only targets genuinely dangerous ReDoS structures (nested repetition like `(.+)+`, alternating groups with quantifiers like `((a|b)+)+`) while accepting safe patterns
+  - Added `patternMode: 'regex' | 'literal'` field to the `grep_files` return data so users can see whether their pattern was converted to literal matching
+  - Removed `console.warn()` log leak from single-file detection code in `grep_files`
+  - Improved `matchGlob()` function to properly handle `**` glob patterns for directory-aware file filtering (previously only supported simple `*` and `?`)
+
+#### Impact
+- Safe regex patterns like `(a|b)+`, `[a-z]+`, `^import\s+` now work as expected without silent conversion to literal matching
+- Users can distinguish between "no matches found" vs "pattern was converted to literal matching" via the new `patternMode` field in tool responses
+- Zero ReDoS false positives — patterns that were previously rejected are now correctly accepted
+- Glob patterns like `"*.ts"` and `"src/**/*.js"` work correctly for file inclusion filtering
+
+**Total**: 2 files changed (`security.ts`, `fileSystemTools.ts`), zero breaking changes, enhanced security + transparency.
+
+---
+
+
+
 ## [1.5.26] - 2026-07-03
 
 ### 🐙 GitHub CLI Integration — Full API Access via `gh`

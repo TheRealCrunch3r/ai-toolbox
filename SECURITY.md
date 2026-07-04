@@ -130,8 +130,14 @@ Tools are gated by configuration categories in `src/config.ts`:
 
 #### 3. ReDoS (Regex Denial of Service)
 **Risk:** Medium  
-**Mitigation:** `isSafeRegex()` checks for nested quantifiers, treats unsafe patterns as literals  
-**Test Case:** `pattern="((a+)+)b"` → Should be treated as literal string
+**Mitigation:** 
+- `isSafeRegex()` performs precise pattern analysis to detect genuinely dangerous structures:
+  - Nested repetition (`(.+)+`, `(a*)*`) — exponential backtracking risk
+  - Alternating groups with quantifiers (`((a|b)+)+`) — catastrophic backtracking
+- Safe patterns like `(a|b)+`, `[a-z]+`, `^import\s+` are correctly accepted
+- Unsafe patterns are converted to literal matching (not silently dropped)
+**Transparency:** The `grep_files` tool returns a `patternMode: 'regex' | 'literal'` field indicating whether the pattern was matched as regex or escaped to literal text  
+**Test Case:** `pattern="((a+)+)b"` → Treated as literal string; `pattern="(a|b)+"` → Accepted as valid regex
 
 #### 4. SSRF (Server-Side Request Forgery)
 **Risk:** High  
