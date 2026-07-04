@@ -266,7 +266,7 @@
 | `line_operations` | Insert/delete/reorder lines using awk-like operations without shell dependencies; atomic writes safety |
 | `text_extract` | Structured data extraction from delimited text (CSV/TSV/custom) with configurable zero-based field indices |
 | `markdown_table_gen` | Generate Markdown tables from object arrays with headers, alignment, truncation, and customizable ellipsis |
-| `refactor_code` | AST-based code refactoring: function extraction, class restructuring, import optimization, dead code removal |
+| `refactor_code` | AST-based code refactoring: rename identifiers, move functions between files, extract code blocks into new functions with line-range targeting |
 
 ---
 

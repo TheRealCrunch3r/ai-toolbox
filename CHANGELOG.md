@@ -1,6 +1,33 @@
-# 📝 CHANGELOG
+# 📝 CHANGELOG
+
+All notable changes to AI Toolbox plugin.
+
+## [1.5.28] - 2026-07-04
+
+### 🔧 `refactor_code` — Full AST-Based `extract_function` Implementation
+
+**Completely rewrote the `extract_function` operation from a placeholder stub into a production-ready, syntax-aware code extraction tool.**
+
+#### What Changed
+- **Root Cause**: The original implementation created an empty function stub (`function name() {}`) instead of actually extracting and moving the selected code block into the new function body. This made the operation unusable for real-world refactoring.
+- **Fix**: 
+  - Rewrote extraction logic to parse the raw text block via Babel, validate syntax, and construct a proper `FunctionDeclaration` node with the extracted statements as its body
+  - Added strict line range validation (`1 ≤ startLine ≤ endLine ≤ totalLines`) with descriptive error messages for out-of-bounds or malformed input
+  - Replaced manual string concatenation with pure AST-driven pipeline (parse → transform → generate) using `retainLines: true` for better structural preservation
+  - Aligned schema parameters to use `new_name` consistently across all operations (removed confusing `_extraction_name`)
+  - Wrapped in try/catch with actionable error feedback when extracted lines contain invalid syntax
+
+#### Impact
+- ✅ `extract_function` now correctly appends a fully populated function body containing the selected code block
+- ✅ Safe, non-destructive: original source lines remain intact (standard IDE behavior); user replaces them manually or chains another step
+- ✅ Zero TypeScript errors (`npx tsc --noEmit`) — resolved 20+ ESLint/TS strict mode violations by carefully balancing explicit Babel casts with automatic type inference inside `traverse` callbacks
+- ✅ Automatic `.bak` backup creation before any file modification
 
-All notable changes to AI Toolbox plugin.## [1.5.27] - 2026-07-04
+**Total**: 1 file changed (`src/tools/refactorCodeTools.ts`), zero breaking changes, fully backward compatible.
+
+---
+
+## [1.5.27] - 2026-07-04
 
 ### 🛡️ `grep_files` ReDoS Protection & Pattern Transparency Fixes
 
