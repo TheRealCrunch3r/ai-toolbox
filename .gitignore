@@ -21,3 +21,7 @@ Thumbs.db
 # Environment files
 .env
 .env.local
+
+# AI Toolbox internal state, cache & backup files (machine-specific & auto-generated)
+.ai_toolbox_backups/
+.ai_toolbox_*
