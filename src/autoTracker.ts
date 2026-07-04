@@ -22,6 +22,13 @@ const CONTEXT_GUARD_OVERHEAD = 8;
 /** Maximum buffer size before forced auto-flush (safety cap) */
 const MAX_BUFFER_SIZE = 50;
 
+// 🔹 P1 Optimization #3: Conditional logging to reduce stderr I/O in production
+const DEBUG_MODE = !!process.env.AI_TOOLBOX_DEBUG;
+
+function debugLog(...args: unknown[]): void {
+  if (DEBUG_MODE) console.warn('[AutoTracker]', ...args);
+}
+
 // ==================== FSM TYPES ====================
 
 /**
@@ -48,6 +55,10 @@ export interface AutoTrackTransition {
 }
 
 // ==================== TYPES ====================
+
+export interface IContextStorage {
+  addEntry(entry: unknown): Promise<void>;
+}
 
 export const AutoTrackConfigSchema = z.object({
   autoTrackingEnabled: z.boolean().default(false),
@@ -125,6 +136,9 @@ export class AutoTracker {
   // 🔹 Optional injected storage manager for testing (avoids dynamic import issues)
   private testStorageManager: unknown = null;
 
+  // 🔹 P1 Optimization #4: Pre-resolved ContextStorageManager module to avoid per-flush overhead
+  private contextStorageModule: { ContextStorageManager: new () => IContextStorage } | null = null;
+
   constructor(config?: Partial<AutoTrackConfig>, testStorageManager?: unknown) {
     this.config = {
       autoTrackingEnabled: true, // ← Matches schema & DEFAULT_CONFIG default (true)
@@ -136,13 +150,21 @@ export class AutoTracker {
       ...config,
     };
     this.testStorageManager = testStorageManager || null; // For testing
-    console.warn(`[AutoTracker] [INIT] Initialized with config:`, this.config);
+    
+    debugLog('[INIT] Initialized with config:', this.config);
+
+    // 🔹 P1 #4: Pre-resolve module on construction (cached by V8/module system)
+    import('./tools/contextManagementTools.js').then(m => {
+      this.contextStorageModule = m;
+    }).catch(err => {
+      console.error('[AutoTracker] Failed to pre-load ContextStorageManager:', err);
+    });
   }
 
   /** Update configuration dynamically */
   updateConfig(partial: Partial<AutoTrackConfig>): void {
     this.config = { ...this.config, ...partial };
-    console.warn(`[AutoTracker] [CONFIG] Config updated:`, this.config);
+    debugLog('[CONFIG] Config updated:', this.config);
   }
 
   // ==================== FSM TRANSITION LOGIC ====================
@@ -154,7 +176,7 @@ export class AutoTracker {
     const oldState = this.currentState;
     
     if (oldState !== newState) {
-      console.warn(`[AutoTracker] [STATE] ${oldState} → ${newState}${reason ? ` (${reason})` : ''}`);
+      debugLog('[STATE]', `${oldState} → ${newState}${reason ? ` (${reason})` : ''}`);
       
       // Append to transition history (capped at 100 entries for memory safety)
       this.transitionHistory.push({ from: oldState, to: newState, reason, timestamp: Date.now() });
@@ -204,17 +226,22 @@ export class AutoTracker {
     const usagePercentage = (effectiveTokens / maxTokens) * 100;
     const threshold = this.config.autoTrackTokenThreshold ?? 75;
 
-    console.warn(`[AutoTracker] [THRESHOLD] Check: ${usagePercentage.toFixed(2)}% effective (${currentTokens}/${maxTokens}), limit=${threshold}%`);
+    // 🔹 P1 #3: Conditional logging in debug mode or near threshold
+    if (DEBUG_MODE) {
+      console.warn(`[AutoTracker] [THRESHOLD] Check: ${usagePercentage.toFixed(2)}% effective (${currentTokens}/${maxTokens}), limit=${threshold}%`);
+    } else if (this.currentState === AutoTrackState.IDLE && usagePercentage >= threshold * 0.95) {
+      console.warn(`[AutoTracker] [THRESHOLD] Near threshold: ${usagePercentage.toFixed(1)}%`);
+    }
 
     // FSM: IDLE → THRESHOLD_REACHED
     if (this.currentState === AutoTrackState.IDLE && usagePercentage >= threshold) {
-      console.warn(`[AutoTracker] [THRESHOLD] Threshold reached — transitioning to THRESHOLD_REACHED state`);
+      debugLog('[THRESHOLD]', `Threshold reached — transitioning to THRESHOLD_REACHED state`);
       this.transitionTo(AutoTrackState.THRESHOLD_REACHED, `usage=${usagePercentage.toFixed(1)}%`);
       return true;
     }
     // Already in THRESHOLD_REACHED or other states (CONFIRMED, DECLINED) — do not re-trigger per FSM design
     if (this.currentState !== AutoTrackState.IDLE) {
-      console.warn(`[AutoTracker] [THRESHOLD] Skipped: already in ${this.currentState} state`);
+      debugLog('[THRESHOLD]', `Skipped: already in ${this.currentState} state`);
     }
 
     return false;
@@ -225,10 +252,10 @@ export class AutoTracker {
    */
   resetTokenThreshold(): void {
     if (this.currentState !== AutoTrackState.IDLE) {
-      console.warn(`[AutoTracker] [RESET] Explicit reset from ${this.currentState} → IDLE`);
+      debugLog('[RESET]', `Explicit reset from ${this.currentState} → IDLE`);
       this.transitionTo(AutoTrackState.IDLE, 'explicit_reset');
     } else {
-      console.warn(`[AutoTracker] [RESET] Already in IDLE state — no action needed`);
+      debugLog('[RESET]', 'Already in IDLE state — no action needed');
     }
   }
 
@@ -249,7 +276,7 @@ export class AutoTracker {
     // FSM transition handled by checkTokenThreshold (called before or in parallel)
     // If we're already in THRESHOLD_REACHED, just return the existing warning
     if (this.currentState === AutoTrackState.THRESHOLD_REACHED && this.pendingCheckpointWarning) {
-      console.warn(`[AutoTracker] [PROMPT] Returning existing pending warning (${usagePercentage.toFixed(1)}%)`);
+      debugLog('[PROMPT]', `Returning existing pending warning (${usagePercentage.toFixed(1)}%)`);
       return { triggered: true, warning: this.pendingCheckpointWarning };
     }
 
@@ -260,7 +287,7 @@ export class AutoTracker {
     const warning = `⚠️ SESSION WARNING: You have reached ${usagePercentage.toFixed(0)}% of your token limit. It is highly recommended to create a session backup before continuing.\n\nAuto-tracked events in buffer (will be saved with checkpoint): ${bufferedCount}\n\nDo you want to proceed with a backup? Reply 'YES' to trigger the backup tool, or 'NO' to continue.`;
     
     this.pendingCheckpointWarning = warning;
-    console.warn(`[AutoTracker] [PROMPT] Generated checkpoint prompt for user confirmation`);
+    debugLog('[PROMPT]', 'Generated checkpoint prompt for user confirmation');
 
     return { triggered: true, warning };
   }
@@ -272,7 +299,7 @@ export class AutoTracker {
   consumePendingConfirmation(): string | undefined {
     const warn = this.pendingCheckpointWarning;
     if (warn) {
-      console.warn(`[AutoTracker] [CONSUME] Pending warning consumed`);
+      debugLog('[CONSUME]', 'Pending warning consumed');
       this.pendingCheckpointWarning = undefined; // 🔹 Clear so it doesn't repeat every turn
     }
     return warn;
@@ -281,7 +308,7 @@ export class AutoTracker {
   /** Check if a checkpoint warning is currently waiting for user response */
   hasPendingWarning(): boolean {
     const result = !!this.pendingCheckpointWarning && this.currentState === AutoTrackState.THRESHOLD_REACHED;
-    console.warn(`[AutoTracker] [HAS_WARNING] ${result ? 'Yes' : 'No'} (state=${this.currentState})`);
+    debugLog('[HAS_WARNING]', `${result ? 'Yes' : 'No'} (state=${this.currentState})`);
     return result;
   }
 
@@ -291,7 +318,7 @@ export class AutoTracker {
    */
   processUserReply(reply: 'YES' | 'NO'): void {
     if (this.currentState !== AutoTrackState.THRESHOLD_REACHED) {
-      console.warn(`[AutoTracker] [REPLY] Ignoring ${reply} — not in THRESHOLD_REACHED state`);
+      debugLog('[REPLY]', `Ignoring ${reply} — not in THRESHOLD_REACHED state`);
       return;
     }
 
@@ -299,11 +326,11 @@ export class AutoTracker {
     
     if (replyUpper === 'YES') {
       // User confirmed → transition to CONFIRMED, caller will trigger checkpoint save
-      console.warn(`[AutoTracker] [REPLY] YES received — transitioning to CONFIRMED state`);
+      debugLog('[REPLY]', `YES received — transitioning to CONFIRMED state`);
       this.transitionTo(AutoTrackState.CONFIRMED, 'user_confirmed');
     } else {
       // User declined → transition to DECLINED, then immediately back to IDLE (Bug #3 fix)
-      console.warn(`[AutoTracker] [REPLY] NO received — transitioning to DECLINED, then IDLE`);
+      debugLog('[REPLY]', `NO received — transitioning to DECLINED, then IDLE`);
       this.transitionTo(AutoTrackState.DECLINED, 'user_declined');
       this.transitionTo(AutoTrackState.IDLE, 'post_decline_reset');
     }
@@ -319,7 +346,7 @@ export class AutoTracker {
   async flushActionsToMemory(): Promise<number> {
     // 🔹 FIX #4: Prevent concurrent flushes (race condition with checkpoint save)
     if (this.isFlushing || this.actionBuffer.length === 0) {
-      console.warn(`[AutoTracker] [FLUSH] Skipped: isFlushing=${this.isFlushing}, bufferLen=${this.actionBuffer.length}`);
+      debugLog('[FLUSH]', `Skipped: isFlushing=${this.isFlushing}, bufferLen=${this.actionBuffer.length}`);
       return 0;
     }
 
@@ -327,19 +354,22 @@ export class AutoTracker {
     this.isFlushing = true;
     const flushed = this.actionBuffer.splice(0); // 🔹 Clear buffer safely before async I/O
     
-    console.warn(`[AutoTracker] [FLUSH] Starting flush of ${preFlushCount} action(s)`);
+    debugLog('[FLUSH]', `Starting flush of ${preFlushCount} action(s)`);
 
     let savedCount = 0;
 
     try {
-      // Use injected storage manager for testing, otherwise dynamic import
+      // Use injected storage manager for testing, otherwise pre-resolved module
       let storage;
       if (this.testStorageManager) {
         const Ctor = this.testStorageManager as unknown as new () => { addEntry(e: unknown): Promise<void> };
         storage = new Ctor();
       } else {
-       
-        const { ContextStorageManager } = await import('./tools/contextManagementTools.js');
+        // 🔹 P1 #4: Direct access — no dynamic import overhead!
+        if (!this.contextStorageModule) {
+          throw new Error('ContextStorageManager module not loaded');
+        }
+        const { ContextStorageManager } = this.contextStorageModule;
         storage = new ContextStorageManager();
       }
 
@@ -356,7 +386,7 @@ export class AutoTracker {
         savedCount++;
       }
 
-      console.warn(`[AutoTracker] [FLUSH] Completed: ${savedCount}/${preFlushCount} actions flushed to persistent memory`);
+      debugLog('[FLUSH]', `Completed: ${savedCount}/${preFlushCount} actions flushed to persistent memory`);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.error(`[AutoTracker] [FLUSH] Failed: ${message}`);
@@ -378,8 +408,7 @@ export class AutoTracker {
     messageCount: number,
   ): Promise<{ saved: boolean; sessionId?: string }> {
     if (!this.config.autoTrackingEnabled) {
-      console.warn('[AUTO SAVE DEBUG] Entering, testStorageManager=', this.testStorageManager ? 'INJECTED' : 'NULL', ', autoTrackingEnabled=', this.config.autoTrackingEnabled);
-      console.warn(`[AutoTracker] [CHECKPOINT] Skipped: autoTracking disabled`);
+      debugLog('[CHECKPOINT]', 'Skipped: autoTracking disabled');
       return { saved: false };
     }
 
@@ -388,7 +417,7 @@ export class AutoTracker {
     const usagePercentage = ((effectiveTokens / maxTokens) * 100).toFixed(1);
     const threshold = this.config.autoTrackTokenThreshold ?? 75;
 
-    console.warn(`[AutoTracker] [CHECKPOINT] Generating checkpoint at ${usagePercentage}% (${currentTokens}/${maxTokens})`);
+    debugLog('[CHECKPOINT]', `Generating checkpoint at ${usagePercentage}% (${currentTokens}/${maxTokens})`);
 
     // Generate a session checkpoint entry
     const entryId = `ctx_${Date.now()}_checkpoint`;
@@ -403,20 +432,23 @@ export class AutoTracker {
       tags: ['auto_checkpoint', 'token_threshold'],
     };
 
-    // Save to persistent memory via the storage manager (injected for testing or dynamic import)
+    // Save to persistent memory via the storage manager (injected for testing or pre-resolved)
     try {
       let storage;
       if (this.testStorageManager) {
         const Ctor = this.testStorageManager as unknown as new () => { addEntry(e: unknown): Promise<void> };
         storage = new Ctor();
       } else {
-       
-        const { ContextStorageManager } = await import('./tools/contextManagementTools.js');
+        // 🔹 P1 #4: Pre-resolved module access
+        if (!this.contextStorageModule) {
+          throw new Error('ContextStorageManager module not loaded');
+        }
+        const { ContextStorageManager } = this.contextStorageModule;
         storage = new ContextStorageManager();
       }
       await storage.addEntry(contextEntry);
 
-      console.warn(`[AutoTracker] [CHECKPOINT] Saved: ${entryId}`);
+      debugLog('[CHECKPOINT]', `Saved: ${entryId}`);
       return { saved: true, sessionId: entryId };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -437,19 +469,19 @@ export class AutoTracker {
     }
 
     // Threshold triggered — flush buffered actions and save session memory
-    console.warn(`[AutoTracker] [CHECKANDSAVE] Threshold triggered — proceeding to checkpoint`);
+    debugLog('[CHECKANDSAVE]', 'Threshold triggered — proceeding to checkpoint');
     
     // Flush any buffered actions as part of the checkpoint save
     const flushedCount = await this.flushActionsToMemory();
     if (flushedCount > 0) {
-      console.warn(`[AutoTracker] [CHECKANDSAVE] Flushed ${flushedCount} buffered action(s)`);
+      debugLog('[CHECKANDSAVE]', `Flushed ${flushedCount} buffered action(s)`);
     }
 
     const msgCount = messageCount ?? 0;
     const saveResult = await this.autoSaveSessionMemory(currentTokens, maxTokens, msgCount);
 
     if (saveResult.saved) {
-      console.warn(`[AutoTracker] [CHECKANDSAVE] Checkpoint saved successfully — transitioning to CONFIRMED`);
+      debugLog('[CHECKANDSAVE]', 'Checkpoint saved successfully — transitioning to CONFIRMED');
       // FSM: THRESHOLD_REACHED → CONFIRMED (checkpoint completed)
       this.transitionTo(AutoTrackState.CONFIRMED, 'auto_checkpoint_saved');
       return { triggered: true, saved: true, sessionId: saveResult.sessionId };
@@ -515,11 +547,11 @@ export class AutoTracker {
     // 🔹 NEW: Buffer detected actions for later flush to persistent storage
     if (actions.length > 0) {
       this.actionBuffer.push(...actions);
-      console.warn(`[AutoTracker] [BUFFER] Added ${actions.length} action(s), total=${this.actionBuffer.length}, state=${this.currentState}`);
+      debugLog('[BUFFER]', `Added ${actions.length} action(s), total=${this.actionBuffer.length}, state=${this.currentState}`);
       
       // 🔹 Safety cap: auto-flush if buffer grows too large (>50 entries)
       if (this.actionBuffer.length > MAX_BUFFER_SIZE && !this.isFlushing) {
-        console.warn(`[AutoTracker] [BUFFER] Exceeded safety limit (${MAX_BUFFER_SIZE}), flushing early...`);
+        debugLog('[BUFFER]', `Exceeded safety limit (${MAX_BUFFER_SIZE}), flushing early...`);
         void this.flushActionsToMemory(); // Fire-and-forget — intentionally unawaited to avoid blocking preprocessor
       }
     }
@@ -527,7 +559,7 @@ export class AutoTracker {
     // Increment message counter for session summaries
     this.messageCount++;
     if (this.messageCount % this.config.autoSummaryInterval === 0) {
-      console.warn(`[AutoTracker] [COUNT] Session summary interval reached: ${this.messageCount} messages`);
+      debugLog('[COUNT]', `Session summary interval reached: ${this.messageCount} messages`);
     }
 
     return actions;
@@ -580,7 +612,7 @@ export class AutoTracker {
    */
   resetCounter(): void {
     this.messageCount = 0;
-    console.warn(`[AutoTracker] [RESET] Message counter reset`);
+    debugLog('[RESET]', 'Message counter reset');
     // Also reset FSM to IDLE on new session
     if (this.currentState !== AutoTrackState.IDLE) {
       this.transitionTo(AutoTrackState.IDLE, 'new_session');

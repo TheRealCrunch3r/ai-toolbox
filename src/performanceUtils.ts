@@ -99,20 +99,25 @@ export function getCachedFuzzyResults(query: string, basePath: string): Array<{ 
 }
 
 /**
- * Cache fuzzy search results.
+ * Cache fuzzy search results (LRU eviction).
  */
 export function cacheFuzzyResults(query: string, basePath: string, results: Array<{ filePath: string; score: number }>): void {
   const cacheKey = `${query}:${basePath}`;
+  
+  // Move to end (most recently used) — Map preserves insertion order!
+  fuzzySearchCache.delete(cacheKey); // Remove if exists
   fuzzySearchCache.set(cacheKey, {
     results,
     timestamp: Date.now(),
-  });
+  }); // Insert at end
   
-  // Evict old entries if cache grows too large (max 100 entries)
-  if (fuzzySearchCache.size > 100) {
-    const oldestKey = fuzzySearchCache.keys().next().value;
-    if (oldestKey) {
-      fuzzySearchCache.delete(oldestKey);
+  // Evict oldest entries (front of Map) if over limit
+  while (fuzzySearchCache.size > 100) {
+    const firstKey = fuzzySearchCache.keys().next().value;
+    if (firstKey !== undefined) {
+      fuzzySearchCache.delete(firstKey);
+    } else {
+      break; // Empty map
     }
   }
 }

@@ -34,11 +34,23 @@ function getPluginMemoryFilePath(): string {
   return path.join(PLUGIN_ROOT, '.ai_toolbox_memory.msgpack');
 }
 
+// 🔹 P2 #6: Cache resolved project path with 5s TTL to avoid duplicate fs.stat() calls
+let _projectPathCache: string | null = null;
+let _lastProjectPathCheck = 0;
+const PROJECT_PATH_CACHE_TTL_MS = 5000; // 5 seconds
+
 /**
  * Resolve the project-level memory file path.
  * Returns null when workingDir is invalid (stale/deleted).
  */
 async function getProjectMemoryFilePath(): Promise<string | null> {
+  const now = Date.now();
+  
+  // Skip validation if cache is fresh
+  if (_projectPathCache && (now - _lastProjectPathCheck) < PROJECT_PATH_CACHE_TTL_MS) {
+    return _projectPathCache;
+  }
+
   let cwd = getWorkingDir();
 
   // Validate: ensure it's an actual accessible directory
@@ -49,10 +61,14 @@ async function getProjectMemoryFilePath(): Promise<string | null> {
   } catch {
     // WorkingDir is stale (e.g. from test temp dir cleanup)
     logger.warn(`Configured workingDir invalid: ${cwd}. Project-level memory disabled.`);
+    _projectPathCache = null; // Invalidate cache
     return null;
   }
 
-  return path.join(cwd, '.ai_toolbox_memory.msgpack');
+  const resolvedPath = path.join(cwd, '.ai_toolbox_memory.msgpack');
+  _projectPathCache = resolvedPath;
+  _lastProjectPathCheck = now;
+  return resolvedPath;
 }
 
 /**
@@ -146,6 +162,20 @@ export class StateManager {
   /** Tracks initialization completion so reads wait for data */
   private _ready!: Promise<void>;
 
+  // 🔹 P0 Optimization #1: Debounced saves to reduce disk I/O during bulk ops
+  private saveQueue: (() => Promise<void>)[] = [];
+  private saveTimer: ReturnType<typeof setTimeout> | null = null;
+  readonly SAVE_DEBOUNCE_MS = 500; // Coalesce rapid saves
+
+  // 🔹 P0 Optimization #2: Key cache with invalidation to avoid O(n) disk reads on getAllKeys()
+  private _keysCache: string[] | null = null;
+  private _keysCacheInvalidated = true;
+  readonly KEYS_CACHE_TTL_MS = 1000; // 1 second TTL
+  private _lastKeysCacheTime: number | null = null;
+
+  // 🔹 P2 #5: Cache for getSizeOfValue() to avoid repeated JSON.stringify on complex objects
+  private sizeValueCache = new Map<string, number>();
+
   constructor(config?: PluginConfig) {
     this.state = new Map();
     this.runningSize = 0;
@@ -198,9 +228,34 @@ export class StateManager {
     }
   }
 
+  // 🔹 P0 #1: Debounced save queue handler
+  private async _queueSave(): Promise<void> {
+    if (!this.persistenceEnabled) return;
+
+    const queueEntry = () => this.saveToFile();
+    this.saveQueue.push(queueEntry);
+
+    if (this.saveTimer) {
+      clearTimeout(this.saveTimer);
+    }
+
+    this.saveTimer = setTimeout(async () => {
+      this.saveTimer = null;
+      const queue = [...this.saveQueue];
+      this.saveQueue = []; // Clear queue before executing
+      
+      try {
+        await Promise.all(queue.map(fn => fn()));
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        logger.warn(`Failed to persist state via debounced save: ${message}`);
+      }
+    }, this.SAVE_DEBOUNCE_MS);
+  }
+
   /**
    * Set a state value with key and optional metadata.
-   * Disk persistence is fire-and-forget (non-blocking).
+   * Disk persistence is now debounced (non-blocking batched writes).
    */
   set(key: string, value: unknown): void {
     const newValueSize = this.getSizeOfValue(value);
@@ -218,12 +273,11 @@ export class StateManager {
       timestamp: Date.now(),
     });
 
-    // Fire-and-forget: save merged state to BOTH files
+    // 🔹 P0 #2: Invalidate key cache on mutation
     if (this.persistenceEnabled) {
-      void this.saveToFile().catch((err: unknown) => {
-        const message = err instanceof Error ? err.message : String(err);
-        logger.warn(`Failed to persist state immediately: ${message}`);
-      });
+      this._keysCacheInvalidated = true;
+      // 🔹 P0 #1: Queue save instead of fire-and-forget
+      void this._queueSave();
     }
   }
 
@@ -244,21 +298,19 @@ export class StateManager {
     if (!entry) return false;
 
     this.runningSize -= this.getSizeOfValue(entry.value);
+    this._keysCacheInvalidated = true; // 🔹 P0 #2: Invalidate cache on mutation
+    
     const deleted = this.state.delete(key);
 
-    // Fire-and-forget: save merged state to BOTH files
     if (deleted && this.persistenceEnabled) {
-      void this.saveToFile().catch((err: unknown) => {
-        const message = err instanceof Error ? err.message : String(err);
-        logger.warn(`Failed to persist state delete immediately: ${message}`);
-      });
+      void this._queueSave(); // 🔹 P0 #1: Debounced save
     }
 
     return deleted;
   }
 
   /**
-   * Get all state keys. Re-loads from disk to handle working dir changes mid-session.
+   * Get all state keys. Uses cached results to avoid O(n) disk reads on every call.
    */
   async getAllKeys(): Promise<string[]> {
     await this.ensureReady();
@@ -267,31 +319,36 @@ export class StateManager {
       return Array.from(this.state.keys());
     }
 
-    // Re-resolve project path in case working dir changed
+    // 🔹 P0 #2: Return cached keys if valid and not expired
+    if (this._keysCacheInvalidated || !this._keysCache) {
+      this._keysCache = await this._rebuildKeysCache();
+      this._keysCacheInvalidated = false;
+    } else if (Date.now() - (this._lastKeysCacheTime ?? 0) > this.KEYS_CACHE_TTL_MS) {
+      // Expired — rebuild
+      this._keysCache = await this._rebuildKeysCache();
+    }
+
+    return [...this._keysCache]; // Return copy to prevent mutation
+  }
+
+  /** Rebuild the keys cache by reloading from disk */
+  private async _rebuildKeysCache(): Promise<string[]> {
     const newProjectPath = await getProjectMemoryFilePath();
     if (newProjectPath !== this.projectMemoryFile) {
       logger.info(`Working dir changed: ${this.projectMemoryFile} → ${newProjectPath}`);
       this.projectMemoryFile = newProjectPath;
     }
 
-    logger.info(`getAllKeys: reloading dual-layer state`);
-
-    try {
-      // Clear and reload: plugin first, then project overrides
-      this.state.clear();
-      this.runningSize = 0;
-
-      await loadMemoryFile(this.pluginMemoryFile, this.state, 0);
-      if (this.projectMemoryFile) {
-        await loadMemoryFile(this.projectMemoryFile, this.state, 0);
-      }
-      this.recalculateSize();
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      logger.warn(`Failed to reload state from disk in getAllKeys: ${message}`);
+    const stateMap = new Map<string, StateEntry>();
+    await loadMemoryFile(this.pluginMemoryFile, stateMap, 0);
+    if (this.projectMemoryFile) {
+      await loadMemoryFile(this.projectMemoryFile, stateMap, 0);
     }
 
-    return Array.from(this.state.keys());
+    this._keysCacheInvalidated = true; // Invalidate after build
+    this._lastKeysCacheTime = Date.now();
+
+    return Array.from(stateMap.keys());
   }
 
   /**
@@ -300,12 +357,10 @@ export class StateManager {
   clear(): void {
     this.runningSize = 0;
     this.state.clear();
+    this._keysCacheInvalidated = true; // 🔹 P0 #2: Invalidate cache on mutation
 
     if (this.persistenceEnabled) {
-      void this.saveToFile().catch((err: unknown) => {
-        const message = err instanceof Error ? err.message : String(err);
-        logger.warn(`Failed to persist state clear immediately: ${message}`);
-      });
+      void this._queueSave(); // 🔹 P0 #1: Debounced save
     }
   }
 
@@ -318,20 +373,46 @@ export class StateManager {
   }
 
   /**
-   * Estimate size of a value in bytes.
+   * Estimate size of a value in bytes (cached for objects).
    */
   private getSizeOfValue(value: unknown): number {
     if (typeof value === 'string') return value.length;
     if (typeof value === 'number') return 8;
     if (typeof value === 'boolean') return 1;
+
+    // Skip cache for primitives — only objects benefit from caching
+    const isObject = typeof value === 'object' && value !== null;
+
+    if (isObject) {
+      const objKey = JSON.stringify(value);
+      const cachedSize = this.sizeValueCache.get(objKey);
+      if (cachedSize !== undefined) {
+        return cachedSize;
+      }
+    }
+
+    let size: number;
+
     if (Array.isArray(value)) {
-      return value.reduce((sum: number, elem: unknown) => sum + this.getSizeOfValue(elem), 0);
+      size = value.reduce((sum: number, elem: unknown) => sum + this.getSizeOfValue(elem), 0);
+    } else if (value instanceof Map) {
+      size = value.size * 16; // Estimate per-entry overhead
+    } else if (isObject && !(value instanceof Date)) {
+      const objKey = JSON.stringify(value);
+      size = objKey.length;
+      this.sizeValueCache.set(objKey, size);
+      return size;
+    } else {
+      size = 0;
     }
-    if (value instanceof Map) return value.size * 16;
-    if (value instanceof Object && !(value instanceof Date)) {
-      return JSON.stringify(value).length;
+
+    if (isObject) {
+      // Only cache objects that went through the fallback path
+      const fallbackKey = JSON.stringify(value);
+      this.sizeValueCache.set(fallbackKey, size);
     }
-    return 0;
+
+    return size;
   }
 
   /**
@@ -379,7 +460,7 @@ export class StateManager {
       }
 
       if (this.persistenceEnabled) {
-        void this.saveToFile().catch((err: unknown) => {
+        void this._queueSave().catch((err: unknown) => { // 🔹 P0 #1: Debounced save
           const msg = err instanceof Error ? err.message : String(err);
           logger.warn(`Failed to persist state import: ${msg}`);
         });

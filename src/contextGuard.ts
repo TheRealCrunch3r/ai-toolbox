@@ -36,6 +36,13 @@ const STOP_WORDS = new Set([
   'extends', 'super', 'this', 'new', 'delete', 'typeof', 'instanceof', 'void',
 ]);
 
+// 🔹 P1 Optimization #3: Conditional logging to reduce stderr I/O in production
+const DEBUG_MODE = !!process.env.AI_TOOLBOX_DEBUG;
+
+function debugLog(...args: unknown[]): void {
+  if (DEBUG_MODE) console.warn('[ContextGuard]', ...args);
+}
+
 export interface ContextGuardConfig {
   tokenLimit: number;
   smartReading: boolean;
@@ -69,15 +76,15 @@ export class ContextGuard {
    * Accounts for message structure (role prefixes, separators) to match actual LLM token consumption.
    */
   async countTokens(messages: ContextMessage[], imageCount: number = 0): Promise<number> {
-    // DEBUG: Log message count to verify history integrity
-    console.warn(`[ContextGuard] [COUNT] Processing ${messages.length} messages.`);
+    // 🔹 P1 #3: Conditional logging
+    debugLog('[COUNT]', `Processing ${messages.length} messages.`);
     
     // FIX #1: Hash-based cache invalidation - validates ALL messages, not just last one
     if (this.cachedTokenCount !== null) {
       const currentHash = this.computeMessageHash(messages);
       
       if (this._lastMessageHash === currentHash) {
-        console.warn(`[ContextGuard] [COUNT] Cache hit: returning ${this.cachedTokenCount}`);
+        debugLog('[COUNT]', `Cache hit: returning ${this.cachedTokenCount}`);
         return this.cachedTokenCount;
       }
     }
@@ -105,8 +112,8 @@ export class ContextGuard {
         }
       }
       
-      // DEBUG: Log content length to verify message integrity
-      console.warn(`[ContextGuard] [COUNT] Message content length: ${contentStr.length} chars (role: ${role})`);
+      // 🔹 P1 #3: Conditional logging for debugging message integrity
+      debugLog('[COUNT]', `Message content length: ${contentStr.length} chars (role: ${role})`);
       
       // Account for message structure: role prefix + separator + content
       // This matches how LLMs actually consume tokens in chat completion API
@@ -118,7 +125,7 @@ export class ContextGuard {
     if (imageCount > 0) {
       const imageTokens = imageCount * 500; // Conservative estimate
       count += imageTokens;
-      console.warn(`[ContextGuard] [COUNT] Adding ${imageTokens} tokens for ${imageCount} images.`);
+      debugLog('[COUNT]', `Adding ${imageTokens} tokens for ${imageCount} images.`);
     }
     
     // Add a small overhead for system prompt and BOS token (typically ~4-8 tokens)
@@ -127,7 +134,7 @@ export class ContextGuard {
     this.cachedTokenCount = count;
     this._lastMessageHash = this.computeMessageHash(messages);  // FIX #1: Store hash
     
-    console.warn(`[ContextGuard] [COUNT] Total count: ${count} tokens for ${messages.length} messages.`);
+    debugLog('[COUNT]', `Total count: ${count} tokens for ${messages.length} messages.`);
     return count;
   }
 
@@ -157,27 +164,27 @@ export class ContextGuard {
     const threshold = this.config.tokenLimit * 0.9;
 
     if (currentTokens < threshold) {
-      console.warn(`[ContextGuard] Token count (${currentTokens}) below threshold (${threshold}). No compression needed.`);
+      debugLog('[COMPRESS]', `Token count (${currentTokens}) below threshold (${threshold}). No compression needed.`);
       this._lastCompressionInfo = { compressed: false };
       return messages;
     }
 
     const originalTokenCount = currentTokens;
 
-    console.warn(`[ContextGuard] Compressing history: ${messages.length} messages, ${currentTokens} tokens (threshold: ${threshold})`);
+    debugLog('[COMPRESS]', `Compressing history: ${messages.length} messages, ${currentTokens} tokens (threshold: ${threshold})`);
 
     const keepLast = 10;
     const toCompress = messages.slice(0, -keepLast);
     
     if (toCompress.length === 0) {
-      console.warn(`[ContextGuard] No messages to compress (only ${messages.length} total, keeping last ${keepLast})`);
+      debugLog('[COMPRESS]', `No messages to compress (only ${messages.length} total, keeping last ${keepLast})`);
       return messages;
     }
 
     // Use local model for summarization
     if (this.lmClient && this.config.summaryModel) {
       try {
-        console.warn(`[ContextGuard] Loading model: ${this.config.summaryModel}`);
+        debugLog('[COMPRESS]', `Loading model: ${this.config.summaryModel}`);
         const model = await this.lmClient.llm.model(this.config.summaryModel);
         
         // Build summary prompt with conversation history
@@ -206,7 +213,7 @@ ${historyText}
 
 SUMMARY:`;
         
-        console.warn(`[ContextGuard] Sending summarization request for ${toCompress.length} messages...`);
+        debugLog('[COMPRESS]', `Sending summarization request for ${toCompress.length} messages...`);
         
         // Use respond() for chat-based interaction (more reliable than complete())
         const response = model.respond(
@@ -218,7 +225,7 @@ SUMMARY:`;
         const result = await response.result();
         const summary = result.content || `[ContextGuard Summary: ${toCompress.length} older messages compressed.]`;
         
-        console.warn(`[ContextGuard] Summarization complete. Generated ${summary.length} chars.`);
+        debugLog('[COMPRESS]', `Summarization complete. Generated ${summary.length} chars.`);
         
         // Count tokens after compression
         const compressedPreview = [
@@ -261,12 +268,12 @@ SUMMARY:`;
         console.error(`[ContextGuard] Stack: ${(error as Error).stack}`);
       }
     } else {
-      console.warn(`[ContextGuard] No LM client or summary model configured. Using fallback.`);
+      debugLog('[COMPRESS]', 'No LM client or summary model configured. Using fallback.');
     }
 
     // Fallback if no model, error, or summarization failed
     const fallbackSummary = `[ContextGuard Summary: ${toCompress.length} older messages compressed to save context. Original content unavailable due to compression failure or missing model.]`;
-    console.warn(`[ContextGuard] Using fallback summary for ${toCompress.length} messages`);
+    debugLog('[COMPRESS]', `Using fallback summary for ${toCompress.length} messages`);
     
     // Track compression info (estimate tokens saved)
     const estimatedTokensSaved = Math.round(originalTokenCount * 0.7); // Estimate ~70% savings
