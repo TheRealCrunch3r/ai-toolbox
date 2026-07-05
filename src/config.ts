@@ -42,6 +42,7 @@ export const ConfigSchema = z.object({
 
   textProcessing: z.boolean().default(true).describe('Enable text processing tools (sed/awk equivalents)'),
 
+  refactorCode: z.boolean().default(true).describe('Enable AST-based code refactoring tools (rename, move, extract, unused import cleanup)'),
 
 
   // ── ⚠️ GOD MODE (Enable ALL tools at once) ──────────────────────
@@ -196,6 +197,7 @@ export const DEFAULT_CONFIG: PluginConfig = {
   contextManagement: true,
   textProcessing: true,
 
+  refactorCode: true,
 
 
   // ⚠️ GOD MODE (Enable ALL tools at once) ⚠️
@@ -297,7 +299,7 @@ export function validateConfig(input: unknown): PluginConfig {
 /**
  * Check if a tool category is enabled in config
  */
-export function isToolEnabled(config: PluginConfig, category: keyof Pick<PluginConfig, 'fileSystem' | 'webSearch' | 'browserAutomation' | 'gitOperations' | 'databaseQueries' | 'documentParsing' | 'backgroundCommands' | 'imageProcessing' | 'httpClient' | 'vectorRAG' | 'uiGeneration' | 'contextManagement' | 'textProcessing'>): boolean {
+export function isToolEnabled(config: PluginConfig, category: keyof Pick<PluginConfig, 'fileSystem' | 'webSearch' | 'browserAutomation' | 'gitOperations' | 'databaseQueries' | 'documentParsing' | 'backgroundCommands' | 'imageProcessing' | 'httpClient' | 'vectorRAG' | 'uiGeneration' | 'contextManagement' | 'textProcessing' | 'refactorCode'>): boolean {
   return config[category] === true;
 }
 
@@ -516,6 +518,12 @@ export const configSchematics = createConfigSchematics()
     subtitle: 'Regex-based text transformations and field extraction',
     hint: 'Enable tools for bulk text replacement, pattern matching, and structured data extraction without shell dependencies.',
   }, DEFAULT_CONFIG.textProcessing)
+
+  .field('refactorCode', 'boolean', { 
+    displayName: '🔧 AST Code Refactoring Tools', 
+    subtitle: 'Rename, move, extract functions & clean unused imports',
+    hint: 'Enable AST-based code refactoring tools (rename_identifier, move_function, extract_function, unused_import_cleanup).',
+  }, DEFAULT_CONFIG.refactorCode)
 
 
 

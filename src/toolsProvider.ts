@@ -11,7 +11,7 @@ import { StateManager } from './stateManager';
 import { BackgroundCommandManager } from './backgroundCommands';
 
 // ==================== P0: LAZY MODULE RESOLVER MAP ====================
-const REGISTER_MAP: Record<string, () => Promise<{ registerFileSystemTools: (c: PluginConfig) => Tool[] } | { registerWebResearchTools: (c: PluginConfig) => Tool[] } | { registerBrowserTools: (c: PluginConfig) => Tool[] } | { registerGitTools: (c: PluginConfig) => Tool[] } | { registerDatabaseTools: (c: PluginConfig) => Tool[] } | { registerDocumentTools: (c: PluginConfig) => Tool[] } | { registerBackgroundCommandTools: (c: PluginConfig, b: BackgroundCommandManager) => Tool[] } | { registerImageProcessingTools: (c: PluginConfig) => Tool[] } | { registerHttpClientTools: (c: PluginConfig) => Tool[] } | { registerRagTools: (c: PluginConfig) => Tool[] } | { registerTextProcessingTools: (c: PluginConfig) => Tool[] } | { registerUiGenerationTools: (c: PluginConfig) => Tool[] } | { registerContextManagementTools: (c: PluginConfig) => Tool[] }>> = {
+const REGISTER_MAP: Record<string, () => Promise<{ registerFileSystemTools: (c: PluginConfig) => Tool[] } | { registerWebResearchTools: (c: PluginConfig) => Tool[] } | { registerBrowserTools: (c: PluginConfig) => Tool[] } | { registerGitTools: (c: PluginConfig) => Tool[] } | { registerDatabaseTools: (c: PluginConfig) => Tool[] } | { registerDocumentTools: (c: PluginConfig) => Tool[] } | { registerBackgroundCommandTools: (c: PluginConfig, b: BackgroundCommandManager) => Tool[] } | { registerImageProcessingTools: (c: PluginConfig) => Tool[] } | { registerHttpClientTools: (c: PluginConfig) => Tool[] } | { registerRagTools: (c: PluginConfig) => Tool[] } | { registerTextProcessingTools: (c: PluginConfig) => Tool[] } | { registerUiGenerationTools: (c: PluginConfig) => Tool[] } | { registerContextManagementTools: (c: PluginConfig) => Tool[] } | { registerRefactorCodeTools: (c: PluginConfig) => Tool[] }>> = {
   fileSystem:      () => import('./tools/fileSystemTools.js').then(m => m.registerFileSystemTools as never),
   webSearch:       () => import('./tools/webResearchTools.js').then(m => m.registerWebResearchTools as never),
   browserAutomation: () => import('./tools/browserAutomationTools.js').then(m => m.registerBrowserTools as never),
@@ -25,15 +25,36 @@ const REGISTER_MAP: Record<string, () => Promise<{ registerFileSystemTools: (c: 
   textProcessing:  () => import('./tools/textProcessingTools.js').then(m => m.registerTextProcessingTools as never),
   uiGeneration:    () => import('./tools/uiGenerationTools.js').then(m => m.registerUiGenerationTools as never),
   contextManagement: () => import('./tools/contextManagementTools.js').then(m => m.registerContextManagementTools as never),
+  refactor: () => import('./tools/refactorCodeTools.js').then(m => m.registerRefactorCodeTools as never),
 };
 
 // Execution tools loaded dynamically too — their individual flags filter what gets registered
 
 // Utility / line-ops / backup are always loaded but resolved lazily on first use
 
+/** Maps REGISTER_MAP keys to their corresponding PluginConfig toggle keys */
+type EnabledCategoryKey = keyof Pick<PluginConfig, 'fileSystem' | 'webSearch' | 'browserAutomation' | 'gitOperations' | 'databaseQueries' | 'documentParsing' | 'backgroundCommands' | 'imageProcessing' | 'httpClient' | 'vectorRAG' | 'uiGeneration' | 'contextManagement' | 'textProcessing' | 'refactorCode'>;
+
+const CATEGORY_CONFIG_KEY_MAP: Record<string, EnabledCategoryKey> = {
+  fileSystem: 'fileSystem',
+  webSearch: 'webSearch',
+  browserAutomation: 'browserAutomation',
+  gitOperations: 'gitOperations',
+  databaseQueries: 'databaseQueries',
+  documentParsing: 'documentParsing',
+  backgroundCommands: 'backgroundCommands',
+  imageProcessing: 'imageProcessing',
+  httpClient: 'httpClient',
+  vectorRAG: 'vectorRAG',
+  textProcessing: 'textProcessing',
+  uiGeneration: 'uiGeneration',
+  contextManagement: 'contextManagement',
+  refactor: 'refactorCode',
+};
+
 /** Minimal config-hash for cache invalidation */
 function hashConfig(cfg: PluginConfig): string {
-  return `${cfg.godMode}_${cfg.fileSystem}_${cfg.webSearch}_${cfg.browserAutomation}_${cfg.gitOperations}_${cfg.databaseQueries}_${cfg.documentParsing}_${cfg.backgroundCommands}_${cfg.imageProcessing}_${cfg.httpClient}_${cfg.vectorRAG}_${cfg.textProcessing}_${cfg.uiGeneration}_${cfg.contextManagement}_${cfg.executionJavaScript}_${cfg.executionPython}_${cfg.executionTerminal}_${cfg.executionShell}`;
+  return `${cfg.godMode}_${cfg.fileSystem}_${cfg.webSearch}_${cfg.browserAutomation}_${cfg.gitOperations}_${cfg.databaseQueries}_${cfg.documentParsing}_${cfg.backgroundCommands}_${cfg.imageProcessing}_${cfg.httpClient}_${cfg.vectorRAG}_${cfg.textProcessing}_${cfg.uiGeneration}_${cfg.contextManagement}_${cfg.refactorCode}_${cfg.executionJavaScript}_${cfg.executionPython}_${cfg.executionTerminal}_${cfg.executionShell}`;
 }
 
 // ==================== TYPES ====================
@@ -67,7 +88,8 @@ class ToolRegistry {
 
     this._loadPromise = (async () => {
       for (const [category, resolver] of Object.entries(REGISTER_MAP)) {
-        const categoryKey = category as 'fileSystem' | 'webSearch' | 'browserAutomation' | 'gitOperations' | 'databaseQueries' | 'documentParsing' | 'backgroundCommands' | 'imageProcessing' | 'httpClient' | 'vectorRAG' | 'uiGeneration' | 'contextManagement' | 'textProcessing';
+        const categoryKey = CATEGORY_CONFIG_KEY_MAP[category];
+        if (!categoryKey) continue; // skip unmapped categories
         const enabled = config.godMode || isToolEnabled(config, categoryKey);
         if (!enabled) continue;
 
@@ -251,6 +273,7 @@ export async function toolsProvider(ctl: ToolsProviderController, _lmClient?: un
     uiGeneration: pluginConfig.get('uiGeneration'),
     contextManagement: pluginConfig.get('contextManagement'),
     textProcessing: pluginConfig.get('textProcessing'),
+    refactorCode: pluginConfig.get('refactorCode'),
     godMode: pluginConfig.get('godMode'),
     documentRAG: pluginConfig.get('documentRAG'),
     retrievalLimit: pluginConfig.get('retrievalLimit'),

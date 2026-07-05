@@ -130,6 +130,45 @@ Each category is implemented as a separate module in `src/tools/`:
 
 ## 📈 Recent Changes (v1.5.x)
 
+### [1.5.30] — 🔧 `refactor_code` AST Modernization & ESLint Hardening  
+
+**Upgraded the refactoring engine from a basic placeholder to a production-ready, Babel AST-driven tool.**
+
+#### What Changed
+- **Root Cause**: The original `extract_function` operation used fragile line-based string splitting (`content.split('\\n')`) instead of Babel AST traversal, causing syntax errors when extracting partial constructs. Additionally, `move_function` only supported `FunctionDeclaration` and `FunctionExpression`, ignoring Arrow Functions and Class Methods entirely.
+- **Fix**: 
+  - Replaced line-range extraction with pure AST-based code block parsing — extracted statements are now properly parsed into valid Babel nodes before being wrapped in a new function body
+  - Added comprehensive support for Arrow Functions (`const fn = async () => {}`) and Class Methods via `ArrowFunctionExpression` and `ClassBody` traversal handlers
+  - Removed redundant `eslint-disable-line` comments that triggered "unused directive" warnings — global file-level disable blocks now cleanly cover all Babel AST operations without redundancy
+  - Updated parameter schema: deprecated `extraction_lines` in favor of passing extracted code directly via `old_name`
+
+#### Impact
+- ✅ `extract_function` no longer crashes on partial statements or multiline constructs  
+- ✅ `move_function` now correctly extracts Arrow Functions, Class Methods, and Variable Declarations containing function expressions  
+- ✅ Zero ESLint warnings — all unsafe-member-access directives consolidated at file scope where Babel's dynamic typing is unavoidable  
+- ✅ Cleaner, more maintainable codebase with explicit type imports (`ArrowFunctionExpression`, `FunctionExpression`)
+
+---
+
+### [1.5.31] — 🐛 Session Persistence Fix & ESLint/TS Hardening
+
+**Resolved critical session summary data loss bug and cleaned up TypeScript strict mode violations in the refactoring engine.**
+
+#### What Changed
+- **Root Cause**: The `save_session_summary` and `save_memory` tools called `stateManager.set()`, which queues a debounced disk write with a 500ms delay. When LM Studio returned control after tool execution, that timer never fired → data stayed in-memory only and was lost on context switch. Additionally, `refactorCodeTools.ts` contained dead code (unused variables) and TypeScript strict mode violations from legacy line-based string splitting logic.
+- **Fix**: 
+  - Added `await stateManager.forceSave()` immediately after `stateManager.set()` calls in both tools (`src/tools/utilityTools.ts`) to bypass the debounce queue with an immediate atomic disk write
+  - Removed dead code variables (`_lines`, `_usedImports`, `_remainingLines`) from `src/tools/refactorCodeTools.ts` that were remnants of a legacy line-based approach now replaced by pure AST manipulation
+  - Fixed TypeScript strict mode errors (TS2322, `Node[]` vs `Statement[]` type mismatches) and properly scoped file-level `eslint-disable @typescript-eslint/no-unsafe-argument` directives to handle Babel's dynamic typing
+
+#### Impact
+- ✅ Session summaries now persist to disk immediately (`C:\Source Code\LM Studio Plugins\ai_toolbox\.ai_toolbox_memory.msgpack`), surviving process exits and LM Studio context switches without data loss
+- ✅ `save_memory` and `save_session_summary` return `{ saved: true }` with verified on-disk persistence
+- ✅ Zero TypeScript errors (`npx tsc --noEmit`) — resolved all TS2322 violations in refactor code engine
+- ✅ Zero ESLint warnings/errors — cleaned up dead variables and properly typed Babel AST operations
+
+---
+
 ### [1.5.29] — 🔥 Major Performance Optimization Suite (P0–P3)
 
 **Comprehensive performance overhaul targeting disk I/O reduction, cache utilization, and event-loop contention across `stateManager.ts`, `autoTracker.ts`, `contextGuard.ts`, and `performanceUtils.ts`.**
@@ -425,7 +464,7 @@ Heavy dependencies loaded on first use to minimize startup time:
 
 ### Test Coverage
 
-- **19 tests** — all passing ✅ (including 3 AST mode tests fixed in v1.5.20)
+- **22 test suites, 354 tests** — all passing ✅ (including `unused_import_cleanup` integration in `refactor_code`)
 - Type checking clean: `npx tsc --noEmit` with zero errors
 - Linting passes: `npm run lint` with zero errors
 
@@ -480,6 +519,6 @@ All documentation has been reconstructed based on actual source code analysis:
 
 ## 📝 Notes
 
-This summary is based on actual source code analysis performed on 2026-06-30. All tool counts, feature descriptions, and security controls reflect the current implementation in version 1.5.x.
+This summary is based on actual source code analysis performed on 2026-07-05 (v1.5.31). All tool counts, feature descriptions, and security controls reflect the current implementation in version 1.5.x.
 
 For questions or issues, please refer to the individual documentation files linked above or contact the maintainers through appropriate channels.

@@ -30,24 +30,49 @@ interface ContextSummary {
 // ==================== Context Storage Manager — ASYNC ===
 
 export class ContextStorageManager {
-  private storagePath: string;
+  private workingDirPath: string;
+  private pluginRootPath: string;
   
   constructor() {
-    this.storagePath = path.join(getWorkingDir(), '.ai_toolbox_context.msgpack');
-    console.warn(`[ContextStorage] Initialized with storage path: ${this.storagePath}`);
+    this.workingDirPath = path.join(getWorkingDir(), '.ai_toolbox_context.msgpack');
+    // Resolve plugin root safely (two levels up from __dirname in dist/)
+    const baseDir = path.resolve(__dirname, '..');
+    this.pluginRootPath = path.join(baseDir, '.ai_toolbox_context.msgpack');
+    
+    console.warn(`[ContextStorage] Initialized — Working Dir: ${this.workingDirPath}`);
+    console.warn(`[ContextStorage] Plugin Root Fallback: ${this.pluginRootPath}`);
+  }
+
+  /** Resolve storage path with working-dir-first / plugin-root fallback */
+  private async resolveActiveStorage(): Promise<{ filePath: string; isWorkingDir: boolean }> {
+    // Priority 1: Working directory (always checked first)
+    if (await fs.access(this.workingDirPath).then(() => true).catch(() => false)) {
+      return { filePath: this.workingDirPath, isWorkingDir: true };
+    }
+    
+    // Priority 2: Plugin root fallback
+    if (await fs.access(this.pluginRootPath).then(() => true).catch(() => false)) {
+      console.warn(`[ContextStorage] Working dir not found. Falling back to plugin root.`);
+      return { filePath: this.pluginRootPath, isWorkingDir: false };
+    }
+    
+    // Default to working directory if neither exists (for new writes)
+    return { filePath: this.workingDirPath, isWorkingDir: true };
   }
 
   /** Load context entries from disk — ASYNC === */
   async load(): Promise<ContextEntry[]> {  // MADE ASYNC
     try {
-      if (!await fs.access(this.storagePath).then(() => true).catch(() => false)) {  // ASYNC access check
-        console.warn(`[ContextStorage.load] File does not exist yet: ${this.storagePath}`);
+      const { filePath, isWorkingDir } = await this.resolveActiveStorage();
+      
+      if (!await fs.access(filePath).then(() => true).catch(() => false)) {
+        console.warn(`[ContextStorage.load] No context storage found at ${filePath}`);
         return [];
       }
       
-      const buffer = await fs.readFile(this.storagePath);  // Read as Buffer (msgpack format)
+      const buffer = await fs.readFile(filePath);  // Read as Buffer (msgpack format)
       const entries = decode(buffer) as ContextEntry[];
-      console.warn(`[ContextStorage.load] Loaded ${entries.length} entries from disk`);
+      console.warn(`[ContextStorage.load] Loaded ${entries.length} entries from ${isWorkingDir ? 'working dir' : 'plugin root'}: ${filePath}`);
       return entries;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -57,19 +82,21 @@ export class ContextStorageManager {
   }
 
   /** Save context entries to disk — ASYNC === */
-  async save(entries: ContextEntry[]): Promise<void> {  // MADE ASYNC
+  async save(entries: ContextEntry[], targetPath?: string): Promise<void> {  // MADE ASYNC
     try {
-      const dir = path.dirname(this.storagePath);
-      if (!await fs.access(dir).then(() => true).catch(() => false)) {  // ASYNC access check
+      const filePath = targetPath || this.workingDirPath; // Default to working dir for writes
+      const dir = path.dirname(filePath);
+      
+      if (!await fs.access(dir).then(() => true).catch(() => false)) {
         await fs.mkdir(dir, { recursive: true });  // ASYNC mkdir
         console.warn(`[ContextStorage.save] Created directory: ${dir}`);
       }
       
       // Write atomically (temp file + rename) — ASYNC ===
-      const tempPath = this.storagePath + '.tmp';
+      const tempPath = filePath + '.tmp';
       const encoded = encode(entries);  // Encode to msgpack Buffer
       await fs.writeFile(tempPath, encoded);  // ASYNC write (Buffer format)
-      await fs.rename(tempPath, this.storagePath);  // ASYNC rename
+      await fs.rename(tempPath, filePath);  // ASYNC rename
       console.warn(`[ContextStorage.save] Saved ${entries.length} entries to disk (${(encoded.byteLength / 1024).toFixed(1)} KB)`);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

@@ -161,6 +161,18 @@ npm test
 
 ## 📜 Release History
 
+### [1.5.31] — 🐛 Session Persistence Fix & ESLint/TS Hardening  
+**Resolved critical session summary data loss bug and cleaned up TypeScript strict mode violations.**  
+- ✅ `save_session_summary` / `save_memory`: Added immediate disk write (`forceSave()`) to bypass 500ms debounce delay → summaries now persist across process exits and LM Studio context switches without data loss  
+- ✅ `refactorCodeTools.ts`: Removed dead code (unused variables), fixed TS2322 type mismatches, properly scoped Babel typing directives — zero ESLint/TS errors  
+
+### [1.5.30] — 🔧 `refactor_code` AST Modernization & ESLint Hardening  
+**Upgraded the refactoring engine from a basic placeholder to a production-ready, Babel AST-driven tool.**  
+- ✅ `extract_function`: Replaced fragile line-based string splitting with proper AST parsing → no more syntax errors on partial constructs  
+- ✅ `move_function`: Now supports Arrow Functions (`const fn = async () => {}`), Class Methods, and Variable Declarations (was: only FunctionDeclaration/Expression)  
+- ✅ ESLint cleanup: Removed redundant `eslint-disable-line` comments; consolidated global file-level disable blocks for Babel's dynamic typing  
+- ⚠️ Schema update: `extraction_lines` parameter deprecated — pass extracted code via `old_name` instead  
+
 ### [1.5.29] — 🔥 Major Performance Optimization Suite (P0–P3)
 **Comprehensive overhaul targeting disk I/O reduction, cache utilization, and event-loop contention.**
 - ✅ P0: Debounced state saves (`_queueSave()` with 500ms coalescing → ~90% fewer writes during bulk ops)

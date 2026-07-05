@@ -463,6 +463,10 @@ export function registerUtilityTools(config: PluginConfig, stateManager: StateMa
       try {
       // eslint-disable-next-line @typescript-eslint/await-thenable
         await stateManager.set(`memory_${Date.now()}`, fact);
+        
+        // Force immediate disk write to bypass 500ms debounce delay
+        await stateManager.forceSave();
+
         return { success: true, data: { saved: true } };
       } catch (error) {
         return handleError(error);
@@ -615,6 +619,9 @@ export function registerUtilityTools(config: PluginConfig, stateManager: StateMa
         
         stateManager.set(summaryKey, compressed);
         stateManager.set(timestampKey, Date.now());
+        
+        // Force immediate disk write to bypass 500ms debounce delay
+        await stateManager.forceSave();
 
         return {
           success: true,

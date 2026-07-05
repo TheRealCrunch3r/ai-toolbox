@@ -1,6 +1,6 @@
 # 🛠️ AI Toolbox — Complete Tool Reference
 
-*Generated on: 2026-07-02 · 108 tools across 17 categories*
+*Generated on: 2026-07-05 · 109 tools across 18 categories*
 
 ---
 
@@ -9,6 +9,7 @@
 | Category | Count | Default State |
 |----------|-------|---------------|
 | File System | 17 | ✅ Enabled |
+| Code Refactoring | 1 | ✅ Enabled |
 | Web Research | 4 | ✅ Enabled |
 | Browser Automation | 5 | ❌ Disabled |
 | Git & GitHub | 15 | ❌ Disabled |
@@ -65,6 +66,74 @@
 | `find_files` | Recursive filename search with async optimization and configurable depth limit (default: 5) |
 | `fuzzy_find_local_files` | Levenshtein-based fuzzy name matching with 60s caching; excludes large directories automatically |
 | `get_file_metadata` | Retrieve size, creation/modification/access timestamps via fs.stat() |
+
+---
+
+## 🔧 Code Refactoring (1)
+
+*Requires `"🔧 AST Code Refactoring Tools"` toggle in settings or God Mode.*
+
+### AST-Driven Refactoring Engine (`refactor_code`)
+
+Leverages Babel's Abstract Syntax Tree (AST) parser for safe, syntax-aware code transformations. Replaces fragile line-based string manipulation with proper node traversal and regeneration. Supports TypeScript out-of-the-box.
+
+| Operation | Description |
+|-----------|-------------|
+| `rename_identifier` | Globally rename variables, functions, or class names across a file using AST binding analysis |
+| `move_function` | Extract functions (including Arrow Functions & Class Methods) to another file with proper syntax preservation |
+| `extract_function` | Pull selected code blocks into new standalone functions via Babel AST parsing |
+| `unused_import_cleanup` | Detect and remove dead imports/specifiers using static analysis; TypeScript-aware (`import type`) |
+
+#### 📖 Usage Examples
+
+**1. Rename Identifiers**
+```jsonc
+// Renames 'oldVar' to 'newVar' across the entire file
+{
+  "file_path": "./src/index.ts",
+  "operation": "rename_identifier",
+  "old_name": "oldVar",
+  "new_name": "newVar"
+}
+```
+
+**2. Move Functions Between Files**
+```jsonc
+// Moves 'calculateTotal' from src.ts to utils.ts
+{
+  "file_path": "./src/operations.ts",
+  "operation": "move_function",
+  "old_name": "placeholder", // required by schema, ignored for this operation
+  "function_name": "calculateTotal",
+  "target_path": "./src/utils.ts"
+}
+```
+
+**3. Extract Code Block into New Function**
+```jsonc
+// Extracts the provided code block into a function named 'processData'
+{
+  "file_path": "./src/handler.ts",
+  "operation": "extract_function",
+  "old_name": "const result = value * 2;\nconsole.log(result);", // raw code to extract
+  "new_name": "processData"
+}
+```
+
+**4. Clean Up Unused Imports**
+```jsonc
+// Scans file for dead imports and removes them automatically
+{
+  "file_path": "./src/module.ts",
+  "operation": "unused_import_cleanup"
+}
+```
+
+#### ⚙️ Key Features
+- ✅ **AST-Based**: No regex or line-splitting bugs; handles multiline constructs, template literals, and partial statements safely.
+- ✅ **TypeScript Support**: Parses `.ts`/`.tsx` natively with `typescript` plugin enabled.
+- ✅ **Smart Import Removal**: Handles mixed imports (e.g., `import { used, unused } from 'lib'`) by removing only dead specifiers while preserving formatting.
+- ✅ **Backup & Safety**: Automatically creates `.bak` backup before any file modification.
 
 ---
 
@@ -266,7 +335,7 @@
 | `line_operations` | Insert/delete/reorder lines using awk-like operations without shell dependencies; atomic writes safety |
 | `text_extract` | Structured data extraction from delimited text (CSV/TSV/custom) with configurable zero-based field indices |
 | `markdown_table_gen` | Generate Markdown tables from object arrays with headers, alignment, truncation, and customizable ellipsis |
-| `refactor_code` | AST-based code refactoring: rename identifiers, move functions between files, extract code blocks into new functions with line-range targeting |
+| `refactor_code` | AST-driven code refactoring: rename identifiers, move functions (including Arrow Functions & Class Methods), extract code blocks into new functions via Babel AST parsing — no more line-based string splitting errors |
 
 ---
 

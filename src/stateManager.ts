@@ -331,7 +331,7 @@ export class StateManager {
     return [...this._keysCache]; // Return copy to prevent mutation
   }
 
-  /** Rebuild the keys cache by reloading from disk */
+  /** Rebuild the keys cache by reloading from disk and syncing with active state */
   private async _rebuildKeysCache(): Promise<string[]> {
     const newProjectPath = await getProjectMemoryFilePath();
     if (newProjectPath !== this.projectMemoryFile) {
@@ -339,16 +339,19 @@ export class StateManager {
       this.projectMemoryFile = newProjectPath;
     }
 
-    const stateMap = new Map<string, StateEntry>();
-    await loadMemoryFile(this.pluginMemoryFile, stateMap, 0);
+    // Load directly into the active state map instead of a local one.
+    await loadMemoryFile(this.pluginMemoryFile, this.state, 0);
     if (this.projectMemoryFile) {
-      await loadMemoryFile(this.projectMemoryFile, stateMap, 0);
+      await loadMemoryFile(this.projectMemoryFile, this.state, 0);
     }
 
-    this._keysCacheInvalidated = true; // Invalidate after build
+    // Recalculate running size to keep memory usage tracking accurate after a cold read.
+    this.recalculateSize(); 
+
+    this._keysCacheInvalidated = true; 
     this._lastKeysCacheTime = Date.now();
 
-    return Array.from(stateMap.keys());
+    return Array.from(this.state.keys()); 
   }
 
   /**
