@@ -1,6 +1,6 @@
 # 🧰 AI Toolbox — LM Studio Plugin
 
-> **108 tools** across 17 core categories identified in current source code. (22 Git/GitHub tools + 86 others)
+> **109 tools** across 18 core categories identified in current source code. (22 Git/GitHub tools + 87 others)
 
 ---
 
@@ -69,6 +69,7 @@
 ### Utilities (~29 tools)
 `save_memory` · `get_system_info` · `read_clipboard` · `write_clipboard` · `send_notification` · `findLMStudioHome` · `get_enabled_tools` · `system_monitor` · `process_list` · `env_inspect` · `hash_file` · `token_count` · `convert_format` · `secret_scan` · `port_check` · `package_manage` · `detect_os_environment` · `json_query` · `env_update` · `get_current_working_directory` · `markdown_table_gen` · `refactor_code`
 
+- ✅ Engine supports backup & rollback via `.bak` file creation before modifications  
 ### Image Processing (4 tools)
 `image_to_text` · `compare_images` · `describe_image` · `screenshot_desktop`
 
@@ -105,6 +106,15 @@ The plugin is installed as an LM Studio plugin. Ensure you have:
 2. **Configure tool access** — individual tool categories can be toggled on/off via the Settings panel. Note that some tools (like Execution) are disabled by default for security.
 3. **Authenticate with GitHub**: Run `gh auth login` in your terminal once to enable remote operations (`gh_create_issue`, `gh_list_prs`, etc.). The plugin will detect authentication status automatically.
 4. **Start a chat** and the LLM can now use any of the ~108 available tools.
+
+### [1.5.35] — 🔧 Recode Engine: Async Modernizer (Tier 2)  
+**Implemented first Tier 2 rule for the modular "Recode" engine.**  
+- ✅ `asyncModernizer.ts`: Detects callback-style functions matching Node.js patterns (`(err, data) => { ... }`) and Promise `.then()` chains that can be modernized to async/await. Includes helper type guards and proper Babel AST traversal with zero ESLint warnings.
+
+---
+
+### [1.5.34] — 🗂️ Hidden Session Context & Import Path Fixes  \n**Renamed session context directory to hidden `.session_context/` and fixed import path resolutions.**  \\n- ✅ Renamed `session_context/` → `.session_context/` (hidden, excluded from git)  \\n- ✅ Updated `.gitignore` to exclude `.session_context/` — session/context memory files now stored in hidden directory  \\n- ✅ Fixed import paths in `refactorCodeTools.ts` — removed `.js` extensions for proper Jest resolution  \\n- ✅ Fixed Babel traversal in `unusedImportsRule` — properly excludes import identifiers from usage detection using `getAncestry()` check  \\n- ✅ StateManager & ContextStorageManager updated to use `.session_context/` path consistently  \\n\n### [1.5.33] — 🏗️ Recode Tool Architecture & Modular Rule Engine  
+**Implemented modular "Recode" tool architecture for AST-driven code transformations.**  \n- ✅ Created `src/tools/recodeTool/` with unified rule engine (`recodeEngine.ts`) supporting sequential rule application and dry-run diff output  \n- ⚠️ **Experimental/Placeholder**: `deadCodeDetection.ts` is currently a **single-file analyzer only**. Cross-directory scanning returns empty results (`{ deadExports: [] }`) and requires full project-wide integration. True "dead code" detection must account for cross-module imports to avoid false positives on exported symbols.  \n- ✅ Shared interfaces (`RuleContext`, `RuleResult`, `RecodeRule`) enable future plugins without coupling to core engine  \n- ✅ Updated Jest config with moduleNameMapper for RecodeTool module resolution — all tests pass  \n- ⏳ Pending: asyncModernizer, securityHardener rules (Tier 2 features)
 
 > ⚠️ **GitHub Tools Require CLI**: Local Git operations (status, commit, diff) work without `gh`. Remote API operations (create issues, list PRs, push to origin) require `gh` installed and authenticated on your system.
 
@@ -161,7 +171,8 @@ npm test
 
 ## 📜 Release History
 
-### [1.5.31] — 🐛 Session Persistence Fix & ESLint/TS Hardening  
+### [1.5.32] — 🔧 `refactor_code` Babel Parser & Strict Type Hardening  
+**Resolved Jest test failures and TypeScript strict mode violations in the AST refactoring engine.**  \n- ✅ Replaced dynamic `@babel/parser` import with static namespace import → eliminates Jest CJS/ESM interop errors, ensures parser availability across all environments  \n- ✅ Removed unused type imports, explicitly typed array fallbacks to prevent implicit `any[]` inference — zero ESLint/TS strict mode violations  \n- ✅ Fixed duplicate variable declaration (`resolvedTarget`) that caused SyntaxError at module load time  \n\n### [1.5.31] — 🐛 Session Persistence Fix & ESLint/TS Hardening  
 **Resolved critical session summary data loss bug and cleaned up TypeScript strict mode violations.**  
 - ✅ `save_session_summary` / `save_memory`: Added immediate disk write (`forceSave()`) to bypass 500ms debounce delay → summaries now persist across process exits and LM Studio context switches without data loss  
 - ✅ `refactorCodeTools.ts`: Removed dead code (unused variables), fixed TS2322 type mismatches, properly scoped Babel typing directives — zero ESLint/TS errors  

@@ -6,7 +6,19 @@ import * as path from 'path';
 import { encode, decode } from '@msgpack/msgpack';
 
 import type { PluginConfig } from '../config.js';
+import type { StateManager } from '../stateManager.js';
+import type { BackgroundCommandManager } from '../backgroundCommands.js';
 import { getWorkingDir } from '../workingDir.js';
+
+// ==================== Session Summary Types ====================
+
+export interface SessionSummaryData {
+  task_description: string;
+  accomplishments?: string;
+  pending_tasks?: string;
+  decisions_made?: string;
+  context_for_next_session?: string;
+}
 
 // ==================== Context Management Types ====================
 
@@ -34,13 +46,24 @@ export class ContextStorageManager {
   private pluginRootPath: string;
   
   constructor() {
-    this.workingDirPath = path.join(getWorkingDir(), '.ai_toolbox_context.msgpack');
-    // Resolve plugin root safely (two levels up from __dirname in dist/)
+    // Use dedicated subdirectory for session/context memory
+    const wd = getWorkingDir();
+    this.workingDirPath = path.join(wd, '.session_context', '.ai_toolbox_memory.msgpack');
+    
     const baseDir = path.resolve(__dirname, '..');
-    this.pluginRootPath = path.join(baseDir, '.ai_toolbox_context.msgpack');
+    this.pluginRootPath = path.join(baseDir, '.session_context', '.ai_toolbox_memory.msgpack');
     
     console.warn(`[ContextStorage] Initialized — Working Dir: ${this.workingDirPath}`);
     console.warn(`[ContextStorage] Plugin Root Fallback: ${this.pluginRootPath}`);
+  }
+
+  /** Ensure the .session_context directory exists */
+  private async ensureDirectory(filePath: string): Promise<void> {
+    const dir = path.dirname(filePath);
+    if (!await fs.access(dir).then(() => true).catch(() => false)) {
+      await fs.mkdir(dir, { recursive: true });
+      console.warn(`[ContextStorage] Created directory: ${dir}`);
+    }
   }
 
   /** Resolve storage path with working-dir-first / plugin-root fallback */
@@ -85,19 +108,30 @@ export class ContextStorageManager {
   async save(entries: ContextEntry[], targetPath?: string): Promise<void> {  // MADE ASYNC
     try {
       const filePath = targetPath || this.workingDirPath; // Default to working dir for writes
-      const dir = path.dirname(filePath);
       
-      if (!await fs.access(dir).then(() => true).catch(() => false)) {
-        await fs.mkdir(dir, { recursive: true });  // ASYNC mkdir
-        console.warn(`[ContextStorage.save] Created directory: ${dir}`);
-      }
+      // Ensure the .session_context directory exists
+      await this.ensureDirectory(filePath);
       
       // Write atomically (temp file + rename) — ASYNC ===
       const tempPath = filePath + '.tmp';
       const encoded = encode(entries);  // Encode to msgpack Buffer
       await fs.writeFile(tempPath, encoded);  // ASYNC write (Buffer format)
       await fs.rename(tempPath, filePath);  // ASYNC rename
-      console.warn(`[ContextStorage.save] Saved ${entries.length} entries to disk (${(encoded.byteLength / 1024).toFixed(1)} KB)`);
+      console.warn(`[ContextStorage.save] Saved ${entries.length} entries to working dir: ${filePath}`);
+
+      // 🔹 DUAL WRITE: Always sync to plugin root as well
+      if (this.pluginRootPath !== this.workingDirPath) {
+        try {
+          await this.ensureDirectory(this.pluginRootPath);
+          const pluginTemp = this.pluginRootPath + '.tmp';
+          await fs.writeFile(pluginTemp, encoded);
+          await fs.rename(pluginTemp, this.pluginRootPath);
+          console.warn(`[ContextStorage.save] Synced to plugin root: ${this.pluginRootPath}`);
+        } catch (syncError) {
+          const syncMsg = syncError instanceof Error ? syncError.message : String(syncError);
+          console.error(`[ContextStorage.save] Failed to sync to plugin root: ${syncMsg}`);
+        }
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.error(`[ContextStorage.save] Failed to save context storage: ${message}`);
@@ -284,9 +318,16 @@ class ContextAnalyzer {
 
 // ==================== Tool Implementations — ASYNC ===
 
-export function registerContextManagementTools(_config: PluginConfig): Tool[] {
+export function registerContextManagementTools(
+  _config: PluginConfig,
+  stateManager?: StateManager,
+  _bgCommandManager?: BackgroundCommandManager,
+): Tool[] {
   const analyzer = new ContextAnalyzer();
   const storageManager = new ContextStorageManager();
+
+  // Use provided stateManager if available (from toolsProvider), otherwise fallback to direct file ops
+  const memoryStore = stateManager || null;
 
   const tools: Tool[] = [];
 
@@ -486,6 +527,166 @@ WHEN TO USE:
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         return { success: false, error: `Failed to track event: ${message}` };
+      }
+    },
+  }));
+
+  // save_session_summary tool — PERSIST SESSION DATA TO MEMORY + DISK (working dir → plugin root) ===
+  tools.push(tool({
+    name: 'save_session_summary',
+    description: `Save a structured session summary for cross-session continuity. Includes accomplishments, pending tasks, decisions made, and context for the next session.\n\nPERSISTENCE BEHAVIOR:\n• Saves to internal state manager (RAM)\n• ALWAYS writes atomic copy to working dir (.ai_toolbox_memory.msgpack)\n• Falls back to plugin root if working dir is invalid/stale`,
+    parameters: {
+      task_description: z.string().describe('Brief description of what was being worked on'),
+      accomplishments: z.string().optional().describe('List key accomplishments or completed tasks'),
+      pending_tasks: z.string().optional().describe('List remaining work that needs to continue in the next session'),
+      decisions_made: z.string().optional().describe('Key architectural or implementation decisions made during this session'),
+      context_for_next_session: z.string().optional().describe('Important context, file locations, or setup steps needed for the next session'),
+    },
+    implementation: async ({ task_description, accomplishments, pending_tasks, decisions_made, context_for_next_session }: { 
+      readonly task_description: string; 
+      readonly accomplishments?: string; 
+      readonly pending_tasks?: string; 
+      readonly decisions_made?: string; 
+      readonly context_for_next_session?: string; 
+    }) => {
+      try {
+        const summaryData: SessionSummaryData = {
+          task_description,
+          accomplishments,
+          pending_tasks,
+          decisions_made,
+          context_for_next_session,
+        };
+
+        if (memoryStore) {
+          console.warn('[ContextManagement.save_session_summary] memoryStore exists, setting data...');
+          memoryStore.set('session_summary_latest', summaryData);
+          memoryStore.set(`session_summary_${Date.now()}`, summaryData); // versioned backup
+          
+          console.warn('[ContextManagement.save_session_summary] Calling forceSave()...');
+          await memoryStore.forceSave();
+          console.warn('[ContextManagement.save_session_summary] forceSave() completed.');
+        } else {
+          console.warn('[ContextManagement.save_session_summary] No StateManager provided. Session summary saved to RAM only.');
+        }
+
+        return { success: true, data: { saved: true, task_description } };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(`[ContextManagement.save_session_summary] ERROR: ${message}`);
+        return { success: false, error: `Failed to save session summary: ${message}` };
+      }
+    },
+  }));
+
+  // get_session_summary tool — RETRIEVE LATEST SAVED SESSION SUMMARY ===
+  tools.push(tool({
+    name: 'get_session_summary',
+    description: `Retrieve the most recent saved session summary for continuity across sessions.`,
+    parameters: {},
+    implementation: async () => {
+      try {
+        if (memoryStore) {
+          // Force reload from disk to ensure we have latest state
+          await memoryStore.forceLoad();
+          
+          const latest = memoryStore.get<SessionSummaryData>('session_summary_latest');
+          if (latest) {
+            return { success: true, data: latest };
+          }
+        }
+
+        return { success: false, error: 'No session summary found in memory.' };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return { success: false, error: `Failed to retrieve session summary: ${message}` };
+      }
+    },
+  }));
+
+  // save_memory tool — SAVE KEY-VALUE PAIR TO MEMORY + PERSIST TO DISK ===
+  tools.push(tool({
+    name: 'save_memory',
+    description: `Save a specific piece of information or fact to long-term memory.\n\nPERSISTENCE:\n• Writes to internal state manager (RAM)\n• ALWAYS writes atomic copy to working dir (.ai_toolbox_memory.msgpack)\n• Falls back to plugin root if working dir is invalid`,
+    parameters: {
+      fact: z.string().min(1).describe('The specific fact or piece of information to remember.'),
+    },
+    implementation: async ({ fact }: { readonly fact: string }) => {
+      try {
+        const key = `memory_${Date.now()}`;
+        
+        if (memoryStore) {
+          memoryStore.set(key, { fact, timestamp: Date.now() });
+          await memoryStore.forceSave(); // Immediate disk persistence
+        } else {
+          console.warn('[ContextManagement] No StateManager provided. Memory saved to RAM only.');
+        }
+
+        return { success: true, data: { saved: true, key } };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return { success: false, error: `Failed to save memory: ${message}` };
+      }
+    },
+  }));
+
+  // get_memory tool — RETRIEVE ALL SAVED MEMORY ENTRIES ===
+  tools.push(tool({
+    name: 'get_memory',
+    description: `Retrieve all saved memory entries. Returns a list of all facts stored via save_memory.`,
+    parameters: {},
+    implementation: async () => {
+      try {
+        if (memoryStore) {
+          // Force reload from disk to ensure we have latest state
+          await memoryStore.forceLoad();
+          
+          const keys = await memoryStore.getAllKeys();
+          const memories = keys
+            .filter(k => k.startsWith('memory_'))
+            .map(k => ({ key: k, value: memoryStore.get<unknown>(k) }))
+            .filter(m => m.value !== undefined);
+          
+          if (memories.length > 0) {
+            return { success: true, data: memories };
+          }
+        }
+
+        return { success: false, error: 'No memory entries found.' };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return { success: false, error: `Failed to retrieve memory: ${message}` };
+      }
+    },
+  }));
+
+  // delete_memory tool — DELETE A SAVED MEMORY ENTRY BY KEY ===
+  tools.push(tool({
+    name: 'delete_memory',
+    description: `Delete a saved memory entry by its ID (returned from save_memory or get_memory).`,
+    parameters: {
+      entry_id: z.string().describe('The unique key of the memory entry to delete'),
+    },
+    implementation: async ({ entry_id }: { readonly entry_id: string }) => {
+      try {
+        if (memoryStore) {
+          const deleted = memoryStore.delete(entry_id);
+          
+          if (!deleted) {
+            return { success: false, error: `Memory entry '${entry_id}' not found` };
+          }
+          
+          // Force disk persistence after deletion
+          await memoryStore.forceSave();
+          
+          return { success: true, data: { deleted: true, entry_id } };
+        } else {
+          console.warn('[ContextManagement] No StateManager provided. Cannot delete from disk.');
+          return { success: false, error: 'StateManager not available.' };
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return { success: false, error: `Failed to delete memory: ${message}` };
       }
     },
   }));

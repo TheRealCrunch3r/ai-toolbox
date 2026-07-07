@@ -139,6 +139,9 @@ export class AutoTracker {
   // 🔹 P1 Optimization #4: Pre-resolved ContextStorageManager module to avoid per-flush overhead
   private contextStorageModule: { ContextStorageManager: new () => IContextStorage } | null = null;
 
+  // 🔹 Prevent repeated near-threshold console spam — only warn once per IDLE→THRESHOLD cycle
+  private _nearThresholdWarned = false;
+
   constructor(config?: Partial<AutoTrackConfig>, testStorageManager?: unknown) {
     this.config = {
       autoTrackingEnabled: true, // ← Matches schema & DEFAULT_CONFIG default (true)
@@ -189,6 +192,11 @@ export class AutoTracker {
         this.pendingCheckpointWarning = undefined;
       }
 
+      // Reset near-threshold warning flag when leaving IDLE or cycling back to it
+      if (this.currentState === AutoTrackState.IDLE || newState === AutoTrackState.IDLE) {
+        this._nearThresholdWarned = false;
+      }
+
       this.currentState = newState;
     }
   }
@@ -226,11 +234,12 @@ export class AutoTracker {
     const usagePercentage = (effectiveTokens / maxTokens) * 100;
     const threshold = this.config.autoTrackTokenThreshold ?? 75;
 
-    // 🔹 P1 #3: Conditional logging in debug mode or near threshold
+    // 🔹 P1 #3: Conditional logging in debug mode or near threshold (once per cycle)
     if (DEBUG_MODE) {
       console.warn(`[AutoTracker] [THRESHOLD] Check: ${usagePercentage.toFixed(2)}% effective (${currentTokens}/${maxTokens}), limit=${threshold}%`);
-    } else if (this.currentState === AutoTrackState.IDLE && usagePercentage >= threshold * 0.95) {
+    } else if (this.currentState === AutoTrackState.IDLE && usagePercentage >= threshold * 0.95 && !this._nearThresholdWarned) {
       console.warn(`[AutoTracker] [THRESHOLD] Near threshold: ${usagePercentage.toFixed(1)}%`);
+      this._nearThresholdWarned = true; // Prevent repeated warnings in the same IDLE cycle
     }
 
     // FSM: IDLE → THRESHOLD_REACHED
@@ -552,7 +561,7 @@ export class AutoTracker {
       // 🔹 Safety cap: auto-flush if buffer grows too large (>50 entries)
       if (this.actionBuffer.length > MAX_BUFFER_SIZE && !this.isFlushing) {
         debugLog('[BUFFER]', `Exceeded safety limit (${MAX_BUFFER_SIZE}), flushing early...`);
-        void this.flushActionsToMemory(); // Fire-and-forget — intentionally unawaited to avoid blocking preprocessor
+        this.flushActionsToMemory().catch(err => console.error('[AutoTracker] [BUFFER] Early flush failed:', err)); // Catch to prevent unhandled rejection
       }
     }
 

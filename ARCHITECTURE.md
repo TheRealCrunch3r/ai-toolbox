@@ -46,7 +46,7 @@ Deep dive into the AI Toolbox plugin's system architecture, design patterns, and
 │  │  │  └───────────┼──────────────────────┼─────────────┘  │  │  │
 │  │  │              │                      │                │  │  │
 │  │  │  ┌───────────┴──────────────────────┴─────────────┐  │  │  │
-│  │  │  │              Tool Modules (17 files)            │  │  │  │
+│  │  │  │              Tool Modules (19 files)            │  │  │  │
 │  │  │  │  ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ │  │  │  │
 │  │  │  │  │fileSys │ │webRes  │ │browser │ │  git   │ │  │  │  │
 │  │  │  │  │ (21)   │ │ (4)    │ │  (5)   │ │ (13)   │ │  │  │  │
@@ -181,7 +181,7 @@ auto_summarize_context() called
     ▼
 ContextStorageManager.addEntry(entry)
     │
-    ├── Load existing entries from .ai_toolbox_context.msgpack
+    ├── Load existing entries from .ai_toolbox_context.msgpack → .session_context/.ai_toolbox_context.msgpack
     ├── Append new entry to beginning of array
     ├── Limit to 1000 entries (prevent unbounded growth)
     └── Save atomically (temp file + rename)
@@ -278,7 +278,7 @@ try {
 - **Legacy summaries (pre-v1.5.15):** Raw JSON strings (uncompressed, backward-compatible via fallback parser)
 
 **Working Directory Integration:**
-- `StateManager` initializes via `getMemoryFilePath()` → resolves to `{current_working_dir}/.ai_toolbox_memory.msgpack`
+- `StateManager` initializes via `getMemoryFilePath()` → resolves to `{current_working_dir}/.session_context/.ai_toolbox_memory.msgpack`
 - On every save, the path is re-resolved to catch any runtime directory changes
 - After plugin reload/restart, StateManager loads from whatever directory was active at that moment
 
@@ -696,24 +696,26 @@ src/
 │   ├── de.ts
 │   ├── zh-CN.ts
 │   └── zh-TW.ts
-├── tools/                      # Tool category modules (17 files)
-│   ├── fileSystemTools.ts      # 17 file system tools
-│   ├── webResearchTools.ts     # 4 web research tools
-│   ├── browserAutomationTools.ts # 5 browser tools
-│   ├── gitGithubTools.ts       # 15 Git/GitHub tools
-│   ├── databaseTools.ts        # 1 database tool
-│   ├── documentTools.ts        # 1 document parsing tool
-│   ├── backgroundCommandTools.ts # 3 background command tools
-│   ├── executionTools.ts       # 5 execution tools (incl. run_tests)
-│   ├── utilityTools.ts         # ~28+ utility tools
-│   ├── imageProcessingTools.ts # 4 image processing tools
-│   ├── httpClientTools.ts      # 3 HTTP client tools
-│   ├── vectorRagTools.ts       # 4 vector RAG tools
-│   ├── textProcessingTools.ts  # 3 text processing tools
-│   ├── uiGenerationTools.ts    # Interactive UI Generation (3 tools)
-│   ├── contextManagementTools.ts # Auto-Context Management (7 tools)
-│   ├── backupTools.ts          # Backup & Restore (4 tools)
-│   └── lineOperations.ts       # Line-level text operations (3 tools)
+├── tools/                      # Tool category modules (19 files)
+│   ├── fileSystemTools.ts      # File system operations
+│   ├── webResearchTools.ts     # Web research & search
+│   ├── browserAutomationTools.ts # Browser automation
+│   ├── gitHubTools.ts          # Git & GitHub API integration
+│   ├── databaseTools.ts        # Database queries
+│   ├── documentTools.ts        # Document parsing (PDF/DOCX)
+│   ├── backgroundCommandTools.ts # Background process management
+│   ├── executionTools.ts       # Code execution (JS/Python/Terminal)
+│   ├── utilityTools.ts         # Utility tools (~29 tools: memory, system info, etc.)
+│   ├── imageProcessingTools.ts # Image processing & OCR
+│   ├── httpClientTools.ts      # HTTP client operations
+│   ├── vectorRagTools.ts       # Vector RAG semantic search
+│   ├── textProcessingTools.ts  # Text transformation & manipulation
+│   ├── uiGenerationTools.ts    # UI component generation
+│   ├── contextManagementTools.ts # Context management & tracking
+│   ├── refactorCodeTools.ts    # AST-based code refactoring
+│   ├── dataVisualizationTools.ts # Chart generation (⚠️ Not currently registered in toolsProvider)
+│   ├── backupTools.ts          # Backup & restore operations
+│   └── lineOperations.ts       # Line-level text operations
 └── types/                      # Type definitions
     └── types.d.ts
 
@@ -737,3 +739,38 @@ tests/                          # Jest test suite
 ├── findLMStudioHome.test.ts
 └── i18n.test.ts
 ```
+
+---
+
+## 📂 Additional Module Structure (v1.5.34+)
+
+### Recode Tool Engine (`src/tools/recodeTool/`)
+
+The modular "Recode" architecture was introduced in v1.5.34 to support AST-based code transformations:
+
+```text
+src/tools/recodeTool/
+├── rules/
+│   ├── unusedImports.ts      ← Tier 1: Implemented ✅ (extracted from refactorCodeTools.ts)
+│   └── deadCodeDetection.ts  ← Tier 1: **Placeholder** (Single-file analyzer only; cross-directory scanning pending ⚠️)
+├── recodeEngine.ts           ← AST transformation orchestrator with dry-run diff support (LCS-based)
+└── recodeTypes.ts            ← Shared interfaces & schemas (RuleContext, RuleResult, RecodeRule)
+```
+
+**Engine Features:**
+- ✅ Modular rule architecture — new rules can be added as separate files without modifying core engine
+- ✅ Sequential rule application via `runRecodeEngine()` function
+- ✅ Dry-run mode with unified diff output using Longest Common Subsequence (LCS) algorithm
+- ✅ Backup & rollback support via automatic `.bak` file creation before modifications
+- ✅ TypeScript-aware parsing (`plugins: ['typescript']`)
+- ✅ Configurable rules via `RecodeConfig.ruleConfigs` object
+
+**Integration:** The existing `refactor_code` tool delegates `unused_import_cleanup` operation to the new engine via lazy-load import in `toolsProvider.ts`.
+
+### Pending Rule Files (Tier 2/3)
+
+The following rule files are defined in the proposal but NOT yet created:
+- ⏳ `rules/asyncModernizer.ts` — Callback → async/await conversion
+- ⏳ `rules/securityHardener.ts` — Security pattern hardening
+- ⏳ `rules/duplicateCodeExtraction.ts` — Duplicate code detection & extraction
+- ⏳ `rules/typeInference.ts` — Type inference and annotation fixes

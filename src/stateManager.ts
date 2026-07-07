@@ -1,7 +1,17 @@
 /**
  * Persistent state management for plugin operations
- * Dual-layer storage: plugin-level (global) + project-level (per-working-dir)
- * Project entries override plugin entries with the same key.
+ * 
+ * 📌 PROTOCOL RULE (Permanent): User Specified Working Directory takes absolute precedence.
+ * 
+ * Hierarchy:
+ * 1. PRIMARY: User Specified Working Directory (First place to read/write).
+ *    - Path: `<workingDir>/.session_context/.ai_toolbox_memory.msgpack`
+ * 2. SECONDARY: Plugin Directory (Fallback/Backup source).
+ *    - Path: `<pluginRoot>/.session_context/.ai_toolbox_memory.msgpack`
+ * 
+ * Behavior:
+ * - Reading: Project data is loaded AFTER plugin data, ensuring it overrides keys (Precedence).
+ * - Writing: Data is written to Project directory FIRST, then Plugin directory.
  */
 
 import type { PluginConfig } from './config';
@@ -24,6 +34,7 @@ const isTestEnvironment = !!process.env.JEST_WORKER_ID;
 const logger = {
   warn: (msg: string) => !isTestEnvironment && typeof process.stderr.write === 'function' && process.stderr.write(`[StateManager] ${msg}\n`),
   info: (msg: string) => !isTestEnvironment && typeof process.stdout.write === 'function' && process.stdout.write(`[StateManager] ${msg}\n`),
+  error: (msg: string) => !isTestEnvironment && typeof process.stderr.write === 'function' && process.stderr.write(`[StateManager ERROR] ${msg}\n`),
 };
 
 /** Plugin root directory (always valid) */
@@ -31,7 +42,7 @@ const PLUGIN_ROOT = path.join(__dirname, '..');
 
 /** Plugin-level memory file path (global, survives project changes) */
 function getPluginMemoryFilePath(): string {
-  return path.join(PLUGIN_ROOT, '.ai_toolbox_memory.msgpack');
+  return path.join(PLUGIN_ROOT, '.session_context', '.ai_toolbox_memory.msgpack');
 }
 
 // 🔹 P2 #6: Cache resolved project path with 5s TTL to avoid duplicate fs.stat() calls
@@ -65,7 +76,7 @@ async function getProjectMemoryFilePath(): Promise<string | null> {
     return null;
   }
 
-  const resolvedPath = path.join(cwd, '.ai_toolbox_memory.msgpack');
+  const resolvedPath = path.join(cwd, '.session_context', '.ai_toolbox_memory.msgpack');
   _projectPathCache = resolvedPath;
   _lastProjectPathCheck = now;
   return resolvedPath;
@@ -120,34 +131,55 @@ async function loadMemoryFile(filePath: string, state: Map<string, StateEntry>, 
  */
 async function saveMemoryFile(filePath: string, state: Map<string, StateEntry>): Promise<void> {
   try {
+    logger.warn(`[StateManager.saveMemoryFile] START writing to: ${filePath}`);
+    
     const data = Array.from(state.entries()).map(([_key, entry]) => ({
       key: entry.key,
       value: entry.value,
       timestamp: entry.timestamp,
     }));
 
+    logger.warn(`[StateManager.saveMemoryFile] Data entries count: ${data.length}`);
+
     const dir = path.dirname(filePath);
     try {
       await fs.mkdir(dir, { recursive: true });
+      logger.warn(`[StateManager.saveMemoryFile] Created directory: ${dir}`);
     } catch (err) {
       logger.warn(`Could not create memory directory ${dir}: ${String(err)}`);
       return;
     }
 
     const encodedData = encode(data);
+    logger.warn(`[StateManager.saveMemoryFile] Encoded size: ${encodedData.byteLength} bytes`);
+    
     const tempFile = filePath + '.tmp';
     await fs.writeFile(tempFile, encodedData);
-    await fs.rename(tempFile, filePath);
-
-    // Create JSON backup for manual inspection
+    logger.warn(`[StateManager.saveMemoryFile] Wrote to temp file: ${tempFile}`);
+    
+    // Write to temp file first
     try {
-      await fs.writeFile(filePath + '.backup.json', JSON.stringify(data), 'utf-8');
-    } catch {
-      // Ignore backup creation errors
+      await fs.rename(tempFile, filePath);
+      logger.warn(`[StateManager.saveMemoryFile] SUCCESS - renamed to: ${filePath}`);
+      
+      // Create JSON backup for manual inspection
+      try {
+        await fs.writeFile(filePath + '.backup.json', JSON.stringify(data), 'utf-8');
+        logger.warn(`[StateManager.saveMemoryFile] Created backup json`);
+      } catch (bakErr) {
+        const bakMsg = bakErr instanceof Error ? bakErr.message : String(bakErr);
+        logger.warn(`[StateManager.saveMemoryFile] Backup failed: ${bakMsg}`);
+      }
+    } catch (renameError) {
+      const renameMsg = renameError instanceof Error ? renameError.message : String(renameError);
+      logger.warn(`[StateManager.saveMemoryFile] Atomic rename failed (${renameMsg}), falling back to direct write`);
+      // Fallback: overwrite directly if atomic rename fails
+      await fs.writeFile(filePath, encodedData);
+      logger.warn(`[StateManager.saveMemoryFile] Fallback write completed for: ${filePath}`);
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    logger.warn(`Failed to save memory file ${filePath}: ${message}`);
+    logger.error(`[StateManager.saveMemoryFile] FAILED for ${filePath}: ${message}`);
   }
 }
 
@@ -420,6 +452,8 @@ export class StateManager {
 
   /**
    * Save merged state to BOTH plugin-level and project-level files atomically.
+   * 
+   * 📌 PROTOCOL RULE: User Specified Working Directory is the FIRST place to write.
    */
   private async saveToFile(): Promise<void> {
     // Re-resolve project path in case working dir changed mid-session
@@ -428,13 +462,15 @@ export class StateManager {
       this.projectMemoryFile = newProjectPath;
     }
 
-    // Save to plugin file (always)
-    await saveMemoryFile(this.pluginMemoryFile, this.state);
-
-    // Save to project file (if working dir is valid)
+    // 1. PRIMARY WRITE: User Specified Working Directory (Highest Priority)
     if (this.projectMemoryFile) {
+      logger.info(`[StateManager.saveToFile] Writing to PRIMARY location (User Dir): ${this.projectMemoryFile}`);
       await saveMemoryFile(this.projectMemoryFile, this.state);
     }
+
+    // 2. SECONDARY WRITE: Plugin Directory (Backup/Fallback)
+    logger.info(`[StateManager.saveToFile] Writing to SECONDARY location (Plugin Dir): ${this.pluginMemoryFile}`);
+    await saveMemoryFile(this.pluginMemoryFile, this.state);
   }
 
   /**

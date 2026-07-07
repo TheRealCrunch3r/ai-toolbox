@@ -18,7 +18,7 @@ Comprehensive overview of the AI Toolbox plugin, its architecture, features, and
 
 ## 🎯 Project Overview
 
-**AI Toolbox Plugin** is a comprehensive LM Studio plugin providing **108 tools across 17 categories** for AI-assisted development workflows. The plugin enables language models to interact with file systems, execute code, browse the web, manage Git repositories, process documents, and more — all within a secure, configurable framework.
+**AI Toolbox Plugin** is a comprehensive LM Studio plugin providing **109 tools across 18 categories** for AI-assisted development workflows. The plugin enables language models to interact with file systems, execute code, browse the web, manage Git repositories, process documents, and more — all within a secure, configurable framework.
 
 ### Core Capabilities
 
@@ -41,7 +41,7 @@ Comprehensive overview of the AI Toolbox plugin, its architecture, features, and
 | Auto-Context Management | 7 tools | Automatic session tracking, decision logging, persistent memory |
 | Backup & Restore | 4 tools | Create compressed ZIP backups with atomic write pattern |
 
-**Total:** 108 tools across 17 categories ✅
+**Total:** 109 tools across 18 categories ✅
 
 ---
 
@@ -129,6 +129,24 @@ Each category is implemented as a separate module in `src/tools/`:
 ---
 
 ## 📈 Recent Changes (v1.5.x)
+
+### [1.5.35] — 🔧 Recode Engine: Async Modernizer (Tier 2)  
+**Implemented first Tier 2 rule for the modular "Recode" engine.**  
+- ✅ `asyncModernizer.ts`: Detects callback-style functions matching Node.js patterns (`(err, data) => { ... }`) and Promise `.then()` chains that can be modernized to async/await. Uses proper Babel AST traversal with type guards — zero ESLint warnings.
+
+---
+
+### [1.5.34] — 🗂️ Hidden Session Context & Import Path Fixes
+
+**Renamed session context directory to hidden `.session_context/` and fixed import path resolutions across the codebase.**
+
+- ✅ Renamed `session_context/` → `.session_context/` (hidden, excluded from git)
+- ✅ Updated `.gitignore` to exclude `.session_context/` — session/context memory files now stored in hidden directory
+- ✅ Fixed import paths in `refactorCodeTools.ts` — removed `.js` extensions for proper Jest resolution
+- ✅ Fixed Babel traversal in `unusedImportsRule` — properly excludes import identifiers from usage detection using `getAncestry()` check
+- ✅ StateManager & ContextStorageManager updated to use `.session_context/` path consistently
+
+---
 
 ### [1.5.30] — 🔧 `refactor_code` AST Modernization & ESLint Hardening  
 
@@ -519,6 +537,6 @@ All documentation has been reconstructed based on actual source code analysis:
 
 ## 📝 Notes
 
-This summary is based on actual source code analysis performed on 2026-07-05 (v1.5.31). All tool counts, feature descriptions, and security controls reflect the current implementation in version 1.5.x.
+This summary is based on actual source code analysis performed on 2026-07-07 (v1.5.34). All tool counts, feature descriptions, and security controls reflect the current implementation in version 1.5.x.
 
 For questions or issues, please refer to the individual documentation files linked above or contact the maintainers through appropriate channels.

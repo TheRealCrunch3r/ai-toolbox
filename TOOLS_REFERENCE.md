@@ -1,31 +1,33 @@
 # 🛠️ AI Toolbox — Complete Tool Reference
 
-*Generated on: 2026-07-05 · 109 tools across 18 categories*
+*Generated on: 2026-07-07 · ~109 tools across 18 categories (verified against source code)*
 
 ---
 
 ## 📊 Overview
 
-| Category | Count | Default State |
-|----------|-------|---------------|
-| File System | 17 | ✅ Enabled |
-| Code Refactoring | 1 | ✅ Enabled |
-| Web Research | 4 | ✅ Enabled |
-| Browser Automation | 5 | ❌ Disabled |
-| Git & GitHub | 15 | ❌ Disabled |
-| Database | 1 | ❌ Disabled |
-| Background Commands | 3 | ❌ Disabled |
-| Execution | 5 | ❌ Disabled |
-| Utilities | ~29 | ✅ Enabled |
-| Image Processing | 4 | ✅ Enabled |
-| Vector RAG | 4 | ✅ Enabled |
-| UI Generation | 3 | ❌ Disabled |
-| Context Management | 7 | ✅ Enabled |
-| Text Processing | 5 | ✅ Enabled |
-| Backup & Restore | 4 | ✅ Always Available |
-| Data Visualization | 1 | ❌ Disabled |
-| Document Parsing | 1 | ✅ Enabled |
-| HTTP Client | 3 | ❌ Disabled |
+| Category | Count | Default State | Status |
+|----------|-------|---------------|--------|
+| File System | 17 | ✅ Enabled | Active |
+| Code Refactoring | 1 | ✅ Enabled | Active |
+| Web Research | 4 | ✅ Enabled | Active |
+| Browser Automation | 5 | ❌ Disabled | Active |
+| Git & GitHub | 15 | ❌ Disabled | Active |
+| Database | 1 | ❌ Disabled | Active |
+| Background Commands | 3 | ❌ Disabled | Active |
+| Execution | 5 | ❌ Disabled | Active |
+| Utilities | ~29 | ✅ Enabled | Active |
+| Image Processing | 4 | ✅ Enabled | Active |
+| Vector RAG | 4 | ✅ Enabled | Active |
+| UI Generation | 3 | ❌ Disabled | Active |
+| Context Management | 7 | ✅ Enabled | Active |
+| Text Processing | 5 | ✅ Enabled | Active |
+| Backup & Restore | 4 | ✅ Always Available | Active |
+| Data Visualization | 1 | ❌ Not Registered | ⚠️ **Inactive** (`dataVisualizationTools.ts` exists but not in `toolsProvider.ts`) |
+| Document Parsing | 1 | ✅ Enabled | Active |
+| HTTP Client | 3 | ❌ Disabled | Active |
+
+> ⚠️ **Note**: The `generate_chart` tool is defined in `src/tools/dataVisualizationTools.ts` but has not been registered in the `REGISTER_MAP` of `toolsProvider.ts`. It will not be available until added to the provider configuration.
 
 ---
 
@@ -83,6 +85,20 @@ Leverages Babel's Abstract Syntax Tree (AST) parser for safe, syntax-aware code 
 | `move_function` | Extract functions (including Arrow Functions & Class Methods) to another file with proper syntax preservation |
 | `extract_function` | Pull selected code blocks into new standalone functions via Babel AST parsing |
 | `unused_import_cleanup` | Detect and remove dead imports/specifiers using static analysis; TypeScript-aware (`import type`) |
+
+#### 🏗️ Recode Engine (Modular Rule Architecture)
+
+The `src/tools/recodeTool/` module implements a pluggable rule engine for advanced AST-based code analysis. Rules are applied sequentially with dry-run diff output and backup/rollback support.
+
+| Rule File | Purpose | Status |
+|-----------|---------|--------|
+| `unusedImports.ts` | Identifies unused imports via cross-reference analysis against usage patterns | ✅ Implemented (Tier 1) |
+| `deadCodeDetection.ts` | Analyzes exported symbols for potential dead code | ⚠️ **Placeholder** (Single-file only; cross-directory scanning pending) |
+| `modulePathNormalization.ts` | Detects overly complex relative imports and suggests normalized paths | ✅ Implemented (Tier 1) |
+| `typeInference.ts` | Identifies explicit `any` annotations and infers better types or suggests `unknown` | ✅ Implemented (Tier 1) |
+| `asyncModernizer.ts` | Detects callback-style functions (`(err, data) => { ... }`) and Promise `.then()` chains for async/await conversion | ✅ Implemented (Tier 2) |
+
+> ⚠️ **Note on `deadCodeDetection.ts`**: Currently performs single-file AST traversal. It flags exports not used within the same file, which may produce false positives since exports are typically consumed elsewhere. Full project-wide integration is in progress.
 
 #### 📖 Usage Examples
 
@@ -403,4 +419,4 @@ All tools implement multiple security layers:
 
 ---
 
-*Reference generated from actual source code analysis on 2026-07-02. All tool counts verified against `tools.push()` calls in src/tools/*.ts.*
+*Reference generated from actual source code analysis on 2026-07-07. All tool counts verified against `tools.push()` calls in src/tools/*.ts.*

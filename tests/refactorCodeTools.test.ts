@@ -1,6 +1,6 @@
 /**
  * Dedicated Unit Tests for refactorCodeTools.ts
- * Covers: rename_identifier, move_function, extract_function, unused_import_cleanup
+ * Covers: rename_identifier, move_function, extract_function, unused_import_cleanup, dead_code_detection, dry_run mode
  */
 
 import * as fs from 'node:fs';
@@ -42,7 +42,7 @@ describe('refactor_code Tool — rename_identifier', () => {
     const updated = fs.readFileSync(filePath, 'utf-8');
     expect(updated).toContain('function newName()');
     expect(updated).toContain('console.log(newName());');
-    expect(updated).not.toContain('oldName');
+    expect(updated).not.toMatch(/\boldName\b/); // Use word boundary to avoid substring false positives like "oldNames"
   });
 
   test('should rename variables and identifiers across scope', async () => {
@@ -60,7 +60,8 @@ describe('refactor_code Tool — rename_identifier', () => {
     const updated = fs.readFileSync(filePath, 'utf-8');
     expect(updated).toContain('let counter: number');
     expect(updated).toContain('counter = 0');
-    expect(updated).not.toContain('count');
+    // Use word boundary \b to ensure we aren't just checking for the substring "count" inside "counter"
+    expect(updated).not.toMatch(/\bcount\b/); 
   });
 });
 
@@ -133,8 +134,9 @@ describe('refactor_code Tool — move_function', () => {
       target_path: targetPath
     });
 
-    expect(fs.readFileSync(sourcePath, 'utf-8')).not.toContain('add(a');
-    expect(fs.readFileSync(targetPath, 'utf-8')).toContain('add');
+    const src = fs.readFileSync(sourcePath, 'utf-8');
+    expect(src).not.toContain('add(a'); // Method removed from class
+    expect(fs.readFileSync(targetPath, 'utf-8')).toContain('add'); // Added to target
   });
 });
 
@@ -229,6 +231,129 @@ describe('refactor_code Tool — unused_import_cleanup', () => {
   });
 });
 
+describe('refactor_code Tool — dry_run mode', () => {
+  const config: PluginConfig = {} as any;
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = fs.mkdtempSync(path.join(TEST_ROOT, 'dryrun-'));
+    registerRefactorCodeTools(config);
+  });
+
+  afterEach(() => {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  test('should return diff instead of modifying file on rename_identifier', async () => {
+    const filePath = path.join(tempDir, 'test.ts');
+    const originalContent = `function oldName() { return 42; }\nconsole.log(oldName());`;
+    fs.writeFileSync(filePath, originalContent);
+
+    const tools = registerRefactorCodeTools(config);
+    const tool = tools.find(t => t.name === 'refactor_code')!;
+    const result = await (tool as any).implementation({
+      file_path: filePath,
+      operation: 'rename_identifier',
+      old_name: 'oldName',
+      new_name: 'newName',
+      dry_run: true
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.data.dryRun).toBe(true);
+    expect(result.data.diff).toBeDefined();
+    expect(result.data.diff).toContain('+ function newName()');
+    expect(result.data.diff).toContain('- function oldName()');
+    
+    // Verify file was NOT modified
+    const unchanged = fs.readFileSync(filePath, 'utf-8');
+    expect(unchanged).toBe(originalContent);
+  });
+
+  test('should return diff instead of modifying file on extract_function', async () => {
+    const filePath = path.join(tempDir, 'extract.ts');
+    const codeBlock = `const result = value * 2;\nconsole.log(result);`;
+    fs.writeFileSync(filePath, `export default {};\n${codeBlock}\n`);
+    const originalContent = fs.readFileSync(filePath, 'utf-8');
+
+    const tools = registerRefactorCodeTools(config);
+    await (tools.find((t: any) => t.name === 'refactor_code') as any).implementation({
+      file_path: filePath,
+      operation: 'extract_function',
+      old_name: codeBlock,
+      new_name: 'processValue',
+      dry_run: true
+    });
+
+    const unchanged = fs.readFileSync(filePath, 'utf-8');
+    expect(unchanged).toBe(originalContent); // file untouched in dry run
+  });
+});
+
+describe('refactor_code Tool — dead_code_detection', () => {
+  const config: PluginConfig = {} as any;
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = fs.mkdtempSync(path.join(TEST_ROOT, 'deadcode-'));
+    registerRefactorCodeTools(config);
+  });
+
+  afterEach(() => {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  test('should detect unused exported functions', async () => {
+    const file1 = path.join(tempDir, 'a.ts');
+    const file2 = path.join(tempDir, 'b.ts');
+    
+    fs.writeFileSync(file1, `export function used() {} export function deadFn() { return true; }`);
+    fs.writeFileSync(file2, `import { used } from './a'; console.log(used());`);
+
+    const tools = registerRefactorCodeTools(config);
+    const result = await (tools.find((t: any) => t.name === 'refactor_code') as any).implementation({
+      file_path: tempDir,
+      operation: 'dead_code_detection'
+    });
+
+    expect(result.success).toBe(true);
+    // deadFn is exported but never imported or used elsewhere
+    const foundDead = result.data.deadExports.some((e: string) => e.includes('deadFn'));
+    expect(foundDead).toBe(true);
+  });
+
+  test('should ignore exported functions that are imported elsewhere', async () => {
+    const file1 = path.join(tempDir, 'util.ts');
+    const file2 = path.join(tempDir, 'main.ts');
+    
+    fs.writeFileSync(file1, `export function helper() {}`);
+    fs.writeFileSync(file2, `import { helper } from './util'; helper();`);
+
+    const tools = registerRefactorCodeTools(config);
+    const result = await (tools.find((t: any) => t.name === 'refactor_code') as any).implementation({
+      file_path: tempDir,
+      operation: 'dead_code_detection'
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.data.deadExports.length).toBe(0); // helper is used
+  });
+
+  test('should return empty list when no dead code exists', async () => {
+    const file1 = path.join(tempDir, 'index.ts');
+    fs.writeFileSync(file1, `export function alwaysUsed() {} import { alwaysUsed } from './index';`);
+
+    const tools = registerRefactorCodeTools(config);
+    const result = await (tools.find((t: any) => t.name === 'refactor_code') as any).implementation({
+      file_path: tempDir,
+      operation: 'dead_code_detection'
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.data.deadExports.length).toBe(0);
+  });
+});
+
 describe('refactor_code Tool — Error Handling', () => {
   const config: PluginConfig = {} as any;
   let tempDir: string;
@@ -259,7 +384,6 @@ describe('refactor_code Tool — Error Handling', () => {
     fs.writeFileSync(sourcePath, `export function foo() {}`);
     
     const tools = registerRefactorCodeTools(config);
-    // Target doesn't exist yet - should handle gracefully or create
     await (tools.find((t: any) => t.name === 'refactor_code') as any).implementation({
       file_path: sourcePath,
       operation: 'move_function',
@@ -268,7 +392,6 @@ describe('refactor_code Tool — Error Handling', () => {
       target_path: path.join(tempDir, 'new_target.ts')
     });
 
-    // Tool should succeed even if target is empty/missing initially
     expect(fs.existsSync(path.join(tempDir, 'new_target.ts'))).toBe(true);
   });
 });
