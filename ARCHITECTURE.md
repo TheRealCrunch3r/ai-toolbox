@@ -621,6 +621,58 @@ Final Prompt sent to LLM (with or without compression indicator)
 
 ---
 
+#### 🔹 SDK-Native Tokenization Flow (v1.5.35+)
+
+In v1.5.35, ContextGuard's `countTokens()` method was upgraded to use LM Studio's native tokenizer when a model ID is available, replacing the previous hardcoded `'cl100k_base'` Tiktoken approach that caused threshold misalignment.
+
+```
+User Message Arrives (ContextGuard Enabled)
+    │
+    ▼
+promptPreprocessor() → contextGuard.countTokens(messages, imageCount, summaryModelId)
+    │
+    ├── SDK Path Active? (lmClient && modelId provided) ──► Yes
+    │   │
+    │   ├── Format messages into prompt string for SDK compatibility
+    │   │         │
+    │   │         ├── Role prefix + content concatenation
+    │   │         └── Structured text: `<|start|>role<|end|>\n{content}`
+    │   │
+    │   ├── Call model.countTokens(promptString) via LM Studio SDK
+    │   │         │
+    │   │         └── Uses exact tokenizer matching the target LLM (e.g., llama-3, mistral)
+    │   │
+    │   ├── Parse result: number or number[] → sum if array
+    │   │         │
+    │   │         └── Add image token estimation (+500 per image)
+    │   │
+    │   └── Return accurate totalTokens ← ✅ SDK-native precision
+    │
+    ├── SDK Path Fallback? (error or no modelId) ──► Yes
+    │   │
+    │   ├── Log warning: `[ContextGuard] SDK token counting failed...`
+    │   │         │
+    │   │         └── Gracefully degrades to manual Tiktoken encoding ('cl100k_base')
+    │   │
+    │   └── Return fallback count ← ⚠️ Less accurate, preserves backward compatibility
+    │
+    ▼
+Threshold Check: totalTokens >= tokenLimit * 0.9?
+    │
+    ├── Yes: compressHistory(messages) → SDK-based counting for compressedPreview too
+    └── No: Skip compression
+```
+
+**Engineering Notes:**
+- The `modelId` parameter is automatically supplied by `compressHistory()` using `this.config.summaryModel`, ensuring consistent tokenizer usage across both threshold checks and post-compression verification.
+- Message formatting into a single prompt string bridges the SDK's `countTokens(text: string)` signature with ContextGuard's array-based message model, preserving role/content structure without requiring API changes to the LM Studio SDK.
+- TypeScript strict mode compliance achieved through explicit `number | number[]` casting and standard `if/else` type narrowing (eliminated `no-unnecessary-type-assertion` and `no-unsafe-*` violations).
+
+**Impact on AutoTracker:**
+AutoTracker's token threshold checks (`checkTokenThreshold(currentTokens, maxTokens)`) receive the accurate SDK-derived count directly from ContextGuard via `promptPreprocessor.ts`. No additional changes were required in `autoTracker.ts` — the end-to-end threshold pipeline now fires precisely at configured percentages (e.g., 75% auto-track trigger, 90% compression trigger).
+
+---
+
 ## 🧩 Module Dependencies
 
 ```

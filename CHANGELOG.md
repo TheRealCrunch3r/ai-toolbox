@@ -441,10 +441,7 @@ src/tools/recodeTool/
 
 ---
 
-# 📝 CHANGELOG
-
-All notable changes to AI Toolbox plugin.
-
+# 📝 CHANGELOG
 ## [1.5.32] - 2026-07-05 — 🔧 `refactor_code` Babel Parser & Strict Type Hardening
 
 **Resolved Jest test failures and TypeScript strict mode violations in the AST refactoring engine.**

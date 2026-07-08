@@ -130,9 +130,7 @@ Each category is implemented as a separate module in `src/tools/`:
 
 ## 📈 Recent Changes (v1.5.x)
 
-### [1.5.35] — 🔧 Recode Engine: Async Modernizer (Tier 2)  
-**Implemented first Tier 2 rule for the modular "Recode" engine.**  
-- ✅ `asyncModernizer.ts`: Detects callback-style functions matching Node.js patterns (`(err, data) => { ... }`) and Promise `.then()` chains that can be modernized to async/await. Uses proper Babel AST traversal with type guards — zero ESLint warnings.
+### [1.5.35] — 🔧 ContextGuard SDK-Native Tokenization & TypeScript Hardening  \n**Replaced manual Tiktoken encoding with LM Studio SDK-native token counting for accurate compression threshold triggering.**  \\n- ✅ `countTokens()` now accepts optional `modelId?: string` parameter → uses `await model.countTokens(promptString)` when SDK available  \\n- ✅ Messages formatted into compatible prompt strings bridging array-based messages to SDK's `string` signature  \\n- ✅ Graceful fallback to manual Tiktoken encoding with clear warning logs if SDK fails  \\n- ✅ Resolved `TS2345`, `no-unnecessary-type-assertion`, and `no-unsafe-*` ESLint violations via explicit casting + standard `if/else` narrowing  \\n- ✅ AutoTracker synergy confirmed: receives accurate counts directly from ContextGuard → threshold checks fire precisely at configured percentages
 
 ---
 
@@ -537,6 +535,6 @@ All documentation has been reconstructed based on actual source code analysis:
 
 ## 📝 Notes
 
-This summary is based on actual source code analysis performed on 2026-07-07 (v1.5.34). All tool counts, feature descriptions, and security controls reflect the current implementation in version 1.5.x.
+This summary is based on actual source code analysis performed on 2026-07-08 (v1.5.35). All tool counts, feature descriptions, and security controls reflect the current implementation in version 1.5.x.
 
 For questions or issues, please refer to the individual documentation files linked above or contact the maintainers through appropriate channels.

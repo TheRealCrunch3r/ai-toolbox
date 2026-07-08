@@ -107,9 +107,7 @@ The plugin is installed as an LM Studio plugin. Ensure you have:
 3. **Authenticate with GitHub**: Run `gh auth login` in your terminal once to enable remote operations (`gh_create_issue`, `gh_list_prs`, etc.). The plugin will detect authentication status automatically.
 4. **Start a chat** and the LLM can now use any of the ~108 available tools.
 
-### [1.5.35] — 🔧 Recode Engine: Async Modernizer (Tier 2)  
-**Implemented first Tier 2 rule for the modular "Recode" engine.**  
-- ✅ `asyncModernizer.ts`: Detects callback-style functions matching Node.js patterns (`(err, data) => { ... }`) and Promise `.then()` chains that can be modernized to async/await. Includes helper type guards and proper Babel AST traversal with zero ESLint warnings.
+### [1.5.35] — 🔧 ContextGuard SDK-Native Tokenization & TypeScript Hardening  \n**Replaced manual Tiktoken encoding with LM Studio SDK-native token counting for accurate compression threshold triggering.**  \\n- ✅ `countTokens()` now accepts optional `modelId?: string` parameter → uses `await model.countTokens(promptString)` when SDK available  \\n- ✅ Messages formatted into compatible prompt strings bridging array-based messages to SDK's `string` signature  \\n- ✅ Graceful fallback to manual Tiktoken encoding with clear warning logs if SDK fails  \\n- ✅ Resolved `TS2345`, `no-unnecessary-type-assertion`, and `no-unsafe-*` ESLint violations via explicit casting + standard `if/else` narrowing  \\n- ✅ AutoTracker synergy confirmed: receives accurate counts directly from ContextGuard → threshold checks fire precisely at configured percentages
 
 ---
 

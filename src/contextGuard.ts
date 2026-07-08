@@ -73,9 +73,10 @@ export class ContextGuard {
 
   /**
    * Counts tokens efficiently with caching.
+   * Uses SDK-native tokenization when a model is available, falling back to tiktoken otherwise.
    * Accounts for message structure (role prefixes, separators) to match actual LLM token consumption.
    */
-  async countTokens(messages: ContextMessage[], imageCount: number = 0): Promise<number> {
+  async countTokens(messages: ContextMessage[], imageCount: number = 0, modelId?: string): Promise<number> {
     // 🔹 P1 #3: Conditional logging
     debugLog('[COUNT]', `Processing ${messages.length} messages.`);
     
@@ -89,6 +90,49 @@ export class ContextGuard {
       }
     }
 
+    // 🔹 FIX #2: Use SDK-native token counting when model is available
+    if (this.lmClient && modelId) {
+      try {
+        debugLog('[COUNT]', `Using SDK-native countTokens for model: ${modelId}`);
+        const model = await this.lmClient.llm.model(modelId);
+        
+        // LM Studio SDK's countTokens expects a single string prompt.
+        // We format the messages array into a compatible prompt string.
+        const promptString = messages.map(m => {
+          const role = m.role || 'user';
+          const contentStr: string = typeof m.content === 'string' 
+            ? m.content 
+            : (m.content != null && typeof m.content !== 'string' ? JSON.stringify(m.content) : '');
+          return `<|start|>${role}<|end|>\n${contentStr}`;
+        }).join('\n');
+
+        const rawResult = (await model.countTokens(promptString)) as number | number[];
+        let sdkCount: number;
+        if (Array.isArray(rawResult)) {
+          sdkCount = rawResult.reduce((sum, val) => sum + val, 0);
+        } else {
+          sdkCount = rawResult;
+        }
+        
+        // Add image token estimation (SDK doesn't always account for multi-modal images automatically)
+        let totalTokens = sdkCount;
+        if (imageCount > 0) {
+          const imageTokens = imageCount * 500; // Conservative estimate per LM Studio convention
+          totalTokens += imageTokens;
+          debugLog('[COUNT]', `Adding ${imageTokens} tokens for ${imageCount} images.`);
+        }
+        
+        this.cachedTokenCount = totalTokens;
+        this._lastMessageHash = this.computeMessageHash(messages);
+        debugLog('[COUNT]', `SDK count: ${totalTokens} tokens`);
+        return totalTokens;
+      } catch (error) {
+        console.warn(`[ContextGuard] SDK token counting failed for "${modelId}", falling back to manual encoding. Reason: ${(error as Error).message}`);
+        // Fall through to manual tiktoken below
+      }
+    }
+
+    // Fallback: Manual Tiktoken encoding (preserves backward compatibility)
     if (!this.encoder) {
       this.encoder = get_encoding('cl100k_base');
     }
@@ -160,7 +204,8 @@ export class ContextGuard {
    * Compresses history by sending oldest messages to a local model.
    */
   async compressHistory(messages: ContextMessage[]): Promise<ContextMessage[]> {
-    const currentTokens = await this.countTokens(messages);
+    // 🔹 FIX #2: Pass summaryModel to countTokens so SDK-native counting is used during threshold check
+    const currentTokens = await this.countTokens(messages, 0, this.config.summaryModel);
     const threshold = this.config.tokenLimit * 0.9;
 
     if (currentTokens < threshold) {
@@ -227,12 +272,12 @@ SUMMARY:`;
         
         debugLog('[COMPRESS]', `Summarization complete. Generated ${summary.length} chars.`);
         
-        // Count tokens after compression
+        // Count tokens after compression using SDK-native method
         const compressedPreview = [
           { role: 'system', content: `### CONTEXT SUMMARY (compressed from ${toCompress.length} messages)\n${summary}` },
           ...messages.slice(-keepLast)
         ];
-        const compressedTokenCount = await this.countTokens(compressedPreview);
+        const compressedTokenCount = await this.countTokens(compressedPreview, 0, this.config.summaryModel);
         
         // Track compression info
         this._lastCompressionInfo = {
