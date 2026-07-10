@@ -148,7 +148,7 @@ export const ConfigSchema = z.object({
   autoSummaryInterval: z.number().min(10).max(200).default(50).describe('Messages between automatic session summaries'),
 
   // ── 🛠️ GRAMMAR PARSER LIMITS (P0 Fix) ──────────────────────────────
-  maxToolsInSchema: z.number().int().min(10).max(109).default(50).describe('Maximum number of tools included in llama.cpp grammar schema. Reduces EBNF complexity when set below total tool count.'),
+  maxToolsInSchema: z.number().int().min(10).max(109).default(25).describe('Maximum number of tools included in llama.cpp grammar schema. Reduces EBNF complexity when set below total tool count.'),
 
 });
 
@@ -277,7 +277,7 @@ export const DEFAULT_CONFIG: PluginConfig = {
   autoSummaryInterval: 50,                 // Summary every 50 messages
 
   // ── 🛠️ GRAMMAR PARSER LIMITS (P0 Fix) ──────────────────────────────
-  maxToolsInSchema: 50,                  // Cap tools in EBNF schema to prevent grammar parser overflow
+  maxToolsInSchema: 25,                  // Cap tools in EBNF schema to prevent grammar parser overflow
 
 };
 

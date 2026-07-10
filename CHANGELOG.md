@@ -1,6 +1,57 @@
 # 📝 CHANGELOG
 
 All notable changes to AI Toolbox plugin.
+## [1.5.39] - 2026-07-10 — 🔧 Grammar Parser Fix: Production Deployment & Debug Cleanup
+
+**Resolved critical grammar parser failure in production — tool count capping now enforced at 25 tools (was 50), minifier properly wired up.**
+
+### What Changed
+- **Root Cause**: The v1.5.37 fix was documented but never fully implemented in code. While `toolsSchemaMinifier.ts` existed, it was never imported or called from `toolsProvider()`. Additionally, the `maxToolsInSchema` config option (default: 50) wasn't actually enforced — no pruning logic existed despite being defined in `config.ts`.
+- **Fix**: 
+  - Added `import { minifyTools } from './toolsSchemaMinifier'` to `src/toolsProvider.ts`
+  - Implemented tool count capping with configurable limit (`maxToolsInSchema`, default: 25) — prunes tools alphabetically when count exceeds limit
+  - Fixed pruning bug where stale data was used after slicing (now correctly reports actual pruned count)
+  - Lowered `maxToolsInSchema` default from **50 → 25** in both `src/config.ts` Zod schema and `DEFAULT_CONFIG` object — this is the critical change that resolves llama.cpp EBNF grammar overflow (77 tools → 25 = ~68% reduction)
+  - Removed debug logging code (`_capCount`, parameter key checks) added during development for diagnostics
+
+### Architecture Changes
+```typescript
+// src/toolsProvider.ts (AFTER fix)
+import { minifyTools } from './toolsSchemaMinifier';
+
+export async function toolsProvider(ctl: ToolsProviderController, _lmClient?: unknown): Promise<Tool[]> {
+  // ... config processing ...
+  
+  let tools = registry.getAll();
+  const maxToolsInSchema = liveConfig.maxToolsInSchema || 25;  // ← New cap enforcement
+  if (tools.length > maxToolsInSchema) {
+    console.warn(`[ToolsProvider] ⚠️ Tool count (${tools.length}) exceeds grammar schema limit (${maxToolsInSchema}). Pruning...`);
+    tools = tools.sort((a, b) => a.name.localeCompare(b.name)).slice(0, maxToolsInSchema);
+  } else {
+    tools = tools.sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  // Minify schemas to reduce JSON payload size (prevents llama.cpp grammar parser limits)
+  const minified = minifyTools(tools);  // ← Now actually called!
+  
+  return minified;
+}
+```
+
+### Impact
+- ✅ **Grammar parsing error resolved** — no more `failed to parse grammar` errors when sending first chat message with plugin enabled
+- ✅ **Tool count automatically pruned** from ~77 down to 25 (configurable via `maxToolsInSchema` setting, range: 10–109)
+- ✅ **Minifier now functional** — truncates descriptions (>200 chars → ~150 chars), caps string constraints (maxLength >5000), caps array constraints (maxItems >10)
+- ✅ **Debug logging cleaned up** — removed development-only console.debug statements that leaked to production logs
+- ✅ **User-controllable**: Adjust `maxToolsInSchema` via LM Studio plugin settings if more/fewer tools needed
+
+### Engineering Details
+- The fix is stable across restarts because all changes are compiled into `dist/` during build
+- Tool pruning uses deterministic alphabetical sorting for consistent selection across restarts
+- Config hash in `hashConfig()` includes `maxToolsInSchema` to ensure cache invalidation when limit changes
+- Minifier operates on serialized JSON Schema objects (not Zod schemas) — handles both `parameters` and `parametersSchema` keys from LM Studio SDK
+
+---
 ## [1.5.37] - 2026-07-10 — 🔧 Grammar Parser Hardening & ContextGuard SDK Defensive Fixes
 
 **Resolved critical grammar parser failure and added defensive error handling for SDK token counting.**

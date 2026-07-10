@@ -9,6 +9,7 @@ import type { PluginConfig } from './config';
 import { DEFAULT_CONFIG, isToolEnabled, isExecutionToolEnabled, configSchematics } from './config';
 import { StateManager } from './stateManager';
 import { BackgroundCommandManager } from './backgroundCommands';
+import { minifyTools } from './toolsSchemaMinifier';
 
 // ==================== P0: LAZY MODULE RESOLVER MAP ====================
 const REGISTER_MAP: Record<string, () => Promise<{ registerFileSystemTools: (c: PluginConfig) => Tool[] } | { registerWebResearchTools: (c: PluginConfig) => Tool[] } | { registerBrowserTools: (c: PluginConfig) => Tool[] } | { registerGitTools: (c: PluginConfig) => Tool[] } | { registerDatabaseTools: (c: PluginConfig) => Tool[] } | { registerDocumentTools: (c: PluginConfig) => Tool[] } | { registerBackgroundCommandTools: (c: PluginConfig, b: BackgroundCommandManager) => Tool[] } | { registerImageProcessingTools: (c: PluginConfig) => Tool[] } | { registerHttpClientTools: (c: PluginConfig) => Tool[] } | { registerRagTools: (c: PluginConfig) => Tool[] } | { registerTextProcessingTools: (c: PluginConfig) => Tool[] } | { registerUiGenerationTools: (c: PluginConfig) => Tool[] } | { registerContextManagementTools: (c: PluginConfig) => Tool[] } | { registerRefactorCodeTools: (c: PluginConfig) => Tool[] }>> = {
@@ -340,9 +341,24 @@ export async function toolsProvider(ctl: ToolsProviderController, _lmClient?: un
     await registry.ensureLoad(liveConfig, provider.stateManagerForCache, provider.bgCommandManagerForCache);
   }
 
-  // Return all available tools - SDK automatically registers them
-  // Sort alphabetically for consistent UI ordering
-  return registry.getAll().sort((a, b) => a.name.localeCompare(b.name));
+
+  // P0: Cap tool count to prevent llama.cpp grammar parser overflow
+  let tools = registry.getAll();
+  const maxToolsInSchema = liveConfig.maxToolsInSchema || 25;
+  if (tools.length > maxToolsInSchema) {
+    console.log(`[ToolsProvider] ⚠️ Tool count (${tools.length}) exceeds grammar schema limit (${maxToolsInSchema}). Pruning...`);
+    tools = tools.sort((a, b) => a.name.localeCompare(b.name)).slice(0, maxToolsInSchema);
+    const totalBefore = registry.getAll().length;
+    console.log(`[ToolsProvider] Pruned ${totalBefore - maxToolsInSchema} tools. Remaining: ${maxToolsInSchema}/${totalBefore}`);
+  } else {
+    tools = tools.sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  // P0: Minify schemas to reduce JSON payload size (prevents llama.cpp grammar parser limits)
+  const minified = minifyTools(tools);
+
+  return minified;
+
 }
 
 /**

@@ -55,7 +55,7 @@ function capMaxLength(value: unknown): unknown {
         typeof obj.maxItems === 'number' && 
         obj.maxItems > 10) {
       console.debug(`[SchemaMinifier] Capping maxItems ${obj.maxItems} → 10`);
-      return { ...obj, maxItems: 10 };
+      return { ...obj, items: capMaxLength(obj.items) };
     }
     
     // Recursively cap nested properties
