@@ -313,6 +313,7 @@ export async function toolsProvider(ctl: ToolsProviderController, _lmClient?: un
     autoTrackCompletions: pluginConfig.get('autoTrackCompletions'),
     autoTrackErrors: pluginConfig.get('autoTrackErrors'),
     autoSummaryInterval: pluginConfig.get('autoSummaryInterval'),
+    maxToolsInSchema: pluginConfig.get('maxToolsInSchema'),
   };
 
   // P1 CACHE INVALIDATION: Check if config hash changed from last run

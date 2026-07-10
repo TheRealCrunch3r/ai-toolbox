@@ -216,7 +216,15 @@ export function registerBrowserTools(_config: PluginConfig): Tool[] {
     name: 'browser_session_control',
     description: 'Control the active persistent browser session. Supports actions, page reading, screenshot capture.',
     parameters: {
-      actions: z.array(z.any()).optional().describe('Optional scripted browser actions to execute.'),
+      actions: z.array(
+        z.object({
+          type: z.enum(['click', 'type', 'goto', 'evaluate']).describe('Action type'),
+          selector: z.string().optional().describe('CSS selector for click/type actions'),
+          text: z.string().optional().describe('Text to type (for type action)'),
+          url: z.string().url().optional().describe('URL to navigate to (for goto action)'),
+          script: z.string().optional().describe('JavaScript code to evaluate (for evaluate action)'),
+        })
+      ).optional().describe('Optional scripted browser actions to execute.'),
       read_page: z.boolean().optional().default(false).describe('If true, returns page metadata.'),
       full_read: z.boolean().optional().default(false).describe('If true, forces full page text output.'),
       screenshot_path: z.string().optional().describe('Optional screenshot output path.'),

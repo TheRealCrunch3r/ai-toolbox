@@ -136,7 +136,7 @@ export async function grepSearch(target: string, pattern: string, includePattern
             results.push(...matches);
           } catch (innerErr) {
             // Skip files that can't be read (binary, permission issues, etc.)
-            console.warn('[grepSearch] Skipping file:', entry.name, '-', innerErr instanceof Error ? innerErr.message : String(innerErr));
+            console.log('[grepSearch] Skipping file:', entry.name, '-', innerErr instanceof Error ? innerErr.message : String(innerErr));
           }
         }
         

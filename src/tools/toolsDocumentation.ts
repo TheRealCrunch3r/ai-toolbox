@@ -30,7 +30,7 @@ export class ToolsDocumentation {
     const toolsDir = path.join(process.cwd(), 'src', 'tools');
     
     if (!fs.existsSync(toolsDir)) {
-      console.warn(`[Docs] Tools directory not found: ${toolsDir}`);
+      console.log(`[Docs] Tools directory not found: ${toolsDir}`);
       return tools;
     }
 

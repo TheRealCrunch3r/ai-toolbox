@@ -40,7 +40,7 @@ const STOP_WORDS = new Set([
 const DEBUG_MODE = !!process.env.AI_TOOLBOX_DEBUG;
 
 function debugLog(...args: unknown[]): void {
-  if (DEBUG_MODE) console.warn('[ContextGuard]', ...args);
+  if (DEBUG_MODE) console.log('[ContextGuard]', ...args);
 }
 
 export interface ContextGuardConfig {
@@ -96,6 +96,12 @@ export class ContextGuard {
         debugLog('[COUNT]', `Using SDK-native countTokens for model: ${modelId}`);
         const model = await this.lmClient.llm.model(modelId);
         
+        // Defensive check: ensure model object is valid before calling countTokens
+        if (!model || typeof model.countTokens !== 'function') {
+          debugLog('[COUNT]', 'Model or countTokens not available, falling back to manual encoding');
+          throw new Error('Model or countTokens method not available');
+        }
+
         // LM Studio SDK's countTokens expects a single string prompt.
         // We format the messages array into a compatible prompt string.
         const promptString = messages.map(m => {
@@ -106,12 +112,35 @@ export class ContextGuard {
           return `<|start|>${role}<|end|>\n${contentStr}`;
         }).join('\n');
 
-        const rawResult = (await model.countTokens(promptString)) as number | number[];
+        let rawResult: unknown = await model.countTokens(promptString);
+        
+        // Defensive handling for SDK response structure variations
+        // The SDK might return { data: number } or similar wrapper object
+        if (typeof rawResult === 'object' && rawResult !== null) {
+          const objResult = rawResult as Record<string, unknown>;
+          
+          // Check if result has a .data property (common in newer SDK versions)
+          if ('data' in objResult && typeof objResult.data !== 'undefined') {
+            rawResult = objResult.data;
+          } else if ('value' in objResult && typeof objResult.value !== 'undefined') {
+            // Some SDKs use .value instead
+            rawResult = objResult.value;
+          } else {
+            debugLog('[COUNT]', 'Unexpected SDK response structure, falling back to manual encoding');
+            throw new Error('Unexpected response structure: no data/value property found');
+          }
+        }
+
+        // Now process the result (which should be a number or array)
         let sdkCount: number;
         if (Array.isArray(rawResult)) {
-          sdkCount = rawResult.reduce((sum, val) => sum + val, 0);
-        } else {
+          const numArray = rawResult as unknown[];
+          sdkCount = numArray.reduce((sum: number, val: unknown) => sum + (typeof val === 'number' ? val : 0), 0);
+        } else if (typeof rawResult === 'number') {
           sdkCount = rawResult;
+        } else {
+          debugLog('[COUNT]', `Unexpected result type: ${typeof rawResult}, falling back to manual encoding`);
+          throw new Error(`Unexpected result type: ${typeof rawResult}`);
         }
         
         // Add image token estimation (SDK doesn't always account for multi-modal images automatically)
@@ -127,7 +156,8 @@ export class ContextGuard {
         debugLog('[COUNT]', `SDK count: ${totalTokens} tokens`);
         return totalTokens;
       } catch (error) {
-        console.warn(`[ContextGuard] SDK token counting failed for "${modelId}", falling back to manual encoding. Reason: ${(error as Error).message}`);
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        console.log(`[ContextGuard] SDK token counting failed for "${modelId}", falling back to manual encoding. Reason: ${errorMsg}`);
         // Fall through to manual tiktoken below
       }
     }
@@ -152,7 +182,12 @@ export class ContextGuard {
         const typedMsg = msg as Record<string, unknown>;
         const getTextFn = typedMsg.getText;
         if (typeof getTextFn === 'function') {
-          contentStr = ((getTextFn as unknown as () => string)()) || '';
+          try {
+            contentStr = ((getTextFn as unknown as () => string)()) || '';
+          } catch (e) {
+            debugLog('[COUNT]', `getText() failed: ${(e as Error).message}`);
+            contentStr = '';
+          }
         }
       }
       

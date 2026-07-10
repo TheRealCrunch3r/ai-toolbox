@@ -338,8 +338,8 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
     description: 'Save content to a specified file in the current working directory. Supports batch saving.',
     parameters: {
       file_name: z.string().optional().describe('The name of the file to save'),
-      content: z.string().max(10_000_000).optional().describe('Content to write (max 10MB)'),
-      files: z.array(z.object({ file_name: z.string(), content: z.string().max(10_000_000) })).max(50).optional().describe('For batch saving multiple files'),
+      content: z.string().optional().describe('Content to write'),
+      files: z.array(z.object({ file_name: z.string(), content: z.string() })).max(10).optional().describe('For batch saving multiple files (max 10)'),
     },
     implementation: async ({ file_name, content, files }: SaveFileParams) => { // C5 FIX: typed params
       try {
@@ -547,8 +547,8 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
     parameters: {
       file_name: z.string().describe('The file to modify'),
       line_number: z.number().int().min(1).describe('The line number to insert at (1-indexed)'),
-      content_to_insert: z.string().max(1_000_000).optional().describe('The text content to insert (use "content" as alias, max 1MB)'),
-      content: z.string().max(1_000_000).optional().describe('Alias for content_to_insert — accepts either parameter name'),
+      content_to_insert: z.string().optional().describe('The text content to insert'),
+      content: z.string().optional().describe('Alias for content_to_insert'),
       backup: z.boolean().optional().default(true).describe('Create .bak backup before modification. Default: true for safety'),
     },
     implementation: async ({ file_name, line_number, content_to_insert, content, backup = true }: InsertAtLineParams & { backup?: boolean }) => {
@@ -651,7 +651,7 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
     description: "Append content to the end of a file safely. Includes binary protection, size limits, atomic writes, and optional backups. If file doesn't exist, it will be created.",
     parameters: {
       file_name: z.string().describe('The file to append to'),
-      content: z.string().max(1_000_000).describe('The text content to append (max 1MB)'),
+      content: z.string().describe('The text content to append'),
       backup: z.boolean().optional().default(true).describe('Create .bak backup before modification. Default: true for safety'),
     },
     implementation: async ({ file_name, content, backup = true }: AppendFileParams & { backup?: boolean }) => {

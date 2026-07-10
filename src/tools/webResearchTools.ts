@@ -141,7 +141,7 @@ async function searchWithFallbackChain(
 
       // Validate result count - warn if low results
       if (results.length < 2) {
-        console.warn(`Low search results for "${query}": ${results.length} results from ${engine}`);
+        console.log(`Low search results for "${query}": ${results.length} results from ${engine}`);
       }
 
       return {

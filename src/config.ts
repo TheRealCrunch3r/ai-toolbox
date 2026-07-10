@@ -146,6 +146,10 @@ export const ConfigSchema = z.object({
   autoTrackCompletions: z.boolean().default(true).describe('Auto-track task completions ("successfully completed", "finished")'),
   autoTrackErrors: z.boolean().default(true).describe('Auto-track bug fixes and error resolutions ("fixed the bug")'),
   autoSummaryInterval: z.number().min(10).max(200).default(50).describe('Messages between automatic session summaries'),
+
+  // ── 🛠️ GRAMMAR PARSER LIMITS (P0 Fix) ──────────────────────────────
+  maxToolsInSchema: z.number().int().min(10).max(109).default(50).describe('Maximum number of tools included in llama.cpp grammar schema. Reduces EBNF complexity when set below total tool count.'),
+
 });
 
 
@@ -271,6 +275,10 @@ export const DEFAULT_CONFIG: PluginConfig = {
   autoTrackCompletions: true,
   autoTrackErrors: true,
   autoSummaryInterval: 50,                 // Summary every 50 messages
+
+  // ── 🛠️ GRAMMAR PARSER LIMITS (P0 Fix) ──────────────────────────────
+  maxToolsInSchema: 50,                  // Cap tools in EBNF schema to prevent grammar parser overflow
+
 };
 
 
@@ -819,6 +827,16 @@ export const configSchematics = createConfigSchematics()
     min: 10, max: 200, int: true,
     hint: 'Number of messages between automatic session summaries. Higher = less frequent.',
   }, DEFAULT_CONFIG.autoSummaryInterval)
+
+
+  // ── 🛠️ GRAMMAR PARSER LIMITS (P0 Fix) ──────────────────────────────
+  .field('maxToolsInSchema', 'numeric', {
+    displayName: '🛡️ Max Tools in Grammar Schema',
+    subtitle: '⚙️ Grammar Parser Limit',
+    min: 10, max: 109, int: true,
+    hint: 'Maximum number of tools included in llama.cpp grammar schema. Reduces EBNF complexity when set below total tool count. Default: 50 (out of ~109 available).',
+  }, DEFAULT_CONFIG.maxToolsInSchema)
+
 
 
   .build();

@@ -25,7 +25,7 @@ async function resolveBackupDirectory(): Promise<string> {
     }
   } catch {}
   
-  console.warn(`[Backup] Working directory "${workingDir}" is invalid. Falling back to plugin root.`);
+  console.log(`[Backup] Working directory "${workingDir}" is invalid. Falling back to plugin root.`);
   resetWorkingDir();
   return path.join(getWorkingDir(), '.ai_toolbox_backups');
 }

@@ -88,7 +88,7 @@ export function registerTextProcessingTools(_config: PluginConfig): Tool[] {
     parameters: {
       file_name: z.string().describe('File path'),
       pattern: z.string().min(1).max(10_000).describe('Regex or literal pattern to match (required, non-empty, max 10KB)'),
-      replacement: z.string().max(100_000).optional().describe('Replacement text (supports $1, $2 for capture groups, max 100KB)'),
+      replacement: z.string().max(5_000).optional().describe('Replacement text (supports $1, $2 for capture groups, max 5KB)'),
       flags: z.enum(['g', 'i', 'gi']).default('g').describe('Flags: g=global, i=case-insensitive, gi=both'),
       lines: z.object({
         start: z.number().int().min(1).optional(),
@@ -303,7 +303,7 @@ export function registerTextProcessingTools(_config: PluginConfig): Tool[] {
         start: z.number().int().min(1).optional(),
         end: z.number().int().optional(),
       }).optional().describe('Line range for delete operation (e.g., {start: 16, end: 17})'),
-      content: z.string().max(1_000_000).optional().describe('For insert operation - text to insert (max 1MB)'),
+      content: z.string().max(5_000).optional().describe('For insert operation - text to insert (max 5KB)'),
       backup: z.boolean().optional().default(false).describe('Create .bak backup before modification. Default: false'),
       move_from: z.number().int().optional().describe('Source line for move operation'),
       move_to: z.number().int().optional().describe('Destination line for move operation')

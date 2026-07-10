@@ -26,7 +26,7 @@ const MAX_BUFFER_SIZE = 50;
 const DEBUG_MODE = !!process.env.AI_TOOLBOX_DEBUG;
 
 function debugLog(...args: unknown[]): void {
-  if (DEBUG_MODE) console.warn('[AutoTracker]', ...args);
+  if (DEBUG_MODE) console.log('[AutoTracker]', ...args);
 }
 
 // ==================== FSM TYPES ====================
@@ -236,9 +236,9 @@ export class AutoTracker {
 
     // 🔹 P1 #3: Conditional logging in debug mode or near threshold (once per cycle)
     if (DEBUG_MODE) {
-      console.warn(`[AutoTracker] [THRESHOLD] Check: ${usagePercentage.toFixed(2)}% effective (${currentTokens}/${maxTokens}), limit=${threshold}%`);
+      console.log(`[AutoTracker] [THRESHOLD] Check: ${usagePercentage.toFixed(2)}% effective (${currentTokens}/${maxTokens}), limit=${threshold}%`);
     } else if (this.currentState === AutoTrackState.IDLE && usagePercentage >= threshold * 0.95 && !this._nearThresholdWarned) {
-      console.warn(`[AutoTracker] [THRESHOLD] Near threshold: ${usagePercentage.toFixed(1)}%`);
+      console.log(`[AutoTracker] [THRESHOLD] Near threshold: ${usagePercentage.toFixed(1)}%`);
       this._nearThresholdWarned = true; // Prevent repeated warnings in the same IDLE cycle
     }
 

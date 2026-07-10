@@ -57,7 +57,7 @@ export function setWorkingDir(newDir: string): boolean {
 
   // Must be an absolute path
   if (!path.isAbsolute(resolved)) {
-    console.warn(`setWorkingDir rejected: not absolute — '${newDir}'`);
+    console.log(`setWorkingDir rejected: not absolute — '${newDir}'`);
     return false;
   }
 
@@ -65,11 +65,11 @@ export function setWorkingDir(newDir: string): boolean {
   try {
     const stats = fs.statSync(resolved);
     if (!stats.isDirectory()) {
-      console.warn(`setWorkingDir rejected: not a directory — '${resolved}'`);
+      console.log(`setWorkingDir rejected: not a directory — '${resolved}'`);
       return false;
     }
   } catch {
-    console.warn(`setWorkingDir rejected: path does not exist — '${resolved}'`);
+    console.log(`setWorkingDir rejected: path does not exist — '${resolved}'`);
     return false;
   }
 
@@ -77,7 +77,7 @@ export function setWorkingDir(newDir: string): boolean {
   
   // PERSIST the change to disk (FIX for sandbox reset issue)
   saveState({ workingDir: resolved });
-  console.warn(`[WorkingDir] Persisted new working directory: ${resolved}`);
+  console.log(`[WorkingDir] Persisted new working directory: ${resolved}`);
   
   return true;
 }
@@ -89,7 +89,7 @@ export function setWorkingDir(newDir: string): boolean {
 export function resetWorkingDir(): void {
   currentWorkingDir = BASE_DIR;
   saveState({ workingDir: undefined }); // Clear persisted state
-  console.warn(`[WorkingDir] Reset to plugin root: ${BASE_DIR}`);
+  console.log(`[WorkingDir] Reset to plugin root: ${BASE_DIR}`);
 }
 
 /** Resolve a user-provided path against the current working directory */

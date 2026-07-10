@@ -83,7 +83,7 @@ function getTemporalSuffix(ctl: PromptPreprocessorController): string {
   const { compact, full } = getCachedDateTime();
   
   // DEBUG: Uncomment to verify what's being injected
-  console.warn(`[TEMPORAL] Injecting: ${style === 'heuteIst' ? `HEUTE IST ${full}` : `[Zeit: ${compact}]`}`);
+  console.log(`[TEMPORAL] Injecting: ${style === 'heuteIst' ? `HEUTE IST ${full}` : `[Zeit: ${compact}]`}`);
   
   if (style === 'heuteIst') {
     return `\n\nHEUTE IST ${full}`;
@@ -213,7 +213,7 @@ async function retrieveFromPdfs(
   // Lower default threshold to catch more results - was too high at 0.6
   const retrievalAffinityThreshold = pluginConfig.get('retrievalAffinityThreshold') ?? 0.3;
 
-  console.warn(`[RAG] Processing ${pdfFiles.length} PDF file(s)`);
+  console.log(`[RAG] Processing ${pdfFiles.length} PDF file(s)`);
 
   // Extract text from all PDF files
   const fileTexts: { file: FileHandle; text: string }[] = [];
@@ -221,10 +221,10 @@ async function retrieveFromPdfs(
     try {
       const text = await extractPdfText(file);
       if (text.length > 0) {
-        console.warn(`[RAG] Extracted ${text.length} chars from ${file.name}`);
+        console.log(`[RAG] Extracted ${text.length} chars from ${file.name}`);
         fileTexts.push({ file, text });
       } else {
-        console.warn(`[RAG] No text extracted from ${file.name}`);
+        console.log(`[RAG] No text extracted from ${file.name}`);
       }
     } catch (error) {
       console.error(`[RAG] Skipping PDF ${file.name} due to error:`, error);
@@ -232,7 +232,7 @@ async function retrieveFromPdfs(
   }
 
   if (fileTexts.length === 0) {
-    console.warn('[RAG] No text extracted from any PDF');
+    console.log('[RAG] No text extracted from any PDF');
     return [];
   }
 
@@ -240,7 +240,7 @@ async function retrieveFromPdfs(
   const chunks: { file: FileHandle; chunk: string }[] = [];
   for (const { file, text } of fileTexts) {
     const fileChunks = chunkText(text);
-    console.warn(`[RAG] ${file.name}: ${text.length} chars → ${fileChunks.length} chunks`);
+    console.log(`[RAG] ${file.name}: ${text.length} chars → ${fileChunks.length} chunks`);
     fileChunks.forEach((chunk) => {
       chunks.push({ file, chunk });
     });
@@ -251,11 +251,11 @@ async function retrieveFromPdfs(
   // Generate embeddings for all chunks using LM Studio's embedding model
   let model;
   try {
-    console.warn('[RAG] Loading embedding model...');
+    console.log('[RAG] Loading embedding model...');
     model = await ctl.client.embedding.model('nomic-ai/nomic-embed-text-v1.5-GGUF', {
       signal: ctl.abortSignal,
     });
-    console.warn('[RAG] Embedding model loaded successfully');
+    console.log('[RAG] Embedding model loaded successfully');
   } catch (error) {
     console.error('[RAG] Failed to load embedding model:', error);
     throw new Error(`Embedding model not available: ${error instanceof Error ? error.message : String(error)}`);
@@ -266,7 +266,7 @@ async function retrieveFromPdfs(
 
   try {
     for (let i = 0; i < chunks.length; i += batchSize) {
-      console.warn(`[RAG] Generating embeddings batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(chunks.length / batchSize)}...`);
+      console.log(`[RAG] Generating embeddings batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(chunks.length / batchSize)}...`);
       const batch = chunks.slice(i, i + batchSize).map(c => c.chunk);
       const embeddingsResult = await model.embed(batch);
       // Type the embedding result properly
@@ -309,7 +309,7 @@ async function retrieveFromPdfs(
   // Sort by similarity descending and filter by threshold
   scores.sort((a, b) => b.similarity - a.similarity);
   
-  console.warn(`[RAG] Found ${scores.length} chunks, filtering with threshold ${retrievalAffinityThreshold}`);
+  console.log(`[RAG] Found ${scores.length} chunks, filtering with threshold ${retrievalAffinityThreshold}`);
   const relevantChunks = scores.filter(
     (s) => s.similarity >= retrievalAffinityThreshold && s.chunkIndex < chunks.length,
   );
@@ -317,7 +317,7 @@ async function retrieveFromPdfs(
   // Limit results
   const limitedResults = relevantChunks.slice(0, retrievalLimit);
 
-  console.warn(`[RAG] Returning ${limitedResults.length} results`);
+  console.log(`[RAG] Returning ${limitedResults.length} results`);
   return limitedResults.map((r) => ({
     content: chunks[r.chunkIndex].chunk,
     score: r.similarity,
@@ -384,17 +384,17 @@ export async function preprocess(
           imageCount += 1;
         }
       }
-      console.warn(`[TokenDebug] Total Tool calls: ${toolCallCount}, Total Files/Images: ${imageCount}`);
+      console.log(`[TokenDebug] Total Tool calls: ${toolCallCount}, Total Files/Images: ${imageCount}`);
 
       // Calculate tokens for threshold check
       const tokenCount = await contextGuard.countTokens(messages, imageCount);
       const threshold = contextGuard.getThreshold();
       
       // 🔹 DEBUG: Log token counts to verify threshold logic
-      console.warn(`[AutoTracker DEBUG] tokenCount: ${tokenCount}, maxTokens: ${contextGuard.getTokenLimit()}, threshold: ${threshold}`);
+      console.log(`[AutoTracker DEBUG] tokenCount: ${tokenCount}, maxTokens: ${contextGuard.getTokenLimit()}, threshold: ${threshold}`);
 
       if (tokenCount > threshold) {
-        console.warn(`[ContextGuard] Token count ${tokenCount} exceeds threshold ${threshold}, compressing...`);
+        console.log(`[ContextGuard] Token count ${tokenCount} exceeds threshold ${threshold}, compressing...`);
         const compressedMessages = await contextGuard.compressHistory(messages) as unknown as ChatMessage[];
         // Clear history by popping all messages
         while (history.getLength() > 0) {
@@ -428,7 +428,7 @@ export async function preprocess(
       const actions = autoTracker.analyzeMessage(userPrompt);
       
       if (actions.length > 0) {
-        console.warn(`[Auto-Track] Detected ${actions.length} event(s):`, actions.map(a => `${a.type} (${a.confidence.toFixed(2)})`).join(', '));
+        console.log(`[Auto-Track] Detected ${actions.length} event(s):`, actions.map(a => `${a.type} (${a.confidence.toFixed(2)})`).join(', '));
         // 🔹 Actions are now buffered in-memory and will be flushed to persistent storage
         // when the token threshold checkpoint fires (with user confirmation)
       }
@@ -469,7 +469,7 @@ export async function preprocess(
   const pluginConfig = ctl.getPluginConfig(configSchematics);
   const documentRAGEnabled = pluginConfig.get('documentRAG');
   
-  console.warn(`[RAG] documentRAG enabled: ${documentRAGEnabled}`);
+  console.log(`[RAG] documentRAG enabled: ${documentRAGEnabled}`);
   
   if (!documentRAGEnabled) {
     // If RAG is disabled, just return the message with attachment notice
@@ -478,7 +478,7 @@ export async function preprocess(
   }
 
   const newFiles = allFiles.filter(f => f.type !== 'image');
-  console.warn(`[RAG] Found ${newFiles.length} non-image files`);
+  console.log(`[RAG] Found ${newFiles.length} non-image files`);
   
   if (newFiles.length === 0) {
     const base = userPrompt + attachmentNotice;
@@ -489,7 +489,7 @@ export async function preprocess(
   const pdfFiles = newFiles.filter(f => f.name.toLowerCase().endsWith('.pdf'));
   const otherFiles = newFiles.filter(f => !f.name.toLowerCase().endsWith('.pdf'));
 
-  console.warn(`[RAG] PDFs: ${pdfFiles.length}, Other: ${otherFiles.length}`);
+  console.log(`[RAG] PDFs: ${pdfFiles.length}, Other: ${otherFiles.length}`);
 
   let allResults: RetrievalResult[] = [];
 
@@ -497,7 +497,7 @@ export async function preprocess(
   if (pdfFiles.length > 0) {
     try {
       const pdfResults = await retrieveFromPdfs(ctl, userPrompt, pdfFiles);
-      console.warn(`[RAG] PDF retrieval returned ${pdfResults.length} results`);
+      console.log(`[RAG] PDF retrieval returned ${pdfResults.length} results`);
       allResults.push(...pdfResults);
     } catch (error) {
       console.error('[RAG] Error processing PDFs:', error);
@@ -521,7 +521,7 @@ export async function preprocess(
       const filteredEntries = result.entries.filter(
         entry => entry.score > (pluginConfig.get('retrievalAffinityThreshold') ?? 0.3)
       );
-      console.warn(`[RAG] Native retrieval returned ${filteredEntries.length} results`);
+      console.log(`[RAG] Native retrieval returned ${filteredEntries.length} results`);
       allResults.push(...filteredEntries.map(e => ({ content: e.content, score: e.score })));
     } catch (error) {
       console.error('[RAG] Error retrieving from other files:', error);
@@ -533,7 +533,7 @@ export async function preprocess(
   const retrievalLimit = pluginConfig.get('retrievalLimit') || 5;
   allResults = allResults.slice(0, retrievalLimit);
 
-  console.warn(`[RAG] Total results after sorting: ${allResults.length}`);
+  console.log(`[RAG] Total results after sorting: ${allResults.length}`);
 
   // 🔹 Inject checkpoint confirmation prompt if triggered/pending from Step 0.5
   let finalMessage = userPrompt + attachmentNotice;
@@ -553,7 +553,7 @@ export async function preprocess(
   }
 
   // If no results found, return original message with attachment notice
-  console.warn('[RAG] No relevant results found');
+  console.log('[RAG] No relevant results found');
   const base = finalMessage;
   return base + getTemporalSuffix(ctl);
 }

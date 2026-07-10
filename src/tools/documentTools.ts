@@ -53,7 +53,7 @@ async function readDocument({ file_path }: ReadDocumentParams): Promise<unknown>
     // 1. Check if it's an attached file
     const attachment = getAttachment(file_path);
     if (attachment) {
-      console.warn(`[AI Toolbox] Reading attached file: ${file_path}`);
+      console.log(`[AI Toolbox] Reading attached file: ${file_path}`);
       
       // Typed interface for attachment object
       type AttachmentWithReadFile = { readFile?: () => Promise<Buffer>; read?: () => Promise<unknown> };
@@ -135,13 +135,13 @@ async function readPDF(filePath: string): Promise<unknown> {
   try {
     const pdfParse = (await import('pdf-parse')).default;
     
-    console.warn(`[AI Toolbox] Reading PDF from disk: ${filePath}`);
+    console.log(`[AI Toolbox] Reading PDF from disk: ${filePath}`);
     
     const dataBuffer = await fs.readFile(filePath);  // ASYNC read
     
     const result = await pdfParse(dataBuffer);
     
-    console.warn(`[AI Toolbox] PDF read complete: ${result.numpages} pages, ${(result.text.length / 1024).toFixed(1)}KB`);
+    console.log(`[AI Toolbox] PDF read complete: ${result.numpages} pages, ${(result.text.length / 1024).toFixed(1)}KB`);
     
     const stats = await fs.stat(filePath);  // ASYNC stat for size
     
@@ -169,11 +169,11 @@ async function readPDFFromBuffer(buffer: Buffer, fileName: string): Promise<unkn
   try {
     const pdfParse = (await import('pdf-parse')).default;
     
-    console.warn(`[AI Toolbox] Reading PDF from attachment: ${fileName}`);
+    console.log(`[AI Toolbox] Reading PDF from attachment: ${fileName}`);
     
     const result = await pdfParse(buffer);
     
-    console.warn(`[AI Toolbox] PDF read complete: ${result.numpages} pages, ${(result.text.length / 1024).toFixed(1)}KB`);
+    console.log(`[AI Toolbox] PDF read complete: ${result.numpages} pages, ${(result.text.length / 1024).toFixed(1)}KB`);
     
     return {
       success: true,
@@ -200,7 +200,7 @@ async function readDOCX(filePath: string): Promise<unknown> {
   try {
     const mammoth = await import('mammoth');
     
-    console.warn(`[AI Toolbox] Reading DOCX from disk: ${filePath}`);
+    console.log(`[AI Toolbox] Reading DOCX from disk: ${filePath}`);
     
     const dataBuffer = await fs.readFile(filePath);  // ASYNC read
     
@@ -210,7 +210,7 @@ async function readDOCX(filePath: string): Promise<unknown> {
     const text = result.value;
     const warnings = result.messages.map((m: { message: string }) => m.message).join('\n');
     
-    console.warn(`[AI Toolbox] DOCX read complete: ${(text.length / 1024).toFixed(1)}KB`);
+    console.log(`[AI Toolbox] DOCX read complete: ${(text.length / 1024).toFixed(1)}KB`);
     
     const stats = await fs.stat(filePath);  // ASYNC stat for size
     
@@ -238,7 +238,7 @@ async function readDOCXFromBuffer(buffer: Buffer, fileName: string): Promise<unk
   try {
     const mammoth = await import('mammoth');
     
-    console.warn(`[AI Toolbox] Reading DOCX from attachment: ${fileName}`);
+    console.log(`[AI Toolbox] Reading DOCX from attachment: ${fileName}`);
     
     const mammothTyped = mammoth as unknown as { extractRawText: (opts: { buffer: Buffer }) => Promise<{ value: string; messages: Array<{ message: string }> }> };
     const result = await mammothTyped.extractRawText({ buffer });
@@ -246,7 +246,7 @@ async function readDOCXFromBuffer(buffer: Buffer, fileName: string): Promise<unk
     const text = result.value;
     const warnings = result.messages.map((m: { message: string }) => m.message).join('\n');
     
-    console.warn(`[AI Toolbox] DOCX read complete: ${(text.length / 1024).toFixed(1)}KB`);
+    console.log(`[AI Toolbox] DOCX read complete: ${(text.length / 1024).toFixed(1)}KB`);
     
     return {
       success: true,
@@ -271,11 +271,11 @@ async function readDOCXFromBuffer(buffer: Buffer, fileName: string): Promise<unk
  */
 async function readTXTFromBuffer(buffer: Buffer, fileName: string): Promise<unknown> {
   try {
-    console.warn(`[AI Toolbox] Reading TXT from attachment: ${fileName}`);
+    console.log(`[AI Toolbox] Reading TXT from attachment: ${fileName}`);
     
     const text = buffer.toString('utf-8');
     
-    console.warn(`[AI Toolbox] TXT read complete: ${(text.length / 1024).toFixed(1)}KB`);
+    console.log(`[AI Toolbox] TXT read complete: ${(text.length / 1024).toFixed(1)}KB`);
     
     return {
       success: true,

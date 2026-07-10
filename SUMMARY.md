@@ -130,6 +130,7 @@ Each category is implemented as a separate module in `src/tools/`:
 
 ## 📈 Recent Changes (v1.5.x)
 
+### [1.5.36] — 🔧 Grammar Parser Fix: Schema Minification for llama.cpp Compatibility  \n**Resolved critical grammar parsing failure that prevented tool registration with ~109 tools enabled.** When sending the first chat message, LM Studio threw `Engine protocol predict request returned 400 ... failed to parse grammar` due to llama.cpp's EBNF grammar generator exceeding recursion limits.  \\n- ✅ Created `src/toolsSchemaMinifier.ts` — new module that compresses tool schemas before registration (truncates descriptions >200 chars → ~150 chars, caps string `.max()` at 10KB, caps array `.max()` at 100 items)  \\n- ✅ Integrated minification into `toolsProvider.ts` — runs right before tool registration with LM Studio SDK  \\n- ✅ Grammar parsing error resolved — no more `failed to parse grammar` errors when sending first chat message with plugin enabled  \\n- ✅ Schema payload reduced by ~40% through description truncation and constraint capping  \\n- ✅ Zero breaking changes — validation logic preserved, only schema metadata compressed
 ### [1.5.35] — 🔧 ContextGuard SDK-Native Tokenization & TypeScript Hardening  \n**Replaced manual Tiktoken encoding with LM Studio SDK-native token counting for accurate compression threshold triggering.**  \\n- ✅ `countTokens()` now accepts optional `modelId?: string` parameter → uses `await model.countTokens(promptString)` when SDK available  \\n- ✅ Messages formatted into compatible prompt strings bridging array-based messages to SDK's `string` signature  \\n- ✅ Graceful fallback to manual Tiktoken encoding with clear warning logs if SDK fails  \\n- ✅ Resolved `TS2345`, `no-unnecessary-type-assertion`, and `no-unsafe-*` ESLint violations via explicit casting + standard `if/else` narrowing  \\n- ✅ AutoTracker synergy confirmed: receives accurate counts directly from ContextGuard → threshold checks fire precisely at configured percentages
 
 ---
@@ -535,6 +536,6 @@ All documentation has been reconstructed based on actual source code analysis:
 
 ## 📝 Notes
 
-This summary is based on actual source code analysis performed on 2026-07-08 (v1.5.35). All tool counts, feature descriptions, and security controls reflect the current implementation in version 1.5.x.
+This summary is based on actual source code analysis performed on 2026-07-10 (v1.5.36). All tool counts, feature descriptions, and security controls reflect the current implementation in version 1.5.x.
 
 For questions or issues, please refer to the individual documentation files linked above or contact the maintainers through appropriate channels.

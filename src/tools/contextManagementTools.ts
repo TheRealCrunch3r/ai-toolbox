@@ -53,8 +53,8 @@ export class ContextStorageManager {
     const baseDir = path.resolve(__dirname, '..');
     this.pluginRootPath = path.join(baseDir, '.session_context', '.ai_toolbox_memory.msgpack');
     
-    console.warn(`[ContextStorage] Initialized — Working Dir: ${this.workingDirPath}`);
-    console.warn(`[ContextStorage] Plugin Root Fallback: ${this.pluginRootPath}`);
+    console.log(`[ContextStorage] Initialized — Working Dir: ${this.workingDirPath}`);
+    console.log(`[ContextStorage] Plugin Root Fallback: ${this.pluginRootPath}`);
   }
 
   /** Ensure the .session_context directory exists */
@@ -62,7 +62,7 @@ export class ContextStorageManager {
     const dir = path.dirname(filePath);
     if (!await fs.access(dir).then(() => true).catch(() => false)) {
       await fs.mkdir(dir, { recursive: true });
-      console.warn(`[ContextStorage] Created directory: ${dir}`);
+      console.log(`[ContextStorage] Created directory: ${dir}`);
     }
   }
 
@@ -75,7 +75,7 @@ export class ContextStorageManager {
     
     // Priority 2: Plugin root fallback
     if (await fs.access(this.pluginRootPath).then(() => true).catch(() => false)) {
-      console.warn(`[ContextStorage] Working dir not found. Falling back to plugin root.`);
+      console.log(`[ContextStorage] Working dir not found. Falling back to plugin root.`);
       return { filePath: this.pluginRootPath, isWorkingDir: false };
     }
     
@@ -89,13 +89,13 @@ export class ContextStorageManager {
       const { filePath, isWorkingDir } = await this.resolveActiveStorage();
       
       if (!await fs.access(filePath).then(() => true).catch(() => false)) {
-        console.warn(`[ContextStorage.load] No context storage found at ${filePath}`);
+        console.log(`[ContextStorage.load] No context storage found at ${filePath}`);
         return [];
       }
       
       const buffer = await fs.readFile(filePath);  // Read as Buffer (msgpack format)
       const entries = decode(buffer) as ContextEntry[];
-      console.warn(`[ContextStorage.load] Loaded ${entries.length} entries from ${isWorkingDir ? 'working dir' : 'plugin root'}: ${filePath}`);
+      console.log(`[ContextStorage.load] Loaded ${entries.length} entries from ${isWorkingDir ? 'working dir' : 'plugin root'}: ${filePath}`);
       return entries;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -117,7 +117,7 @@ export class ContextStorageManager {
       const encoded = encode(entries);  // Encode to msgpack Buffer
       await fs.writeFile(tempPath, encoded);  // ASYNC write (Buffer format)
       await fs.rename(tempPath, filePath);  // ASYNC rename
-      console.warn(`[ContextStorage.save] Saved ${entries.length} entries to working dir: ${filePath}`);
+      console.log(`[ContextStorage.save] Saved ${entries.length} entries to working dir: ${filePath}`);
 
       // 🔹 DUAL WRITE: Always sync to plugin root as well
       if (this.pluginRootPath !== this.workingDirPath) {
@@ -126,7 +126,7 @@ export class ContextStorageManager {
           const pluginTemp = this.pluginRootPath + '.tmp';
           await fs.writeFile(pluginTemp, encoded);
           await fs.rename(pluginTemp, this.pluginRootPath);
-          console.warn(`[ContextStorage.save] Synced to plugin root: ${this.pluginRootPath}`);
+          console.log(`[ContextStorage.save] Synced to plugin root: ${this.pluginRootPath}`);
         } catch (syncError) {
           const syncMsg = syncError instanceof Error ? syncError.message : String(syncError);
           console.error(`[ContextStorage.save] Failed to sync to plugin root: ${syncMsg}`);
@@ -559,15 +559,15 @@ WHEN TO USE:
         };
 
         if (memoryStore) {
-          console.warn('[ContextManagement.save_session_summary] memoryStore exists, setting data...');
+          console.log('[ContextManagement.save_session_summary] memoryStore exists, setting data...');
           memoryStore.set('session_summary_latest', summaryData);
           memoryStore.set(`session_summary_${Date.now()}`, summaryData); // versioned backup
           
-          console.warn('[ContextManagement.save_session_summary] Calling forceSave()...');
+          console.log('[ContextManagement.save_session_summary] Calling forceSave()...');
           await memoryStore.forceSave();
-          console.warn('[ContextManagement.save_session_summary] forceSave() completed.');
+          console.log('[ContextManagement.save_session_summary] forceSave() completed.');
         } else {
-          console.warn('[ContextManagement.save_session_summary] No StateManager provided. Session summary saved to RAM only.');
+          console.log('[ContextManagement.save_session_summary] No StateManager provided. Session summary saved to RAM only.');
         }
 
         return { success: true, data: { saved: true, task_description } };
@@ -619,7 +619,7 @@ WHEN TO USE:
           memoryStore.set(key, { fact, timestamp: Date.now() });
           await memoryStore.forceSave(); // Immediate disk persistence
         } else {
-          console.warn('[ContextManagement] No StateManager provided. Memory saved to RAM only.');
+          console.log('[ContextManagement] No StateManager provided. Memory saved to RAM only.');
         }
 
         return { success: true, data: { saved: true, key } };
@@ -681,7 +681,7 @@ WHEN TO USE:
           
           return { success: true, data: { deleted: true, entry_id } };
         } else {
-          console.warn('[ContextManagement] No StateManager provided. Cannot delete from disk.');
+          console.log('[ContextManagement] No StateManager provided. Cannot delete from disk.');
           return { success: false, error: 'StateManager not available.' };
         }
       } catch (error) {
