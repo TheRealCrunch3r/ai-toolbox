@@ -1,6 +1,6 @@
 # 🧰 AI Toolbox — LM Studio Plugin
 
-> **109 tools** across 18 core categories identified in current source code. (22 Git/GitHub tools + 87 others)
+> **111+ tools** across 18 core categories + Gateway Tools (2). (22 Git/GitHub tools + 89 others)
 
 ---
 
@@ -88,6 +88,13 @@
 ### Backup & Line Ops (Always Available)
 `create_backup` · `list_backups` · `delete_backup` · `line_operations`
 
+### Gateway Tools (v1.6.0+ — Always Enabled)
+**Purpose**: Single entry point for tool discovery and execution to prevent LLM tool-bloat crashes.
+- ✅ `explore_tools` — Discovers available tools and their categories without exposing all 111+ tools at once
+- ✅ `execute_gateway_tool` — Delegates execution to any registered tool by name with built-in validation
+
+**Why Gateway?** Sending ~111 tools directly to llama.cpp's grammar parser causes EBNF recursion limit errors. The Gateway pattern reduces initial schema payload from 111 → 2 tools while maintaining full functionality on-demand.
+
 ---
 
 ## 🚀 Quick Start
@@ -105,7 +112,7 @@ The plugin is installed as an LM Studio plugin. Ensure you have:
 1. **Load the plugin** in LM Studio's plugin settings
 2. **Configure tool access** — individual tool categories can be toggled on/off via the Settings panel. Note that some tools (like Execution) are disabled by default for security.
 3. **Authenticate with GitHub**: Run `gh auth login` in your terminal once to enable remote operations (`gh_create_issue`, `gh_list_prs`, etc.). The plugin will detect authentication status automatically.
-4. **Start a chat** and the LLM can now use any of the ~108 available tools.
+4. **Start a chat** and the LLM can now use any of the 111+ available tools via the Gateway pattern (v1.6.0+) — AI discovers categories first, then executes specific tools on-demand.
 
 ### [1.5.36] — 🔧 Grammar Parser Fix: Schema Minification for llama.cpp Compatibility  \n**Resolved critical grammar parsing failure that prevented tool registration with ~109 tools enabled.** When sending the first chat message, LM Studio threw `Engine protocol predict request returned 400 ... failed to parse grammar` due to llama.cpp's EBNF grammar generator exceeding recursion limits.  \\n- ✅ Created `src/toolsSchemaMinifier.ts` — new module that compresses tool schemas before registration (truncates descriptions >200 chars → ~150 chars, caps string `.max()` at 10KB, caps array `.max()` at 100 items)  \\n- ✅ Integrated minification into `toolsProvider.ts` — runs right before tool registration with LM Studio SDK  \\n- ✅ Grammar parsing error resolved — no more `failed to parse grammar` errors when sending first chat message with plugin enabled  \\n- ✅ Schema payload reduced by ~40% through description truncation and constraint capping  \\n- ✅ Zero breaking changes — validation logic preserved, only schema metadata compressed  \\n- ✅ Runtime constraints still enforced — Zod schemas validate actual limits at execution time
 ### [1.5.35] — 🔧 ContextGuard SDK-Native Tokenization & TypeScript Hardening  \n**Replaced manual Tiktoken encoding with LM Studio SDK-native token counting for accurate compression threshold triggering.**  \\n- ✅ `countTokens()` now accepts optional `modelId?: string` parameter → uses `await model.countTokens(promptString)` when SDK available  \\n- ✅ Messages formatted into compatible prompt strings bridging array-based messages to SDK's `string` signature  \\n- ✅ Graceful fallback to manual Tiktoken encoding with clear warning logs if SDK fails  \\n- ✅ Resolved `TS2345`, `no-unnecessary-type-assertion`, and `no-unsafe-*` ESLint violations via explicit casting + standard `if/else` narrowing  \\n- ✅ AutoTracker synergy confirmed: receives accurate counts directly from ContextGuard → threshold checks fire precisely at configured percentages
@@ -169,6 +176,15 @@ npm test
 ---
 
 ## 📜 Release History
+
+### [1.6.0] — 🚀 Gateway Tools: Single Entry Point for Tool Discovery & Execution (2026-07-12)
+**Introduced the Gateway Pattern to prevent LLM tool-bloat crashes and provide controlled access to all 111+ tools.**
+- ✅ `explore_tools` — Discovers available tool categories without exposing all tools at once (prevents grammar parser crashes)
+- ✅ `execute_gateway_tool` — Delegates execution to any registered tool by name with built-in validation
+- ✅ Grammar parser crashes eliminated — Only 2 tools sent to llama.cpp initially instead of ~111
+- ✅ AI workflow improved — Structured discovery → execution pattern prevents tool confusion
+- ✅ Full functionality preserved — All tools still accessible via `execute_gateway_tool`
+- ✅ Zero breaking changes — Existing tool registry and config system unchanged
 
 ### [1.5.32] — 🔧 `refactor_code` Babel Parser & Strict Type Hardening  
 **Resolved Jest test failures and TypeScript strict mode violations in the AST refactoring engine.**  \n- ✅ Replaced dynamic `@babel/parser` import with static namespace import → eliminates Jest CJS/ESM interop errors, ensures parser availability across all environments  \n- ✅ Removed unused type imports, explicitly typed array fallbacks to prevent implicit `any[]` inference — zero ESLint/TS strict mode violations  \n- ✅ Fixed duplicate variable declaration (`resolvedTarget`) that caused SyntaxError at module load time  \n\n### [1.5.31] — 🐛 Session Persistence Fix & ESLint/TS Hardening  

@@ -18,7 +18,7 @@ Comprehensive overview of the AI Toolbox plugin, its architecture, features, and
 
 ## 🎯 Project Overview
 
-**AI Toolbox Plugin** is a comprehensive LM Studio plugin providing **109 tools across 18 categories** for AI-assisted development workflows. The plugin enables language models to interact with file systems, execute code, browse the web, manage Git repositories, process documents, and more — all within a secure, configurable framework.
+**AI Toolbox Plugin** is a comprehensive LM Studio plugin providing **111+ tools across 18 categories + Gateway Tools (2)** for AI-assisted development workflows. The plugin enables language models to interact with file systems, execute code, browse the web, manage Git repositories, process documents, and more — all within a secure, configurable framework.
 
 ### Core Capabilities
 
@@ -40,8 +40,9 @@ Comprehensive overview of the AI Toolbox plugin, its architecture, features, and
 | Interactive UI Generation | 3 tools | Generate and render HTML/CSS/JS components (buttons, forms, charts) |
 | Auto-Context Management | 7 tools | Automatic session tracking, decision logging, persistent memory |
 | Backup & Restore | 4 tools | Create compressed ZIP backups with atomic write pattern |
+| **Gateway Tools (v1.6.0+)** | **2 tools** | Single entry point for tool discovery (`explore_tools`) and execution (`execute_gateway_tool`) to prevent LLM tool-bloat crashes |
 
-**Total:** 109 tools across 18 categories ✅
+**Total:** 111+ tools across 18 categories + Gateway Tools ✅
 
 ---
 
@@ -128,7 +129,16 @@ Each category is implemented as a separate module in `src/tools/`:
 
 ---
 
-## 📈 Recent Changes (v1.5.x)
+## 📈 Recent Changes (v1.5.x → v1.6.x)
+
+### [1.6.0] — 🚀 Gateway Tools: Single Entry Point for Tool Discovery & Execution (2026-07-12)
+**Introduced the Gateway Pattern to prevent LLM tool-bloat crashes and provide controlled access to all 111+ tools.**
+- ✅ `explore_tools` — Discovers available tool categories without exposing all 111+ tools at once (prevents grammar parser crashes)
+- ✅ `execute_gateway_tool` — Delegates execution to any registered tool by name with built-in validation and error handling
+- ✅ Grammar parser crashes eliminated — Only 2 tools sent to llama.cpp initially instead of ~111
+- ✅ AI workflow improved — Structured discovery → execution pattern prevents tool confusion
+- ✅ Full functionality preserved — All tools still accessible via `execute_gateway_tool`
+- ✅ Zero breaking changes — Existing tool registry and config system unchanged
 
 ### [1.5.36] — 🔧 Grammar Parser Fix: Schema Minification for llama.cpp Compatibility  \n**Resolved critical grammar parsing failure that prevented tool registration with ~109 tools enabled.** When sending the first chat message, LM Studio threw `Engine protocol predict request returned 400 ... failed to parse grammar` due to llama.cpp's EBNF grammar generator exceeding recursion limits.  \\n- ✅ Created `src/toolsSchemaMinifier.ts` — new module that compresses tool schemas before registration (truncates descriptions >200 chars → ~150 chars, caps string `.max()` at 10KB, caps array `.max()` at 100 items)  \\n- ✅ Integrated minification into `toolsProvider.ts` — runs right before tool registration with LM Studio SDK  \\n- ✅ Grammar parsing error resolved — no more `failed to parse grammar` errors when sending first chat message with plugin enabled  \\n- ✅ Schema payload reduced by ~40% through description truncation and constraint capping  \\n- ✅ Zero breaking changes — validation logic preserved, only schema metadata compressed
 ### [1.5.35] — 🔧 ContextGuard SDK-Native Tokenization & TypeScript Hardening  \n**Replaced manual Tiktoken encoding with LM Studio SDK-native token counting for accurate compression threshold triggering.**  \\n- ✅ `countTokens()` now accepts optional `modelId?: string` parameter → uses `await model.countTokens(promptString)` when SDK available  \\n- ✅ Messages formatted into compatible prompt strings bridging array-based messages to SDK's `string` signature  \\n- ✅ Graceful fallback to manual Tiktoken encoding with clear warning logs if SDK fails  \\n- ✅ Resolved `TS2345`, `no-unnecessary-type-assertion`, and `no-unsafe-*` ESLint violations via explicit casting + standard `if/else` narrowing  \\n- ✅ AutoTracker synergy confirmed: receives accurate counts directly from ContextGuard → threshold checks fire precisely at configured percentages
@@ -536,6 +546,6 @@ All documentation has been reconstructed based on actual source code analysis:
 
 ## 📝 Notes
 
-This summary is based on actual source code analysis performed on 2026-07-10 (v1.5.36). All tool counts, feature descriptions, and security controls reflect the current implementation in version 1.5.x.
+This summary is based on actual source code analysis performed on 2026-07-12 (v1.6.0). All tool counts, feature descriptions, and security controls reflect the current implementation in version 1.6.x with Gateway Tools integration.
 
 For questions or issues, please refer to the individual documentation files linked above or contact the maintainers through appropriate channels.

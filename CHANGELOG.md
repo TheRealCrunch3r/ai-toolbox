@@ -1,6 +1,65 @@
 # 📝 CHANGELOG
 
 All notable changes to AI Toolbox plugin.
+## [1.6.0] - 2026-07-12 — 🚀 Gateway Tools: Single Entry Point for Tool Discovery & Execution
+
+**Introduced the Gateway Pattern to prevent LLM tool-bloat crashes and provide controlled access to all 111+ tools.**
+
+### What Changed
+- **Root Cause**: Sending ~111 tools directly to llama.cpp's grammar parser caused `failed to parse grammar` errors due to EBNF recursion limits. The AI also struggled with overwhelming options when deciding which tool to use.
+- **Fix**: Implemented a two-tool Gateway system that acts as a single entry point:
+  - ✅ `explore_tools` — Discovers available tool categories without exposing all tools at once (prevents grammar parser crashes)
+  - ✅ `execute_gateway_tool` — Delegates execution to any registered tool by name with built-in validation and error handling
+- **Architecture**: Gateway tools are always enabled and serve as the AI's primary interface. They internally use the existing ToolRegistry to access all other tools dynamically.
+
+### Architecture Changes
+```typescript
+// src/tools/gatewayTools.ts (NEW)
+export async function getGatewayTools(
+  provider: ToolsProvider, 
+  config: PluginConfig
+): Promise<Tool[]> {
+  const exploreTools = tool({
+    name: 'explore_tools',
+    description: 'Discover available tools and their categories...',
+    parameters: { category: z.string().optional() },
+    implementation: async (params) => {
+      await provider.getAvailableTools(); // Ensure registry loaded
+      return { success: true, categories: [...] }; // Returns category names only
+    }
+  });
+
+  const executeGatewayTool = tool({
+    name: 'execute_gateway_tool',
+    description: 'Executes a specific tool by its name...',
+    parameters: { 
+      toolName: z.string(),
+      arguments: z.record(z.unknown())
+    },
+    implementation: async (params) => {
+      return await provider.executeTool(params.toolName, params.arguments); // Delegates to registry
+    }
+  });
+
+  return [exploreTools, executeGatewayTool];
+}
+```
+
+### Impact
+- ✅ **Grammar parser crashes eliminated** — Only 2 tools sent to llama.cpp initially instead of ~111
+- ✅ **AI workflow improved** — Structured discovery → execution pattern prevents tool confusion
+- ✅ **Full functionality preserved** — All tools still accessible via `execute_gateway_tool`
+- ✅ **Zero breaking changes** — Existing tool registry and config system unchanged
+
+### Engineering Details
+- Gateway tools use the existing `ToolsProvider` singleton for lazy loading of tool modules
+- Tool discovery returns category names (not individual tool names) to keep schema small
+- Execution delegates to `provider.executeTool()` which handles validation, security checks, and error handling
+- TypeScript strict mode compliance: all Zod schemas properly typed, no `any` leakage
+
+**Total**: 1 new module (`src/tools/gatewayTools.ts`), 2 new tools, zero breaking changes. Fully backward compatible with existing tool registry architecture.
+
+
 ## [1.5.39] - 2026-07-10 — 🔧 Grammar Parser Fix: Production Deployment & Debug Cleanup
 
 **Resolved critical grammar parser failure in production — tool count capping now enforced at 25 tools (was 50), minifier properly wired up.**

@@ -46,7 +46,7 @@ Deep dive into the AI Toolbox plugin's system architecture, design patterns, and
 │  │  │  └───────────┼──────────────────────┼─────────────┘  │  │  │
 │  │  │              │                      │                │  │  │
 │  │  │  ┌───────────┴──────────────────────┴─────────────┐  │  │  │
-│  │  │  │              Tool Modules (19 files)            │  │  │  │
+│  │  │  │              Tool Modules (20 files + Gateway)    │  │  │  │
 │  │  │  │  ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ │  │  │  │
 │  │  │  │  │fileSys │ │webRes  │ │browser │ │  git   │ │  │  │  │
 │  │  │  │  │ (21)   │ │ (4)    │ │  (5)   │ │ (13)   │ │  │  │  │
@@ -118,7 +118,7 @@ export function main(context: PluginContext) {
   // 2. Register prompt preprocessor (Document RAG + ContextGuard)
   context.withPromptPreprocessor(preprocess);
   
-  // 3. Register tools provider (all 108 tools)
+  // 3. Register tools provider (2 gateway tools only — all others via execute_gateway_tool)
   context.withToolsProvider(toolsProvider);
   
   // 4. Setup cleanup handlers
@@ -157,6 +157,7 @@ new ToolsProvider(config)
             ├── registerUiGenerationTools()  ──► 3 tools
             ├── registerContextManagementTools() ─► 7 tools
             └── registerBackupTools()        ──► 4 tools
+            └── registerGatewayTools()       ──► 2 tools (v1.6.0+ — always enabled)
             │
             ▼
         ToolRegistry.toolMap (Map<string, TypedTool>)
@@ -329,6 +330,71 @@ resetWorkingDir(): void
 resolvePath(userPath: string): string
 getAllowedBases(): string[]
 ```
+
+---
+
+## 🚀 Gateway Pattern Architecture (v1.6.0+)
+
+**Purpose**: Prevent LLM tool-bloat crashes by providing a single entry point for tool discovery and execution, reducing the initial grammar schema payload from ~111 tools to just 2.
+
+### Problem Solved
+Sending all 111+ tools directly to llama.cpp's grammar parser caused `failed to parse grammar` errors due to EBNF recursion limits. The AI also struggled with overwhelming options when deciding which tool to use.
+
+### Solution: Two-Tool Gateway System
+
+```typescript
+// src/tools/gatewayTools.ts (NEW)
+export async function getGatewayTools(
+  provider: ToolsProvider, 
+  config: PluginConfig
+): Promise<Tool[]> {
+  const exploreTools = tool({
+    name: 'explore_tools',
+    description: 'Discover available tools and their categories...',
+    parameters: { category: z.string().optional() },
+    implementation: async (params) => {
+      await provider.getAvailableTools(); // Ensure registry loaded
+      return { success: true, categories: [...] }; // Returns category names only
+    }
+  });
+
+  const executeGatewayTool = tool({
+    name: 'execute_gateway_tool',
+    description: 'Executes a specific tool by its name...',
+    parameters: { 
+      toolName: z.string(),
+      arguments: z.record(z.unknown())
+    },
+    implementation: async (params) => {
+      return await provider.executeTool(params.toolName, params.arguments); // Delegates to registry
+    }
+  });
+
+  return [exploreTools, executeGatewayTool];
+}
+```
+
+### AI Workflow
+```
+User Message → AI calls explore_tools(category="fileSystem") 
+             → Returns: { success: true, categories: ["read_file", "write_file", ...] }
+             → AI decides to use read_file
+             → AI calls execute_gateway_tool(toolName="read_file", arguments={file_name: "example.txt"})
+             → Gateway delegates to provider.executeTool("read_file", args)
+             → Tool executes with full validation, security checks, error handling
+```
+
+### Architecture Benefits
+- ✅ **Grammar parser crashes eliminated** — Only 2 tools sent to llama.cpp initially instead of ~111
+- ✅ **AI workflow improved** — Structured discovery → execution pattern prevents tool confusion
+- ✅ **Full functionality preserved** — All tools still accessible via `execute_gateway_tool`
+- ✅ **Zero breaking changes** — Existing tool registry and config system unchanged
+
+### Engineering Details
+- Gateway tools use the existing `ToolsProvider` singleton for lazy loading of tool modules
+- Tool discovery returns category names (not individual tool names) to keep schema small
+- Execution delegates to `provider.executeTool()` which handles validation, security checks, and error handling
+- TypeScript strict mode compliance: all Zod schemas properly typed, no `any` leakage
 
 ---
 
@@ -767,6 +833,7 @@ src/
 │   ├── refactorCodeTools.ts    # AST-based code refactoring
 │   ├── dataVisualizationTools.ts # Chart generation (⚠️ Not currently registered in toolsProvider)
 │   ├── backupTools.ts          # Backup & restore operations
+│   ├── gatewayTools.ts         # Gateway tools (v1.6.0+ — tool discovery & execution)
 │   └── lineOperations.ts       # Line-level text operations
 └── types/                      # Type definitions
     └── types.d.ts

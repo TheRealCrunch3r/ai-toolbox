@@ -1,6 +1,6 @@
 # 🛠️ AI Toolbox — Complete Tool Reference
 
-*Generated on: 2026-07-07 · ~109 tools across 18 categories (verified against source code)*
+*Generated on: 2026-07-12 · 111+ tools across 18 categories + Gateway Tools (2) (verified against source code)*
 
 ---
 
@@ -26,6 +26,7 @@
 | Data Visualization | 1 | ❌ Not Registered | ⚠️ **Inactive** (`dataVisualizationTools.ts` exists but not in `toolsProvider.ts`) |
 | Document Parsing | 1 | ✅ Enabled | Active |
 | HTTP Client | 3 | ❌ Disabled | Active |
+| **Gateway Tools (v1.6.0+)** | **2** | **✅ Always Enabled** | **Active** |
 
 > ⚠️ **Note**: The `generate_chart` tool is defined in `src/tools/dataVisualizationTools.ts` but has not been registered in the `REGISTER_MAP` of `toolsProvider.ts`. It will not be available until added to the provider configuration.
 
@@ -366,6 +367,62 @@ The `src/tools/recodeTool/` module implements a pluggable rule engine for advanc
 
 ---
 
+## 🔑 Gateway Tools (2 — Always Enabled, v1.6.0+)
+
+**Purpose**: Single entry point for tool discovery and execution to prevent LLM tool-bloat crashes. Only 2 tools sent to llama.cpp initially instead of ~111.
+
+### `explore_tools`
+Discovers available tools and their categories without exposing all 111+ tools at once. Returns category names only (not individual tool names) to keep schema small.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `category` | `string` | No | Optional: Filter by specific category name (e.g., "fileSystem", "webSearch") |
+
+**Returns**: `{ success: boolean, categories: string[], message?: string }`
+
+**Example Usage**:
+```jsonc
+{
+  "category": "fileSystem"
+}
+// Returns: { success: true, categories: ["read_file", "write_file", ...] }
+```
+
+### `execute_gateway_tool`
+Executes any registered tool by name with built-in validation and error handling. Delegates to the existing ToolRegistry for execution.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `toolName` | `string` | Yes | Name of the tool to execute (e.g., "read_file", "web_search") |
+| `arguments` | `Record<string, unknown>` | Yes | Tool-specific arguments as key-value pairs |
+
+**Returns**: Tool execution result or error message
+
+**Example Usage**:
+```jsonc
+{
+  "toolName": "read_file",
+  "arguments": {
+    "file_name": "./src/index.ts"
+  }
+}
+// Delegates to provider.executeTool("read_file", args) with full validation
+```
+
+**AI Workflow**:
+```
+User Message → AI calls explore_tools(category="fileSystem") 
+             → Returns: { success: true, categories: ["read_file", "write_file", ...] }
+             → AI decides to use read_file
+             → AI calls execute_gateway_tool(toolName="read_file", arguments={file_name: "example.txt"})
+             → Gateway delegates to provider.executeTool("read_file", args)
+             → Tool executes with full validation, security checks, error handling
+```
+
+**Why Gateway?** Sending ~111 tools directly to llama.cpp's grammar parser causes `failed to parse grammar` errors. The Gateway pattern reduces initial schema payload from 111 → 2 tools while maintaining full functionality on-demand.
+
+---
+
 ## 📊 Data Visualization (1)
 
 | Tool | Description |
@@ -419,4 +476,4 @@ All tools implement multiple security layers:
 
 ---
 
-*Reference generated from actual source code analysis on 2026-07-07. All tool counts verified against `tools.push()` calls in src/tools/*.ts.*
+*Reference generated from actual source code analysis on 2026-07-12 (v1.6.0). All tool counts verified against `tools.push()` calls in src/tools/*.ts and gatewayTools.ts.*

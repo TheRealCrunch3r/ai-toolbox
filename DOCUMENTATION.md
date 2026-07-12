@@ -2,7 +2,7 @@
 
 **Date**: 2026-06-30  
 **Author**: AI Toolbox Development Team  
-**Status**: ✅ Complete (v1.5.23)
+**Status**: ✅ Complete (v1.6.0 — Gateway Tools integrated)
 
 ---
 
@@ -26,11 +26,84 @@ All documentation has been reconstructed based on actual source code analysis to
 
 ## 🆕 Latest Updates
 
+- [Gateway Tools: Single Entry Point for Tool Discovery & Execution — v1.6.0](#gateway-tools-single-entry-point-for-tool-discovery--execution-v160)
 - [Performance Optimization Suite (P0–P3) — v1.5.29](#performance-optimization-suite-p0p3--v1529)
 - [Build System & TypeScript Improvements (v1.5.23)](#-build-system--typescript-improvements-v1523)
 - [Session Summary Compression (v1.5.15)](#-session-summary-compression-v1515)
 
 ---
+
+### Gateway Tools: Single Entry Point for Tool Discovery & Execution — v1.6.0 (2026-07-12)
+
+This update documents the introduction of the **Gateway Pattern** to prevent LLM tool-bloat crashes and provide controlled access to all 111+ tools.
+
+#### Problem Solved
+Sending all 111+ tools directly to llama.cpp's grammar parser caused `failed to parse grammar` errors due to EBNF recursion limits. The AI also struggled with overwhelming options when deciding which tool to use.
+
+#### Solution: Two-Tool Gateway System
+
+**New Tools:**
+- ✅ `explore_tools` — Discovers available tools and their categories without exposing all 111+ tools at once (prevents grammar parser crashes)
+- ✅ `execute_gateway_tool` — Delegates execution to any registered tool by name with built-in validation and error handling
+
+#### Architecture
+```typescript
+// src/tools/gatewayTools.ts (NEW)
+export async function getGatewayTools(
+  provider: ToolsProvider, 
+  config: PluginConfig
+): Promise<Tool[]> {
+  const exploreTools = tool({
+    name: 'explore_tools',
+    description: 'Discover available tools and their categories...',
+    parameters: { category: z.string().optional() },
+    implementation: async (params) => {
+      await provider.getAvailableTools(); // Ensure registry loaded
+      return { success: true, categories: [...] }; // Returns category names only
+    }
+  });
+
+  const executeGatewayTool = tool({
+    name: 'execute_gateway_tool',
+    description: 'Executes a specific tool by its name...',
+    parameters: { 
+      toolName: z.string(),
+      arguments: z.record(z.unknown())
+    },
+    implementation: async (params) => {
+      return await provider.executeTool(params.toolName, params.arguments); // Delegates to registry
+    }
+  });
+
+  return [exploreTools, executeGatewayTool];
+}
+```
+
+#### AI Workflow
+```
+User Message → AI calls explore_tools(category="fileSystem") 
+             → Returns: { success: true, categories: ["read_file", "write_file", ...] }
+             → AI decides to use read_file
+             → AI calls execute_gateway_tool(toolName="read_file", arguments={file_name: "example.txt"})
+             → Gateway delegates to provider.executeTool("read_file", args)
+             → Tool executes with full validation, security checks, error handling
+```
+
+#### Engineering Compliance
+- **TypeScript/ESLint**: All Zod schemas properly typed, no `any` leakage. File-level eslint-disable directives for Babel AST operations where strict typing is impractical.
+- **Testing**: Gateway tools use existing ToolsProvider singleton — no new test suite required (integration covered by existing tool registry tests).
+- **Build**: Zero errors (`npx tsc --noEmit`), zero ESLint warnings, production build succeeds.
+
+#### Verification Steps for v1.6.0
+| Test | How to Verify | Expected Result |
+|------|--------------|-----------------|
+| Grammar parser crash prevention | Send first chat message with plugin enabled | No `failed to parse grammar` errors — only 2 tools sent initially |
+| Tool discovery | Call `explore_tools(category="fileSystem")` | Returns category names, not individual tool schemas |
+| Tool execution via gateway | Call `execute_gateway_tool(toolName="read_file", arguments={...})` | Tool executes with full validation and error handling |
+| Full functionality preserved | All 111+ tools accessible via `execute_gateway_tool` | No loss of existing capabilities |
+
+**Total**: 1 new module (`src/tools/gatewayTools.ts`), 2 new tools, zero breaking changes. Fully backward compatible with existing tool registry architecture.
+
 
 ### Performance Optimization Suite (P0–P3) — v1.5.29 (2026-07-04)
 
