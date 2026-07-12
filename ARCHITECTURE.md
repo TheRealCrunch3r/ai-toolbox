@@ -39,43 +39,40 @@ Deep dive into the AI Toolbox plugin's system architecture, design patterns, and
 │  │  │                                                        │  │  │
 │  │  │  ┌──────────────────────────────────────────────────┐  │  │  │
 │  │  │  │             Tool Registration Layer               │  │  │  │
-│  │  │  │  ┌─────────────────┐  ┌──────────────────────┐  │  │  │  │
-│  │  │  │  │ toolsProvider.ts │  │   ToolRegistry       │  │  │  │  │
-│  │  │  │  │  (factory fn)    │  │   (central map)      │  │  │  │  │
-│  │  │  │  └────────┬────────┘  └──────────┬───────────┘  │  │  │  │
-│  │  │  └───────────┼──────────────────────┼─────────────┘  │  │  │
-│  │  │              │                      │                │  │  │
-│  │  │  ┌───────────┴──────────────────────┴─────────────┐  │  │  │
-│  │  │  │              Tool Modules (20 files + Gateway)    │  │  │  │
+│  │  │  │  ┌─────────────────┐                              │  │  │  │
+│  │  │  │  │ toolsProvider.ts │                               │  │  │  │
+│  │  │  │  │  (factory fn)    │                               │  │  │  │
+│  │  │  │  └────────┬────────┘                              │  │  │  │
+│  │  │  └───────────┼───────────────────────────────────────┘  │  │  │
+│  │  │              │                                         │  │  │
+│  │  │  ┌───────────┴─────────────────────────────────────┐  │  │  │
+│  │  │  │              Tool Modules (15 registered files)    │  │  │  │
 │  │  │  │  ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ │  │  │  │
 │  │  │  │  │fileSys │ │webRes  │ │browser │ │  git   │ │  │  │  │
-│  │  │  │  │ (21)   │ │ (4)    │ │  (5)   │ │ (13)   │ │  │  │  │
+│  │  │  │  │ (22)   │ │ (4)    │ │  (5)   │ │ (15)   │ │  │  │  │
 │  │  │  │  └────────┘ └────────┘ └────────┘ └────────┘ │  │  │  │
 │  │  │  │  ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ │  │  │  │
-│  │  │  │  │ datab  │ │backgnd │ │exec    │ │ utility│ │  │  │  │
-│  │  │  │  │ (1)    │ │ cmd(3) │ │  (5)   │ │ (28)   │ │  │  │  │
+│  │  │  │  │ datab  │ │backgnd │ │exec    │ │ docParse│ │  │  │  │
+│  │  │  │  │ (1)    │ │ cmd(3) │ │  (5)   │ │  (1)    │ │  │  │  │
 │  │  │  │  └────────┘ └────────┘ └────────┘ └────────┘ │  │  │  │
 │  │  │  │  ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ │  │  │  │
 │  │  │  │  │ image  │ │ http   │ │ vector │ │   UI   │ │  │  │  │
 │  │  │  │  │ (4)    │ │ (3)    │ │ RAG(4) │ │ Gen(3) │ │  │  │  │
 │  │  │  │  └────────┘ └────────┘ └────────┘ └────────┘ │  │  │  │
-│  │  │  │  ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ │  │  │  │
-│  │  │  │  │ docParse│ │textProc│ │ Context │ │ Backup │ │  │  │  │
-│  │  │  │  │  (1)   │ │  (3)   │ │ Mgmt(7) │ │ (4)    │ │  │  │  │
-│  │  │  │  └────────┘ └────────┘ └────────┘ └────────┘ │  │  │  │
-│  │  │  │  ┌────────┐                                   │  │  │  │
-│  │  │  │  │ LineOps │                                   │  │  │  │
-│  │  │  │  │  (3)    │                                   │  │  │  │
-│  │  │  │  └────────┘                                   │  │  │  │
+│  │  │  │  ┌────────┐ ┌────────┐ ┌────────┐            │  │  │  │
+│  │  │  │  │ Context │ │textProc│ │AST Ref │ │bgndCmds│ │  │  │  │
+│  │  │  │  │ Mgmt(12)│ │ (4)    │ │ factor│ │ (3)    │ │  │  │  │
+│  │  │  │  └────────┘ └────────┘ │ (2)     │            │  │  │  │
+│  │  │  │                        └─────────┘             │  │  │  │
 │  │  │  └─────────────────────────────────────────────┘  │  │  │
 │  │  └───────────────────────────────────────────────────┘  │  │
 │  └─────────────────────────────────────────────────────────┘  │
-│                                                               │  │
-│  ┌─────────────────────────────────────────────────────────┐  │  │
-│  │                  External Dependencies                  │  │  │
-│  │  Puppeteer │ isomorphic-git │ Tesseract.js │ pdf-parse      │  │  │
-│  │  duck-duck-scrape │ node:sqlite │ node-notifier        │  │  │
-│  └─────────────────────────────────────────────────────────┘  │  │
+│                                                               │
+│  ┌─────────────────────────────────────────────────────────┐  │
+│  │                  External Dependencies                  │  │
+│  │  Puppeteer │ isomorphic-git │ Tesseract.js │ pdf-parse   │  │
+│  │  duck-duck-scrape │ node:sqlite │ node-notifier        │  │
+│  └─────────────────────────────────────────────────────────┘  │
 └───────────────────────────────────────────────────────────────┘
 ```
 
@@ -118,7 +115,7 @@ export function main(context: PluginContext) {
   // 2. Register prompt preprocessor (Document RAG + ContextGuard)
   context.withPromptPreprocessor(preprocess);
   
-  // 3. Register tools provider (2 gateway tools only — all others via execute_gateway_tool)
+  // 3. Register tools provider (all registered categories based on config)
   context.withToolsProvider(toolsProvider);
   
   // 4. Setup cleanup handlers
@@ -127,44 +124,48 @@ export function main(context: PluginContext) {
 }
 ```
 
-### 2. Tool Registration Flow
+### 2. Tool Registration Flow (Current State — v1.6.0)
 
 ```
 toolsProvider() called by LM Studio SDK
     │
     ▼
-createToolsProvider(config)
-    │
-    ▼
-new ToolsProvider(config)
+createToolsProvider(config, stateManager, bgCommandManager)
     │
     ├── StateManager(config) ──────► Load state from disk
     ├── BackgroundCommandManager ──► Initialize process tracker
-    └── ToolRegistry.registerAll()
+    └── Conditional Tool Registration (based on config toggles):
             │
-            ├── registerFileSystemTools()    ──► 17 tools
-            ├── registerWebResearchTools()   ──► 4 tools
-            ├── registerBrowserTools()       ──► 5 tools
-            ├── registerGitTools()           ──► 15 tools
-            ├── registerDatabaseTools()      ──► 1 tool
-            ├── registerDocumentTools()      ──► 1 tool
-            ├── registerBackgroundCommandTools() ─► 3 tools
-            ├── registerExecutionTools()     ──► 5 tools (filtered)
-            ├── registerUtilityTools()       ──► ~28 tools
-            ├── registerImageProcessingTools() ─► 4 tools
-            ├── registerHttpClientTools()    ──► 3 tools
-            ├── registerRagTools()           ──► 4 tools
-            ├── registerUiGenerationTools()  ──► 3 tools
-            ├── registerContextManagementTools() ─► 7 tools
-            └── registerBackupTools()        ──► 4 tools
-            └── registerGatewayTools()       ──► 2 tools (v1.6.0+ — always enabled)
-            │
-            ▼
-        ToolRegistry.toolMap (Map<string, TypedTool>)
+            ├── registerFileSystemTools()      ──► 22 tools (enabled by default)
+            ├── registerWebResearchTools()     ──► 4 tools (enabled by default)
+            ├── registerGitTools()             ──► 15 tools (disabled by default)
+            ├── registerBrowserTools()         ──► 5 tools (disabled by default)
+            ├── registerDatabaseTools()        ──► 1 tool (disabled by default)
+            ├── registerDocumentTools()        ──► 1 tool (enabled by default)
+            ├── registerBackgroundCommandTools() ─► 3 tools (disabled by default)
+            ├── registerImageProcessingTools() ─► 4 tools (enabled by default)
+            ├── registerHttpClientTools()      ──► 3 tools (disabled by default)
+            ├── registerRagTools()             ──► 4 tools (enabled by default)
+            ├── registerUiGenerationTools()    ──► 3 tools (disabled by default)
+            ├── registerContextManagementTools() ─► 12 tools (enabled by default)
+            ├── registerTextProcessingTools()  ──► 4 tools (enabled by default)
+            ├── registerRefactorCodeTools()    ──► 2 tools (enabled by default)
+            ├── registerExecutionTools()       ──► 5 tools (mixed defaults)
             │
             ▼
-        Return Tool[] to SDK ──► SDK registers with LLM
+        Return Tool[] to SDK ──► ~88 tools total (configurable per user)
 ```
+
+### ⚠️ Gateway Tools Status (v1.6.0)
+
+**Status**: `src/tools/gatewayTools.ts` exists with 2 tool definitions (`explore_tools`, `execute_gateway_tool`) but is **NOT imported or registered in `toolsProvider.ts`.** Full integration requires:
+- Adding import to `toolsProvider.ts`
+- Registering gateway tools as always-enabled (bypass config toggles)
+- Wiring `provider.executeTool()` delegation method
+
+See [CHANGELOG.md](./CHANGELOG.md) for the v1.6.0 design documentation.
+
+---
 
 ### 3. Context Management Flow
 
@@ -205,20 +206,35 @@ Persistent Storage (.ai_toolbox_context.msgpack)
 Central registry managing all tool instances:
 
 ```typescript
-class ToolRegistry {
-  private toolMap = new Map<string, TypedTool>();
+// Simplified registration pattern (actual implementation uses conditional config gating)
+export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[]> {
+  const pluginConfig = ctl.getPluginConfig(configSchematics);
   
-  registerAll(config, stateManager, bgCommandManager): void
-  getAll(): Tool[]
-  get(name: string): TypedTool | undefined
-  has(name: string): boolean
+  if (!stateManager) stateManager = new StateManager(pluginConfig as any);
+  if (!backgroundCommandManager) backgroundCommandManager = new BackgroundCommandManager(pluginConfig as any);
+
+  const tools: Tool[] = [];
+
+  // --- File System Tools (enabled by default) ---
+  if (pluginConfig.get('fileSystem')) {
+    tools.push(...registerFileSystemTools(pluginConfig as any, stateManager));
+  }
+
+  // --- Web Research Tools (enabled by default) ---
+  if (pluginConfig.get('webSearch')) {
+    tools.push(...registerWebResearchTools(pluginConfig as any));
+  }
+
+  // ... additional conditional registrations for all 15 categories ...
+
+  return tools;
 }
 ```
 
 **Key Design Decisions:**
-- Tools created **once** at module load time (not per-request)
-- Config-based filtering at registration time
-- God Mode bypasses individual category toggles
+- Tools registered **conditionally** based on config toggles (not all loaded at once)
+- Default states: File System, Web Research, Document Parsing, Image Processing, Vector RAG, Context Management, Text Processing, AST Refactoring — enabled by default; Git, Browser, Database, Background Commands, HTTP Client, UI Generation — disabled by default
+- Execution tools have fine-grained toggles (JS/Python vs Terminal/Shell)
 
 ### StateManager (`src/stateManager.ts`)
 
@@ -333,17 +349,19 @@ getAllowedBases(): string[]
 
 ---
 
-## 🚀 Gateway Pattern Architecture (v1.6.0+)
+## 🚀 Gateway Pattern Architecture (Documented — v1.6.0)
 
-**Purpose**: Prevent LLM tool-bloat crashes by providing a single entry point for tool discovery and execution, reducing the initial grammar schema payload from ~111 tools to just 2.
+> **⚠️ Status**: `src/tools/gatewayTools.ts` exists but is NOT imported/registered in `toolsProvider.ts`. The following describes the design as documented, pending full integration.
+
+**Purpose**: Prevent LLM tool-bloat crashes by providing a single entry point for tool discovery and execution, reducing the initial grammar schema payload from ~88 tools to just 2.
 
 ### Problem Solved
-Sending all 111+ tools directly to llama.cpp's grammar parser caused `failed to parse grammar` errors due to EBNF recursion limits. The AI also struggled with overwhelming options when deciding which tool to use.
+Sending all 88+ tools directly to llama.cpp's grammar parser caused `failed to parse grammar` errors due to EBNF recursion limits. The AI also struggled with overwhelming options when deciding which tool to use.
 
-### Solution: Two-Tool Gateway System
+### Solution: Two-Tool Gateway System (Design)
 
 ```typescript
-// src/tools/gatewayTools.ts (NEW)
+// src/tools/gatewayTools.ts (EXISTS — NOT YET REGISTERED)
 export async function getGatewayTools(
   provider: ToolsProvider, 
   config: PluginConfig
@@ -374,7 +392,7 @@ export async function getGatewayTools(
 }
 ```
 
-### AI Workflow
+### AI Workflow (Design)
 ```
 User Message → AI calls explore_tools(category="fileSystem") 
              → Returns: { success: true, categories: ["read_file", "write_file", ...] }
@@ -384,17 +402,11 @@ User Message → AI calls explore_tools(category="fileSystem")
              → Tool executes with full validation, security checks, error handling
 ```
 
-### Architecture Benefits
-- ✅ **Grammar parser crashes eliminated** — Only 2 tools sent to llama.cpp initially instead of ~111
-- ✅ **AI workflow improved** — Structured discovery → execution pattern prevents tool confusion
-- ✅ **Full functionality preserved** — All tools still accessible via `execute_gateway_tool`
-- ✅ **Zero breaking changes** — Existing tool registry and config system unchanged
-
-### Engineering Details
-- Gateway tools use the existing `ToolsProvider` singleton for lazy loading of tool modules
-- Tool discovery returns category names (not individual tool names) to keep schema small
-- Execution delegates to `provider.executeTool()` which handles validation, security checks, and error handling
-- TypeScript strict mode compliance: all Zod schemas properly typed, no `any` leakage
+### Integration Required (Pending)
+To complete the v1.6.0 release:
+1. Add `import { registerGatewayTools } from './tools/gatewayTools.js';` to `toolsProvider.ts`
+2. Call `registerGatewayTools()` unconditionally (bypass config toggles for always-enabled tools)
+3. Implement `provider.executeTool(name, args)` delegation method in the ToolsProvider class
 
 ---
 
@@ -747,7 +759,7 @@ index.ts
 │   ├── config.ts
 │   ├── stateManager.ts
 │   ├── backgroundCommands.ts
-│   └── tools/*.ts (16 modules)
+│   └── tools/*.ts (15 registered modules)
 │       ├── security.ts (shared)
 │       ├── workingDir.ts (shared)
 │       └── performanceUtils.ts (shared)
@@ -800,7 +812,7 @@ Each field maps to a UI element in LM Studio's settings panel via `createConfigS
 ```
 src/
 ├── index.ts                    # Plugin entry point
-├── toolsProvider.ts            # Tool registration + ToolRegistry class
+├── toolsProvider.ts            # Tool registration (conditional config gating)
 ├── config.ts                   # Zod schema + UI schematics
 ├── security.ts                 # Path/SQL/command validators
 ├── stateManager.ts             # Persistent state management
@@ -814,27 +826,27 @@ src/
 │   ├── de.ts
 │   ├── zh-CN.ts
 │   └── zh-TW.ts
-├── tools/                      # Tool category modules (19 files)
-│   ├── fileSystemTools.ts      # File system operations
-│   ├── webResearchTools.ts     # Web research & search
-│   ├── browserAutomationTools.ts # Browser automation
-│   ├── gitHubTools.ts          # Git & GitHub API integration
-│   ├── databaseTools.ts        # Database queries
-│   ├── documentTools.ts        # Document parsing (PDF/DOCX)
-│   ├── backgroundCommandTools.ts # Background process management
-│   ├── executionTools.ts       # Code execution (JS/Python/Terminal)
-│   ├── utilityTools.ts         # Utility tools (~29 tools: memory, system info, etc.)
-│   ├── imageProcessingTools.ts # Image processing & OCR
-│   ├── httpClientTools.ts      # HTTP client operations
-│   ├── vectorRagTools.ts       # Vector RAG semantic search
-│   ├── textProcessingTools.ts  # Text transformation & manipulation
-│   ├── uiGenerationTools.ts    # UI component generation
-│   ├── contextManagementTools.ts # Context management & tracking
-│   ├── refactorCodeTools.ts    # AST-based code refactoring
-│   ├── dataVisualizationTools.ts # Chart generation (⚠️ Not currently registered in toolsProvider)
-│   ├── backupTools.ts          # Backup & restore operations
-│   ├── gatewayTools.ts         # Gateway tools (v1.6.0+ — tool discovery & execution)
-│   └── lineOperations.ts       # Line-level text operations
+├── tools/                      # Tool category modules (19 source files)
+│   ├── fileSystemTools.ts      # File system operations (22 tools — REGISTERED)
+│   ├── webResearchTools.ts     # Web research & search (4 tools — REGISTERED)
+│   ├── browserAutomationTools.ts # Browser automation (5 tools — REGISTERED)
+│   ├── gitGithubTools.ts       # Git local ops + GitHub API (15 tools — REGISTERED)
+│   ├── databaseTools.ts        # Database queries (1 tool — REGISTERED)
+│   ├── documentTools.ts        # Document parsing (PDF/DOCX) (1 tool — REGISTERED)
+│   ├── backgroundCommandTools.ts # Background process management (3 tools — REGISTERED)
+│   ├── executionTools.ts       # Code execution JS/Python/Terminal (5 tools — REGISTERED)
+│   ├── utilityTools.ts         # Utility tools (35 tools — NOT YET REGISTERED)
+│   ├── imageProcessingTools.ts # Image processing & OCR (4 tools — REGISTERED)
+│   ├── httpClientTools.ts      # HTTP client operations (3 tools — REGISTERED)
+│   ├── vectorRagTools.ts       # Vector RAG semantic search (4 tools — REGISTERED)
+│   ├── textProcessingTools.ts  # Text transformation (4 tools — REGISTERED)
+│   ├── uiGenerationTools.ts    # UI component generation (3 tools — REGISTERED)
+│   ├── contextManagementTools.js # Context management & tracking (12 tools — REGISTERED)
+│   ├── refactorCodeTools.ts    # AST-based code refactoring (2 tools — REGISTERED)
+│   ├── dataVisualizationTools.ts # Chart generation (1 tool — NOT YET REGISTERED)
+│   ├── backupTools.ts          # Backup & restore operations (4 tools — NOT YET REGISTERED)
+│   ├── gatewayTools.ts         # Gateway pattern (v1.6.0 design, 2 tools — NOT YET REGISTERED)
+│   └── lineOperations.ts       # Line-level text operations (1 tool — NOT YET REGISTERED)
 └── types/                      # Type definitions
     └── types.d.ts
 
@@ -893,3 +905,33 @@ The following rule files are defined in the proposal but NOT yet created:
 - ⏳ `rules/securityHardener.ts` — Security pattern hardening
 - ⏳ `rules/duplicateCodeExtraction.ts` — Duplicate code detection & extraction
 - ⏳ `rules/typeInference.ts` — Type inference and annotation fixes
+
+---
+
+## 📊 Tool Registration Summary (Actual vs Documented)
+
+| Category | File | Tool Count | Registered? | Default State |
+|----------|------|------------|-------------|---------------|
+| File System | fileSystemTools.ts | 22 | ✅ Yes | Enabled |
+| Web Research | webResearchTools.ts | 4 | ✅ Yes | Enabled |
+| Browser Automation | browserAutomationTools.ts | 5 | ✅ Yes | Disabled |
+| Git & GitHub | gitGithubTools.ts | 15 | ✅ Yes | Disabled |
+| Database | databaseTools.ts | 1 | ✅ Yes | Disabled |
+| Document Parsing | documentTools.ts | 1 | ✅ Yes | Enabled |
+| Background Commands | backgroundCommandTools.ts | 3 | ✅ Yes | Disabled |
+| Image Processing | imageProcessingTools.ts | 4 | ✅ Yes | Enabled |
+| HTTP Client | httpClientTools.ts | 3 | ✅ Yes | Disabled |
+| Vector RAG | vectorRagTools.ts | 4 | ✅ Yes | Enabled |
+| UI Generation | uiGenerationTools.ts | 3 | ✅ Yes | Disabled |
+| Context Management | contextManagementTools.ts | 12 | ✅ Yes | Enabled |
+| Text Processing | textProcessingTools.ts | 4 | ✅ Yes | Enabled |
+| AST Refactoring | refactorCodeTools.ts | 2 | ✅ Yes | Enabled |
+| Execution | executionTools.ts | 5 | ✅ Yes | Mixed (JS/Python: enabled, Terminal/Shell: disabled) |
+| **Total Registered** | | **88** | | |
+| | | | | |
+| Utility Tools | utilityTools.ts | 35 | ❌ No | — |
+| Gateway Pattern | gatewayTools.ts | 2 | ❌ No | — |
+| Backup Operations | backupTools.ts | 4 | ❌ No | — |
+| Data Visualization | dataVisualizationTools.ts | 1 | ❌ No | — |
+| Line Operations | lineOperations.ts | 1 | ❌ No | — |
+| **Total Unregistered** | | **43** | | |

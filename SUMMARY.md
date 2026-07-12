@@ -1,4 +1,4 @@
-# Project Summary — AI Toolbox Plugin v1.5.x
+# Project Summary — AI Toolbox Plugin v1.6.0
 
 Comprehensive overview of the AI Toolbox plugin, its architecture, features, and recent changes. This document provides a high-level summary for developers, maintainers, and users.
 
@@ -9,7 +9,7 @@ Comprehensive overview of the AI Toolbox plugin, its architecture, features, and
 - [Project Overview](#project-overview)
 - [Key Features](#key-features)
 - [Architecture Summary](#architecture-summary)
-- [Recent Changes (v1.5.x)](#recent-changes-v15x)
+- [Recent Changes (v1.6.0)](#recent-changes-v160)
 - [Security Posture](#security-posture)
 - [Performance Characteristics](#performance-characteristics)
 - [Development Status](#development-status)
@@ -129,7 +129,7 @@ Each category is implemented as a separate module in `src/tools/`:
 
 ---
 
-## 📈 Recent Changes (v1.5.x → v1.6.x)
+## 📈 Recent Changes (v1.6.0)
 
 ### [1.6.0] — 🚀 Gateway Tools: Single Entry Point for Tool Discovery & Execution (2026-07-12)
 **Introduced the Gateway Pattern to prevent LLM tool-bloat crashes and provide controlled access to all 111+ tools.**

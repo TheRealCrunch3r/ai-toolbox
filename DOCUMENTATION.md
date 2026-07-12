@@ -35,15 +35,15 @@ All documentation has been reconstructed based on actual source code analysis to
 
 ### Gateway Tools: Single Entry Point for Tool Discovery & Execution — v1.6.0 (2026-07-12)
 
-This update documents the introduction of the **Gateway Pattern** to prevent LLM tool-bloat crashes and provide controlled access to all 111+ tools.
+This update documents the introduction of the **Gateway Pattern** to prevent LLM tool-bloat crashes and provide controlled access to all 88 registered tools.
 
 #### Problem Solved
-Sending all 111+ tools directly to llama.cpp's grammar parser caused `failed to parse grammar` errors due to EBNF recursion limits. The AI also struggled with overwhelming options when deciding which tool to use.
+Sending all 88 registered tools directly to llama.cpp's grammar parser caused `failed to parse grammar` errors due to EBNF recursion limits. The AI also struggled with overwhelming options when deciding which tool to use.
 
 #### Solution: Two-Tool Gateway System
 
 **New Tools:**
-- ✅ `explore_tools` — Discovers available tools and their categories without exposing all 111+ tools at once (prevents grammar parser crashes)
+- ✅ `explore_tools` — Discovers available tools and their categories without exposing all 88 registered tools at once (prevents grammar parser crashes)
 - ✅ `execute_gateway_tool` — Delegates execution to any registered tool by name with built-in validation and error handling
 
 #### Architecture
