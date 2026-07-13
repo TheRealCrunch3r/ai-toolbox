@@ -45,84 +45,120 @@ export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[
     backgroundCommandManager = new BackgroundCommandManager(pluginConfig as any);
   }
 
+  // GOD MODE: when enabled, bypass all individual toggles and activate every tool
+  const isGodMode = pluginConfig.get('godMode');
+
   const tools: Tool[] = [];
 
   // --- File System Tools ---
-  if (pluginConfig.get('fileSystem')) {
+  if (pluginConfig.get('fileSystem') || isGodMode) {
     tools.push(...registerFileSystemTools(pluginConfig as any, stateManager));
   }
 
   // --- Web Research Tools ---
-  if (pluginConfig.get('webSearch')) {
+  if (pluginConfig.get('webSearch') || isGodMode) {
     tools.push(...registerWebResearchTools(pluginConfig as any));
   }
 
   // --- Git & GitHub Tools ---
-  if (pluginConfig.get('gitOperations')) {
+  if (pluginConfig.get('gitOperations') || isGodMode) {
     tools.push(...registerGitTools(pluginConfig as any));
   }
 
   // --- Browser Automation Tools ---
-  if (pluginConfig.get('browserAutomation')) {
+  if (pluginConfig.get('browserAutomation') || isGodMode) {
     tools.push(...registerBrowserTools(pluginConfig as any));
   }
 
   // --- Database Queries ---
-  if (pluginConfig.get('databaseQueries')) {
+  if (pluginConfig.get('databaseQueries') || isGodMode) {
     tools.push(...registerDatabaseTools(pluginConfig as any));
   }
 
   // --- Document Parsing ---
-  if (pluginConfig.get('documentParsing')) {
+  if (pluginConfig.get('documentParsing') || isGodMode) {
     tools.push(...registerDocumentTools(pluginConfig as any));
   }
 
   // --- Background Commands ---
-  if (pluginConfig.get('backgroundCommands')) {
+  if (pluginConfig.get('backgroundCommands') || isGodMode) {
     tools.push(...registerBackgroundCommandTools(pluginConfig as any, backgroundCommandManager));
   }
 
   // --- Image Processing Tools ---
-  if (pluginConfig.get('imageProcessing')) {
+  if (pluginConfig.get('imageProcessing') || isGodMode) {
     tools.push(...registerImageProcessingTools(pluginConfig as any));
   }
 
   // --- HTTP Client Tools ---
-  if (pluginConfig.get('httpClient')) {
+  if (pluginConfig.get('httpClient') || isGodMode) {
     tools.push(...registerHttpClientTools(pluginConfig as any));
   }
 
   // --- Vector RAG / Semantic Search ---
-  if (pluginConfig.get('vectorRAG')) {
+  if (pluginConfig.get('vectorRAG') || isGodMode) {
     tools.push(...registerRagTools(pluginConfig as any));
   }
 
   // --- UI Generation Tools ---
-  if (pluginConfig.get('uiGeneration')) {
+  if (pluginConfig.get('uiGeneration') || isGodMode) {
     tools.push(...registerUiGenerationTools(pluginConfig as any));
   }
 
   // --- Context Management Tools ---
-  if (pluginConfig.get('contextManagement')) {
+  if (pluginConfig.get('contextManagement') || isGodMode) {
     tools.push(...registerContextManagementTools(pluginConfig as any, stateManager));
   }
 
   // --- Text Processing Tools ---
-  if (pluginConfig.get('textProcessing')) {
+  if (pluginConfig.get('textProcessing') || isGodMode) {
     tools.push(...registerTextProcessingTools(pluginConfig as any));
   }
 
   // --- AST Code Refactoring Tools ---
-  if (pluginConfig.get('refactorCode')) {
+  if (pluginConfig.get('refactorCode') || isGodMode) {
     tools.push(...registerRefactorCodeTools(pluginConfig as any));
   }
 
-  // --- Execution Tools (JS/Python/Terminal) ---
-  if (pluginConfig.get('executionJavaScript') || 
-      pluginConfig.get('executionPython') || 
-      pluginConfig.get('executionTerminal') || 
-      pluginConfig.get('executionShell')) {
-    tools.push(...registerExecutionTools(pluginConfig as any));
+  // --- Execution Tools (JS/Python/Terminal) — per-tool gating, GOD MODE bypasses all ---
+  const hasAnyExecToggle = pluginConfig.get('executionJavaScript') ||
+                           pluginConfig.get('executionPython') ||
+                           pluginConfig.get('executionTerminal') ||
+                           pluginConfig.get('executionShell') ||
+                           pluginConfig.get('executionTests');
+
+  if (hasAnyExecToggle || isGodMode) {
+    const allExecTools = registerExecutionTools(pluginConfig as any);
+
+    // run_javascript — gated by executionJavaScript (or GOD MODE)
+    if (pluginConfig.get('executionJavaScript') || isGodMode) {
+      const jsTool = allExecTools.find(t => t.name === 'run_javascript');
+      if (jsTool) tools.push(jsTool);
+    }
+
+    // run_python — gated by executionPython (or GOD MODE)
+    if (pluginConfig.get('executionPython') || isGodMode) {
+      const pyTool = allExecTools.find(t => t.name === 'run_python');
+      if (pyTool) tools.push(pyTool);
+    }
+
+    // run_in_terminal — gated by executionTerminal (or GOD MODE)
+    if (pluginConfig.get('executionTerminal') || isGodMode) {
+      const termTool = allExecTools.find(t => t.name === 'run_in_terminal');
+      if (termTool) tools.push(termTool);
+    }
+
+    // execute_command — gated by executionShell (or GOD MODE)
+    if (pluginConfig.get('executionShell') || isGodMode) {
+      const shellTool = allExecTools.find(t => t.name === 'execute_command');
+      if (shellTool) tools.push(shellTool);
+    }
+
+    // run_tests — gated by executionTests (or GOD MODE)
+    if (pluginConfig.get('executionTests') || isGodMode) {
+      const testTool = allExecTools.find(t => t.name === 'run_tests');
+      if (testTool) tools.push(testTool);
+    }
   }
 
   // Return the filtered list of active tools

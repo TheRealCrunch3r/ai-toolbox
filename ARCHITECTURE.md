@@ -124,7 +124,7 @@ export function main(context: PluginContext) {
 }
 ```
 
-### 2. Tool Registration Flow (Current State — v1.6.0)
+### 2. Tool Registration Flow (Current State — v1.6.1)
 
 ```
 toolsProvider() called by LM Studio SDK
@@ -156,14 +156,14 @@ createToolsProvider(config, stateManager, bgCommandManager)
         Return Tool[] to SDK ──► ~88 tools total (configurable per user)
 ```
 
-### ⚠️ Gateway Tools Status (v1.6.0)
+### ⚠️ Gateway Tools Status (v1.6.1)
 
 **Status**: `src/tools/gatewayTools.ts` exists with 2 tool definitions (`explore_tools`, `execute_gateway_tool`) but is **NOT imported or registered in `toolsProvider.ts`.** Full integration requires:
 - Adding import to `toolsProvider.ts`
 - Registering gateway tools as always-enabled (bypass config toggles)
 - Wiring `provider.executeTool()` delegation method
 
-See [CHANGELOG.md](./CHANGELOG.md) for the v1.6.0 design documentation.
+See [CHANGELOG.md](./CHANGELOG.md) for the v1.6.1 design documentation.
 
 ---
 
@@ -349,7 +349,7 @@ getAllowedBases(): string[]
 
 ---
 
-## 🚀 Gateway Pattern Architecture (Documented — v1.6.0)
+## 🚀 Gateway Pattern Architecture (Documented — v1.6.1)
 
 > **⚠️ Status**: `src/tools/gatewayTools.ts` exists but is NOT imported/registered in `toolsProvider.ts`. The following describes the design as documented, pending full integration.
 
@@ -403,7 +403,7 @@ User Message → AI calls explore_tools(category="fileSystem")
 ```
 
 ### Integration Required (Pending)
-To complete the v1.6.0 release:
+To complete the v1.6.1 release:
 1. Add `import { registerGatewayTools } from './tools/gatewayTools.js';` to `toolsProvider.ts`
 2. Call `registerGatewayTools()` unconditionally (bypass config toggles for always-enabled tools)
 3. Implement `provider.executeTool(name, args)` delegation method in the ToolsProvider class
@@ -845,7 +845,7 @@ src/
 │   ├── refactorCodeTools.ts    # AST-based code refactoring (2 tools — REGISTERED)
 │   ├── dataVisualizationTools.ts # Chart generation (1 tool — NOT YET REGISTERED)
 │   ├── backupTools.ts          # Backup & restore operations (4 tools — NOT YET REGISTERED)
-│   ├── gatewayTools.ts         # Gateway pattern (v1.6.0 design, 2 tools — NOT YET REGISTERED)
+│   ├── gatewayTools.ts         # Gateway pattern (v1.6.1 design, 2 tools — NOT YET REGISTERED)
 │   └── lineOperations.ts       # Line-level text operations (1 tool — NOT YET REGISTERED)
 └── types/                      # Type definitions
     └── types.d.ts

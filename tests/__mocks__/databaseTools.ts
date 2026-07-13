@@ -1,2 +1,2 @@
-/** Manual mock for databaseTools — returned empty tool array */
-export function registerDatabaseTools(_config) { return []; }
+/** Manual mock for databaseTools — returns a single dummy tool */
+export function registerDatabaseTools(_config) { return [{ name: 'query_database', description: 'Mock query_database' }]; }

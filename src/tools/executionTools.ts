@@ -358,6 +358,15 @@ export function registerExecutionTools(_config: PluginConfig): Tool[] {
     implementation: async ({ runner, file_or_dir, timeout_seconds }: { readonly runner: string; readonly file_or_dir?: string; readonly timeout_seconds?: number }) => {
       try {
         const workingDir = getWorkingDir();
+
+        // S7 FIX: Validate file_or_dir path for traversal attacks (like other execution tools)
+        if (file_or_dir && typeof file_or_dir === 'string') {
+          const normalizedPath = file_or_dir.replace(/\\/g, '/');
+          if (normalizedPath.startsWith('../') || normalizedPath === '..' || normalizedPath.includes('/../')) {
+            return { success: false, error: 'Unsafe path detected: directory traversal not allowed in test paths.' };
+          }
+        }
+
         const timeoutMs = ((timeout_seconds || 60) * 1000);
 
         // Determine command based on test runner

@@ -18,6 +18,7 @@ export interface SessionSummaryData {
   pending_tasks?: string;
   decisions_made?: string;
   context_for_next_session?: string;
+  timestamp?: number;
 }
 
 // ==================== Context Management Types ====================
@@ -52,64 +53,55 @@ export class ContextStorageManager {
     
     const baseDir = path.resolve(__dirname, '..');
     this.pluginRootPath = path.join(baseDir, '.session_context', '.ai_toolbox_memory.msgpack');
-    
-    console.log(`[ContextStorage] Initialized — Working Dir: ${this.workingDirPath}`);
-    console.log(`[ContextStorage] Plugin Root Fallback: ${this.pluginRootPath}`);
   }
 
   /** Ensure the .session_context directory exists */
   private async ensureDirectory(filePath: string): Promise<void> {
     const dir = path.dirname(filePath);
-    if (!await fs.access(dir).then(() => true).catch(() => false)) {
-      await fs.mkdir(dir, { recursive: true });
-      console.log(`[ContextStorage] Created directory: ${dir}`);
-    }
-  }
-
-  /** Resolve storage path with working-dir-first / plugin-root fallback */
-  private async resolveActiveStorage(): Promise<{ filePath: string; isWorkingDir: boolean }> {
-    // Priority 1: Working directory (always checked first)
-    if (await fs.access(this.workingDirPath).then(() => true).catch(() => false)) {
-      return { filePath: this.workingDirPath, isWorkingDir: true };
-    }
-    
-    // Priority 2: Plugin root fallback
-    if (await fs.access(this.pluginRootPath).then(() => true).catch(() => false)) {
-      console.log(`[ContextStorage] Working dir not found. Falling back to plugin root.`);
-      return { filePath: this.pluginRootPath, isWorkingDir: false };
-    }
-    
-    // Default to working directory if neither exists (for new writes)
-    return { filePath: this.workingDirPath, isWorkingDir: true };
-  }
-
-  /** Load context entries from disk — ASYNC === */
-  async load(): Promise<ContextEntry[]> {  // MADE ASYNC
     try {
-      const { filePath, isWorkingDir } = await this.resolveActiveStorage();
-      
-      if (!await fs.access(filePath).then(() => true).catch(() => false)) {
-        console.log(`[ContextStorage.load] No context storage found at ${filePath}`);
-        return [];
-      }
-      
-      const buffer = await fs.readFile(filePath);  // Read as Buffer (msgpack format)
-      const entries = decode(buffer) as ContextEntry[];
-      console.log(`[ContextStorage.load] Loaded ${entries.length} entries from ${isWorkingDir ? 'working dir' : 'plugin root'}: ${filePath}`);
-      return entries;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`[ContextStorage.load] Failed to load context storage: ${message}`);
-      return [];
+      await fs.access(dir);
+    } catch {
+      await fs.mkdir(dir, { recursive: true });
     }
   }
 
-  /** Save context entries to disk — ASYNC === */
-  async save(entries: ContextEntry[], targetPath?: string): Promise<void> {  // MADE ASYNC
+  /** Load context entries from disk — Strict W.D. -> Plugin Fallback */
+  async load(): Promise<ContextEntry[]> {
+    // Priority 1: Working Directory (Always check first)
+    try {
+      if (await fs.access(this.workingDirPath).then(() => true).catch(() => false)) {
+        const buffer = await fs.readFile(this.workingDirPath);
+        const entries = decode(buffer) as ContextEntry[];
+        if (Array.isArray(entries)) {
+          console.log(`[ContextStorage.load] Loaded ${entries.length} entries from Working Dir.`);
+          return entries;
+        }
+      }
+    } catch (error) {
+      console.warn(`[ContextStorage.load] Failed to load from Working Dir: ${String(error)}`);
+    }
+
+    // Fallback: Plugin Root
+    try {
+      if (await fs.access(this.pluginRootPath).then(() => true).catch(() => false)) {
+        const buffer = await fs.readFile(this.pluginRootPath);
+        const entries = decode(buffer) as ContextEntry[];
+        console.log(`[ContextStorage.load] Working Dir empty/missing. Loaded ${entries.length} entries from Plugin Root fallback.`);
+        return entries || [];
+      }
+    } catch (error) {
+      console.warn(`[ContextStorage.load] Failed to load from Plugin Root: ${String(error)}`);
+    }
+
+    console.log('[ContextStorage.load] No context storage found in either location.');
+    return [];
+  }
+
+  /** Save context entries to disk — Primary W.D., Backup Plugin */
+  async save(entries: ContextEntry[], targetPath?: string): Promise<void> {
     try {
       const filePath = targetPath || this.workingDirPath; // Default to working dir for writes
       
-      // Ensure the .session_context directory exists
       await this.ensureDirectory(filePath);
       
       // Write atomically (temp file + rename) — ASYNC ===
@@ -117,8 +109,7 @@ export class ContextStorageManager {
       const encoded = encode(entries);  // Encode to msgpack Buffer
       await fs.writeFile(tempPath, encoded);  // ASYNC write (Buffer format)
       await fs.rename(tempPath, filePath);  // ASYNC rename
-      console.log(`[ContextStorage.save] Saved ${entries.length} entries to working dir: ${filePath}`);
-
+      
       // 🔹 DUAL WRITE: Always sync to plugin root as well
       if (this.pluginRootPath !== this.workingDirPath) {
         try {
@@ -126,10 +117,8 @@ export class ContextStorageManager {
           const pluginTemp = this.pluginRootPath + '.tmp';
           await fs.writeFile(pluginTemp, encoded);
           await fs.rename(pluginTemp, this.pluginRootPath);
-          console.log(`[ContextStorage.save] Synced to plugin root: ${this.pluginRootPath}`);
         } catch (syncError) {
-          const syncMsg = syncError instanceof Error ? syncError.message : String(syncError);
-          console.error(`[ContextStorage.save] Failed to sync to plugin root: ${syncMsg}`);
+          console.error(`[ContextStorage.save] Failed to sync to plugin root: ${String(syncError)}`);
         }
       }
     } catch (error) {
@@ -151,19 +140,31 @@ export class ContextStorageManager {
     await this.save(entries);  // ASYNC save
   }
 
+  /** Check if stored entries are stale (>3 days old) */
+  private _isStale(entries: ContextEntry[]): boolean {
+    if (!entries || entries.length === 0) return false;
+    const newestTimestamp = Math.max(...entries.map(e => e.timestamp));
+    const threeDaysMs = 3 * 24 * 60 * 60 * 1000; // 3 days in ms
+    return (Date.now() - newestTimestamp) > threeDaysMs;
+  }
+
   /** Get recent context entries — ASYNC === */
-  async getRecentEntries(limit: number = 20, type?: string): Promise<ContextEntry[]> {  // MADE ASYNC
+  async getRecentEntries(limit: number = 20, type?: string): Promise<{ data: ContextEntry[], isStale: boolean }> {  // MADE ASYNC
     const entries = await this.load();  // ASYNC load
     
+    let filtered = entries;
     if (type) {
-      return entries.filter(e => e.type === type).slice(0, limit);
+      filtered = entries.filter(e => e.type === type);
     }
     
-    return entries.slice(0, limit);
+    return { 
+      data: filtered.slice(0, limit), 
+      isStale: this._isStale(filtered) 
+    };
   }
 
   /** Search context entries by query — ASYNC === */
-  async searchEntries(query: string, maxResults: number = 10): Promise<ContextEntry[]> {  // MADE ASYNC
+  async searchEntries(query: string, maxResults: number = 10): Promise<{ results: ContextEntry[], isStale: boolean }> {  // MADE ASYNC
     const entries = await this.load();  // ASYNC load
     const lowerQuery = query.toLowerCase();
     
@@ -173,7 +174,10 @@ export class ContextStorageManager {
       (entry.tags && entry.tags.some(tag => tag.toLowerCase().includes(lowerQuery)))
     );
     
-    return results.slice(0, maxResults);
+    return { 
+      results: results.slice(0, maxResults), 
+      isStale: this._isStale(results) 
+    };
   }
 
   /** Delete context entries by ID — ASYNC === */
@@ -195,7 +199,7 @@ export class ContextStorageManager {
   }
 
   /** Get summary statistics — ASYNC === */
-  async getSummary(): Promise<ContextSummary> {  // MADE ASYNC
+  async getSummary(): Promise<ContextSummary & { isStale: boolean }> {  // MADE ASYNC
     const entries = await this.load();  // ASYNC load
     
     const entriesByType: Record<string, number> = {};
@@ -208,6 +212,7 @@ export class ContextStorageManager {
       entries_by_type: entriesByType,
       recent_entries: entries.slice(0, 5),
       last_updated: Date.now(),
+      isStale: this._isStale(entries),
     };
   }
 }
@@ -383,9 +388,9 @@ WHEN TO USE:
       readonly type?: string; 
     }) => {
       try {
-        const entries = await storageManager.getRecentEntries(limit || 20, type);  // ASYNC call
+        const result = await storageManager.getRecentEntries(limit || 20, type);  // ASYNC call
         
-        return { success: true, data: { entries } };
+        return { success: true, data: { entries: result.data, isStale: result.isStale } };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         return { success: false, error: `Failed to retrieve context memory: ${message}` };
@@ -412,9 +417,9 @@ WHEN TO USE:
       readonly max_results?: number; 
     }) => {
       try {
-        const results = await storageManager.searchEntries(query, max_results || 10);  // ASYNC call
+        const result = await storageManager.searchEntries(query, max_results || 10);  // ASYNC call
         
-        return { success: true, data: { results } };
+        return { success: true, data: { results: result.results, isStale: result.isStale } };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         return { success: false, error: `Context search failed: ${message}` };
@@ -556,6 +561,7 @@ WHEN TO USE:
           pending_tasks,
           decisions_made,
           context_for_next_session,
+          timestamp: Date.now(),
         };
 
         if (memoryStore) {
@@ -592,7 +598,11 @@ WHEN TO USE:
           
           const latest = memoryStore.get<SessionSummaryData>('session_summary_latest');
           if (latest) {
-            return { success: true, data: latest };
+            // Check staleness: is the summary older than 3 days?
+            const threeDaysMs = 3 * 24 * 60 * 60 * 1000;
+            const isStale = (Date.now() - latest.timestamp!) > threeDaysMs;
+            
+            return { success: true, data: { ...latest, isStale } };
           }
         }
 

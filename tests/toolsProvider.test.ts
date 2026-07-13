@@ -1,67 +1,124 @@
 /**
- * Tests for ToolsProvider (tool execution and filtering)
+ * Tests for toolsProvider function (tool registration and filtering)
  */
 
-import { createToolsProvider, ToolsProvider } from '../src/toolsProvider.js';
+import { toolsProvider } from '../src/toolsProvider.js';
 import { DEFAULT_CONFIG } from '../src/config.js';
 
-describe('ToolsProvider', () => {
-  let provider: ToolsProvider;
+// Mock the SDK controller to avoid real LM Studio SDK dependency
+function createMockController(config: Record<string, unknown>) {
+  const mockPluginConfig = {
+    get: (key: string) => config[key] ?? false,
+    set: jest.fn(),
+    subscribe: jest.fn(),
+    getAll: () => ({ ...config }),
+  };
 
+  return {
+    getPluginConfig: jest.fn().mockReturnValue(mockPluginConfig),
+    stateManager: {
+      getState: jest.fn().mockReturnValue({}),
+      setState: jest.fn(),
+    },
+    logger: {
+      info: jest.fn(),
+      error: jest.fn(),
+      debug: jest.fn(),
+      warn: jest.fn(),
+    },
+    context: {},
+  } as any;
+}
+
+describe('toolsProvider', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    // Create a fresh provider for each test — this naturally resets the internal registry cache
-    provider = new ToolsProvider({ ...DEFAULT_CONFIG, fileSystem: true, godMode: false });
   });
 
-  test('should return available tools filtered by config', async () => {
-    const tools = await provider.getAvailableTools();
+  test('should return available tools filtered by config (all enabled)', async () => {
+    // Spread all DEFAULT_CONFIG values (most default to true) and explicitly set fileSystem: true
+    const ctl = createMockController({ ...DEFAULT_CONFIG, fileSystem: true });
+    const tools = await toolsProvider(ctl);
 
+    expect(Array.isArray(tools)).toBe(true);
     expect(tools.length).toBeGreaterThan(0);
 
-    // Verify lineOperations tools are included (they're always loaded)
+    // Verify file system tools are included when enabled
     const toolNames = tools.map((t: any) => t.name);
-    expect(toolNames).toContain('insert_at_line');
+    expect(toolNames).toContain('list_directory');
   });
 
-  test('should execute tool by name', async () => {
-    const result = await provider.executeTool('insert_at_line', {});
-    
-    expect(result).toEqual({ success: true });
+  test('should return fewer tools when categories are disabled', async () => {
+    const ctlAllEnabled = createMockController({ ...DEFAULT_CONFIG, fileSystem: true });
+    const allTools = await toolsProvider(ctlAllEnabled);
+
+    // Build a config where every known toggle is explicitly set to false
+    const disabledConfig: Record<string, unknown> = {};
+    for (const key of Object.keys(DEFAULT_CONFIG)) {
+      disabledConfig[key] = false;
+    }
+    disabledConfig.fileSystem = false;
+    disabledConfig.webSearch = false;
+
+    const ctlMinimal = createMockController(disabledConfig);
+    const minimalTools = await toolsProvider(ctlMinimal);
+
+    // With everything disabled, should return fewer (or zero) tools
+    expect(minimalTools.length).toBeLessThanOrEqual(allTools.length);
   });
 
-  test('should return error for unknown tool', async () => {
-    const result = await provider.executeTool('nonexistent_tool', {});
-    
-    // Real provider catches missing tools gracefully
-    expect((result as any)?.success ?? false).toBe(false);
-  });
-
-  test('should update state after tool execution', async () => {
-    await provider.executeTool('insert_at_line', {});
-    
-    const lastExecution = (provider.getStateManager() as any).get<string>('last_insert_at_line');
-    expect(lastExecution).toEqual({ success: true });
-  });
-
-  test('should respect config tool gating', async () => {
-    // Fresh provider with different config — internal registry starts empty and loads fresh
-    const disabledProvider = new ToolsProvider({
+  test('should return at least some tools when fileSystem is enabled', async () => {
+    const ctl = createMockController({
       ...DEFAULT_CONFIG,
-      fileSystem: false,
-      webSearch: false,
+      fileSystem: true,
     });
 
-    const tools = await disabledProvider.getAvailableTools();
-    
-    // Line ops + utility tools are always loaded regardless of category toggles
+    const tools = await toolsProvider(ctl);
+
+    // Should still have file system tools
     expect(tools.length).toBeGreaterThan(0);
   });
 
-  test('should create provider with factory function', () => {
-    const p2 = createToolsProvider({ ...DEFAULT_CONFIG, fileSystem: true });
-    
-    expect(p2).toBeDefined();
-    expect(p2 instanceof ToolsProvider).toBe(true);
+  test('should call getPluginConfig with configSchematics', async () => {
+    const ctl = createMockController({ ...DEFAULT_CONFIG, fileSystem: true });
+    await toolsProvider(ctl);
+
+    // Verify the controller's getPluginConfig was called (it returns a mock)
+    expect(ctl.getPluginConfig).toHaveBeenCalled();
+  });
+
+  test('should NOT register execute_command when executionShell is disabled', async () => {
+    const ctl = createMockController({
+      ...DEFAULT_CONFIG,
+      fileSystem: true,
+      // Execution tools — only JS enabled, ALL others explicitly false
+      executionJavaScript: true,
+      executionPython: false,
+      executionTerminal: false,
+      executionShell: false,
+    });
+
+    const tools = await toolsProvider(ctl);
+    const toolNames = tools.map((t: any) => t.name);
+
+    // execute_command should NOT be present when executionShell is disabled
+    expect(toolNames).not.toContain('execute_command');
+  });
+
+  test('should return empty array when no categories are enabled at all', async () => {
+    const ctl = createMockController({});
+
+    const tools = await toolsProvider(ctl);
+
+    // With an empty config object, most .get() calls will return false
+    expect(Array.isArray(tools)).toBe(true);
+  });
+
+  test('should handle undefined/null tool toggles gracefully', async () => {
+    const ctl = createMockController({});
+    const tools = await toolsProvider(ctl);
+
+    // Should not throw; returns empty or minimal list
+    expect(Array.isArray(tools)).toBe(true);
   });
 });

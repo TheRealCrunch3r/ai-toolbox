@@ -135,8 +135,11 @@ export class ToolsDocumentation {
     }
 
     // Execution
-    if ((config.executionJavaScript || config.executionPython || config.executionTerminal || config.executionShell) || config.godMode) {
+    if ((config.executionJavaScript || config.executionPython || config.executionTerminal || config.executionShell || config.executionTests) || config.godMode) {
       ['run_javascript', 'run_python', 'execute_command', 'run_in_terminal'].forEach(n => names.push(n));
+      if (config.executionTests || config.godMode) {
+        names.push('run_tests');
+      }
     }
 
     // Utilities (Always enabled)

@@ -69,6 +69,8 @@ export const ConfigSchema = z.object({
 
   executionShell: z.boolean().default(false).describe('Allow execute_command tool'),
 
+  executionTests: z.boolean().default(false).describe('⚠️ Allow run_tests tool. Disabled by default for security.'),
+
 
 
   // ── Web Search Settings ───────────────────────────────────────
@@ -217,12 +219,14 @@ export const DEFAULT_CONFIG: PluginConfig = {
   // Execution tools — granular control (JavaScript & Python enabled by default)
 
   executionJavaScript: true,
-  
+
   executionPython: true,
-  
+
   executionTerminal: false,
-  
+
   executionShell: false, // ⚠️ Disabled by default — dangerous shell commands!
+
+  executionTests: false, // ⚠️ Disabled by default — prevents LLM from bypassing via test runners
 
 
 
@@ -320,7 +324,7 @@ export function isToolEnabled(config: PluginConfig, category: keyof Pick<PluginC
 
  */
 
-export function isExecutionToolEnabled(config: PluginConfig, tool: 'javascript' | 'python' | 'terminal' | 'shell'): boolean {
+export function isExecutionToolEnabled(config: PluginConfig, tool: 'javascript' | 'python' | 'terminal' | 'shell' | 'tests'): boolean {
 
   switch (tool) {
 
@@ -331,6 +335,8 @@ export function isExecutionToolEnabled(config: PluginConfig, tool: 'javascript' 
     case 'terminal':   return config.executionTerminal === true;
 
     case 'shell':      return config.executionShell === true;
+
+    case 'tests':      return config.executionTests === true;
 
   }
 
@@ -344,7 +350,7 @@ export function isExecutionToolEnabled(config: PluginConfig, tool: 'javascript' 
 
  */
 
-export function getExecutionToolKey(toolName: string): 'javascript' | 'python' | 'terminal' | 'shell' | null {
+export function getExecutionToolKey(toolName: string): 'javascript' | 'python' | 'terminal' | 'shell' | 'tests' | null {
 
   switch (toolName) {
 
@@ -355,6 +361,8 @@ export function getExecutionToolKey(toolName: string): 'javascript' | 'python' |
     case 'run_in_terminal': return 'terminal';
 
     case 'execute_command': return 'shell';
+
+    case 'run_tests':      return 'tests';
 
     default:               return null;
 
@@ -374,7 +382,7 @@ export function hasAnyExecutionTool(config: PluginConfig): boolean {
 
   return config.executionJavaScript || config.executionPython || 
 
-         config.executionTerminal || config.executionShell;
+         config.executionTerminal || config.executionShell || config.executionTests;
 
 }
 
@@ -605,6 +613,14 @@ export const configSchematics = createConfigSchematics()
     hint: 'GEFAHR: Befehle laufen auf Ihrem Rechner.',
 
   }, DEFAULT_CONFIG.executionShell)
+
+
+  .field('executionTests', 'boolean', {
+    displayName: '🧪 Test-Ausführung erlauben',
+    subtitle: "Aktiviert das 'run_tests'-Tool",
+    hint: 'GEFAHR: Führt npm jest / pytest / go test aus — kann Pakete installieren und Code ausführen.',
+  }, DEFAULT_CONFIG.executionTests)
+
 
 
 

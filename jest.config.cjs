@@ -30,6 +30,15 @@ module.exports = {
     '^\\.\\./performanceUtils\\.js$': '<rootDir>/src/performanceUtils.ts',
     '^\\.\\./fuzzySearch\\.js$': '<rootDir>/src/fuzzySearch.ts',
 
+    // ── Direct relative .js imports from within src/ (e.g., ./config.js → src/config) ──
+    '^\\.\\/config\\.js$': '<rootDir>/src/config.ts',
+    '^\\.\\/security\\.js$': '<rootDir>/src/security.ts',
+    '^\\.\\/workingDir\\.js$': '<rootDir>/src/workingDir.ts',
+    '^\\.\\/performanceUtils\\.js$': '<rootDir>/src/performanceUtils.ts',
+    '^\\.\\/fuzzySearch\\.js$': '<rootDir>/src/fuzzySearch.ts',
+    '^\\.\\/stateManager\\.js$': '<rootDir>/src/stateManager.ts',
+    '^\\.\\/backgroundCommands\\.js$': '<rootDir>/src/backgroundCommands.ts',
+
     // ── Tool modules dynamically imported by toolsProvider.ts via import('./tools/xxx.js') ──
     // These are resolved relative to <rootDir>/src/, so the path is './tools/xxx.js'
     // We redirect each one to a manual mock in __mocks__/ that returns empty tool arrays.

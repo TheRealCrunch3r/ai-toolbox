@@ -3,6 +3,8 @@
 All notable changes to AI Toolbox plugin.
 ## [1.6.0] - 2026-07-12 — 🚀 Gateway Tools: Single Entry Point for Tool Discovery & Execution
 
+## [1.6.1] - 2026-07-14 — 🔒 GOD MODE Fix: Execution Tools Bypass Individual Toggles
+
 **Introduced the Gateway Pattern to prevent LLM tool-bloat crashes and provide controlled access to all 88 registered tools.**
 
 ### What Changed
@@ -1180,3 +1182,28 @@ To restore old behavior, set `global: false`.
 - **Impact**: AutoTracker FSM now behaves correctly during checkpoints, and token threshold issues can be diagnosed via console logs.
 
 ---
+### 🔒 GOD MODE Fix: Execution Tools Bypass Individual Toggles (2026-07-14)
+
+**Security & Bug Fixes:**
+- ✅ **Fixed GOD MODE bypass for execution tools**: Added `|| isGodMode` to all 5 individual execution tool gates (`executionJavaScript`, `executionPython`, `executionTerminal`, `executionShell`, `executionTests`)
+- ✅ **Fixed TypeScript compilation error**: Replaced `isExecutionToolEnabled()` calls with direct `pluginConfig.get('executionXxx')` pattern to resolve `ParsedConfig<...>` vs `PluginConfig` type mismatch
+- ✅ **Removed unused import**: Cleaned up `isExecutionToolEnabled` from `toolsProvider.ts`
+
+**Technical Details:**
+- The previous implementation allowed GOD MODE to enter the execution tools block, but individual tool checks (`pluginConfig.get('executionShell')`) would still fail if their toggle was OFF
+- Now each execution tool gate follows the same pattern as other categories: `if (pluginConfig.get('key') || isGodMode)`
+- This ensures GOD MODE truly enables ALL tools regardless of individual toggle state
+
+**Verification:**
+- ✅ TypeScript compilation passes (`npm run typecheck`)
+- ✅ Full build succeeds (`npm run build` — ESM + CJS)
+- ⚠️ ESLint: 0 errors, 35 warnings (all style-related `@typescript-eslint/no-explicit-any` for SDK workaround)
+
+**Files Modified:**
+- `src/toolsProvider.ts` — Fixed execution tool gating logic and removed unused import
+- `package.json` — Version bump to 1.6.1
+- `manifest.json` — Version bump to 1.6.1
+- Documentation files updated with v1.6.1 references
+
+---
+

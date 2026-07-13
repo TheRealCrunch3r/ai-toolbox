@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Tools Provider — Optimized with lazy module loading (P0) and registry caching (P1)
  */
 
@@ -123,6 +123,12 @@ export class ToolRegistry {
           const shellTool = allExecTools.find((t: Tool) => t.name === 'execute_command');
           if (shellTool) this.toolMap.set(shellTool.name, shellTool as TypedTool);
         }
+
+        // run_tests — gated by executionTests
+        if (isExecutionToolEnabled(config, 'tests')) {
+          const testTool = allExecTools.find((t: Tool) => t.name === 'run_tests');
+          if (testTool) this.toolMap.set(testTool.name, testTool as TypedTool);
+        }
       }
 
       const getEnabledTools = () => Array.from(this.toolMap.keys());
@@ -232,6 +238,7 @@ export async function toolsProvider(ctl: ToolsProviderController, _lmClient?: un
     executionPython: pluginConfig.get('executionPython'),
     executionTerminal: pluginConfig.get('executionTerminal'),
     executionShell: pluginConfig.get('executionShell'),
+    executionTests: pluginConfig.get('executionTests'),
     searchFallbackChain: pluginConfig.get('searchFallbackChain') as 'ddg-api' | 'ddg-fetch' | 'google' | 'bing',
     maxSearchResults: pluginConfig.get('maxSearchResults'),
     safesearch: pluginConfig.get('safesearch') as '0' | '1' | '2',

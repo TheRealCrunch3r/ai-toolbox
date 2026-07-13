@@ -26,7 +26,7 @@
 | Data Visualization | 1 | ❌ Not Registered | ⚠️ **Inactive** (`dataVisualizationTools.ts` exists but not in `toolsProvider.ts`) |
 | Document Parsing | 1 | ✅ Enabled | Active |
 | HTTP Client | 3 | ❌ Disabled | Active |
-| **Gateway Tools (v1.6.0+)** | **2** | **✅ Always Enabled** | **Active** |
+| **Gateway Tools (v1.6.1+)** | **2** | **✅ Always Enabled** | **Active** |
 
 > ⚠️ **Note**: The `generate_chart` tool is defined in `src/tools/dataVisualizationTools.ts` but has not been registered in the `REGISTER_MAP` of `toolsProvider.ts`. It will not be available until added to the provider configuration.
 
@@ -367,7 +367,7 @@ The `src/tools/recodeTool/` module implements a pluggable rule engine for advanc
 
 ---
 
-## 🔑 Gateway Tools (2 — Always Enabled, v1.6.0+)
+## 🔑 Gateway Tools (2 — Always Enabled, v1.6.1+)
 
 **Purpose**: Single entry point for tool discovery and execution to prevent LLM tool-bloat crashes. Only 2 tools sent to llama.cpp initially instead of ~111.
 
@@ -476,4 +476,4 @@ All tools implement multiple security layers:
 
 ---
 
-*Reference generated from actual source code analysis on 2026-07-12 (v1.6.0). All tool counts verified against `tools.push()` calls in src/tools/*.ts and gatewayTools.ts.*
+*Reference generated from actual source code analysis on 2026-07-12 (v1.6.1). All tool counts verified against `tools.push()` calls in src/tools/*.ts and gatewayTools.ts.*

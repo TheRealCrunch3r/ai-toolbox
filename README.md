@@ -1,7 +1,7 @@
 # 🧰 AI Toolbox — LM Studio Plugin
 
 > **88 tools** across 15 core categories + 47 additional tool definitions ready for integration.  
-> *Note: Gateway pattern (v1.6.0) documented but not yet wired into `toolsProvider.ts`.*
+> *Note: Gateway pattern (v1.6.1) documented but not yet wired into `toolsProvider.ts`.*
 
 ---
 
