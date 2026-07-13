@@ -1,7 +1,7 @@
-# Change Summary: v1.6.0 → v1.6.1
+# Change Summary: v1.6.0 → v1.6.2
 
 **Release Date:** 2026-07-14  
-**Version Bump:** 1.6.0 → 1.6.1 (patch release)  
+**Version Bump:** 1.6.0 → 1.6.2 (patch release)  
 **Type:** Security & Bug Fix  
 
 ---
@@ -43,15 +43,15 @@ if (pluginConfig.get('executionJavaScript')) { ... }
 | File | Changes | Lines Modified |
 |------|---------|----------------|
 | `src/toolsProvider.ts` | Fixed execution tool gating, removed unused import | ~10 lines |
-| `package.json` | Version bump 1.6.0 → 1.6.1 | 1 line |
-| `manifest.json` | Version bump 1.6.0 → 1.6.1 | 1 line |
-| `CHANGELOG.md` | Added v1.6.1 entry with full details | ~25 lines added |
+| `package.json` | Version bump 1.6.0 → 1.6.2 | 1 line |
+| `manifest.json` | Version bump 1.6.0 → 1.6.2 | 1 line |
+| `CHANGELOG.md` | Added v1.6.2 entry with full details | ~25 lines added |
 
 ---
 
 ## 📚 Documentation Updated
 
-The following markdown files were updated to reference v1.6.1:
+The following markdown files were updated to reference v1.6.2:
 
 - ✅ `ARCHITECTURE.md` (6 references)
 - ✅ `CHANGELOG.md` (changelog header + new section)
@@ -144,4 +144,4 @@ Users upgrading from 1.6.0 should:
 
 ---
 
-*Generated on 2026-07-14 for v1.6.1 release.*
+*Generated on 2026-07-14 for v1.6.2 release.*

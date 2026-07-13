@@ -2,7 +2,7 @@
 
 **Date**: 2026-06-30  
 **Author**: AI Toolbox Development Team  
-**Status**: ✅ Complete (v1.6.1 — Gateway Tools integrated)
+**Status**: ✅ Complete (v1.6.2 — Gateway Tools integrated)
 
 ---
 
@@ -26,14 +26,14 @@ All documentation has been reconstructed based on actual source code analysis to
 
 ## 🆕 Latest Updates
 
-- [Gateway Tools: Single Entry Point for Tool Discovery & Execution — v1.6.1](#gateway-tools-single-entry-point-for-tool-discovery--execution-v160)
+- [Gateway Tools: Single Entry Point for Tool Discovery & Execution — v1.6.2](#gateway-tools-single-entry-point-for-tool-discovery--execution-v160)
 - [Performance Optimization Suite (P0–P3) — v1.5.29](#performance-optimization-suite-p0p3--v1529)
 - [Build System & TypeScript Improvements (v1.5.23)](#-build-system--typescript-improvements-v1523)
 - [Session Summary Compression (v1.5.15)](#-session-summary-compression-v1515)
 
 ---
 
-### Gateway Tools: Single Entry Point for Tool Discovery & Execution — v1.6.1 (2026-07-12)
+### Gateway Tools: Single Entry Point for Tool Discovery & Execution — v1.6.2 (2026-07-12)
 
 This update documents the introduction of the **Gateway Pattern** to prevent LLM tool-bloat crashes and provide controlled access to all 88 registered tools.
 
@@ -94,7 +94,7 @@ User Message → AI calls explore_tools(category="fileSystem")
 - **Testing**: Gateway tools use existing ToolsProvider singleton — no new test suite required (integration covered by existing tool registry tests).
 - **Build**: Zero errors (`npx tsc --noEmit`), zero ESLint warnings, production build succeeds.
 
-#### Verification Steps for v1.6.1
+#### Verification Steps for v1.6.2
 | Test | How to Verify | Expected Result |
 |------|--------------|-----------------|
 | Grammar parser crash prevention | Send first chat message with plugin enabled | No `failed to parse grammar` errors — only 2 tools sent initially |

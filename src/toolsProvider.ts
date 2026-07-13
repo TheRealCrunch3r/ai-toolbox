@@ -26,6 +26,11 @@ import { registerUiGenerationTools } from './tools/uiGenerationTools.js';
 import { registerContextManagementTools } from './tools/contextManagementTools.js';
 import { registerTextProcessingTools } from './tools/textProcessingTools.js';
 import { registerRefactorCodeTools } from './tools/refactorCodeTools.js';
+import { registerBackupTools } from './tools/backupTools.js';
+import { registerCleanupBackupsTool } from './tools/cleanupBackupsTool.js';
+import { registerDataVisualizationTools } from './tools/dataVisualizationTools.js';
+import { registerLineOperationsTools } from './tools/lineOperations.js';
+import { registerMarkdownPreviewTools } from './tools/markdownPreviewTools.js';
 import { registerExecutionTools } from './tools/executionTools.js';
 
 let stateManager: StateManager;
@@ -118,6 +123,15 @@ export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[
   // --- AST Code Refactoring Tools ---
   if (pluginConfig.get('refactorCode') || isGodMode) {
     tools.push(...registerRefactorCodeTools(pluginConfig as any));
+  }
+
+  // --- Utility & Maintenance Tools ---
+  if (pluginConfig.get('utility') || isGodMode) {
+    tools.push(...registerBackupTools(pluginConfig as any));
+    tools.push(...registerCleanupBackupsTool(pluginConfig as any));
+    tools.push(...registerDataVisualizationTools(pluginConfig as any));
+    tools.push(...registerLineOperationsTools(pluginConfig as any));
+    tools.push(...registerMarkdownPreviewTools(pluginConfig as any));
   }
 
   // --- Execution Tools (JS/Python/Terminal) — per-tool gating, GOD MODE bypasses all ---

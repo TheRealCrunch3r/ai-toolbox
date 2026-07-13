@@ -44,6 +44,8 @@ export const ConfigSchema = z.object({
 
   refactorCode: z.boolean().default(true).describe('Enable AST-based code refactoring tools (rename, move, extract, unused import cleanup)'),
 
+  utility: z.boolean().default(true).describe('Enable Utility & Maintenance Tools (backup, chart generation, markdown preview, line operations)'),
+
 
   // ── ⚠️ GOD MODE (Enable ALL tools at once) ──────────────────────
 
@@ -204,6 +206,8 @@ export const DEFAULT_CONFIG: PluginConfig = {
   textProcessing: true,
 
   refactorCode: true,
+
+  utility: true,
 
 
   // ⚠️ GOD MODE (Enable ALL tools at once) ⚠️
@@ -540,6 +544,12 @@ export const configSchematics = createConfigSchematics()
     subtitle: 'Rename, move, extract functions & clean unused imports',
     hint: 'Enable AST-based code refactoring tools (rename_identifier, move_function, extract_function, unused_import_cleanup).',
   }, DEFAULT_CONFIG.refactorCode)
+
+  .field('utility', 'boolean', {
+    displayName: '🛠️ Utility & Maintenance Tools',
+    subtitle: 'Backup, chart generation, markdown preview, line operations',
+    hint: 'Enable utility tools (create_backup, list_backups, restore_backup, delete_backup, cleanup_backups, generate_chart, markdown_preview, delete_lines).',
+  }, DEFAULT_CONFIG.utility)
 
 
 

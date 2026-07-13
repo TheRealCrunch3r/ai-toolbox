@@ -3,7 +3,7 @@
 All notable changes to AI Toolbox plugin.
 ## [1.6.0] - 2026-07-12 — 🚀 Gateway Tools: Single Entry Point for Tool Discovery & Execution
 
-## [1.6.1] - 2026-07-14 — 🔒 GOD MODE Fix: Execution Tools Bypass Individual Toggles
+## [1.6.2] - 2026-07-14 — 🔒 GOD MODE Fix: Execution Tools Bypass Individual Toggles
 
 **Introduced the Gateway Pattern to prevent LLM tool-bloat crashes and provide controlled access to all 88 registered tools.**
 
@@ -1201,9 +1201,9 @@ To restore old behavior, set `global: false`.
 
 **Files Modified:**
 - `src/toolsProvider.ts` — Fixed execution tool gating logic and removed unused import
-- `package.json` — Version bump to 1.6.1
-- `manifest.json` — Version bump to 1.6.1
-- Documentation files updated with v1.6.1 references
+- `package.json` — Version bump to 1.6.2
+- `manifest.json` — Version bump to 1.6.2
+- Documentation files updated with v1.6.2 references
 
 ---
 

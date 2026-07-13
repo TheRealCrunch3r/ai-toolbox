@@ -1,4 +1,4 @@
-# Project Summary — AI Toolbox Plugin v1.6.1
+# Project Summary — AI Toolbox Plugin v1.6.2
 
 Comprehensive overview of the AI Toolbox plugin, its architecture, features, and recent changes. This document provides a high-level summary for developers, maintainers, and users.
 
@@ -9,7 +9,7 @@ Comprehensive overview of the AI Toolbox plugin, its architecture, features, and
 - [Project Overview](#project-overview)
 - [Key Features](#key-features)
 - [Architecture Summary](#architecture-summary)
-- [Recent Changes (v1.6.1)](#recent-changes-v160)
+- [Recent Changes (v1.6.2)](#recent-changes-v160)
 - [Security Posture](#security-posture)
 - [Performance Characteristics](#performance-characteristics)
 - [Development Status](#development-status)
@@ -40,7 +40,7 @@ Comprehensive overview of the AI Toolbox plugin, its architecture, features, and
 | Interactive UI Generation | 3 tools | Generate and render HTML/CSS/JS components (buttons, forms, charts) |
 | Auto-Context Management | 7 tools | Automatic session tracking, decision logging, persistent memory |
 | Backup & Restore | 4 tools | Create compressed ZIP backups with atomic write pattern |
-| **Gateway Tools (v1.6.1+)** | **2 tools** | Single entry point for tool discovery (`explore_tools`) and execution (`execute_gateway_tool`) to prevent LLM tool-bloat crashes |
+| **Gateway Tools (v1.6.2+)** | **2 tools** | Single entry point for tool discovery (`explore_tools`) and execution (`execute_gateway_tool`) to prevent LLM tool-bloat crashes |
 
 **Total:** 111+ tools across 18 categories + Gateway Tools ✅
 
@@ -129,7 +129,7 @@ Each category is implemented as a separate module in `src/tools/`:
 
 ---
 
-## 📈 Recent Changes (v1.6.1)
+## 📈 Recent Changes (v1.6.2)
 
 ### [1.6.0] — 🚀 Gateway Tools: Single Entry Point for Tool Discovery & Execution (2026-07-12)
 **Introduced the Gateway Pattern to prevent LLM tool-bloat crashes and provide controlled access to all 111+ tools.**
@@ -546,6 +546,6 @@ All documentation has been reconstructed based on actual source code analysis:
 
 ## 📝 Notes
 
-This summary is based on actual source code analysis performed on 2026-07-12 (v1.6.1). All tool counts, feature descriptions, and security controls reflect the current implementation in version 1.6.x with Gateway Tools integration.
+This summary is based on actual source code analysis performed on 2026-07-12 (v1.6.2). All tool counts, feature descriptions, and security controls reflect the current implementation in version 1.6.x with Gateway Tools integration.
 
 For questions or issues, please refer to the individual documentation files linked above or contact the maintainers through appropriate channels.

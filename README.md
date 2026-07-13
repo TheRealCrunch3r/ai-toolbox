@@ -1,7 +1,7 @@
 # 🧰 AI Toolbox — LM Studio Plugin
 
-> **88 tools** across 15 core categories + 47 additional tool definitions ready for integration.  
-> *Note: Gateway pattern (v1.6.1) documented but not yet wired into `toolsProvider.ts`.*
+> **94 tools** across 15 core categories, fully integrated and ready for use.  
+> *All tools registered via direct SDK pattern (no gateway indirection).*
 
 ---
 
@@ -108,7 +108,7 @@ The plugin is installed as an LM Studio plugin. Ensure you have:
 1. **Load the plugin** in LM Studio's plugin settings
 2. **Configure tool access** — individual tool categories can be toggled on/off via the Settings panel. Note that some tools (like Execution) are disabled by default for security.
 3. **Authenticate with GitHub**: Run `gh auth login` in your terminal once to enable remote operations (`gh_create_issue`, `gh_list_prs`, etc.). The plugin will detect authentication status automatically.
-4. **Start a chat** and the AI can now use any of the 88 available tools based on configuration settings.
+4. **Start a chat** and the AI can now use any of the 94 available tools based on configuration settings.
 
 ---
 
@@ -162,6 +162,17 @@ npm test
 ---
 
 ## 📜 Release History
+
+### [1.6.2] - 2026-07-14 — 🛠️ Utility Tools Registration & Cleanup
+**Registered 8 new utility tools and removed orphaned gateway pattern code.**
+- ✅ Registered `backupTools` (create_backup, list_backups, restore_backup, delete_backup)
+- ✅ Registered `cleanupBackupsTool` (cleanup_backups)
+- ✅ Registered `dataVisualizationTools` (generate_chart)
+- ✅ Registered `lineOperations` (delete_lines)
+- ✅ Registered `markdownPreviewTools` (markdown_preview)
+- ✅ Added `utility` config toggle to enable/disable all utility tools
+- ❌ Deleted `gatewayTools.ts`, `devOpsTools.ts`, `gitHubTools.ts` (dead code)
+- 🐛 Fixed: Added missing `markdown-it` dependency for markdown preview tool
 
 ### [1.6.0] — 🚀 Gateway Tools: Single Entry Point for Tool Discovery & Execution (2026-07-12)
 **Introduced the Gateway Pattern to prevent LLM tool-bloat crashes and provide controlled access to all 88 tools.**
