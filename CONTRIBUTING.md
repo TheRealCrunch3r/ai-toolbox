@@ -412,3 +412,8 @@ If you need help contributing:
 ---
 
 Thank you for helping make AI Toolbox better! 🚀
+
+### 🤖 AI Assistant Protocol
+- **NEVER** run `git commit`, `git push`, or other destructive commands without explicit user confirmation.
+- **ALWAYS** provide the commands for the user to run in their own terminal.
+- **ALWAYS** ask for confirmation before making significant architectural changes.

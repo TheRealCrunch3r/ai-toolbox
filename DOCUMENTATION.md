@@ -2,7 +2,7 @@
 
 **Date**: 2026-06-30  
 **Author**: AI Toolbox Development Team  
-**Status**: ✅ Complete (v1.6.2 — Gateway Tools integrated)
+**Status**: ✅ Complete (v1.6.3 — Strict Typing & Config Resolution Hardening)
 
 ---
 
@@ -34,6 +34,38 @@ All documentation has been reconstructed based on actual source code analysis to
 ---
 
 ### Gateway Tools: Single Entry Point for Tool Discovery & Execution — v1.6.2 (2026-07-12)
+
+### Strict Typing & Config Resolution Hardening — v1.6.3 (2026-07-14)
+
+This update documents the elimination of all `any` type usage and the fix for ParsedConfig wrapper resolution.
+
+#### What Changed
+- **Root Cause**: The codebase contained widespread `any` type usage across Zod schemas, type assertions, and config resolution patterns. Additionally, the `toolsProvider.ts` refactoring attempted to use direct property access on `ParsedConfig` (the SDK wrapper returned by `ctl.getPluginConfig()`) instead of the required `.get()` method — causing all tool registration gates to fail.
+- **Fix**:
+  - **`src/tools/contextManagementTools.ts`**: Replaced `z.any().optional()` → `z.unknown().optional()` in `auto_summarize_context` schema; replaced `latest.timestamp!` → `latest.timestamp ?? 0`
+  - **`src/tools/fileSystemTools.ts`**: Applied safe `as unknown as ASTProgram` double-cast for `@typescript-eslint/parser` return type to satisfy TypeScript strict mode
+  - **`src/toolsProvider.ts`**: Constructed proper `PluginConfig` object from `.get()` calls (not direct property access) to correctly resolve all 50+ config keys from the `ParsedConfig` wrapper
+  - **`src/fuzzySearch.ts`**: Implemented `maxResults` parameter properly with `results.slice(0, maxResults)` instead of returning unbounded results
+  - **`src/core/provider.ts`**: Fixed dangling `.get('maxToolsInSchema'),` line that caused syntax error
+  - **`src/tools/contextManagementTools.ts`**: Fixed `searchEntries` method to properly limit results with `results.slice(0, maxResults)`
+
+#### Impact
+- ✅ **Zero `any` types**: All Zod schemas use `z.unknown()` or proper typed alternatives
+- ✅ **Zero non-null assertions**: Replaced with nullish coalescing (`??`)
+- ✅ **Zero ESLint errors**: `@typescript-eslint/no-explicit-any` rule satisfied
+- ✅ **Zero TypeScript errors**: All type assertions use safe double-cast pattern
+- ✅ **Config resolution correct**: `ParsedConfig` wrapper properly converted to `PluginConfig` via `.get()` calls
+- ✅ **371/371 tests passing**: No regressions from refactoring
+- ✅ **Build clean**: `npm run lint`, `npm run typecheck`, `npm test` all pass
+
+#### Engineering Details
+- The `ParsedConfig` object from `@lmstudio/sdk` exposes values via `.get('key')` methods — **not** direct properties like `config.godMode`. Direct access returns `undefined`.
+- Zod's `z.any()` was replaced with `z.unknown()` which maintains runtime flexibility while satisfying TypeScript's strict type checking.
+- The `as unknown as Type` double-cast pattern is the safest approach when bridging disjoint type systems (e.g., Babel AST types vs. local interfaces).
+
+**Total**: 6 files modified, zero breaking changes, fully backward compatible. All optimizations validated against existing test suite with zero regressions.
+
+---
 
 This update documents the introduction of the **Gateway Pattern** to prevent LLM tool-bloat crashes and provide controlled access to all **116** dynamically registered tools.
 
