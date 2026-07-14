@@ -511,14 +511,6 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
         // ========== P1 FIX: Atomic Write (Bug #4) ==========
         try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPath) { try { await fs.copyFile(backupPath, fullPath); } catch {} }; return handleError(err); }
 
-        // ========== P2 FIX: Clean up backup after successful operation ==========
-        if (backupPath) {
-          try {
-            await fs.unlink(backupPath);
-          } catch {
-            // Ignore cleanup errors - don't fail the operation for this
-          }
-        }
 
         // ========== P3 FIX: Rich Return Data with Context ==========
         return {
@@ -528,7 +520,6 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
             replacements: global ? occurrences : 1,
             bytesWritten: Buffer.byteLength(newContent, 'utf-8'),
             backupCreated: backupPath,
-            backupCleaned: true, // Backup was created then cleaned up after success
           },
         };
       } catch (error) {
@@ -616,14 +607,6 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
         // ========== P1 FIX: Atomic Write (Bug #4) ==========
 try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPath) { try { await fs.copyFile(backupPath, fullPath); } catch {} }; return handleError(err); }
 
-        // ========== P2 FIX: Clean up backup after successful operation ==========
-        if (backupPath) {
-          try {
-            await fs.unlink(backupPath);
-          } catch {
-            // Ignore cleanup errors - don't fail the operation for this
-          }
-        }
 
         // ========== P3 FIX: Rich Return Data with Context ==========
         return {
@@ -633,7 +616,6 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
             file: fullPath,
             bytesWritten: Buffer.byteLength(newContent, 'utf-8'),
             backupCreated: backupPath,
-            backupCleaned: true, // Backup was created then cleaned up after success
             totalLines: lines.length,
           },
         };
@@ -726,14 +708,6 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
         // Use atomic write instead of appendFile
 try { await atomicWriteFile(fullPath, fullContent); } catch (err) { if (backupPath) { try { await fs.copyFile(backupPath, fullPath); } catch {} }; return handleError(err); }
 
-        // ========== P2 FIX: Clean up backup after successful operation ==========
-        if (backupPath) {
-          try {
-            await fs.unlink(backupPath);
-          } catch {
-            // Ignore cleanup errors - don't fail the operation for this
-          }
-        }
 
         // ========== P3 FIX: Rich Return Data with Context ==========
         return {
@@ -743,7 +717,6 @@ try { await atomicWriteFile(fullPath, fullContent); } catch (err) { if (backupPa
             bytesAppended: contentBytes,
             totalFileSize: totalSize,
             backupCreated: backupPath,
-            backupCleaned: true, // Backup was created then cleaned up after success
           },
         };
       } catch (error) {
@@ -842,7 +815,6 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
             file: fullPath,
             bytesWritten: Buffer.byteLength(newContent, 'utf-8'),
             backupCreated: backupPath,
-            backupCleaned: true, // Backup was created then cleaned up after success
             remainingLines: lines.length,
           },
         };

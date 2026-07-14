@@ -6,32 +6,32 @@
  */
 
 import type { Tool, ToolsProviderController } from '@lmstudio/sdk';
+import type { PluginConfig } from './config.js';
 import { configSchematics } from './config.js';
-
 import { StateManager } from './stateManager.js';
 import { BackgroundCommandManager } from './backgroundCommands.js';
 
-// Import tool registration functions
-import { registerFileSystemTools } from './tools/fileSystemTools.js';
-import { registerWebResearchTools } from './tools/webResearchTools.js';
-import { registerGitTools } from './tools/gitGithubTools.js';
+// Import tool registration functions (alphabetically sorted)
+import { registerBackupTools } from './tools/backupTools.js';
+import { registerBackgroundCommandTools } from './tools/backgroundCommandTools.js';
 import { registerBrowserTools } from './tools/browserAutomationTools.js';
+import { registerCleanupBackupsTool } from './tools/cleanupBackupsTool.js';
+import { registerContextManagementTools } from './tools/contextManagementTools.js';
+import { registerDataVisualizationTools } from './tools/dataVisualizationTools.js';
 import { registerDatabaseTools } from './tools/databaseTools.js';
 import { registerDocumentTools } from './tools/documentTools.js';
-import { registerBackgroundCommandTools } from './tools/backgroundCommandTools.js';
-import { registerImageProcessingTools } from './tools/imageProcessingTools.js';
+import { registerExecutionTools } from './tools/executionTools.js';
+import { registerFileSystemTools } from './tools/fileSystemTools.js';
+import { registerGitTools } from './tools/gitGithubTools.js';
 import { registerHttpClientTools } from './tools/httpClientTools.js';
-import { registerRagTools } from './tools/vectorRagTools.js';
-import { registerUiGenerationTools } from './tools/uiGenerationTools.js';
-import { registerContextManagementTools } from './tools/contextManagementTools.js';
-import { registerTextProcessingTools } from './tools/textProcessingTools.js';
-import { registerRefactorCodeTools } from './tools/refactorCodeTools.js';
-import { registerBackupTools } from './tools/backupTools.js';
-import { registerCleanupBackupsTool } from './tools/cleanupBackupsTool.js';
-import { registerDataVisualizationTools } from './tools/dataVisualizationTools.js';
+import { registerImageProcessingTools } from './tools/imageProcessingTools.js';
 import { registerLineOperationsTools } from './tools/lineOperations.js';
 import { registerMarkdownPreviewTools } from './tools/markdownPreviewTools.js';
-import { registerExecutionTools } from './tools/executionTools.js';
+import { registerRefactorCodeTools } from './tools/refactorCodeTools.js';
+import { registerRagTools } from './tools/vectorRagTools.js';
+import { registerTextProcessingTools } from './tools/textProcessingTools.js';
+import { registerUiGenerationTools } from './tools/uiGenerationTools.js';
+import { registerWebResearchTools } from './tools/webResearchTools.js';
 
 let stateManager: StateManager;
 let backgroundCommandManager: BackgroundCommandManager;
@@ -40,141 +40,201 @@ export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[
   // 1. Get current configuration (respects UI toggles) — use .get() method!
   const pluginConfig = ctl.getPluginConfig(configSchematics);
   
+  // Construct typed PluginConfig from ParsedConfig .get() calls
+  const config: PluginConfig = {
+    fileSystem: pluginConfig.get('fileSystem'),
+    webSearch: pluginConfig.get('webSearch'),
+    browserAutomation: pluginConfig.get('browserAutomation'),
+    gitOperations: pluginConfig.get('gitOperations'),
+    packageManage: pluginConfig.get('packageManage'),
+    databaseQueries: pluginConfig.get('databaseQueries'),
+    documentParsing: pluginConfig.get('documentParsing'),
+    backgroundCommands: pluginConfig.get('backgroundCommands'),
+    imageProcessing: pluginConfig.get('imageProcessing'),
+    httpClient: pluginConfig.get('httpClient'),
+    vectorRAG: pluginConfig.get('vectorRAG'),
+    uiGeneration: pluginConfig.get('uiGeneration'),
+    contextManagement: pluginConfig.get('contextManagement'),
+    textProcessing: pluginConfig.get('textProcessing'),
+    refactorCode: pluginConfig.get('refactorCode'),
+    utility: pluginConfig.get('utility'),
+    godMode: pluginConfig.get('godMode'),
+    documentRAG: pluginConfig.get('documentRAG'),
+    retrievalLimit: pluginConfig.get('retrievalLimit'),
+    retrievalAffinityThreshold: pluginConfig.get('retrievalAffinityThreshold'),
+    executionJavaScript: pluginConfig.get('executionJavaScript'),
+    executionPython: pluginConfig.get('executionPython'),
+    executionTerminal: pluginConfig.get('executionTerminal'),
+    executionShell: pluginConfig.get('executionShell'),
+    executionTests: pluginConfig.get('executionTests'),
+    searchFallbackChain: pluginConfig.get('searchFallbackChain') as 'ddg-api' | 'ddg-fetch' | 'google' | 'bing',
+    maxSearchResults: pluginConfig.get('maxSearchResults'),
+    safesearch: pluginConfig.get('safesearch') as '0' | '1' | '2',
+    browserTimeout: pluginConfig.get('browserTimeout'),
+    headlessMode: pluginConfig.get('headlessMode'),
+    gitAutoCommit: pluginConfig.get('gitAutoCommit'),
+    defaultBranch: pluginConfig.get('defaultBranch'),
+    pathValidationEnabled: pluginConfig.get('pathValidationEnabled'),
+    binaryFileDetection: pluginConfig.get('binaryFileDetection'),
+    regexReDoSProtection: pluginConfig.get('regexReDoSProtection'),
+    maxRegexLength: pluginConfig.get('maxRegexLength'),
+    statePersistenceEnabled: pluginConfig.get('statePersistenceEnabled'),
+    stateMaxSize: pluginConfig.get('stateMaxSize'),
+    language: pluginConfig.get('language') as 'en' | 'de' | 'zh-CN' | 'zh-TW',
+    notificationsEnabled: pluginConfig.get('notificationsEnabled'),
+    temporalAwareness: pluginConfig.get('temporalAwareness'),
+    dateFormatStyle: pluginConfig.get('dateFormatStyle') as 'standard' | 'heuteIst',
+    contextGuardEnabled: pluginConfig.get('contextGuardEnabled'),
+    contextGuardTokenLimit: pluginConfig.get('contextGuardTokenLimit'),
+    contextGuardSmartReading: pluginConfig.get('contextGuardSmartReading'),
+    contextGuardSummaryModel: pluginConfig.get('contextGuardSummaryModel'),
+    contextGuardTerminalFilterEnabled: pluginConfig.get('contextGuardTerminalFilterEnabled'),
+    contextGuardTerminalFilterLength: pluginConfig.get('contextGuardTerminalFilterLength'),
+    autoTrackingEnabled: pluginConfig.get('autoTrackingEnabled'),
+    autoTrackTokenThreshold: pluginConfig.get('autoTrackTokenThreshold'),
+    autoTrackDecisions: pluginConfig.get('autoTrackDecisions'),
+    autoTrackCompletions: pluginConfig.get('autoTrackCompletions'),
+    autoTrackErrors: pluginConfig.get('autoTrackErrors'),
+    autoSummaryInterval: pluginConfig.get('autoSummaryInterval'),
+    maxToolsInSchema: pluginConfig.get('maxToolsInSchema'),
+  };
+
   // Initialize StateManager if not already done
   if (!stateManager) {
-    stateManager = new StateManager(pluginConfig as any);
+    stateManager = new StateManager(config);
   }
 
   // Initialize BackgroundCommandManager if not already done
   if (!backgroundCommandManager) {
-    backgroundCommandManager = new BackgroundCommandManager(pluginConfig as any);
+    backgroundCommandManager = new BackgroundCommandManager(config);
   }
 
   // GOD MODE: when enabled, bypass all individual toggles and activate every tool
-  const isGodMode = pluginConfig.get('godMode');
-
+  const isGodMode = config.godMode;
   const tools: Tool[] = [];
 
-  // --- File System Tools ---
-  if (pluginConfig.get('fileSystem') || isGodMode) {
-    tools.push(...registerFileSystemTools(pluginConfig as any, stateManager));
-  }
-
-  // --- Web Research Tools ---
-  if (pluginConfig.get('webSearch') || isGodMode) {
-    tools.push(...registerWebResearchTools(pluginConfig as any));
-  }
-
-  // --- Git & GitHub Tools ---
-  if (pluginConfig.get('gitOperations') || isGodMode) {
-    tools.push(...registerGitTools(pluginConfig as any));
+  // --- Background Commands ---
+  if (config.backgroundCommands || isGodMode) {
+    tools.push(...registerBackgroundCommandTools(config, backgroundCommandManager));
   }
 
   // --- Browser Automation Tools ---
-  if (pluginConfig.get('browserAutomation') || isGodMode) {
-    tools.push(...registerBrowserTools(pluginConfig as any));
-  }
-
-  // --- Database Queries ---
-  if (pluginConfig.get('databaseQueries') || isGodMode) {
-    tools.push(...registerDatabaseTools(pluginConfig as any));
-  }
-
-  // --- Document Parsing ---
-  if (pluginConfig.get('documentParsing') || isGodMode) {
-    tools.push(...registerDocumentTools(pluginConfig as any));
-  }
-
-  // --- Background Commands ---
-  if (pluginConfig.get('backgroundCommands') || isGodMode) {
-    tools.push(...registerBackgroundCommandTools(pluginConfig as any, backgroundCommandManager));
-  }
-
-  // --- Image Processing Tools ---
-  if (pluginConfig.get('imageProcessing') || isGodMode) {
-    tools.push(...registerImageProcessingTools(pluginConfig as any));
-  }
-
-  // --- HTTP Client Tools ---
-  if (pluginConfig.get('httpClient') || isGodMode) {
-    tools.push(...registerHttpClientTools(pluginConfig as any));
-  }
-
-  // --- Vector RAG / Semantic Search ---
-  if (pluginConfig.get('vectorRAG') || isGodMode) {
-    tools.push(...registerRagTools(pluginConfig as any));
-  }
-
-  // --- UI Generation Tools ---
-  if (pluginConfig.get('uiGeneration') || isGodMode) {
-    tools.push(...registerUiGenerationTools(pluginConfig as any));
+  if (config.browserAutomation || isGodMode) {
+    tools.push(...registerBrowserTools(config));
   }
 
   // --- Context Management Tools ---
-  if (pluginConfig.get('contextManagement') || isGodMode) {
-    tools.push(...registerContextManagementTools(pluginConfig as any, stateManager));
+  if (config.contextManagement || isGodMode) {
+    tools.push(...registerContextManagementTools(config, stateManager));
   }
 
-  // --- Text Processing Tools ---
-  if (pluginConfig.get('textProcessing') || isGodMode) {
-    tools.push(...registerTextProcessingTools(pluginConfig as any));
+  // --- Database Queries ---
+  if (config.databaseQueries || isGodMode) {
+    tools.push(...registerDatabaseTools(config));
   }
 
-  // --- AST Code Refactoring Tools ---
-  if (pluginConfig.get('refactorCode') || isGodMode) {
-    tools.push(...registerRefactorCodeTools(pluginConfig as any));
-  }
-
-  // --- Utility & Maintenance Tools ---
-  if (pluginConfig.get('utility') || isGodMode) {
-    tools.push(...registerBackupTools(pluginConfig as any));
-    tools.push(...registerCleanupBackupsTool(pluginConfig as any));
-    tools.push(...registerDataVisualizationTools(pluginConfig as any));
-    tools.push(...registerLineOperationsTools(pluginConfig as any));
-    tools.push(...registerMarkdownPreviewTools(pluginConfig as any));
+  // --- Document Parsing ---
+  if (config.documentParsing || isGodMode) {
+    tools.push(...registerDocumentTools(config));
   }
 
   // --- Execution Tools (JS/Python/Terminal) — per-tool gating, GOD MODE bypasses all ---
-  const hasAnyExecToggle = pluginConfig.get('executionJavaScript') ||
-                           pluginConfig.get('executionPython') ||
-                           pluginConfig.get('executionTerminal') ||
-                           pluginConfig.get('executionShell') ||
-                           pluginConfig.get('executionTests');
+  const hasAnyExecToggle = config.executionJavaScript ||
+                           config.executionPython ||
+                           config.executionTerminal ||
+                           config.executionShell ||
+                           config.executionTests;
 
   if (hasAnyExecToggle || isGodMode) {
-    const allExecTools = registerExecutionTools(pluginConfig as any);
+    const allExecTools = registerExecutionTools(config);
 
     // run_javascript — gated by executionJavaScript (or GOD MODE)
-    if (pluginConfig.get('executionJavaScript') || isGodMode) {
+    if (config.executionJavaScript || isGodMode) {
       const jsTool = allExecTools.find(t => t.name === 'run_javascript');
       if (jsTool) tools.push(jsTool);
     }
 
     // run_python — gated by executionPython (or GOD MODE)
-    if (pluginConfig.get('executionPython') || isGodMode) {
+    if (config.executionPython || isGodMode) {
       const pyTool = allExecTools.find(t => t.name === 'run_python');
       if (pyTool) tools.push(pyTool);
     }
 
     // run_in_terminal — gated by executionTerminal (or GOD MODE)
-    if (pluginConfig.get('executionTerminal') || isGodMode) {
+    if (config.executionTerminal || isGodMode) {
       const termTool = allExecTools.find(t => t.name === 'run_in_terminal');
       if (termTool) tools.push(termTool);
     }
 
     // execute_command — gated by executionShell (or GOD MODE)
-    if (pluginConfig.get('executionShell') || isGodMode) {
+    if (config.executionShell || isGodMode) {
       const shellTool = allExecTools.find(t => t.name === 'execute_command');
       if (shellTool) tools.push(shellTool);
     }
 
     // run_tests — gated by executionTests (or GOD MODE)
-    if (pluginConfig.get('executionTests') || isGodMode) {
+    if (config.executionTests || isGodMode) {
       const testTool = allExecTools.find(t => t.name === 'run_tests');
       if (testTool) tools.push(testTool);
     }
   }
 
-  // Return the filtered list of active tools
-  return tools;
+  // --- File System Tools ---
+  if (config.fileSystem || isGodMode) {
+    tools.push(...registerFileSystemTools(config, stateManager));
+  }
+
+  // --- Git & GitHub Tools ---
+  if (config.gitOperations || isGodMode) {
+    tools.push(...registerGitTools(config));
+  }
+
+  // --- HTTP Client Tools ---
+  if (config.httpClient || isGodMode) {
+    tools.push(...registerHttpClientTools(config));
+  }
+
+  // --- Image Processing Tools ---
+  if (config.imageProcessing || isGodMode) {
+    tools.push(...registerImageProcessingTools(config));
+  }
+
+  // --- Refactor Code Tools ---
+  if (config.refactorCode || isGodMode) {
+    tools.push(...registerRefactorCodeTools(config));
+  }
+
+  // --- Text Processing Tools ---
+  if (config.textProcessing || isGodMode) {
+    tools.push(...registerTextProcessingTools(config));
+  }
+
+  // --- UI Generation Tools ---
+  if (config.uiGeneration || isGodMode) {
+    tools.push(...registerUiGenerationTools(config));
+  }
+
+  // --- Utility & Maintenance Tools ---
+  if (config.utility || isGodMode) {
+    tools.push(...registerBackupTools(config));
+    tools.push(...registerCleanupBackupsTool(config));
+    tools.push(...registerDataVisualizationTools(config));
+    tools.push(...registerLineOperationsTools(config));
+    tools.push(...registerMarkdownPreviewTools(config));
+  }
+
+  // --- Vector RAG / Semantic Search ---
+  if (config.vectorRAG || isGodMode) {
+    tools.push(...registerRagTools(config));
+  }
+
+  // --- Web Research Tools ---
+  if (config.webSearch || isGodMode) {
+    tools.push(...registerWebResearchTools(config));
+  }
+
+  // Sort alphabetically by tool name for consistent UI ordering in LM Studio
+  const sortedTools = [...tools].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+
+  return sortedTools;
 }

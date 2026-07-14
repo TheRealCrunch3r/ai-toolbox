@@ -153,7 +153,7 @@ createToolsProvider(config, stateManager, bgCommandManager)
             ├── registerExecutionTools()       ──► 5 tools (mixed defaults)
             │
             ▼
-        Return Tool[] to SDK ──► ~88 tools total (configurable per user)
+        Return Tool[] to SDK ──► ~**116 tools** / **Total: 116** (context-aware replacement handled below per file) total (configurable per user)
 ```
 
 ### ⚠️ Gateway Tools Status (v1.6.2)
@@ -353,7 +353,7 @@ getAllowedBases(): string[]
 
 > **⚠️ Status**: `src/tools/gatewayTools.ts` exists but is NOT imported/registered in `toolsProvider.ts`. The following describes the design as documented, pending full integration.
 
-**Purpose**: Prevent LLM tool-bloat crashes by providing a single entry point for tool discovery and execution, reducing the initial grammar schema payload from ~88 tools to just 2.
+**Purpose**: Prevent LLM tool-bloat crashes by providing a single entry point for tool discovery and execution, reducing the initial grammar schema payload from ~**116 tools** / **Total: 116** (context-aware replacement handled below per file) to just 2.
 
 ### Problem Solved
 Sending all 88+ tools directly to llama.cpp's grammar parser caused `failed to parse grammar` errors due to EBNF recursion limits. The AI also struggled with overwhelming options when deciding which tool to use.

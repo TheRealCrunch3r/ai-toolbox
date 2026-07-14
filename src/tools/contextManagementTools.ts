@@ -350,7 +350,7 @@ WHEN TO USE:
       session_events: z.array(z.object({
         type: z.string(),
         timestamp: z.number(),
-        data: z.any().optional(),
+        data: z.unknown().optional(),
       })).optional().describe('Recent session events to analyze'),
       config_changes: z.record(z.union([z.boolean(), z.string()])).optional().describe('Configuration changes made during session'),
     },
@@ -600,7 +600,7 @@ WHEN TO USE:
           if (latest) {
             // Check staleness: is the summary older than 3 days?
             const threeDaysMs = 3 * 24 * 60 * 60 * 1000;
-            const isStale = (Date.now() - latest.timestamp!) > threeDaysMs;
+            const isStale = (Date.now() - (latest.timestamp ?? 0)) > threeDaysMs;
             
             return { success: true, data: { ...latest, isStale } };
           }

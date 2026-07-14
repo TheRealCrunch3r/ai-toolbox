@@ -35,7 +35,7 @@ All documentation has been reconstructed based on actual source code analysis to
 
 ### Gateway Tools: Single Entry Point for Tool Discovery & Execution — v1.6.2 (2026-07-12)
 
-This update documents the introduction of the **Gateway Pattern** to prevent LLM tool-bloat crashes and provide controlled access to all 88 registered tools.
+This update documents the introduction of the **Gateway Pattern** to prevent LLM tool-bloat crashes and provide controlled access to all **116** dynamically registered tools.
 
 #### Problem Solved
 Sending all 88 registered tools directly to llama.cpp's grammar parser caused `failed to parse grammar` errors due to EBNF recursion limits. The AI also struggled with overwhelming options when deciding which tool to use.
@@ -43,7 +43,7 @@ Sending all 88 registered tools directly to llama.cpp's grammar parser caused `f
 #### Solution: Two-Tool Gateway System
 
 **New Tools:**
-- ✅ `explore_tools` — Discovers available tools and their categories without exposing all 88 registered tools at once (prevents grammar parser crashes)
+- ✅ `explore_tools` — Discovers available tools and their categories without exposing the full suite of **116** dynamically registered tools at once (prevents grammar parser crashes)
 - ✅ `execute_gateway_tool` — Delegates execution to any registered tool by name with built-in validation and error handling
 
 #### Architecture
@@ -551,7 +551,7 @@ Major refactoring to eliminate blocking I/O operations:
 ## ✅ Verification Checklist
 
 ### README.md
-- [x] Tool count corrected to 108 total across 17 categories
+- [x] Tool count updated dynamically; currently **116** unique tools registered (~20 categories)
 - [x] Release History updated with v1.5.29 performance optimization suite
 - [x] All tool names verified against source code
 - [x] Configuration table matches `config.ts` Zod schema exactly
@@ -566,7 +566,7 @@ Major refactoring to eliminate blocking I/O operations:
 - [x] Security pipeline documented correctly
 
 ### TOOLS_REFERENCE.md
-- [x] All 108 tools documented with accurate parameter tables
+- [x] Tool parameters and categories verified against current source code (~20 modules)
 - [x] Return types match actual implementations
 - [x] Tool categories and counts verified against source code
 - [x] Examples use correct parameter names and types
@@ -599,7 +599,7 @@ Major refactoring to eliminate blocking I/O operations:
 |------|-------------|
 | `README.md` | Rebuilt from scratch based on source code analysis. Corrected tool counts, configuration tables, and dependencies. Updated v1.5.15 release notes for StateManager test isolation fix. |
 | `ARCHITECTURE.md` | Rebuilt with accurate system overview diagram (16 modules), corrected tool counts in architecture sections. Added persistence-aware getAllKeys() description to StateManager module. |
-| `TOOLS_REFERENCE.md` | Complete reconstruction with all 108 tools documented accurately based on actual Zod schemas and implementations. |
+| `TOOLS_REFERENCE.md` | Rebuilt reference covering ~20 tool modules, updated to reflect dynamic registration counts (~116 total). |
 | `DOCUMENTATION.md` | This file — cleaned up duplicate sections, verified version history against source code timestamps. Fixed Chinese character typo and updated status to v1.5.15. |
 | `CHANGELOG.md` | Rewritten from scratch with correct version ordering (v1.5.15 → v1.5.0) and accurate fix descriptions based on actual git changes. |
 

@@ -1,6 +1,6 @@
 # 🛠️ AI Toolbox — Complete Tool Reference
 
-*Generated on: 2026-07-12 · 111+ tools across 18 categories + Gateway Tools (2) (verified against source code)*
+*Updated to reflect current state: **116 unique tool names** dynamically registered across ~20 categories.*
 
 ---
 
@@ -369,10 +369,10 @@ The `src/tools/recodeTool/` module implements a pluggable rule engine for advanc
 
 ## 🔑 Gateway Tools (2 — Always Enabled, v1.6.2+)
 
-**Purpose**: Single entry point for tool discovery and execution to prevent LLM tool-bloat crashes. Only 2 tools sent to llama.cpp initially instead of ~111.
+**Purpose**: Single entry point for tool discovery and execution to prevent LLM tool-bloat crashes. Only 2 tools sent to llama.cpp initially, dynamically routing the full suite of **116** registered tools on demand.
 
 ### `explore_tools`
-Discovers available tools and their categories without exposing all 111+ tools at once. Returns category names only (not individual tool names) to keep schema small.
+Discovers available tools and their categories without exposing the full suite of **116** dynamically registered tools at once. Returns category names only (not individual tool names) to keep schema small.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -419,7 +419,7 @@ User Message → AI calls explore_tools(category="fileSystem")
              → Tool executes with full validation, security checks, error handling
 ```
 
-**Why Gateway?** Sending ~111 tools directly to llama.cpp's grammar parser causes `failed to parse grammar` errors. The Gateway pattern reduces initial schema payload from 111 → 2 tools while maintaining full functionality on-demand.
+**Why Gateway?** Sending the entire registry of **116+** tool schemas directly to llama.cpp's grammar parser causes `failed to parse grammar` errors due to EBNF recursion limits. The Gateway pattern reduces initial schema payload from 116 → 2 tools while maintaining full functionality on-demand via delegation.
 
 ---
 

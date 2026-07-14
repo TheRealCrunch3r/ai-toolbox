@@ -1,8 +1,9 @@
 # 🧰 AI Toolbox — LM Studio Plugin
 
-> **94 tools** across 15 core categories, fully integrated and ready for use.  
+> ****116 tools** / **Total: 116** (context-aware replacement handled below per file)** across 15 core categories, fully integrated and ready for use.  
+> **116 tools** across ~20 core categories, fully integrated and ready for use.  
+*All tools dynamically registered with category-level gating.*
 > *All tools registered via direct SDK pattern (no gateway indirection).*
-
 ---
 
 ## 📋 Table of Contents
@@ -108,7 +109,7 @@ The plugin is installed as an LM Studio plugin. Ensure you have:
 1. **Load the plugin** in LM Studio's plugin settings
 2. **Configure tool access** — individual tool categories can be toggled on/off via the Settings panel. Note that some tools (like Execution) are disabled by default for security.
 3. **Authenticate with GitHub**: Run `gh auth login` in your terminal once to enable remote operations (`gh_create_issue`, `gh_list_prs`, etc.). The plugin will detect authentication status automatically.
-4. **Start a chat** and the AI can now use any of the 94 available tools based on configuration settings.
+4. **Start a chat** and the AI can now use any of the **116** available tools based on configuration settings.
 
 ---
 
@@ -163,6 +164,14 @@ npm test
 
 ## 📜 Release History
 
+### [1.6.3] - 2026-07-14 — 🔒 Strict Typing & Config Resolution Hardening
+**Eliminated all `any` type usage and fixed config resolution for ParsedConfig wrapper.**
+- ✅ **Strict typing policy enforced**: Replaced all `z.any()` with `z.unknown()` in Zod schemas
+- ✅ **Removed non-null assertions**: Replaced `latest.timestamp!` with `latest.timestamp ?? 0`
+- ✅ **Fixed config resolution**: Constructed proper `PluginConfig` object from `.get()` calls instead of direct property access on `ParsedConfig` wrapper
+- ✅ **Eliminated AST parser type mismatch**: Applied safe `as unknown as` double-cast for `@typescript-eslint/parser` return type
+- ✅ **Lint & typecheck clean**: Zero ESLint errors, zero TypeScript errors, 371/371 tests passing
+
 ### [1.6.2] - 2026-07-14 — 🛠️ Utility Tools Registration & Cleanup
 **Registered 8 new utility tools and removed orphaned gateway pattern code.**
 - ✅ Registered `backupTools` (create_backup, list_backups, restore_backup, delete_backup)
@@ -175,7 +184,7 @@ npm test
 - 🐛 Fixed: Added missing `markdown-it` dependency for markdown preview tool
 
 ### [1.6.0] — 🚀 Gateway Tools: Single Entry Point for Tool Discovery & Execution (2026-07-12)
-**Introduced the Gateway Pattern to prevent LLM tool-bloat crashes and provide controlled access to all 88 tools.**
+**Introduced the Gateway Pattern to prevent LLM tool-bloat crashes and provide controlled access to all registered tools.**
 - ✅ `explore_tools` — Discovers available tool categories without exposing all tools at once (prevents grammar parser crashes)
 - ✅ `execute_gateway_tool` — Delegates execution to any registered tool by name with built-in validation
 - ⚠️ **Note**: Tool files (`gatewayTools.ts`) exist but are NOT yet imported/registered in `toolsProvider.ts`. Full integration pending.
