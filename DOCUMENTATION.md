@@ -1,8 +1,8 @@
 # Documentation Update Summary — v1.5.x (2026-06-17)
 
-**Date**: 2026-06-30  
+**Date**: 2026-07-17  
 **Author**: AI Toolbox Development Team  
-**Status**: ✅ Complete (v1.6.4 — Strict Typing & Config Resolution Hardening)
+**Status**: ✅ Complete (v1.6.6 — AST Safety Layer for Code Modification Tools)
 
 ---
 
@@ -67,7 +67,7 @@ This update documents the elimination of all `any` type usage and the fix for Pa
 
 ---
 
-This update documents the introduction of the **Gateway Pattern** to prevent LLM tool-bloat crashes and provide controlled access to all **116** dynamically registered tools.
+This update documents the introduction of the **Gateway Pattern** to prevent LLM tool-bloat crashes and provide controlled access to all **95** dynamically registered tools.
 
 #### Problem Solved
 Sending all 88 registered tools directly to llama.cpp's grammar parser caused `failed to parse grammar` errors due to EBNF recursion limits. The AI also struggled with overwhelming options when deciding which tool to use.
@@ -75,7 +75,7 @@ Sending all 88 registered tools directly to llama.cpp's grammar parser caused `f
 #### Solution: Two-Tool Gateway System
 
 **New Tools:**
-- ✅ `explore_tools` — Discovers available tools and their categories without exposing the full suite of **116** dynamically registered tools at once (prevents grammar parser crashes)
+- ✅ `explore_tools` — Discovers available tools and their categories without exposing the full suite of **95** dynamically registered tools at once (prevents grammar parser crashes)
 - ✅ `execute_gateway_tool` — Delegates execution to any registered tool by name with built-in validation and error handling
 
 #### Architecture
@@ -132,7 +132,7 @@ User Message → AI calls explore_tools(category="fileSystem")
 | Grammar parser crash prevention | Send first chat message with plugin enabled | No `failed to parse grammar` errors — only 2 tools sent initially |
 | Tool discovery | Call `explore_tools(category="fileSystem")` | Returns category names, not individual tool schemas |
 | Tool execution via gateway | Call `execute_gateway_tool(toolName="read_file", arguments={...})` | Tool executes with full validation and error handling |
-| Full functionality preserved | All 111+ tools accessible via `execute_gateway_tool` | No loss of existing capabilities |
+| Full functionality preserved | All 95 tools accessible via `execute_gateway_tool` | No loss of existing capabilities |
 
 **Total**: 1 new module (`src/tools/gatewayTools.ts`), 2 new tools, zero breaking changes. Fully backward compatible with existing tool registry architecture.
 
@@ -473,22 +473,23 @@ The following corrections were made to ensure documentation accuracy:
 
 | Category | Previous Count | Corrected Count | Changes |
 |----------|---------------|-----------------|---------|
-| File System Tools | 17 → 21 | **21 tools** | Added `analyze_project`, `file_diff`, `directory_tree`, `grep_files` (Note: Count reflects actual registered tools including variants) |
+| File System Tools | 17 → 22 | **22 tools** | Added `analyze_project`, `file_diff`, `directory_tree`, `grep_files`, `find_replace_all` |
 | Web Research Tools | 4 | **4 tools** | No change |
 | Browser Automation Tools | 5 | **5 tools** | No change |
-| Git & GitHub Tools | 14 → 13 | **15 tools** | Added `git_stash` and `git_blame`, no non-existent tool removed |
+| Git & GitHub Tools | 14 → 15 | **15 tools** | Added `git_stash` and `git_blame` |
 | Database Tools | 1 | **1 tool** | No change |
 | Document Parsing | 1 | **1 tool** | No change |
 | Background Commands | 3 | **3 tools** | No change |
 | Execution Tools | 4 → 5 | **5 tools** | Added `run_tests` |
-| Utilities | 7 → 24 | **24 tools** | Added `json_query` and `env_update` tools |
+| Utilities | 7 → ~26 | **~26 tools** | Added `json_query`, `env_update`, `flush_auto_tracker`, `get_current_working_directory` |
 | Image Processing | 4 | **4 tools** | No change |
 | HTTP Client | 3 | **3 tools** | No change |
 | Vector RAG | 3 → 4 | **4 tools** | Added `rag_web_content` |
-| Text Processing | 3 | **3 tools** | No change |
+| Text Processing | 3 → 4 | **4 tools** | Added `line_operations` |
 | Interactive UI Generation | 3 | **3 tools** | No change |
-| Auto-Context Management | 7 | **7 tools** | No change |
+| Auto-Context Management | 7 → 12 | **12 tools** | Added `search_context`, `context_summary`, `delete_context_entry`, `clear_context_memory`, `track_important_event` |
 | Backup & Restore | 4 | **4 tools** | No change |
+| Refactor Code | 1 → 2 | **2 tools** | Added `unusedImports` |
 
 ---
 
@@ -583,7 +584,7 @@ Major refactoring to eliminate blocking I/O operations:
 ## ✅ Verification Checklist
 
 ### README.md
-- [x] Tool count updated dynamically; currently **116** unique tools registered (~20 categories)
+- [x] Tool count updated dynamically; currently **119** unique tools registered (18 categories)
 - [x] Release History updated with v1.5.29 performance optimization suite
 - [x] All tool names verified against source code
 - [x] Configuration table matches `config.ts` Zod schema exactly
@@ -598,7 +599,7 @@ Major refactoring to eliminate blocking I/O operations:
 - [x] Security pipeline documented correctly
 
 ### TOOLS_REFERENCE.md
-- [x] Tool parameters and categories verified against current source code (~20 modules)
+- [x] Tool parameters and categories verified against current source code (~16 modules)
 - [x] Return types match actual implementations
 - [x] Tool categories and counts verified against source code
 - [x] Examples use correct parameter names and types

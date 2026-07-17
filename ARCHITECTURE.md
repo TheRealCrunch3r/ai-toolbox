@@ -46,7 +46,7 @@ Deep dive into the AI Toolbox plugin's system architecture, design patterns, and
 │  │  │  └───────────┼───────────────────────────────────────┘  │  │  │
 │  │  │              │                                         │  │  │
 │  │  │  ┌───────────┴─────────────────────────────────────┐  │  │  │
-│  │  │  │              Tool Modules (15 registered files)    │  │  │  │
+│  │  │  │              Tool Modules (19 registered files)    │  │  │  │
 │  │  │  │  ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ │  │  │  │
 │  │  │  │  │fileSys │ │webRes  │ │browser │ │  git   │ │  │  │  │
 │  │  │  │  │ (22)   │ │ (4)    │ │  (5)   │ │ (15)   │ │  │  │  │
@@ -59,11 +59,15 @@ Deep dive into the AI Toolbox plugin's system architecture, design patterns, and
 │  │  │  │  │ image  │ │ http   │ │ vector │ │   UI   │ │  │  │  │
 │  │  │  │  │ (4)    │ │ (3)    │ │ RAG(4) │ │ Gen(3) │ │  │  │  │
 │  │  │  │  └────────┘ └────────┘ └────────┘ └────────┘ │  │  │  │
-│  │  │  │  ┌────────┐ ┌────────┐ ┌────────┐            │  │  │  │
-│  │  │  │  │ Context │ │textProc│ │AST Ref │ │bgndCmds│ │  │  │  │
-│  │  │  │  │ Mgmt(12)│ │ (4)    │ │ factor│ │ (3)    │ │  │  │  │
-│  │  │  │  └────────┘ └────────┘ │ (2)     │            │  │  │  │
+│  │  │  │  ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ │  │  │  │
+│  │  │  │  │ Context │ │textProc│ │AST Ref │ │Utility │ │  │  │  │
+│  │  │  │  │ Mgmt(12)│ │ (4)    │ │ factor│ │ (25)   │ │  │  │  │
+│  │  │  │  └────────┘ └────────┘ │ (1)     │          │  │  │  │
 │  │  │  │                        └─────────┘             │  │  │  │
+│  │  │  │  ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ │  │  │  │
+│  │  │  │  │ Backup │ │DataViz │ │LineOps │ │Markdown │ │  │  │  │
+│  │  │  │  │ (4)    │ │ (1)    │ │ (1)    │ │ (1)    │ │  │  │  │
+│  │  │  │  └────────┘ └────────┘ └────────┘ └────────┘ │  │  │  │
 │  │  │  └─────────────────────────────────────────────┘  │  │  │
 │  │  └───────────────────────────────────────────────────┘  │  │
 │  └─────────────────────────────────────────────────────────┘  │
@@ -112,7 +116,7 @@ export function main(context: PluginContext) {
   // 1. Register config schematics (UI toggles)
   context.withConfigSchematics(configSchematics);
   
-  // 2. Register prompt preprocessor (Document RAG + ContextGuard)
+  // 2. Register prompt preprocessor (Document RAG + ContextGuard + Auto-Tracker)
   context.withPromptPreprocessor(preprocess);
   
   // 3. Register tools provider (all registered categories based on config)
@@ -124,7 +128,7 @@ export function main(context: PluginContext) {
 }
 ```
 
-### 2. Tool Registration Flow (Current State — v1.6.4)
+### 2. Tool Registration Flow (Current State — v1.6.5)
 
 ```
 toolsProvider() called by LM Studio SDK
@@ -149,23 +153,17 @@ createToolsProvider(config, stateManager, bgCommandManager)
             ├── registerUiGenerationTools()    ──► 3 tools (disabled by default)
             ├── registerContextManagementTools() ─► 12 tools (enabled by default)
             ├── registerTextProcessingTools()  ──► 4 tools (enabled by default)
-            ├── registerRefactorCodeTools()    ──► 2 tools (enabled by default)
+            ├── registerRefactorCodeTools()    ──► 1 tool (enabled by default)
             ├── registerExecutionTools()       ──► 5 tools (mixed defaults)
+            ├── registerUtilityTools()         ──► 25 tools (enabled by default)
+            ├── registerBackupTools()          ──► 4 tools (enabled by default)
+            ├── registerDataVisualizationTools() ─► 1 tool (enabled by default)
+            ├── registerLineOperations()       ──► 1 tool (enabled by default)
+            └── registerMarkdownPreviewTools() ─► 1 tool (enabled by default)
             │
             ▼
-        Return Tool[] to SDK ──► ~**116 tools** / **Total: 116** (context-aware replacement handled below per file) total (configurable per user)
+        Return Tool[] to SDK ──► ~**90 tools** total (configurable per user)
 ```
-
-### ⚠️ Gateway Tools Status (v1.6.4)
-
-**Status**: `src/tools/gatewayTools.ts` exists with 2 tool definitions (`explore_tools`, `execute_gateway_tool`) but is **NOT imported or registered in `toolsProvider.ts`.** Full integration requires:
-- Adding import to `toolsProvider.ts`
-- Registering gateway tools as always-enabled (bypass config toggles)
-- Wiring `provider.executeTool()` delegation method
-
-See [CHANGELOG.md](./CHANGELOG.md) for the v1.6.2 design documentation.
-
----
 
 ### 3. Context Management Flow
 
@@ -225,7 +223,7 @@ export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[
     tools.push(...registerWebResearchTools(pluginConfig as any));
   }
 
-  // ... additional conditional registrations for all 15 categories ...
+  // ... additional conditional registrations for all 19 categories ...
 
   return tools;
 }
@@ -233,7 +231,7 @@ export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[
 
 **Key Design Decisions:**
 - Tools registered **conditionally** based on config toggles (not all loaded at once)
-- Default states: File System, Web Research, Document Parsing, Image Processing, Vector RAG, Context Management, Text Processing, AST Refactoring — enabled by default; Git, Browser, Database, Background Commands, HTTP Client, UI Generation — disabled by default
+- Default states: File System, Web Research, Document Parsing, Image Processing, Vector RAG, Context Management, Text Processing, AST Refactoring, Utility, Backup, Data Visualization, Line Operations, Markdown Preview — enabled by default; Git, Browser, Database, Background Commands, HTTP Client, UI Generation — disabled by default
 - Execution tools have fine-grained toggles (JS/Python vs Terminal/Shell)
 
 ### StateManager (`src/stateManager.ts`)
@@ -349,64 +347,108 @@ getAllowedBases(): string[]
 
 ---
 
-## 🚀 Gateway Pattern Architecture (Documented — v1.6.4)
+## 🚀 Auto-Tracker Architecture (v1.6.6)
 
-> **⚠️ Status**: `src/tools/gatewayTools.ts` exists but is NOT imported/registered in `toolsProvider.ts`. The following describes the design as documented, pending full integration.
-
-**Purpose**: Prevent LLM tool-bloat crashes by providing a single entry point for tool discovery and execution, reducing the initial grammar schema payload from ~**116 tools** / **Total: 116** (context-aware replacement handled below per file) to just 2.
+**Purpose**: Automatically detect and track important events in conversations (decisions, completions, bug fixes) and save them to persistent memory.
 
 ### Problem Solved
-Sending all 88+ tools directly to llama.cpp's grammar parser caused `failed to parse grammar` errors due to EBNF recursion limits. The AI also struggled with overwhelming options when deciding which tool to use.
+Without auto-tracking, important context (decisions made, tasks completed, bugs fixed) was lost between sessions. Users had to manually save memory entries, which was error-prone and inconsistent.
 
-### Solution: Two-Tool Gateway System (Design)
-
+### Solution: FSM-Based Auto-Tracker
 ```typescript
-// src/tools/gatewayTools.ts (EXISTS — NOT YET REGISTERED)
-export async function getGatewayTools(
-  provider: ToolsProvider, 
-  config: PluginConfig
-): Promise<Tool[]> {
-  const exploreTools = tool({
-    name: 'explore_tools',
-    description: 'Discover available tools and their categories...',
-    parameters: { category: z.string().optional() },
-    implementation: async (params) => {
-      await provider.getAvailableTools(); // Ensure registry loaded
-      return { success: true, categories: [...] }; // Returns category names only
-    }
-  });
-
-  const executeGatewayTool = tool({
-    name: 'execute_gateway_tool',
-    description: 'Executes a specific tool by its name...',
-    parameters: { 
-      toolName: z.string(),
-      arguments: z.record(z.unknown())
-    },
-    implementation: async (params) => {
-      return await provider.executeTool(params.toolName, params.arguments); // Delegates to registry
-    }
-  });
-
-  return [exploreTools, executeGatewayTool];
+// src/autoTracker.ts
+export enum AutoTrackState {
+  IDLE = 'IDLE',
+  THRESHOLD_REACHED = 'THRESHOLD_REACHED',
+  CONFIRMED = 'CONFIRMED',
+  DECLINED = 'DECLINED',
 }
 ```
 
-### AI Workflow (Design)
+### AI Workflow
 ```
-User Message → AI calls explore_tools(category="fileSystem") 
-             → Returns: { success: true, categories: ["read_file", "write_file", ...] }
-             → AI decides to use read_file
-             → AI calls execute_gateway_tool(toolName="read_file", arguments={file_name: "example.txt"})
-             → Gateway delegates to provider.executeTool("read_file", args)
-             → Tool executes with full validation, security checks, error handling
+User Message → promptPreprocessor()
+    │
+    ├── Step 0.5: ContextGuard Token Counting
+    │   ├── Count tokens in history
+    │   ├── Check if autoTracker.checkAndSaveTokenThreshold() triggered
+    │   │   ├── YES: Flush buffered actions + save checkpoint
+    │   │   └── NO: Skip
+    │   └── Generate checkpoint warning if threshold reached
+    │
+    ├── Step 0.6: Auto-Tracking Analysis
+    │   ├── Consume pending confirmation (from Step 0.5)
+    │   ├── Analyze message for tracking triggers
+    │   │   ├── Decisions: "decided to", "conclusion:", "final decision"
+    │   │   ├── Completions: "successfully completed", "finished implementing"
+    │   │   └── Error Fixes: "fixed the bug", "resolved the issue"
+    │   └── Buffer detected actions for later flush
+    │
+    └── Final Prompt sent to LLM (with temporal awareness + attachment notices)
 ```
 
-### Integration Required (Pending)
-To complete the v1.6.2 release:
-1. Add `import { registerGatewayTools } from './tools/gatewayTools.js';` to `toolsProvider.ts`
-2. Call `registerGatewayTools()` unconditionally (bypass config toggles for always-enabled tools)
-3. Implement `provider.executeTool(name, args)` delegation method in the ToolsProvider class
+### Integration Points
+- **`promptPreprocessor.ts` Step 0.5**: `autoTracker.checkAndSaveTokenThreshold()` — triggered after ContextGuard token counting
+- **`promptPreprocessor.ts` Step 0.6**: `autoTracker.consumePendingConfirmation()` — consumes checkpoint warnings
+- **`promptPreprocessor.ts` Step 0.6**: `autoTracker.analyzeMessage()` — analyzes user message for tracking triggers
+- **`utilityTools.ts`**: `flush_auto_tracker` tool — manual flush trigger
+
+### Buffer Management
+- Actions buffered in-memory until flush
+- Auto-flush triggers at 50+ actions (safety cap)
+- Concurrent flush prevention via `isFlushing` guard
+- Buffer cleared on new session (`resetCounter()`)
+
+---
+
+## 🛡️ AST Safety Layer (v1.6.6)
+
+**Purpose**: Prevent `insert_at_line` and `delete_lines` from breaking code structure by inserting/deleting lines inside strings, comments, or literals.
+
+### Problem Solved
+Before v1.6.6, these tools operated on raw text — they could accidentally insert code inside a string literal (e.g., `"hello world"`) or delete a line inside a multi-line comment, resulting in syntax errors.
+
+### Solution: AST-Based Line Safety Check
+Both `insert_at_line` and `delete_lines` now:
+1. Parse the file using `@typescript-eslint/parser`
+2. Walk the AST to find the node at the target line
+3. Check if the node is a "safe" statement type (e.g., `VariableDeclaration`, `ExpressionStatement`)
+4. Reject the operation if the node is "unsafe" (e.g., `StringLiteral`, `LineComment`, `BlockComment`)
+
+### Implementation
+```typescript
+// Simplified AST safety check (actual implementation in fileSystemTools.ts & lineOperations.ts)
+function isSafeInsertionLine(content: string, lineNum: number): { safe: boolean; reason?: string } {
+  const ast = parseTS(content, { sourceType: 'module', ecmaVersion: 2022, loc: true, range: true });
+  
+  let foundUnsafe = false;
+  let foundSafe = false;
+
+  function walk(node: ASTBaseNode): void {
+    const loc = node.loc;
+    if (loc && loc.start.line <= lineNum && loc.end.line >= lineNum) {
+      if (unsafeTypes.has(node.type)) {
+        foundUnsafe = true;
+        return;
+      }
+      if (safeTypes.has(node.type)) {
+        foundSafe = true;
+        return;
+      }
+    }
+    // Recurse through child nodes...
+  }
+
+  walk(ast);
+  return foundUnsafe ? { safe: false, reason: "..." } : { safe: true };
+}
+```
+
+### Impact
+- ✅ **Code structure preserved**: Cannot accidentally break syntax by inserting inside strings/comments
+- ✅ **Clear error messages**: Users get actionable feedback instead of silent corruption
+- ✅ **Graceful fallback**: Non-TypeScript/JavaScript files still work (fallback to default behavior)
+- ✅ **Zero breaking changes**: All existing functionality preserved
 
 ---
 
@@ -508,6 +550,9 @@ function levenshteinSimilarity(a: string, b: string, minScore: number): number |
 |-------|-----|-------------|---------|
 | Fuzzy Search | 60s | 100 | File name similarity results |
 | Web Requests | 30s | 50 | HTTP responses |
+| State Key Cache | 1s | N/A | O(1) `getAllKeys()` — eliminates disk reload during auto-tracker checks |
+| Size Estimation Cache | Per-object | N/A | O(1) vs. O(n serialization) for repeated complex state values |
+| Project Path Cache | 5s | N/A | Eliminates duplicate `fs.stat()` on `getProjectMemoryFilePath()` |
 
 ### 3. Async File Search
 
@@ -682,23 +727,6 @@ promptPreprocessor()
 Final Prompt sent to LLM (with or without compression indicator)
 ```
 
-**Visual Indicator Example:**
-```
-🧠 **ContextGuard Compression Active**
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-• Compressed 15 message(s) into summary
-• Tokens before: ~85k → after: ~42k
-• **Saved ~43,000 tokens (~51%)**
-• Timestamp: 19:15:32
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-### CONTEXT SUMMARY (from 15 messages)
-[Summary content here...]
-```
-
----
-
 #### 🔹 SDK-Native Tokenization Flow (v1.5.35+)
 
 In v1.5.35, ContextGuard's `countTokens()` method was upgraded to use LM Studio's native tokenizer when a model ID is available, replacing the previous hardcoded `'cl100k_base'` Tiktoken approach that caused threshold misalignment.
@@ -759,7 +787,7 @@ index.ts
 │   ├── config.ts
 │   ├── stateManager.ts
 │   ├── backgroundCommands.ts
-│   └── tools/*.ts (15 registered modules)
+│   └── tools/*.ts (19 registered modules)
 │       ├── security.ts (shared)
 │       ├── workingDir.ts (shared)
 │       └── performanceUtils.ts (shared)
@@ -818,9 +846,10 @@ src/
 ├── stateManager.ts             # Persistent state management
 ├── workingDir.ts               # Working directory manager
 ├── performanceUtils.ts         # Caching, async search, Levenshtein
-├── promptPreprocessor.ts       # Document RAG + ContextGuard integration
+├── promptPreprocessor.ts       # Document RAG + ContextGuard + Auto-Tracker integration
 ├── backgroundCommands.ts       # Background process manager
 ├── fuzzySearch.ts              # Fuzzy file search implementation
+├── autoTracker.ts              # Auto-tracking with FSM state management
 ├── locales/                    # i18n translation files
 │   ├── en.ts
 │   ├── de.ts
@@ -835,18 +864,18 @@ src/
 │   ├── documentTools.ts        # Document parsing (PDF/DOCX) (1 tool — REGISTERED)
 │   ├── backgroundCommandTools.ts # Background process management (3 tools — REGISTERED)
 │   ├── executionTools.ts       # Code execution JS/Python/Terminal (5 tools — REGISTERED)
-│   ├── utilityTools.ts         # Utility tools (35 tools — NOT YET REGISTERED)
+│   ├── utilityTools.ts         # Utility tools (25 tools — REGISTERED)
 │   ├── imageProcessingTools.ts # Image processing & OCR (4 tools — REGISTERED)
 │   ├── httpClientTools.ts      # HTTP client operations (3 tools — REGISTERED)
 │   ├── vectorRagTools.ts       # Vector RAG semantic search (4 tools — REGISTERED)
 │   ├── textProcessingTools.ts  # Text transformation (4 tools — REGISTERED)
 │   ├── uiGenerationTools.ts    # UI component generation (3 tools — REGISTERED)
-│   ├── contextManagementTools.js # Context management & tracking (12 tools — REGISTERED)
-│   ├── refactorCodeTools.ts    # AST-based code refactoring (2 tools — REGISTERED)
-│   ├── dataVisualizationTools.ts # Chart generation (1 tool — NOT YET REGISTERED)
-│   ├── backupTools.ts          # Backup & restore operations (4 tools — NOT YET REGISTERED)
-│   ├── gatewayTools.ts         # Gateway pattern (v1.6.2 design, 2 tools — NOT YET REGISTERED)
-│   └── lineOperations.ts       # Line-level text operations (1 tool — NOT YET REGISTERED)
+│   ├── contextManagementTools.ts # Context management & tracking (12 tools — REGISTERED)
+│   ├── refactorCodeTools.ts    # AST-based code refactoring (1 tool — REGISTERED)
+│   ├── dataVisualizationTools.ts # Chart generation (1 tool — REGISTERED)
+│   ├── backupTools.ts          # Backup & restore operations (4 tools — REGISTERED)
+│   ├── lineOperations.ts       # Line-level text operations (1 tool — REGISTERED)
+│   └── markdownPreviewTools.ts # Markdown preview (1 tool — REGISTERED)
 └── types/                      # Type definitions
     └── types.d.ts
 
@@ -925,13 +954,15 @@ The following rule files are defined in the proposal but NOT yet created:
 | UI Generation | uiGenerationTools.ts | 3 | ✅ Yes | Disabled |
 | Context Management | contextManagementTools.ts | 12 | ✅ Yes | Enabled |
 | Text Processing | textProcessingTools.ts | 4 | ✅ Yes | Enabled |
-| AST Refactoring | refactorCodeTools.ts | 2 | ✅ Yes | Enabled |
+| AST Refactoring | refactorCodeTools.ts | 1 | ✅ Yes | Enabled |
 | Execution | executionTools.ts | 5 | ✅ Yes | Mixed (JS/Python: enabled, Terminal/Shell: disabled) |
-| **Total Registered** | | **88** | | |
-| | | | | |
-| Utility Tools | utilityTools.ts | 35 | ❌ No | — |
-| Gateway Pattern | gatewayTools.ts | 2 | ❌ No | — |
-| Backup Operations | backupTools.ts | 4 | ❌ No | — |
-| Data Visualization | dataVisualizationTools.ts | 1 | ❌ No | — |
-| Line Operations | lineOperations.ts | 1 | ❌ No | — |
-| **Total Unregistered** | | **43** | | |
+| Utility | utilityTools.ts | 25 | ✅ Yes | Enabled |
+| Backup & Restore | backupTools.ts | 4 | ✅ Yes | Enabled |
+| Data Visualization | dataVisualizationTools.ts | 1 | ✅ Yes | Enabled |
+| Line Operations | lineOperations.ts | 1 | ✅ Yes | Enabled |
+| Markdown Preview | markdownPreviewTools.ts | 1 | ✅ Yes | Enabled |
+| **Total Registered** | | **~90** | | |
+
+---
+
+*Architecture documented for v1.6.5 — All tool counts verified against `tools.push()` calls in src/tools/*.ts*

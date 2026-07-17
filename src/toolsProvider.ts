@@ -26,6 +26,8 @@ import { registerDocumentTools } from './tools/documentTools.js';
 import { registerExecutionTools } from './tools/executionTools.js';
 import { registerFileSystemTools } from './tools/fileSystemTools.js';
 import { registerGitTools } from './tools/gitGithubTools.js';
+import { registerGitHubTools } from './tools/gitHubTools.js';
+import { registerGatewayTools } from './tools/gatewayTools.js';
 import { registerHttpClientTools } from './tools/httpClientTools.js';
 import { registerImageProcessingTools } from './tools/imageProcessingTools.js';
 import { registerLineOperationsTools } from './tools/lineOperations.js';
@@ -34,6 +36,7 @@ import { registerRefactorCodeTools } from './tools/refactorCodeTools.js';
 import { registerRagTools } from './tools/vectorRagTools.js';
 import { registerTextProcessingTools } from './tools/textProcessingTools.js';
 import { registerUiGenerationTools } from './tools/uiGenerationTools.js';
+import { registerUtilityTools } from './tools/utilityTools.js';
 import { registerWebResearchTools } from './tools/webResearchTools.js';
 
 let stateManager: StateManager;
@@ -223,6 +226,7 @@ export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[
     tools.push(...registerDataVisualizationTools(config));
     tools.push(...registerLineOperationsTools(config));
     tools.push(...registerMarkdownPreviewTools(config));
+    tools.push(...registerUtilityTools(config, stateManager));
   }
 
   // --- Vector RAG / Semantic Search ---
@@ -233,6 +237,16 @@ export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[
   // --- Web Research Tools ---
   if (config.webSearch || isGodMode) {
     tools.push(...registerWebResearchTools(config));
+  }
+
+  // --- Gateway Tools (Always Enabled) ---
+  // Gateway tools are always registered regardless of config toggles
+  // to provide controlled access to all other tools
+  tools.push(...registerGatewayTools(config));
+
+  // --- GitHub CLI Tools ---
+  if (config.gitOperations || isGodMode) {
+    tools.push(...registerGitHubTools(config));
   }
 
   // Sort alphabetically for consistent ordering

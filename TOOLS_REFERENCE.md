@@ -1,6 +1,8 @@
 # 🛠️ AI Toolbox — Complete Tool Reference
 
-*Updated to reflect current state: **116 unique tool names** dynamically registered across ~20 categories.*
+*Updated to reflect current state: **119 unique tool names** dynamically registered across 18 categories.*
+
+> **v1.6.6 Update**: AST safety layer added to `insert_at_line` and `delete_lines` — both tools now parse file AST before modification to prevent code-breaking operations.
 
 ---
 
@@ -8,20 +10,21 @@
 
 | Category | Count | Default State | Status |
 |----------|-------|---------------|--------|
-| File System | 17 | ✅ Enabled | Active |
-| Code Refactoring | 1 | ✅ Enabled | Active |
+| File System | 22 | ✅ Enabled | Active |
+| Code Refactoring | 2 | ✅ Enabled | Active |
 | Web Research | 4 | ✅ Enabled | Active |
 | Browser Automation | 5 | ❌ Disabled | Active |
 | Git & GitHub | 15 | ❌ Disabled | Active |
+| GitHub CLI | 1 | ❌ Disabled | Active |
 | Database | 1 | ❌ Disabled | Active |
 | Background Commands | 3 | ❌ Disabled | Active |
 | Execution | 5 | ❌ Disabled | Active |
-| Utilities | ~29 | ✅ Enabled | Active |
+| Utilities | ~26 | ✅ Enabled | Active |
 | Image Processing | 4 | ✅ Enabled | Active |
 | Vector RAG | 4 | ✅ Enabled | Active |
 | UI Generation | 3 | ❌ Disabled | Active |
-| Context Management | 7 | ✅ Enabled | Active |
-| Text Processing | 5 | ✅ Enabled | Active |
+| Context Management | 12 | ✅ Enabled | Active |
+| Text Processing | 4 | ✅ Enabled | Active |
 | Backup & Restore | 4 | ✅ Always Available | Active |
 | Data Visualization | 1 | ❌ Not Registered | ⚠️ **Inactive** (`dataVisualizationTools.ts` exists but not in `toolsProvider.ts`) |
 | Document Parsing | 1 | ✅ Enabled | Active |
@@ -32,7 +35,7 @@
 
 ---
 
-## 📁 File System (17)
+## 📁 File System (22)
 
 ### Basic Operations
 
@@ -72,7 +75,7 @@
 
 ---
 
-## 🔧 Code Refactoring (1)
+## 🔧 Code Refactoring (2)
 
 *Requires `"🔧 AST Code Refactoring Tools"` toggle in settings or God Mode.*
 
@@ -212,6 +215,28 @@ The `src/tools/recodeTool/` module implements a pluggable rule engine for advanc
 
 ---
 
+## 🔧 GitHub CLI (1)
+
+*Requires `gitOperations` toggle or God Mode.*
+
+### `check_gh_auth`
+
+Verify GitHub CLI (gh) authentication status. Check if gh CLI is installed and authenticated with GitHub.com before using other GitHub tools.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| *(none)* | - | - | No parameters required |
+
+**Returns**: `{ success: boolean, authenticated: boolean, message: string }`
+
+**Example Usage**:
+```jsonc
+{}
+// Returns: { success: true, authenticated: true, message: "GitHub CLI is installed and authenticated." }
+```
+
+---
+
 ## 🗄️ Database (1)
 
 | Tool | Description |
@@ -249,7 +274,7 @@ The `src/tools/recodeTool/` module implements a pluggable rule engine for advanc
 
 ---
 
-## 🔧 Utilities (~29)
+## 🔧 Utilities (~26)
 
 ### Memory & Context Tools
 
@@ -330,7 +355,7 @@ The `src/tools/recodeTool/` module implements a pluggable rule engine for advanc
 
 ---
 
-## 🧠 Context Management (7)
+## 🧠 Context Management (12)
 
 | Tool | Description |
 |------|-------------|
@@ -344,7 +369,7 @@ The `src/tools/recodeTool/` module implements a pluggable rule engine for advanc
 
 ---
 
-## 📝 Text Processing (5)
+## 📝 Text Processing (4)
 
 | Tool | Description |
 |------|-------------|
@@ -369,10 +394,10 @@ The `src/tools/recodeTool/` module implements a pluggable rule engine for advanc
 
 ## 🔑 Gateway Tools (2 — Always Enabled, v1.6.2+)
 
-**Purpose**: Single entry point for tool discovery and execution to prevent LLM tool-bloat crashes. Only 2 tools sent to llama.cpp initially, dynamically routing the full suite of **116** registered tools on demand.
+**Purpose**: Single entry point for tool discovery and execution to prevent LLM tool-bloat crashes. Only 2 tools sent to llama.cpp initially, dynamically routing the full suite of **119** registered tools on demand.
 
 ### `explore_tools`
-Discovers available tools and their categories without exposing the full suite of **116** dynamically registered tools at once. Returns category names only (not individual tool names) to keep schema small.
+Discovers available tools and their categories without exposing the full suite of **119** dynamically registered tools at once. Returns category names only (not individual tool names) to keep schema small.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -419,7 +444,7 @@ User Message → AI calls explore_tools(category="fileSystem")
              → Tool executes with full validation, security checks, error handling
 ```
 
-**Why Gateway?** Sending the entire registry of **116+** tool schemas directly to llama.cpp's grammar parser causes `failed to parse grammar` errors due to EBNF recursion limits. The Gateway pattern reduces initial schema payload from 116 → 2 tools while maintaining full functionality on-demand via delegation.
+**Why Gateway?** Sending the entire registry of **119+** tool schemas directly to llama.cpp's grammar parser causes `failed to parse grammar` errors due to EBNF recursion limits. The Gateway pattern reduces initial schema payload from 119 → 2 tools while maintaining full functionality on-demand via delegation.
 
 ---
 

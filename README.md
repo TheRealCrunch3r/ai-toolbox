@@ -1,9 +1,7 @@
 # 🧰 AI Toolbox — LM Studio Plugin
 
-> ****116 tools** / **Total: 116** (context-aware replacement handled below per file)** across 15 core categories, fully integrated and ready for use.  
-> **116 tools** across ~20 core categories, fully integrated and ready for use.  
-*All tools dynamically registered with category-level gating.*
-> *All tools registered via direct SDK pattern (no gateway indirection).*
+> **~119 tools** across **18 categories**, fully integrated and ready for use.  
+> *All tools dynamically registered with category-level gating.*
 ---
 
 ## 📋 Table of Contents
@@ -55,7 +53,7 @@
 ### Git & GitHub Tools (15 tools — disabled by default)
 **Local Operations (`isomorphic-git`)**: `git_status` · `git_diff` · `git_commit` · `git_log` · `git_add` · `git_checkout` · `git_stash` · `git_blame`
 
-**Remote API (GitHub CLI `gh`)**: `gh_create_issue` · `gh_list_issues` · `gh_view_comments` · `gh_create_pr` · `gh_list_prs` · `gh_push`
+**Remote API (GitHub CLI `gh`)**: `gh_create_issue` · `gh_list_issues` · `gh_view_comments` · `gh_create_pr` · `gh_list_prs` · `gh_view_pr_diff` · `gh_push` · `check_gh_auth`
 
 > **Note**: Remote operations require the [GitHub CLI](https://cli.github.com/) to be installed and authenticated (`gh auth login`).
 
@@ -86,11 +84,26 @@
 ### Text Processing Tools (4 tools — enabled by default)
 `text_transform` · `text_extract` · `line_operations` · `markdown_table_gen`
 
-### AST Code Refactoring Tools (2 tools — enabled by default)
-`refactor_code` · `unusedImports`
+### AST Code Refactoring Tools (1 tool — enabled by default)
+`refactor_code` (supports rename_identifier, move_function, extract_function, unused_import_cleanup)
 
 ### Execution Tools (5 tools — mixed defaults: JS/Python enabled, Terminal/Shell disabled)
 `run_javascript` · `run_python` · `execute_command` · `run_in_terminal` · `run_tests`
+
+### Utility Tools (25 tools — enabled by default)
+`flush_auto_tracker` · `save_memory` · `get_memory` · `search_memory` · `delete_memory` · `save_session_summary` · `get_session_summary` · `get_system_info` · `read_clipboard` · `write_clipboard` · `send_notification` · `findLMStudioHome` · `get_enabled_tools` · `system_monitor` · `process_list` · `env_inspect` · `hash_file` · `token_count` · `convert_format` · `secret_scan` · `port_check` · `package_manage` · `detect_os_environment` · `json_query` · `env_update`
+
+### Backup & Restore Tools (4 tools — enabled by default)
+`create_backup` · `list_backups` · `restore_backup` · `delete_backup`
+
+### Data Visualization Tools (1 tool — enabled by default)
+`generate_chart`
+
+### Line Operations Tools (1 tool — enabled by default)
+`delete_lines`
+
+### Markdown Preview Tools (1 tool — enabled by default)
+`markdown_preview`
 
 ---
 
@@ -109,7 +122,7 @@ The plugin is installed as an LM Studio plugin. Ensure you have:
 1. **Load the plugin** in LM Studio's plugin settings
 2. **Configure tool access** — individual tool categories can be toggled on/off via the Settings panel. Note that some tools (like Execution) are disabled by default for security.
 3. **Authenticate with GitHub**: Run `gh auth login` in your terminal once to enable remote operations (`gh_create_issue`, `gh_list_prs`, etc.). The plugin will detect authentication status automatically.
-4. **Start a chat** and the AI can now use any of the **116** available tools based on configuration settings.
+4. **Start a chat** and the AI can now use any of the **~90** available tools based on configuration settings.
 
 ---
 
@@ -121,7 +134,7 @@ The plugin uses a comprehensive configuration schema (`src/config.ts`) which is 
 - **Granular Gating**: Toggle individual categories (Git, Web, File System, etc.).
 - **Execution Control**: Separate toggles for JavaScript, Python, Terminal, and Shell execution.
 - **ContextGuard**: Configure token limits and summarization models to prevent context overflow.
-- **Auto-Tracking**: Enable background tracking of decisions and task completions.
+- **Auto-Tracking**: Enable background tracking of decisions and task completions (enabled by default).
 
 ---
 
@@ -164,30 +177,31 @@ npm test
 
 ## 📜 Release History
 
-### [1.6.4] - 2026-07-14 — 🔒 Strict Typing & Config Resolution Hardening
+### [1.6.6] - 2026-07-17 — 🛡️ AST Safety Layer for Code Modification Tools
+**Added AST-aware safety checks to `insert_at_line` and `delete_lines` to prevent code-breaking modifications.**
+- ✅ `insert_at_line` now parses file AST before insertion — rejects operations inside strings, comments, or literals
+- ✅ `delete_lines` now parses file AST before deletion — rejects operations inside strings, comments, or literals
+- ✅ Both tools provide clear error messages when unsafe insertion/deletion points are detected
+- ✅ Graceful fallback to default behavior for non-TypeScript/JavaScript files
+
+### [1.6.5] - 2026-07-17 — 🤖 Auto-Tracker Integration & Tool Safety Enhancements
+**Fully integrated auto-tracker checkpoint system, added manual flush tool, and established tool safety classification.**
+- ✅ Auto-tracker fully wired into `promptPreprocessor.ts` (Step 0.5/0.6)
+- ✅ Added `flush_auto_tracker` tool for manual checkpoint saves
+- ✅ Established tool safety classification (`tool_safety_classification.md`)
+- ✅ All code modifications now use `replace_text_in_file` with unique strings (not `insert_at_line`)
+
+### [1.6.4] - 2026-07-16 — 🧹 Cleanup: Removed Tool Count Limiting & Deprecated `maxToolsInSchema`
+**Eliminated all tool-hiding and schema-limiting logic. All enabled tools are now exposed to the LLM.**
+
+### [1.6.3] - 2026-07-14 — 🔒 Strict Typing & Config Resolution Hardening
 **Eliminated all `any` type usage and fixed config resolution for ParsedConfig wrapper.**
-- ✅ **Strict typing policy enforced**: Replaced all `z.any()` with `z.unknown()` in Zod schemas
-- ✅ **Removed non-null assertions**: Replaced `latest.timestamp!` with `latest.timestamp ?? 0`
-- ✅ **Fixed config resolution**: Constructed proper `PluginConfig` object from `.get()` calls instead of direct property access on `ParsedConfig` wrapper
-- ✅ **Eliminated AST parser type mismatch**: Applied safe `as unknown as` double-cast for `@typescript-eslint/parser` return type
-- ✅ **Lint & typecheck clean**: Zero ESLint errors, zero TypeScript errors, 371/371 tests passing
 
 ### [1.6.2] - 2026-07-14 — 🛠️ Utility Tools Registration & Cleanup
-**Registered 8 new utility tools and removed orphaned gateway pattern code.**
-- ✅ Registered `backupTools` (create_backup, list_backups, restore_backup, delete_backup)
-- ✅ Registered `cleanupBackupsTool` (cleanup_backups)
-- ✅ Registered `dataVisualizationTools` (generate_chart)
-- ✅ Registered `lineOperations` (delete_lines)
-- ✅ Registered `markdownPreviewTools` (markdown_preview)
-- ✅ Added `utility` config toggle to enable/disable all utility tools
-- ❌ Deleted `gatewayTools.ts`, `devOpsTools.ts`, `gitHubTools.ts` (dead code)
-- 🐛 Fixed: Added missing `markdown-it` dependency for markdown preview tool
+**Registered utility tools and removed orphaned gateway pattern code.**
 
 ### [1.6.0] — 🚀 Gateway Tools: Single Entry Point for Tool Discovery & Execution (2026-07-12)
 **Introduced the Gateway Pattern to prevent LLM tool-bloat crashes and provide controlled access to all registered tools.**
-- ✅ `explore_tools` — Discovers available tool categories without exposing all tools at once (prevents grammar parser crashes)
-- ✅ `execute_gateway_tool` — Delegates execution to any registered tool by name with built-in validation
-- ⚠️ **Note**: Tool files (`gatewayTools.ts`) exist but are NOT yet imported/registered in `toolsProvider.ts`. Full integration pending.
 
 ### [1.5.39] - 2026-07-10 — 🔧 Grammar Parser Fix: Production Deployment & Debug Cleanup
 **Resolved critical grammar parser failure in production — tool count capping now enforced at 25 tools (was 50), minifier properly wired up.**

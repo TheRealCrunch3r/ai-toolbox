@@ -2,6 +2,8 @@
 
 Comprehensive documentation of security features, threat models, and responsible disclosure for the AI Toolbox plugin.
 
+> **v1.6.6 Update**: AST safety layer added to `insert_at_line` and `delete_lines` — both tools now parse file AST before modification to prevent code-breaking operations.
+
 ---
 
 ## 📋 Table of Contents

@@ -1688,7 +1688,49 @@ RECOMMENDED USAGE:
   }));
 
 
-  return tools;
+  
+  // ── ✅ MANUAL AUTO-TRACKER FLUSH TOOL ─────────────────────────────
+  
+  // flush_auto_tracker tool — Manually trigger a flush of buffered auto-tracking actions
+  tools.push(tool({
+    name: 'flush_auto_tracker',
+    description: 'Manually trigger a flush of buffered auto-tracking actions to persistent memory. Use this when you want to immediately save detected decisions, completions, or error fixes without waiting for the token threshold checkpoint.',
+    parameters: {},
+    implementation: async () => {
+      try {
+        // Dynamically import the autoTracker module to access the singleton
+        const { autoTracker } = await import('../autoTracker.js');
+        
+        // Call the flush method
+        const savedCount = await autoTracker.flushActionsToMemory();
+        
+        if (savedCount > 0) {
+          return {
+            success: true,
+            data: {
+              flushed: true,
+              actionsSaved: savedCount,
+              message: `Successfully flushed ${savedCount} auto-tracked action(s) to persistent memory.`
+            }
+          };
+        } else {
+          return {
+            success: true,
+            data: {
+              flushed: true,
+              actionsSaved: 0,
+              message: 'No buffered actions to flush. Buffer is empty.'
+            }
+          };
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return { success: false, error: `Failed to flush auto-tracker: ${message}` };
+      }
+    },
+  }));
+
+return tools;
 }
 
 // ==================== Helper Functions for convert_format ====================

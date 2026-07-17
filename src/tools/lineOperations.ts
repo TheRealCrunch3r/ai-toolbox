@@ -6,9 +6,92 @@ import type { Tool } from '@lmstudio/sdk';
 import { tool } from '@lmstudio/sdk';
 import * as fs from 'fs';
 import { z } from 'zod';
+import { parse as parseTS } from '@typescript-eslint/parser';
 import type { PluginConfig } from '../config';
 import { getWorkingDir, resolvePath } from '../workingDir';
 import { validatePath } from '../security';
+
+interface ASTLocation {
+  line: number;
+  column: number;
+}
+
+interface ASTLoc {
+  start: ASTLocation;
+  end: ASTLocation;
+}
+
+interface ASTBaseNode {
+  type: string;
+  loc?: ASTLoc;
+  range?: [number, number];
+  [key: string]: unknown;
+}
+
+/**
+ * AST Safety Check: Verifies if a line is safe for deletion.
+ * Prevents deleting lines inside strings or comments.
+ */
+function isSafeDeletionLine(content: string, lineNum: number): { safe: boolean; reason?: string } {
+  try {
+    const ast = parseTS(content, {
+      sourceType: 'module',
+      ecmaVersion: 2022,
+      loc: true,
+      range: true,
+    }) as unknown as ASTBaseNode;
+
+    const unsafeTypes = new Set(['StringLiteral', 'TemplateLiteral', 'NumericLiteral', 'BooleanLiteral', 'LineComment', 'BlockComment']);
+    const safeTypes = new Set(['VariableDeclaration', 'ExpressionStatement', 'FunctionDeclaration', 'ClassDeclaration', 'IfStatement', 'ForStatement', 'WhileStatement', 'ReturnStatement', 'ThrowStatement', 'TryStatement', 'ImportDeclaration', 'ExportNamedDeclaration', 'ExportDefaultDeclaration']);
+
+    let foundUnsafe = false;
+    let foundSafe = false;
+
+    function walk(node: ASTBaseNode): void {
+      if (!node || foundSafe) return;
+      
+      const loc = node.loc;
+      if (loc && loc.start.line <= lineNum && loc.end.line >= lineNum) {
+        // Node covers this line
+        if (unsafeTypes.has(node.type)) {
+          foundUnsafe = true;
+          return;
+        }
+        if (safeTypes.has(node.type)) {
+          foundSafe = true;
+          return;
+        }
+      }
+      
+      // Recurse through child nodes
+      for (const key of Object.keys(node)) {
+        const child = (node as Record<string, unknown>)[key];
+        if (typeof child === 'object' && child !== null) {
+          if (Array.isArray(child)) {
+            child.forEach(c => {
+              if (typeof c === 'object' && c !== null && 'type' in c) {
+                walk(c as ASTBaseNode);
+              }
+            });
+          } else if (typeof child === 'object' && child !== null && 'type' in child) {
+            walk(child as ASTBaseNode);
+          }
+        }
+      }
+    }
+
+    walk(ast);
+
+    if (foundUnsafe) return { safe: false, reason: `Line ${lineNum} is inside a string literal, number, or comment. Cannot delete code here.` };
+    if (foundSafe) return { safe: true };
+    
+    // If no node covers this line exactly, it might be a boundary (e.g. between statements)
+    return { safe: true }; 
+  } catch {
+    // If parsing fails, fall back to safe default
+    return { safe: true }; 
+  }
+}
 
 /**
  * Delete a range of lines from a file safely.
@@ -60,6 +143,13 @@ export function registerLineOperationsTools(_config: PluginConfig): Tool[] {
 
           // Read file content
           const content = fs.readFileSync(fullPath, 'utf-8');
+
+          // ========== AST SAFETY CHECK: Ensure line is safe for deletion ==========
+          const safetyCheck = isSafeDeletionLine(content, start_line);
+          if (!safetyCheck.safe) {
+            return { success: false, error: `AST Safety Check Failed: ${safetyCheck.reason}` };
+          }
+
           // ========== FIX: Detect original line ending style ==========
           const hasCRLF_dl = content.includes('\r\n');
           const lines = hasCRLF_dl ? content.split('\r\n') : content.split('\n');
