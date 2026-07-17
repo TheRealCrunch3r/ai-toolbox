@@ -268,9 +268,7 @@ export async function toolsProvider(ctl: ToolsProviderController, _lmClient?: un
     autoTrackDecisions: pluginConfig.get('autoTrackDecisions'),
     autoTrackCompletions: pluginConfig.get('autoTrackCompletions'),
     autoTrackErrors: pluginConfig.get('autoTrackErrors'),
-    autoSummaryInterval: pluginConfig.get('autoSummaryInterval'),
-    maxToolsInSchema: pluginConfig.get('maxToolsInSchema'),
-  };
+    autoSummaryInterval: pluginConfig.get('autoSummaryInterval'),  };
 
   const newHash = hashConfig(liveConfig);
   let registry: ToolRegistry;

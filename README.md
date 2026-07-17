@@ -164,7 +164,7 @@ npm test
 
 ## 📜 Release History
 
-### [1.6.3] - 2026-07-14 — 🔒 Strict Typing & Config Resolution Hardening
+### [1.6.4] - 2026-07-14 — 🔒 Strict Typing & Config Resolution Hardening
 **Eliminated all `any` type usage and fixed config resolution for ParsedConfig wrapper.**
 - ✅ **Strict typing policy enforced**: Replaced all `z.any()` with `z.unknown()` in Zod schemas
 - ✅ **Removed non-null assertions**: Replaced `latest.timestamp!` with `latest.timestamp ?? 0`

@@ -2,7 +2,10 @@
  * AI Toolbox Plugin - Dynamic Tools Provider (v1.5.0 Compatible)
  * 
  * This provider dynamically registers tools based on the current user configuration.
- * It respects UI toggles in real-time, preventing crashes when tools are disabled.
+ * It respects UI toggles in real-time.
+ * 
+ * GATEWAY PATTERN REMOVED: Tools are now exposed directly to the LLM for better usability.
+ * All enabled tools are exposed to the LLM. Schemas are minified to prevent grammar parser crashes.
  */
 
 import type { Tool, ToolsProviderController } from '@lmstudio/sdk';
@@ -96,7 +99,6 @@ export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[
     autoTrackCompletions: pluginConfig.get('autoTrackCompletions'),
     autoTrackErrors: pluginConfig.get('autoTrackErrors'),
     autoSummaryInterval: pluginConfig.get('autoSummaryInterval'),
-    maxToolsInSchema: pluginConfig.get('maxToolsInSchema'),
   };
 
   // Initialize StateManager if not already done
@@ -233,8 +235,14 @@ export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[
     tools.push(...registerWebResearchTools(config));
   }
 
-  // Sort alphabetically by tool name for consistent UI ordering in LM Studio
-  const sortedTools = [...tools].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  // Sort alphabetically for consistent ordering
+  tools.sort((a, b) => a.name.localeCompare(b.name));
 
-  return sortedTools;
+  // Minify schemas to prevent llama.cpp EBNF grammar parser crashes
+  // PR #17381 enforces a hard limit of 2000 on repetition bounds
+  const { minifyTools } = await import('./toolsSchemaMinifier.js');
+  const minified = minifyTools(tools);
+
+  console.log(`[AI Toolbox] Exposed ${minified.length} tools to LLM.`);
+  return minified;
 }

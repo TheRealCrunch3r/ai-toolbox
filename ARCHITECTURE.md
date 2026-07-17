@@ -124,7 +124,7 @@ export function main(context: PluginContext) {
 }
 ```
 
-### 2. Tool Registration Flow (Current State — v1.6.3)
+### 2. Tool Registration Flow (Current State — v1.6.4)
 
 ```
 toolsProvider() called by LM Studio SDK
@@ -156,7 +156,7 @@ createToolsProvider(config, stateManager, bgCommandManager)
         Return Tool[] to SDK ──► ~**116 tools** / **Total: 116** (context-aware replacement handled below per file) total (configurable per user)
 ```
 
-### ⚠️ Gateway Tools Status (v1.6.3)
+### ⚠️ Gateway Tools Status (v1.6.4)
 
 **Status**: `src/tools/gatewayTools.ts` exists with 2 tool definitions (`explore_tools`, `execute_gateway_tool`) but is **NOT imported or registered in `toolsProvider.ts`.** Full integration requires:
 - Adding import to `toolsProvider.ts`
@@ -349,7 +349,7 @@ getAllowedBases(): string[]
 
 ---
 
-## 🚀 Gateway Pattern Architecture (Documented — v1.6.3)
+## 🚀 Gateway Pattern Architecture (Documented — v1.6.4)
 
 > **⚠️ Status**: `src/tools/gatewayTools.ts` exists but is NOT imported/registered in `toolsProvider.ts`. The following describes the design as documented, pending full integration.
 

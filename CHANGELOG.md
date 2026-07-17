@@ -1,5 +1,31 @@
 # 📝 CHANGELOG
 
+## [1.6.4] - 2026-07-16 — 🧹 Cleanup: Removed Tool Count Limiting & Deprecated `maxToolsInSchema`
+
+**Eliminated all tool-hiding and schema-limiting logic. All enabled tools are now exposed to the LLM.**
+
+### What Changed
+- **Root Cause**: The `maxToolsInSchema` config option and associated tool-pruning logic were over-engineered. The previous implementation capped the number of tools sent to the LLM (default: 20, configurable 1–100), which confused users and reduced plugin capabilities unnecessarily.
+- **Fix**: 
+  - Removed `maxToolsInSchema` from `ConfigSchema`, `DEFAULT_CONFIG`, and `configSchematics` in `src/config.ts`
+  - Removed `maxToolsInSchema` from `liveConfig` construction in `src/core/provider.ts`
+  - Updated comment in `src/toolsProvider.ts` to accurately reflect that all enabled tools are now exposed
+  - The `toolsSchemaMinifier.ts` module remains active but only compresses schema payloads (description truncation, constraint capping) — it no longer limits tool count
+
+### Impact
+- ✅ **All enabled tools exposed** — no more hidden or pruned tools based on arbitrary limits
+- ✅ **Simplified configuration** — removed deprecated `maxToolsInSchema` setting from LM Studio UI
+- ✅ **Schema minification preserved** — descriptions truncated to ~150 chars, constraints capped at 2000 to prevent llama.cpp grammar parser crashes
+- ✅ **Zero breaking changes** — existing tool gating (GOD MODE, individual toggles) works exactly as before
+
+### Engineering Details
+- The `minifyTools()` function in `src/toolsSchemaMinifier.ts` now only performs payload compression, not tool count reduction
+- Comment in `toolsProvider.ts` updated from "SAFETY LIMIT: A maximum of 60 tools" to "All enabled tools are exposed to the LLM. Schemas are minified to prevent grammar parser crashes."
+
+**Total**: 4 files modified (`package.json`, `config.ts`, `provider.ts`, `toolsProvider.ts`), zero breaking changes, fully backward compatible.
+
+---
+
 ## [1.6.3] - 2026-07-14 — 🔒 Strict Typing & Config Resolution Hardening
 
 **Eliminated all `any` type usage and fixed config resolution for ParsedConfig wrapper.**

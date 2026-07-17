@@ -2,7 +2,7 @@
 
 **Date**: 2026-06-30  
 **Author**: AI Toolbox Development Team  
-**Status**: ✅ Complete (v1.6.3 — Strict Typing & Config Resolution Hardening)
+**Status**: ✅ Complete (v1.6.4 — Strict Typing & Config Resolution Hardening)
 
 ---
 
@@ -35,7 +35,7 @@ All documentation has been reconstructed based on actual source code analysis to
 
 ### Gateway Tools: Single Entry Point for Tool Discovery & Execution — v1.6.2 (2026-07-12)
 
-### Strict Typing & Config Resolution Hardening — v1.6.3 (2026-07-14)
+### Strict Typing & Config Resolution Hardening — v1.6.4 (2026-07-14)
 
 This update documents the elimination of all `any` type usage and the fix for ParsedConfig wrapper resolution.
 

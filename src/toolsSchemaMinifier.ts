@@ -42,19 +42,19 @@ function capMaxLength(value: unknown): unknown {
   if (value && typeof value === 'object' && !Array.isArray(value)) {
     const obj = value as Record<string, unknown>;
     
-    // Check for excessive maxLength on string types
+    // llama.cpp PR #17381 enforces a hard limit of 2000 on repetition bounds
     if ((obj.type === 'string' || obj.type === undefined) && 
         typeof obj.maxLength === 'number' && 
-        obj.maxLength > 5000) {
-      console.debug(`[SchemaMinifier] Capping maxLength ${obj.maxLength} → 5000`);
-      return { ...obj, maxLength: 5000 };
+        obj.maxLength > 2000) {
+      console.debug(`[SchemaMinifier] Capping maxLength ${obj.maxLength} → 2000`);
+      return { ...obj, maxLength: 2000 };
     }
     
-    // Check for excessive maxItems on array types
+    // llama.cpp PR #17381 enforces a hard limit of 2000 on repetition bounds
     if (obj.type === 'array' && 
         typeof obj.maxItems === 'number' && 
-        obj.maxItems > 10) {
-      console.debug(`[SchemaMinifier] Capping maxItems ${obj.maxItems} → 10`);
+        obj.maxItems > 2000) {
+      console.debug(`[SchemaMinifier] Capping maxItems ${obj.maxItems} → 2000`);
       return { ...obj, items: capMaxLength(obj.items) };
     }
     
