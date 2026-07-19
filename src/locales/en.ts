@@ -11,7 +11,7 @@ export const enTranslations: FullTranslationSet = {
       { toolName: 'list_directory', description: 'List files and folders in workspace', parameters: ['path (optional)'] },
       { toolName: 'read_file', description: 'Read text file content', parameters: ['file_name'] },
       { toolName: 'save_file', description: 'Create or overwrite file', parameters: ['file_name, content'] },
-      { toolName: 'replace_text_in_file', description: 'Replace exact string in file', parameters: ['file_name, old_string, new_string'] },
+      { toolName: 'replace_text_in_file', description: 'Replace exact string in file (USE THIS FOR COMPLEX INSERTIONS/REPLACEMENTS — NEVER use line_operations for this)', parameters: ['file_name, old_string, new_string'] },
       { toolName: 'insert_at_line', description: 'Insert text at specific line number', parameters: ['file_name, line_number, content'] },
       { toolName: 'append_file', description: 'Append content to end of file', parameters: ['file_name, content'] },
       { toolName: 'delete_lines_in_file', description: 'Delete specific lines from file', parameters: ['file_name, start_line, end_line (optional)'] },

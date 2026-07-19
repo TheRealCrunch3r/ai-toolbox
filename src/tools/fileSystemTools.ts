@@ -72,71 +72,6 @@ function handleError(error: unknown): { success: false; error: string } {
   return { success: false, error: message };
 }
 
-/**
- * AST Safety Check: Verifies if a line is safe for insertion.
- * Prevents inserting code inside strings or comments.
- */
-function isSafeInsertionLine(content: string, lineNum: number): { safe: boolean; reason?: string } {
-  try {
-    const ast = parseTS(content, {
-      sourceType: 'module',
-      ecmaVersion: 2022,
-      loc: true,
-      range: true,
-    }) as unknown as ASTBaseNode;
-
-    const unsafeTypes = new Set(['StringLiteral', 'TemplateLiteral', 'NumericLiteral', 'BooleanLiteral', 'LineComment', 'BlockComment']);
-    const safeTypes = new Set(['VariableDeclaration', 'ExpressionStatement', 'FunctionDeclaration', 'ClassDeclaration', 'IfStatement', 'ForStatement', 'WhileStatement', 'ReturnStatement', 'ThrowStatement', 'TryStatement', 'ImportDeclaration', 'ExportNamedDeclaration', 'ExportDefaultDeclaration']);
-
-    let foundUnsafe = false;
-    let foundSafe = false;
-
-    function walk(node: ASTBaseNode): void {
-      if (!node || foundSafe) return;
-      
-      const loc = node.loc;
-      if (loc && loc.start.line <= lineNum && loc.end.line >= lineNum) {
-        // Node covers this line
-        if (unsafeTypes.has(node.type)) {
-          foundUnsafe = true;
-          return;
-        }
-        if (safeTypes.has(node.type)) {
-          foundSafe = true;
-          return;
-        }
-      }
-      
-      // Recurse through child nodes
-      for (const key of Object.keys(node)) {
-        const child = (node as Record<string, unknown>)[key];
-        if (typeof child === 'object' && child !== null) {
-          if (Array.isArray(child)) {
-            child.forEach(c => {
-              if (typeof c === 'object' && c !== null && 'type' in c) {
-                walk(c as ASTBaseNode);
-              }
-            });
-          } else if (typeof child === 'object' && child !== null && 'type' in child) {
-            walk(child as ASTBaseNode);
-          }
-        }
-      }
-    }
-
-    walk(ast);
-
-    if (foundUnsafe) return { safe: false, reason: `Line ${lineNum} is inside a string literal, number, or comment. Cannot insert code here.` };
-    if (foundSafe) return { safe: true };
-    
-    // If no node covers this line exactly, it might be a boundary (e.g. between statements)
-    return { safe: true }; 
-  } catch {
-    // If parsing fails, fall back to safe default
-    return { safe: true }; 
-  }
-}
-
 
 /** Helper — reads file, checks binary, splits into chunks (shared by read_file & read_file_chunked) */
 async function _readFileWithChunks(
@@ -645,12 +580,6 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
           return { success: false, error: 'Binary file detected. This tool only supports text files.' };
         }
         const contentStr = buffer.toString('utf-8');
-
-        // ========== AST SAFETY CHECK: Ensure line is safe for insertion ==========
-        const safetyCheck = isSafeInsertionLine(contentStr, line_number);
-        if (!safetyCheck.safe) {
-          return { success: false, error: `AST Safety Check Failed: ${safetyCheck.reason}` };
-        }
 
         // ========== P0 FIX: Validate line number bounds ==========
         // ========== P1 FIX: Detect original line ending style ==========

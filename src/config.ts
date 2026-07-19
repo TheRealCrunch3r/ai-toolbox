@@ -117,7 +117,7 @@ export const ConfigSchema = z.object({
 
   statePersistenceEnabled: z.boolean().default(true),
 
-  stateMaxSize: z.number().min(1024).max(1048576).default(10240),
+  stateMaxSize: z.number().min(1024).max(1048576).default(51200),
 
 
 
@@ -255,7 +255,7 @@ export const DEFAULT_CONFIG: PluginConfig = {
 
   statePersistenceEnabled: true,
 
-  stateMaxSize: 10240,
+  stateMaxSize: 51200,
 
   language: 'en',
 

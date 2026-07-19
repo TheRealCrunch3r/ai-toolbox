@@ -1,75 +1,108 @@
-# 🚀 Quick Start Guide
+# 🚀 Quick Start Guide - Tool Priority System
 
-## Overview
+## What Changed?
 
-AI Toolbox provides **~119 tools** across **18 categories**, fully integrated and ready for use. All enabled tools are now exposed to the LLM — no more tool limiting or filtering.
-
-## v1.6.6 Update: AST Safety Layer
-
-**Important**: `insert_at_line` and `delete_lines` now include AST-aware safety checks to prevent code-breaking modifications. These tools will reject operations inside strings, comments, or literals with clear error messages.
+Your AI Toolbox plugin now uses **smart priority-based filtering** instead of arbitrary alphabetical truncation when the tool count exceeds the limit.
 
 ## How to Use
 
-### 1. Load the Plugin
-In LM Studio's plugin settings:
-- Load the AI Toolbox plugin
-- Configure tool access — individual tool categories can be toggled on/off via the Settings panel
+### 1. Set Your Tool Limit
+In LM Studio plugin settings:
+- **🛡️ Max Tools in Grammar Schema**: Set to `25-60` (recommended)
+  - `25` = Only critical + high priority tools
+  - `50` = Most tools, filters out background utilities
+  - `60+` = Almost all tools
 
-### 2. Configure Tool Access
-Most tools are enabled by default. Key categories disabled by default:
-- **Git & GitHub**: Requires `gitOperations` toggle
-- **Browser Automation**: Requires `browserAutomation` toggle
-- **Database**: Requires `database` toggle
-- **HTTP Client**: Requires `httpClient` toggle
-- **UI Generation**: Requires `uiGeneration` toggle
+### 2. (Optional) Customize Priorities
+If you want specific tools to always be kept, add them to **🎯 Tool Priority Overrides**:
 
-### 3. Start Using Tools
-The AI can now use any of the **~119** available tools based on configuration settings.
+```json
+{
+  "your_important_tool": "critical"
+}
+```
+
+### 3. Monitor Filtering
+When tools are filtered, check the LM Studio console for a report like:
+```
+📊 Tool Filtering Report (limit: 50)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Total tools: 62
+Retained: 50
+Filtered: 12
+
+🔻 BACKGROUND tier filtered:
+  • cleanup_backups (Cleanup backups)
+  • delete_lines (Delete lines)
+```
 
 ## Recommended Settings
 
 ### General Development
 ```
-All File System tools: Enabled
-All Web Research tools: Enabled
-All Context Management tools: Enabled
-All Text Processing tools: Enabled
+maxToolsInSchema: 50
+toolPriorityOverrides: {}
 ```
 
 ### Web Development
 ```
-Enable: browserAutomation (for browser_open_page, preview_html)
-Enable: httpClient (for http_request, http_get_json, http_post_json)
+maxToolsInSchema: 45
+toolPriorityOverrides: {
+  "browser_open_page": "critical",
+  "preview_html": "high"
+}
 ```
 
 ### Data Science
 ```
-Enable: database (for query_database)
-Enable: execution (for run_python, run_javascript)
+maxToolsInSchema: 40
+toolPriorityOverrides: {
+  "run_python": "critical",
+  "query_database": "high",
+  "generate_chart": "high"
+}
 ```
 
 ### DevOps
 ```
-Enable: gitOperations (for git_status, git_commit, git_log, etc.)
-Enable: execution (for execute_command)
+maxToolsInSchema: 45
+toolPriorityOverrides: {
+  "run_in_terminal": "critical",
+  "execute_command": "high",
+  "git_commit": "high"
+}
 ```
 
-## Security Notes
+## Priority Tier Reference
 
-- **God Mode**: Instantly enables all tool categories — use cautiously
-- **Execution Tools**: JavaScript and Python execution enabled by default; Terminal/Shell disabled by default
-- **GitHub CLI**: Requires `gh auth login` in your terminal once to enable remote operations
+| Tier | Tools | Examples |
+|------|-------|----------|
+| **Critical** | 22 | `read_file`, `save_file`, `grep_files`, `find_files` |
+| **High** | 27 | `web_search`, `run_javascript`, `run_python`, `git_*` |
+| **Standard** | 26 | `browser_*`, `image_*`, `http_*`, `rag_*` |
+| **Optional** | 13 | `context_*`, `explore_tools` |
+| **Background** | 8 | `create_backup`, `cleanup_backups`, `generate_chart` |
+
+## Troubleshooting
+
+**Problem**: Important tool is being filtered
+**Solution**: Add it to `toolPriorityOverrides` with a higher priority
+
+**Problem**: Too many tools filtered
+**Solution**: Increase `maxToolsInSchema` (e.g., from 25 to 50)
+
+**Problem**: Want to disable filtering
+**Solution**: Set `maxToolsInSchema` to >= total enabled tools
 
 ## Next Steps
 
-1. ✅ **Load the plugin** in LM Studio's plugin settings
-2. ✅ **Configure tool access** — toggle categories as needed
-3. ✅ **Authenticate with GitHub** (if needed): Run `gh auth login` in your terminal
-4. ✅ **Start a chat** and the AI can now use any of the available tools
+1. ✅ **Rebuild the plugin**: `npm run build`
+2. ✅ **Restart LM Studio**
+3. ✅ **Test**: Enable multiple tool categories, check console for filtering reports
+4. ✅ **Customize**: Adjust priorities based on your workflow
 
 ## Documentation
 
-- **Full documentation**: `DOCUMENTATION.md`
-- **Architecture**: `ARCHITECTURE.md`
-- **Tool reference**: `TOOLS_REFERENCE.md`
-- **Security**: `SECURITY.md`
+- **Full documentation**: `TOOL_PRIORITY_SYSTEM.md`
+- **Implementation details**: `IMPLEMENTATION_SUMMARY.md`
+- **Test script**: `node test_priority_system.mjs`

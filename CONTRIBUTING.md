@@ -2,8 +2,6 @@
 
 Thank you for your interest in contributing to the AI Toolbox plugin! This document provides guidelines and instructions for contributing.
 
-> **v1.6.6 Update**: AST safety layer added to `insert_at_line` and `delete_lines` — both tools now parse file AST before modification to prevent code-breaking operations.
-
 ---
 
 ## 📋 Table of Contents

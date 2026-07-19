@@ -11,7 +11,7 @@ export const deTranslations: FullTranslationSet = {
       { toolName: 'list_directory', description: 'Dateien und Ordner im Workspace auflisten', parameters: ['path (optional)'] },
       { toolName: 'read_file', description: 'Textdatei-Inhalt lesen', parameters: ['file_name'] },
       { toolName: 'save_file', description: 'Datei erstellen oder überschreiben', parameters: ['file_name, content'] },
-      { toolName: 'replace_text_in_file', description: 'Exakten String in Datei ersetzen', parameters: ['file_name, old_string, new_string'] },
+      { toolName: 'replace_text_in_file', description: 'Exakten String in Datei ersetzen (VERWENDE DIES FÜR KOMPLEXE EINFÜGEN/ERSETZEN — VERWENDE NIEMALS line_operations dafür)', parameters: ['file_name, old_string, new_string'] },
       { toolName: 'insert_at_line', description: 'Text an spezifischer Zeile einfügen', parameters: ['file_name, line_number, content'] },
       { toolName: 'append_file', description: 'Inhalt ans Dateiende anhängen', parameters: ['file_name, content'] },
       { toolName: 'delete_lines_in_file', description: 'Spezifische Zeilen aus Datei löschen', parameters: ['file_name, start_line, end_line (optional)'] },

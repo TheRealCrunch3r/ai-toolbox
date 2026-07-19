@@ -19,6 +19,7 @@ export interface SessionSummaryData {
   decisions_made?: string;
   context_for_next_session?: string;
   timestamp?: number;
+  date?: string;
 }
 
 // ==================== Context Management Types ====================
@@ -26,6 +27,7 @@ export interface SessionSummaryData {
 interface ContextEntry {
   id: string;
   timestamp: number;
+  date: string;
   type: 'decision' | 'pattern' | 'configuration' | 'file_change' | 'error' | 'summary';
   title: string;
   content: string;
@@ -248,6 +250,7 @@ class ContextAnalyzer {
         entries.push({
           id: this.generateId(),
           timestamp: Date.now(),
+          date: new Date().toLocaleString(),
           type: 'pattern',
           title: `Frequent Tool Usage: ${tool}`,
           content: `Tool '${tool}' was used ${count} times in the current session, indicating it's a primary workflow tool.`,
@@ -262,6 +265,7 @@ class ContextAnalyzer {
         entries.push({
           id: this.generateId(),
           timestamp: Date.now(),
+          date: new Date().toLocaleString(),
           type: 'configuration',
           title: `Configuration Change: ${key}`,
           content: `Setting '${key}' was changed to '${value}'.`,
@@ -281,6 +285,7 @@ class ContextAnalyzer {
       entries.push({
         id: this.generateId(),
         timestamp: event.timestamp || Date.now(),
+        date: event.timestamp ? new Date(event.timestamp).toLocaleString() : new Date().toLocaleString(),
         type: 'decision',
         title: 'Important Decision Recorded',
         content: decisionText,
@@ -295,6 +300,7 @@ class ContextAnalyzer {
       entries.push({
         id: this.generateId(),
         timestamp: Date.now(),
+        date: new Date().toLocaleString(),
         type: 'summary',
         title: `Session Context Summary (${new Date().toLocaleTimeString()})`,
         content: `Auto-generated summary: ${entries.length} context entries saved. Key patterns detected: ${Array.from(uniquePatterns).join(', ') || 'No specific patterns'}. Configuration changes tracked: ${Object.keys(configChanges || {}).length}.`,
@@ -520,6 +526,7 @@ WHEN TO USE:
         const entry: ContextEntry = {
           id: `ctx_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
           timestamp: Date.now(),
+          date: new Date().toLocaleString(),
           type: 'decision',
           title,
           content,
@@ -562,6 +569,7 @@ WHEN TO USE:
           decisions_made,
           context_for_next_session,
           timestamp: Date.now(),
+          date: new Date().toLocaleString(),
         };
 
         if (memoryStore) {
@@ -626,7 +634,7 @@ WHEN TO USE:
         const key = `memory_${Date.now()}`;
         
         if (memoryStore) {
-          memoryStore.set(key, { fact, timestamp: Date.now() });
+          memoryStore.set(key, { fact, timestamp: Date.now(), date: new Date().toLocaleString() });
           await memoryStore.forceSave(); // Immediate disk persistence
         } else {
           console.log('[ContextManagement] No StateManager provided. Memory saved to RAM only.');

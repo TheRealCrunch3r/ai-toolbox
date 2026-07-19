@@ -1,8 +1,6 @@
-# Project Summary — AI Toolbox Plugin v1.6.6
+# Project Summary — AI Toolbox Plugin v1.6.2
 
 Comprehensive overview of the AI Toolbox plugin, its architecture, features, and recent changes. This document provides a high-level summary for developers, maintainers, and users.
-
-> **v1.6.6 Update**: AST safety layer added to `insert_at_line` and `delete_lines` — both tools now parse file AST before modification to prevent code-breaking operations.
 
 ---
 
@@ -20,32 +18,31 @@ Comprehensive overview of the AI Toolbox plugin, its architecture, features, and
 
 ## 🎯 Project Overview
 
-**AI Toolbox Plugin** is a comprehensive LM Studio plugin providing **119 tools across 18 categories + Gateway Tools (2)** for AI-assisted development workflows. The plugin enables language models to interact with file systems, execute code, browse the web, manage Git repositories, process documents, and more — all within a secure, configurable framework.
+**AI Toolbox Plugin** is a comprehensive LM Studio plugin providing **111+ tools across 18 categories + Gateway Tools (2)** for AI-assisted development workflows. The plugin enables language models to interact with file systems, execute code, browse the web, manage Git repositories, process documents, and more — all within a secure, configurable framework.
 
 ### Core Capabilities
 
 | Category | Tool Count | Purpose |
 |----------|------------|---------|
-| File System | 22 tools | Read, write, search, and manage files with path validation |
+| File System | 17 tools | Read, write, search, and manage files with path validation |
 | Web Research | 4 tools | Multi-engine search (DDG, Google, Bing) with automatic fallback |
 | Browser Automation | 5 tools | Headless Puppeteer browser with persistent sessions |
 | Git & GitHub | 15 tools | Full Git operations + GitHub API integration |
-| GitHub CLI | 1 tool | GitHub CLI authentication verification (`check_gh_auth`) |
 | Database | 1 tool | Read-only SQLite queries with SQL validation |
 | Document Parsing | 1 tool | PDF, DOCX, TXT document reading (disk paths + attachments) |
 | Background Commands | 3 tools | Long-running process management with timeout control |
 | Execution | 5 tools | Sandboxed JS/Python + full shell commands (pipes, redirects) |
-| Utilities | ~26 tools | Clipboard, notifications, system info, memory, session summaries, JSON query, env management |
+| Utilities | ~29 tools | Clipboard, notifications, system info, memory, session summaries, JSON query, env management |
 | Image Processing | 4 tools | OCR (Tesseract.js), screenshots (Win32 API), image comparison |
 | HTTP Client | 3 tools | REST API client with SSRF protection |
 | Vector RAG | 4 tools | Semantic search with local embeddings, persistent state |
-| Text Processing | 4 tools | Regex substitutions (`text_transform`), field extraction (`text_extract`), line operations, markdown table gen |
+| Text Processing | 5 tools | Regex substitutions (`text_transform`), field extraction (`text_extract`), line operations, markdown table gen |
 | Interactive UI Generation | 3 tools | Generate and render HTML/CSS/JS components (buttons, forms, charts) |
-| Auto-Context Management | 12 tools | Automatic session tracking, decision logging, persistent memory |
+| Auto-Context Management | 7 tools | Automatic session tracking, decision logging, persistent memory |
 | Backup & Restore | 4 tools | Create compressed ZIP backups with atomic write pattern |
 | **Gateway Tools (v1.6.2+)** | **2 tools** | Single entry point for tool discovery (`explore_tools`) and execution (`execute_gateway_tool`) to prevent LLM tool-bloat crashes |
 
-**Total:** 95 tools across 18 categories + Gateway Tools ✅
+**Total:** 111+ tools across 18 categories + Gateway Tools ✅
 
 ---
 
@@ -97,7 +94,7 @@ Plugin Runner (Node.js 20+)
     ├── Config Layer (Zod schemas + UI schematics)
     ├── Security Layer (Path validation, command sanitization, SQL guards)
     ├── State Management (Debounced persistence to JSON/msgpack files)
-    └── Tool Registry (16 modules → 95 tools total)
+    └── Tool Registry (16 modules → 108 tools total)
 ```
 
 ### Core Modules
@@ -113,32 +110,43 @@ Plugin Runner (Node.js 20+)
 ### Tool Categories (16 modules)
 
 Each category is implemented as a separate module in `src/tools/`:
-- `fileSystemTools.ts` — 22 file system tools
+- `fileSystemTools.ts` — 17 file system tools
 - `webResearchTools.ts` — 4 web research tools
 - `browserAutomationTools.ts` — 5 browser automation tools
 - `gitGithubTools.ts` — 15 Git/GitHub tools (6 git + 9 GitHub API)
-- `gitHubTools.ts` — 1 GitHub CLI tool (authentication check)
-- `gatewayTools.ts` — 2 gateway tools (tool discovery & execution)
 - `databaseTools.ts` — 1 database tool (SQLite queries)
 - `documentTools.ts` — 1 document parsing tool (PDF/DOCX/TXT)
 - `backgroundCommandTools.ts` — 3 background command tools
 - `executionTools.ts` — 5 execution tools (JS, Python, shell, terminal, tests)
-- `utilityTools.ts` — ~26 utility tools (clipboard, notifications, system info, JSON query, env management)
+- `utilityTools.ts` — ~29 utility tools (clipboard, notifications, system info, JSON query, env management)
 - `imageProcessingTools.ts` — 4 image processing tools (OCR, screenshots, comparison)
 - `httpClientTools.ts` — 3 HTTP client tools (GET/POST with SSRF protection)
 - `vectorRagTools.ts` — 4 vector RAG tools (indexing, querying, clearing, web content)
-- `textProcessingTools.ts` — 4 text processing tools (transform, extract, line operations, markdown table gen)
+- `textProcessingTools.ts` — 5 text processing tools (transform, extract, line operations, markdown table gen)
 - `uiGenerationTools.ts` — 3 UI generation tools (buttons, forms, charts, dashboards)
-- `contextManagementTools.ts` — 12 auto-context management tools (summary, memory, search)
+- `contextManagementTools.ts` — 7 auto-context management tools (summary, memory, search)
 - `backupTools.ts` — 4 backup & restore tools (create, list, restore, delete)
 
 ---
 
-## 📈 Recent Changes (v1.6.2)
+## 📈 Recent Changes (v1.6.5)
+
+### [1.6.5] — 📦 Session Memory Size Increase & Date Field Addition (2026-07-19)
+
+**Increased session memory size limit from 10 KB to 50 KB and added human-readable `date` field to all memory entries.**
+
+- ✅ **`stateMaxSize` increased**: `10240` (10 KB) → `51200` (50 KB) in `src/config.ts` (both Zod schema and DEFAULT_CONFIG)
+- ✅ **Human-readable `date` field**: All memory entries now include `date: string` alongside `timestamp: number`, formatted via `toLocaleString()` (e.g., `"7/19/2026, 11:44:00 AM"`)
+- ✅ **Interfaces updated**: `SessionSummaryData` and `ContextEntry` now include the `date` field
+- ✅ **5× larger capacity**: Eliminates "State size exceeds maximum (10240 bytes)" errors for long sessions
+- ✅ **Zero breaking changes**: `date` field is purely additive; existing entries without it continue to work
+- ✅ **Configurable via LM Studio UI**: Settings → State Management → `stateMaxSize` (range: 1024–1048576)
+
+---
 
 ### [1.6.0] — 🚀 Gateway Tools: Single Entry Point for Tool Discovery & Execution (2026-07-12)
-**Introduced the Gateway Pattern to prevent LLM tool-bloat crashes and provide controlled access to all 95 tools.**
-- ✅ `explore_tools` — Discovers available tool categories without exposing all 95 tools at once (prevents grammar parser crashes)
+**Introduced the Gateway Pattern to prevent LLM tool-bloat crashes and provide controlled access to all 111+ tools.**
+- ✅ `explore_tools` — Discovers available tool categories without exposing all 111+ tools at once (prevents grammar parser crashes)
 - ✅ `execute_gateway_tool` — Delegates execution to any registered tool by name with built-in validation and error handling
 - ✅ Grammar parser crashes eliminated — Only 2 tools sent to llama.cpp initially instead of ~111
 - ✅ AI workflow improved — Structured discovery → execution pattern prevents tool confusion
@@ -526,7 +534,7 @@ All documentation has been reconstructed based on actual source code analysis:
 |------|--------|-------|
 | `README.md` | ✅ Rebuilt | Accurate tool counts, configuration tables derived from Zod schema |
 | `ARCHITECTURE.md` | ✅ Rebuilt | Correct system overview diagram (16 modules), verified data flows |
-| `TOOLS_REFERENCE.md` | ✅ Rebuilt | All 95 tools documented with parameter tables matching implementations |
+| `TOOLS_REFERENCE.md` | ✅ Rebuilt | All 108 tools documented with parameter tables matching implementations |
 | `DOCUMENTATION.md` | ✅ Rebuilt | Cleaned up duplicate sections, verified version history against source code |
 | `CHANGELOG.md` | ✅ Updated | Accurate release dates and tool count corrections |
 | `CONTRIBUTING.md` | ✅ Created | Development workflow, adding new tools guidelines |

@@ -1,8 +1,8 @@
 # Documentation Update Summary — v1.5.x (2026-06-17)
 
-**Date**: 2026-07-17  
+**Date**: 2026-06-30  
 **Author**: AI Toolbox Development Team  
-**Status**: ✅ Complete (v1.6.6 — AST Safety Layer for Code Modification Tools)
+**Status**: ✅ Complete (v1.6.4 — Strict Typing & Config Resolution Hardening)
 
 ---
 
@@ -26,10 +26,36 @@ All documentation has been reconstructed based on actual source code analysis to
 
 ## 🆕 Latest Updates
 
+- [Session Memory Size Increase & Date Field Addition — v1.6.5 (2026-07-19)](#session-memory-size-increase--date-field-addition-v165-2026-07-19)
 - [Gateway Tools: Single Entry Point for Tool Discovery & Execution — v1.6.2](#gateway-tools-single-entry-point-for-tool-discovery--execution-v160)
 - [Performance Optimization Suite (P0–P3) — v1.5.29](#performance-optimization-suite-p0p3--v1529)
 - [Build System & TypeScript Improvements (v1.5.23)](#-build-system--typescript-improvements-v1523)
 - [Session Summary Compression (v1.5.15)](#-session-summary-compression-v1515)
+
+---
+
+### Session Memory Size Increase & Date Field Addition — v1.6.5 (2026-07-19)
+
+This update documents the increase of the session memory size limit from 10 KB to 50 KB and the addition of human-readable `date` fields to all memory entries.
+
+#### What Changed
+- **`stateMaxSize` increased**: Changed from `10240` (10 KB) → `51200` (50 KB) in both the Zod schema (`src/config.ts` line 120) and `DEFAULT_CONFIG` object (`src/config.ts` line 258)
+- **Human-readable `date` field added**: All memory entries now include a `date: string` field alongside the existing numeric `timestamp` field, formatted via `new Date().toLocaleString()` (e.g., `"7/19/2026, 11:44:00 AM"`)
+- **Interfaces updated**: `SessionSummaryData` now includes `date?: string`; `ContextEntry` now includes `date: string`
+- **Tools updated**: `save_session_summary`, `save_memory`, `track_important_event`, and `auto_summarize_context` all now populate the `date` field on every save
+
+#### Impact
+- ✅ **5× larger memory capacity**: Session summaries can now store ~5× more data before hitting the 10 KB wall (previously caused "State size exceeds maximum (10240 bytes)" errors)
+- ✅ **Human-readable timestamps**: Memory entries now show readable dates alongside epoch timestamps for easier debugging and auditing
+- ✅ **Zero breaking changes**: The `date` field is purely additive; all existing tools and retrieval methods continue to work unchanged
+- ✅ **Configurable via LM Studio UI**: `stateMaxSize` is exposed in Settings → State Management (range: 1024–1048576)
+
+#### Engineering Details
+- The `stateMaxSize` config option was already defined with `z.number().min(1024).max(1048576)` — the schema already supported up to 1 MB, only the default was 10 KB
+- The `date` field uses `toLocaleString()` which respects the user's locale settings (e.g., `"7/19/2026, 11:44:00 AM"` for en-US, `"19.07.2026, 11:44:00"` for de-DE)
+- Backward compatible: existing entries saved before this version will not have the `date` field; retrieval tools return `undefined` for missing dates (no errors)
+
+**Total**: 2 files modified (`src/config.ts`, `src/tools/contextManagementTools.ts`), 1 file deleted (`.session_context\.ai_toolbox_memory.msgpack.backup.json` — stale backup), zero breaking changes, fully backward compatible.
 
 ---
 
@@ -67,7 +93,7 @@ This update documents the elimination of all `any` type usage and the fix for Pa
 
 ---
 
-This update documents the introduction of the **Gateway Pattern** to prevent LLM tool-bloat crashes and provide controlled access to all **95** dynamically registered tools.
+This update documents the introduction of the **Gateway Pattern** to prevent LLM tool-bloat crashes and provide controlled access to all **116** dynamically registered tools.
 
 #### Problem Solved
 Sending all 88 registered tools directly to llama.cpp's grammar parser caused `failed to parse grammar` errors due to EBNF recursion limits. The AI also struggled with overwhelming options when deciding which tool to use.
@@ -75,7 +101,7 @@ Sending all 88 registered tools directly to llama.cpp's grammar parser caused `f
 #### Solution: Two-Tool Gateway System
 
 **New Tools:**
-- ✅ `explore_tools` — Discovers available tools and their categories without exposing the full suite of **95** dynamically registered tools at once (prevents grammar parser crashes)
+- ✅ `explore_tools` — Discovers available tools and their categories without exposing the full suite of **116** dynamically registered tools at once (prevents grammar parser crashes)
 - ✅ `execute_gateway_tool` — Delegates execution to any registered tool by name with built-in validation and error handling
 
 #### Architecture
@@ -132,7 +158,7 @@ User Message → AI calls explore_tools(category="fileSystem")
 | Grammar parser crash prevention | Send first chat message with plugin enabled | No `failed to parse grammar` errors — only 2 tools sent initially |
 | Tool discovery | Call `explore_tools(category="fileSystem")` | Returns category names, not individual tool schemas |
 | Tool execution via gateway | Call `execute_gateway_tool(toolName="read_file", arguments={...})` | Tool executes with full validation and error handling |
-| Full functionality preserved | All 95 tools accessible via `execute_gateway_tool` | No loss of existing capabilities |
+| Full functionality preserved | All 111+ tools accessible via `execute_gateway_tool` | No loss of existing capabilities |
 
 **Total**: 1 new module (`src/tools/gatewayTools.ts`), 2 new tools, zero breaking changes. Fully backward compatible with existing tool registry architecture.
 
@@ -473,23 +499,22 @@ The following corrections were made to ensure documentation accuracy:
 
 | Category | Previous Count | Corrected Count | Changes |
 |----------|---------------|-----------------|---------|
-| File System Tools | 17 → 22 | **22 tools** | Added `analyze_project`, `file_diff`, `directory_tree`, `grep_files`, `find_replace_all` |
+| File System Tools | 17 → 21 | **21 tools** | Added `analyze_project`, `file_diff`, `directory_tree`, `grep_files` (Note: Count reflects actual registered tools including variants) |
 | Web Research Tools | 4 | **4 tools** | No change |
 | Browser Automation Tools | 5 | **5 tools** | No change |
-| Git & GitHub Tools | 14 → 15 | **15 tools** | Added `git_stash` and `git_blame` |
+| Git & GitHub Tools | 14 → 13 | **15 tools** | Added `git_stash` and `git_blame`, no non-existent tool removed |
 | Database Tools | 1 | **1 tool** | No change |
 | Document Parsing | 1 | **1 tool** | No change |
 | Background Commands | 3 | **3 tools** | No change |
 | Execution Tools | 4 → 5 | **5 tools** | Added `run_tests` |
-| Utilities | 7 → ~26 | **~26 tools** | Added `json_query`, `env_update`, `flush_auto_tracker`, `get_current_working_directory` |
+| Utilities | 7 → 24 | **24 tools** | Added `json_query` and `env_update` tools |
 | Image Processing | 4 | **4 tools** | No change |
 | HTTP Client | 3 | **3 tools** | No change |
 | Vector RAG | 3 → 4 | **4 tools** | Added `rag_web_content` |
-| Text Processing | 3 → 4 | **4 tools** | Added `line_operations` |
+| Text Processing | 3 | **3 tools** | No change |
 | Interactive UI Generation | 3 | **3 tools** | No change |
-| Auto-Context Management | 7 → 12 | **12 tools** | Added `search_context`, `context_summary`, `delete_context_entry`, `clear_context_memory`, `track_important_event` |
+| Auto-Context Management | 7 | **7 tools** | No change |
 | Backup & Restore | 4 | **4 tools** | No change |
-| Refactor Code | 1 → 2 | **2 tools** | Added `unusedImports` |
 
 ---
 
@@ -584,7 +609,7 @@ Major refactoring to eliminate blocking I/O operations:
 ## ✅ Verification Checklist
 
 ### README.md
-- [x] Tool count updated dynamically; currently **119** unique tools registered (18 categories)
+- [x] Tool count updated dynamically; currently **116** unique tools registered (~20 categories)
 - [x] Release History updated with v1.5.29 performance optimization suite
 - [x] All tool names verified against source code
 - [x] Configuration table matches `config.ts` Zod schema exactly
@@ -599,7 +624,7 @@ Major refactoring to eliminate blocking I/O operations:
 - [x] Security pipeline documented correctly
 
 ### TOOLS_REFERENCE.md
-- [x] Tool parameters and categories verified against current source code (~16 modules)
+- [x] Tool parameters and categories verified against current source code (~20 modules)
 - [x] Return types match actual implementations
 - [x] Tool categories and counts verified against source code
 - [x] Examples use correct parameter names and types

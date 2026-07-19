@@ -294,7 +294,31 @@ export function registerTextProcessingTools(_config: PluginConfig): Tool[] {
   // line_operations tool (awk/print equivalent for line manipulation)
   tools.push(tool({
     name: 'line_operations',
-    description: 'Insert, delete, or reorder lines in a file. Like awk for line-level operations without shell dependencies.',
+    description: `Insert, delete, or reorder lines in a file. Like awk for line-level operations without shell dependencies.
+
+⚠️ CRITICAL USAGE RULES — READ BEFORE USING:
+• ONLY use for simple, well-defined line operations (e.g., delete a single line, insert a short snippet at a known line)
+• NEVER use for complex insertions or replacements — use "replace_text_in_file" instead
+• NEVER use when you're unsure of exact line numbers — line numbers shift after every edit
+• ALWAYS verify line numbers with read_file before using this tool
+
+🚫 WHEN TO USE replace_text_in_file INSTEAD:
+• Inserting large blocks of code (functions, classes, entire sections)
+• Replacing existing code blocks
+• Adding new tools or functions to a file
+• Any operation where you don't know the exact line numbers
+
+✅ WHEN TO USE line_operations:
+• Deleting a single line by number
+• Inserting a short snippet (1-5 lines) at a known line
+• Moving a line to a new position
+• Small, targeted line-level changes
+
+EXAMPLE:
+✅ CORRECT: line_operations(file_name, operation: "delete", target_line: 42)
+✅ CORRECT: line_operations(file_name, operation: "insert", target_line: 10, content: "// short comment")
+❌ WRONG: line_operations(file_name, operation: "insert", target_line: 395, content: "// entire function...")
+  → Use replace_text_in_file instead for this!`,
     parameters: {
       file_name: z.string().describe('File path'),
       operation: z.enum(['insert', 'delete', 'move']).default('insert').describe('Operation to perform (use "lines" range for delete)'),

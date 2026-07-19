@@ -144,7 +144,7 @@ export class AutoTracker {
 
   constructor(config?: Partial<AutoTrackConfig>, testStorageManager?: unknown) {
     this.config = {
-      autoTrackingEnabled: false, // ← Fixed: matches schema default (false)
+      autoTrackingEnabled: true, // ← Matches schema & DEFAULT_CONFIG default (true)
       autoTrackTokenThreshold: 75,
       autoTrackDecisions: true,
       autoTrackCompletions: true,
@@ -619,13 +619,7 @@ export class AutoTracker {
   /**
    * Reset message counter (e.g., new chat session).
    */
-  async resetCounter(): Promise<void> {
-    // 🔹 FIX: Auto-flush buffer on session end to prevent data loss
-    if (this.actionBuffer.length > 0) {
-      debugLog('[RESET]', `Session ending — flushing ${this.actionBuffer.length} buffered action(s) before reset`);
-      await this.flushActionsToMemory().catch(err => console.error('[AutoTracker] [RESET] Flush failed:', err));
-    }
-    
+  resetCounter(): void {
     this.messageCount = 0;
     debugLog('[RESET]', 'Message counter reset');
     // Also reset FSM to IDLE on new session

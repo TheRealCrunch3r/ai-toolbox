@@ -388,28 +388,11 @@ export async function preprocess(
 
       // Calculate tokens for threshold check
       const tokenCount = await contextGuard.countTokens(messages, imageCount);
-      const maxTokens = contextGuard.getTokenLimit();
       const threshold = contextGuard.getThreshold();
       
       // 🔹 DEBUG: Log token counts to verify threshold logic
-      console.log(`[AutoTracker DEBUG] tokenCount: ${tokenCount}, maxTokens: ${maxTokens}, threshold: ${threshold}`);
+      console.log(`[AutoTracker DEBUG] tokenCount: ${tokenCount}, maxTokens: ${contextGuard.getTokenLimit()}, threshold: ${threshold}`);
 
-      
-      // 🔹 FIX #1: Integrate Auto-Tracker checkpoint logic
-      const autoTrackResult = await autoTracker.checkAndSaveTokenThreshold(tokenCount, maxTokens, messages.length);
-      
-      if (autoTrackResult.triggered) {
-        if (autoTrackResult.saved) {
-          // Checkpoint saved successfully — generate confirmation prompt
-          const promptResult = autoTracker.checkAndGeneratePrompt(tokenCount, maxTokens);
-          if (promptResult.triggered && promptResult.warning) {
-            pendingWarning = promptResult.warning;
-            console.log(`[AutoTracker] Checkpoint saved and warning generated`);
-          }
-        } else {
-          console.error(`[AutoTracker] Checkpoint failed — user may be notified`);
-        }
-      }
       if (tokenCount > threshold) {
         console.log(`[ContextGuard] Token count ${tokenCount} exceeds threshold ${threshold}, compressing...`);
         const compressedMessages = await contextGuard.compressHistory(messages) as unknown as ChatMessage[];
@@ -440,13 +423,6 @@ export async function preprocess(
         autoSummaryInterval: pluginConfig.get('autoSummaryInterval') ?? 50,
         autoTrackTokenThreshold: (pluginConfig.get('autoTrackTokenThreshold')) ?? 75,
       });
-
-      // 🔹 FIX #2: Consume any pending warning from checkpoint (Step 0.5)
-      const pendingWarningText = autoTracker.consumePendingConfirmation();
-      if (pendingWarningText) {
-        pendingWarning = pendingWarningText;
-        console.log(`[AutoTracker] Pending warning consumed and injected`);
-      }
 
       // Analyze user message for tracking triggers
       const actions = autoTracker.analyzeMessage(userPrompt);
