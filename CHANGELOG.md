@@ -2,25 +2,25 @@
 
 ## [1.6.6] - 2026-07-23 — 🔧 Local-First Memory Retrieval & Auto-Tracker Threshold Prompt Wiring
 
-**Fixed session memory retrieval to prioritize local project files over global state, wired up the auto-tracker token threshold prompt system, and resolved critical FSM re-entrancy bug in checkpoint save flow.**
+**Fixed session memory retrieval to prioritize local project files over global state, wired up the auto-tracker token threshold prompt system with FSM re-entrancy-safe checkpoint save flow.**
 
 ### What Changed
 - **`get_session_summary` priority fix**: Now checks `Working Dir/.session_context/.ai_toolbox_memory.msgpack` FIRST (local file → plugin root fallback → in-memory RAM). Previously always used SDK's global memory which returned stale data from other projects.
 - **`get_memory` priority fix**: Same local-first retrieval pattern applied — reads `memory_*` keys from project-local msgpack before falling back to plugin root or RAM.
 - **Auto-tracker threshold prompt wired up**: The preprocessor now calls `autoTracker.checkAndGeneratePrompt()` after token counting in Step 0.5, injecting a user-facing checkpoint warning when usage reaches the configured threshold (default: 75%).
-- **Checkpoint reply handling fixed**: Replaced broken `checkAndSaveTokenThreshold()` call with direct save path (`flushActionsToMemory()` → `autoSaveSessionMemory()`) to resolve FSM state re-entrancy bug where post-confirmation saves were blocked by IDLE-only guard.
-- **Directory detection warning injection fix**: Corrected double-escaped backslashes (`\\n\\n` → `\n\n`) in checkpoint warning prompt when directory path is detected, ensuring proper newline rendering instead of literal text.
+- **Checkpoint reply handling with FSM-safe direct save path**: Replaced broken `checkAndSaveTokenThreshold()` call with direct save path (`flushActionsToMemory()` → `autoSaveSessionMemory()`) to resolve FSM state re-entrancy bug where post-confirmation saves were blocked by IDLE-only guard.
+- **Directory detection warning injection fix**: Corrected double-escaped backslashes in checkpoint warning prompt when directory path is detected, ensuring proper newline rendering instead of literal text.
 - **Code cleanup**: Removed 3 duplicate `ExtendedMessage` interface declarations from `promptPreprocessor.ts`.
 
 ### Impact
 - ✅ **No more cross-project memory bleed**: Session summaries retrieved are always project-specific (local file first), not stale data from other workspaces.
-- ✅ **Auto-tracker checkpoint save functional**: Users now receive actionable warnings when token usage approaches context window capacity, and session memory is correctly saved to disk on confirmed "YES" reply — no more silent failures.
+- ✅ **Auto-tracker checkpoint save functional**: Users now receive actionable warnings when token usage approaches context window capacity, and session memory is correctly saved to disk on confirmed "YES" reply — no more silent failures due to FSM state re-entrancy.
 - ✅ **Proper prompt rendering**: Checkpoint warning injected during directory detection now renders with correct line breaks instead of literal `\n` text.
 - ✅ **Zero breaking changes**: All existing retrieval paths preserved as fallbacks; local-first is additive priority logic.
 
 ### Engineering Details
 - `get_session_summary` and `get_memory` implementations now use direct `fs.access()` + `decode(msgpack)` calls on the project-local `.ai_toolbox_memory.msgpack` file before falling back to plugin root or in-memory StateManager.
-- **FSM Re-entrancy Fix**: The previous `checkAndSaveTokenThreshold()` method internally called `checkTokenThreshold()`, which only triggered from `IDLE` state. Since FSM was already in `CONFIRMED` after user reply, checkpoint saves were silently skipped. Fixed by using direct save path:
+- **FSM Re-entrancy Fix**: The previous `checkAndSaveTokenThreshold()` method internally called `checkTokenThreshold()`, which only triggered from `IDLE` state. Since FSM was already in `CONFIRMED` after user reply, checkpoint saves were silently skipped — returning `{ triggered: false }`. Fixed by using direct save path that bypasses the IDLE-only guard:
   ```typescript
   // BEFORE (broken):
   await autoTracker.checkAndSaveTokenThreshold(tokenCount, maxTokens, messageCount);
