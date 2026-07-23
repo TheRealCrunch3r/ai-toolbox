@@ -593,30 +593,78 @@ WHEN TO USE:
     },
   }));
 
-  // get_session_summary tool — RETRIEVE LATEST SAVED SESSION SUMMARY ===
+  // get_session_summary tool — LOCAL FIRST: Read project file → Fallback to RAM/Plugin ===
   tools.push(tool({
     name: 'get_session_summary',
-    description: `Retrieve the most recent saved session summary for continuity across sessions.`,
+    description: `Retrieve the most recent saved session summary for continuity across sessions.\n\nPRIORITY ORDER:\n1. Local Project File (Working Dir/.session_context/) — Checked FIRST\n2. Plugin Root Memory (Plugin Dir/.session_context/) — Fallback\n3. In-Memory State (RAM) — Last resort`,
     parameters: {},
     implementation: async () => {
       try {
+        const wd = getWorkingDir();
+        const localPath = path.join(wd, '.session_context', '.ai_toolbox_memory.msgpack');
+
+        // 🔹 PRIORITY 1: Check Local Project File FIRST
+        if (await fs.access(localPath).then(() => true).catch(() => false)) {
+          try {
+            const buffer = await fs.readFile(localPath);
+            const entries = decode(buffer) as Array<{ key: string; value: unknown; timestamp: number }>;
+            
+            // Find session_summary_latest from local file
+            for (const entry of entries) {
+              if (entry.key === 'session_summary_latest' && typeof entry.value === 'object' && entry.value !== null) {
+                const latest = entry.value as SessionSummaryData;
+                const threeDaysMs = 3 * 24 * 60 * 60 * 1000;
+                const isStale = (Date.now() - (latest.timestamp ?? 0)) > threeDaysMs;
+                
+                console.log(`[ContextManagement.get_session_summary] ✅ Loaded from LOCAL PROJECT FILE: ${localPath}`);
+                return { success: true, data: { ...latest, isStale } };
+              }
+            }
+          } catch (parseErr) {
+            console.warn(`[ContextManagement.get_session_summary] Local file parse failed: ${String(parseErr)}. Falling back.`);
+          }
+        }
+
+        // 🔹 FALLBACK 1: Plugin Root File
+        const pluginPath = path.join(path.resolve(__dirname, '..'), '.session_context', '.ai_toolbox_memory.msgpack');
+        if (await fs.access(pluginPath).then(() => true).catch(() => false)) {
+          try {
+            const buffer = await fs.readFile(pluginPath);
+            const entries = decode(buffer) as Array<{ key: string; value: unknown; timestamp: number }>;
+            
+            for (const entry of entries) {
+              if (entry.key === 'session_summary_latest' && typeof entry.value === 'object' && entry.value !== null) {
+                const latest = entry.value as SessionSummaryData;
+                const threeDaysMs = 3 * 24 * 60 * 60 * 1000;
+                const isStale = (Date.now() - (latest.timestamp ?? 0)) > threeDaysMs;
+                
+                console.log(`[ContextManagement.get_session_summary] ✅ Loaded from PLUGIN ROOT FILE: ${pluginPath}`);
+                return { success: true, data: { ...latest, isStale } };
+              }
+            }
+          } catch (parseErr) {
+            console.warn(`[ContextManagement.get_session_summary] Plugin file parse failed: ${String(parseErr)}. Falling back to RAM.`);
+          }
+        }
+
+        // 🔹 FALLBACK 2: In-Memory State (RAM)
         if (memoryStore) {
-          // Force reload from disk to ensure we have latest state
           await memoryStore.forceLoad();
-          
           const latest = memoryStore.get<SessionSummaryData>('session_summary_latest');
           if (latest) {
-            // Check staleness: is the summary older than 3 days?
             const threeDaysMs = 3 * 24 * 60 * 60 * 1000;
             const isStale = (Date.now() - (latest.timestamp ?? 0)) > threeDaysMs;
             
+            console.log(`[ContextManagement.get_session_summary] ⚠️ Loaded from IN-MEMORY STATE (RAM).`);
             return { success: true, data: { ...latest, isStale } };
           }
         }
 
-        return { success: false, error: 'No session summary found in memory.' };
+        console.log(`[ContextManagement.get_session_summary] ❌ No session summary found in any location.`);
+        return { success: false, error: 'No session summary found.' };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
+        console.error(`[ContextManagement.get_session_summary] ERROR: ${message}`);
         return { success: false, error: `Failed to retrieve session summary: ${message}` };
       }
     },
@@ -648,15 +696,60 @@ WHEN TO USE:
     },
   }));
 
-  // get_memory tool — RETRIEVE ALL SAVED MEMORY ENTRIES ===
+  // get_memory tool — LOCAL FIRST: Read project file → Fallback to RAM/Plugin ===
   tools.push(tool({
     name: 'get_memory',
-    description: `Retrieve all saved memory entries. Returns a list of all facts stored via save_memory.`,
+    description: `Retrieve all saved memory entries. Returns a list of all facts stored via save_memory.\n\nPRIORITY ORDER:\n1. Local Project File (Working Dir/.session_context/) — Checked FIRST\n2. Plugin Root Memory (Plugin Dir/.session_context/) — Fallback\n3. In-Memory State (RAM) — Last resort`,
     parameters: {},
     implementation: async () => {
       try {
+        const wd = getWorkingDir();
+        const localPath = path.join(wd, '.session_context', '.ai_toolbox_memory.msgpack');
+
+        // 🔹 PRIORITY 1: Check Local Project File FIRST
+        if (await fs.access(localPath).then(() => true).catch(() => false)) {
+          try {
+            const buffer = await fs.readFile(localPath);
+            const entries = decode(buffer) as Array<{ key: string; value: unknown; timestamp: number }>;
+            
+            // Filter memory_ keys from local file
+            const memories = entries
+              .filter(e => e.key.startsWith('memory_'))
+              .map(e => ({ key: e.key, value: e.value }))
+              .filter(m => m.value !== undefined);
+            
+            if (memories.length > 0) {
+              console.log(`[ContextManagement.get_memory] ✅ Loaded ${memories.length} entries from LOCAL PROJECT FILE.`);
+              return { success: true, data: memories };
+            }
+          } catch (parseErr) {
+            console.warn(`[ContextManagement.get_memory] Local file parse failed: ${String(parseErr)}. Falling back.`);
+          }
+        }
+
+        // 🔹 FALLBACK 1: Plugin Root File
+        const pluginPath = path.join(path.resolve(__dirname, '..'), '.session_context', '.ai_toolbox_memory.msgpack');
+        if (await fs.access(pluginPath).then(() => true).catch(() => false)) {
+          try {
+            const buffer = await fs.readFile(pluginPath);
+            const entries = decode(buffer) as Array<{ key: string; value: unknown; timestamp: number }>;
+            
+            const memories = entries
+              .filter(e => e.key.startsWith('memory_'))
+              .map(e => ({ key: e.key, value: e.value }))
+              .filter(m => m.value !== undefined);
+            
+            if (memories.length > 0) {
+              console.log(`[ContextManagement.get_memory] ✅ Loaded ${memories.length} entries from PLUGIN ROOT FILE.`);
+              return { success: true, data: memories };
+            }
+          } catch (parseErr) {
+            console.warn(`[ContextManagement.get_memory] Plugin file parse failed: ${String(parseErr)}. Falling back to RAM.`);
+          }
+        }
+
+        // 🔹 FALLBACK 2: In-Memory State (RAM)
         if (memoryStore) {
-          // Force reload from disk to ensure we have latest state
           await memoryStore.forceLoad();
           
           const keys = await memoryStore.getAllKeys();
@@ -666,13 +759,16 @@ WHEN TO USE:
             .filter(m => m.value !== undefined);
           
           if (memories.length > 0) {
+            console.log(`[ContextManagement.get_memory] ⚠️ Loaded ${memories.length} entries from IN-MEMORY STATE (RAM).`);
             return { success: true, data: memories };
           }
         }
 
+        console.log(`[ContextManagement.get_memory] ❌ No memory entries found in any location.`);
         return { success: false, error: 'No memory entries found.' };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
+        console.error(`[ContextManagement.get_memory] ERROR: ${message}`);
         return { success: false, error: `Failed to retrieve memory: ${message}` };
       }
     },

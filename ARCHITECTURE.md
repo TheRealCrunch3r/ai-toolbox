@@ -124,7 +124,7 @@ export function main(context: PluginContext) {
 }
 ```
 
-### 2. Tool Registration Flow (Current State — v1.6.5)
+### 2. Tool Registration Flow (Current State — v1.6.6)
 
 ```
 toolsProvider() called by LM Studio SDK
@@ -637,6 +637,75 @@ Persistent Storage (.ai_toolbox_context.msgpack)
     ├── context_summary() → Statistics & counts
     └── delete_context_entry(id) / clearContextMemory(confirm) → Management
 ```
+
+### Local-First Memory Retrieval (v1.6.6+)
+
+**Priority Order:** `Working Dir` → `Plugin Root` → `In-Memory RAM`
+
+```
+User calls get_session_summary() or get_memory()
+    │
+    ▼
+1️⃣ Check Working Directory File:
+   {current_working_dir}/.session_context/.ai_toolbox_memory.msgpack
+    │
+    ├── Found? Decode msgpack → Return ✅ (Local-first hit)
+    │
+    └── Missing/Empty/Corrupt? Continue...
+        │
+        ▼
+2️⃣ Check Plugin Root File:
+   {plugin_root}/.session_context/.ai_toolbox_memory.msgpack
+    │
+    ├── Found? Decode msgpack → Return ⚠️ (Fallback hit)
+    │
+    └── Missing/Empty/Corrupt? Continue...
+        │
+        ▼
+3️⃣ Check In-Memory State (RAM):
+   stateManager.get('session_summary_latest') or memory_* keys
+    │
+    ├── Found? Return ⚠️ (Last resort)
+    └── Not found? Return ❌ error
+```
+
+**Impact:** Eliminates cross-project memory bleed — session summaries and memory entries are always project-specific when available locally. Existing SDK global memory calls preserved as fallbacks for backward compatibility.
+
+### Auto-Tracker Threshold Prompt Wiring (v1.6.6+)
+
+The auto-tracker token threshold system is now fully wired into the prompt preprocessor pipeline, enabling automatic checkpoint prompts when context window usage approaches capacity.
+
+```
+User Message Arrives → Step 0.5: ContextGuard Token Counting
+    │
+    ├── autoTracker.checkAndGeneratePrompt(tokenCount, maxTokens):
+    │   ├─ Calculate usagePercentage = (effectiveTokens / maxTokens) * 100
+    │   ├─ Compare against threshold (default: 75%)
+    │   └─ If >= threshold → Generate warning + FSM: IDLE → THRESHOLD_REACHED
+    │
+    ▼
+Warning injected into user message prompt:
+⚠️ SESSION WARNING: You have reached {usage}% of your token limit...
+
+User replies "YES" → Step 0.6: Checkpoint Reply Detection
+    │
+    ├── autoTracker.hasPendingWarning()? YES ✓
+    ├── replyMatch === 'YES'? YES ✓
+    ├── autoTracker.processUserReply('YES') → FSM: THRESHOLD_REACHED → CONFIRMED
+    └── autoTracker.checkAndSaveTokenThreshold():
+        ├─ flushActionsToMemory() → Save buffered decisions/completions/errors
+        └─ autoSaveSessionMemory() → Create checkpoint entry with token stats
+
+User replies "NO" → Step 0.6: Checkpoint Reply Detection
+    │
+    ├── autoTracker.hasPendingWarning()? YES ✓
+    ├── replyMatch === 'NO'? YES ✓
+    └── autoTracker.processUserReply('NO') → FSM: THRESHOLD_REACHED → DECLINED → IDLE (reset)
+```
+
+**FSM States:** `IDLE` → `THRESHOLD_REACHED` (prompt generated) → `CONFIRMED` (saved) or `DECLINED` → `IDLE` (reset).
+
+**Impact:** Users now receive actionable warnings when token usage approaches context window capacity, with confirmation flow to save session memory before potential overflow. Auto-tracked decisions, completions, and error fixes are flushed to persistent storage during checkpoint saves.
 
 ### ContextGuard Compression Flow (v1.4.2)
 

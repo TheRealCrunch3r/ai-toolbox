@@ -1,4 +1,4 @@
-# Project Summary — AI Toolbox Plugin v1.6.2
+# Project Summary — AI Toolbox Plugin v1.6.6
 
 Comprehensive overview of the AI Toolbox plugin, its architecture, features, and recent changes. This document provides a high-level summary for developers, maintainers, and users.
 
@@ -129,7 +129,31 @@ Each category is implemented as a separate module in `src/tools/`:
 
 ---
 
-## 📈 Recent Changes (v1.6.5)
+## 📈 Recent Changes (v1.6.6)
+
+### [1.6.6] — 🔧 Local-First Memory Retrieval & Auto-Tracker Threshold Prompt Wiring (2026-07-23)
+
+**Fixed session memory retrieval to prioritize local project files over global state, and wired up the auto-tracker token threshold prompt system.**
+
+#### What Changed
+- ✅ **`get_session_summary` priority fix**: Now checks `Working Dir/.session_context/.ai_toolbox_memory.msgpack` FIRST (local file → plugin root fallback → in-memory RAM). Previously always used SDK's global memory which returned stale data from other projects.
+- ✅ **`get_memory` priority fix**: Same local-first retrieval pattern applied — reads `memory_*` keys from project-local msgpack before falling back to plugin root or RAM.
+- ✅ **Auto-tracker threshold prompt wired up**: The preprocessor now calls `autoTracker.checkAndGeneratePrompt()` after token counting in Step 0.5, injecting a user-facing checkpoint warning when usage reaches the configured threshold (default: 75%).
+- ✅ **Checkpoint reply handling added**: Step 0.6 now detects `YES`/`NO` replies from users to pending checkpoint prompts and triggers session memory save via `autoTracker.checkAndSaveTokenThreshold()` on confirmed "YES".
+
+#### Impact
+- ✅ **No more cross-project memory bleed**: Session summaries retrieved are always project-specific (local file first), not stale data from other workspaces.
+- ✅ **Auto-tracker threshold prompt functional**: Users now receive actionable warnings when token usage approaches context window capacity, with confirmation flow to save session memory before potential overflow.
+- ✅ **Zero breaking changes**: All existing retrieval paths preserved as fallbacks; local-first is additive priority logic.
+
+#### Engineering Details
+- `get_session_summary` and `get_memory` implementations now use direct `fs.access()` + `decode(msgpack)` calls on the project-local `.ai_toolbox_memory.msgpack` file before falling back to plugin root or in-memory StateManager.
+- Auto-tracker integration uses existing FSM states: `IDLE → THRESHOLD_REACHED` (prompt generated) → `CONFIRMED` (user said YES, checkpoint saved) or `DECLINED → IDLE` (user declined, reset for next cycle).
+- Added `let tokenCount = 0;` and `let messageCount = 0;` to function-level scope in `preprocess()` to make them accessible across Step 0.5 (ContextGuard/token counting) and Step 0.6 (AutoTracker/checkpoint handling), resolving previous scope errors.
+
+**Total**: 2 files modified (`src/tools/contextManagementTools.ts`, `src/promptPreprocessor.ts`), zero breaking changes, fully backward compatible.
+
+---
 
 ### [1.6.5] — 📦 Session Memory Size Increase & Date Field Addition (2026-07-19)
 

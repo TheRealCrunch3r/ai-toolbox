@@ -357,8 +357,10 @@ export async function preprocess(
 ): Promise<string | ChatMessage> {
   const userPrompt = userMessage.getText();
   
-  // 🔹 Declare pendingWarning at the top so it's accessible across all steps
+  // 🔹 Declare variables at top scope so they're accessible across all steps
   let pendingWarning: string | undefined;
+  let messageCount = 0;
+  let tokenCount = 0;
   
   // Step 0.5: ContextGuard auto-compression & token tracking
   if (contextGuard) {
@@ -387,11 +389,24 @@ export async function preprocess(
       console.log(`[TokenDebug] Total Tool calls: ${toolCallCount}, Total Files/Images: ${imageCount}`);
 
       // Calculate tokens for threshold check
-      const tokenCount = await contextGuard.countTokens(messages, imageCount);
+      tokenCount = await contextGuard.countTokens(messages, imageCount);
       const threshold = contextGuard.getThreshold();
       
       // 🔹 DEBUG: Log token counts to verify threshold logic
       console.log(`[AutoTracker DEBUG] tokenCount: ${tokenCount}, maxTokens: ${contextGuard.getTokenLimit()}, threshold: ${threshold}`);
+
+      // 🔹 WIRE UP AUTO-TRACKER THRESHOLD PROMPT — Step 0.5b
+      const autoTrackingConfig = ctl.getPluginConfig(configSchematics);
+      if ((autoTrackingConfig.get('autoTrackingEnabled') ?? true) && contextGuard.getTokenLimit() > 0) {
+        const promptResult = autoTracker.checkAndGeneratePrompt(tokenCount, contextGuard.getTokenLimit());
+        if (promptResult.triggered && promptResult.warning) {
+          pendingWarning = promptResult.warning;
+          console.log(`[AutoTracker] ✅ THRESHOLD PROMPT GENERATED — user will be asked to save session memory`);
+        }
+      }
+
+      // Capture message count for later use in Step 0.6
+      messageCount = history.getLength();
 
       if (tokenCount > threshold) {
         console.log(`[ContextGuard] Token count ${tokenCount} exceeds threshold ${threshold}, compressing...`);
@@ -408,7 +423,7 @@ export async function preprocess(
     }
   }
 
-  // Step 0.6: Auto-tracking analysis (silent background tracking)
+  // Step 0.6: Auto-tracking analysis + checkpoint reply handling
   try {
     const pluginConfig = ctl.getPluginConfig(configSchematics);
     const autoTrackingEnabled = pluginConfig.get('autoTrackingEnabled') ?? true; // Default to ON
@@ -424,7 +439,28 @@ export async function preprocess(
         autoTrackTokenThreshold: (pluginConfig.get('autoTrackTokenThreshold')) ?? 75,
       });
 
-      // Analyze user message for tracking triggers
+      // 🔹 CHECK FOR YES/NO REPLY TO PENDING CHECKPOINT PROMPT
+      if (autoTracker.hasPendingWarning()) {
+        const replyMatch = userPrompt.trim().toUpperCase();
+        if (replyMatch === 'YES' || replyMatch === 'NO') {
+          console.log(`[AutoTracker] ✅ User replied '${replyMatch}' to checkpoint prompt — processing...`);
+          autoTracker.processUserReply(replyMatch); // Type already narrowed to 'YES' | 'NO' by if condition above
+          
+          // If YES → flush buffered actions + save session memory now
+          if (replyMatch === 'YES') {
+            const maxTokens = contextGuard?.getTokenLimit() ?? 0;
+            await autoTracker.checkAndSaveTokenThreshold(
+              tokenCount, 
+              maxTokens, 
+              messageCount
+            );
+          }
+          
+          console.log(`[AutoTracker] ✅ Checkpoint reply consumed — FSM state: ${autoTracker.getState()}`);
+        }
+      }
+
+      // Analyze user message for tracking triggers (silent background)
       const actions = autoTracker.analyzeMessage(userPrompt);
       
       if (actions.length > 0) {

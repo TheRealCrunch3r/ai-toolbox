@@ -2,7 +2,7 @@
 
 **Date**: 2026-06-30  
 **Author**: AI Toolbox Development Team  
-**Status**: ✅ Complete (v1.6.4 — Strict Typing & Config Resolution Hardening)
+**Status**: ✅ Complete (v1.6.6 — Local-First Memory Retrieval & Auto-Tracker Threshold Prompt Wiring)
 
 ---
 
@@ -26,6 +26,7 @@ All documentation has been reconstructed based on actual source code analysis to
 
 ## 🆕 Latest Updates
 
+- [Local-First Memory Retrieval & Auto-Tracker Threshold Prompt Wiring — v1.6.6 (2026-07-23)](#local-first-memory-retrieval--auto-tracker-threshold-prompt-wiring-v166-2026-07-23)
 - [Session Memory Size Increase & Date Field Addition — v1.6.5 (2026-07-19)](#session-memory-size-increase--date-field-addition-v165-2026-07-19)
 - [Gateway Tools: Single Entry Point for Tool Discovery & Execution — v1.6.2](#gateway-tools-single-entry-point-for-tool-discovery--execution-v160)
 - [Performance Optimization Suite (P0–P3) — v1.5.29](#performance-optimization-suite-p0p3--v1529)
@@ -33,6 +34,57 @@ All documentation has been reconstructed based on actual source code analysis to
 - [Session Summary Compression (v1.5.15)](#-session-summary-compression-v1515)
 
 ---
+### Local-First Memory Retrieval & Auto-Tracker Threshold Prompt Wiring — v1.6.6 (2026-07-23)
+
+This update documents the fix for session memory retrieval to prioritize local project files over global state, and the wiring of the auto-tracker token threshold prompt system in the prompt preprocessor pipeline.
+
+#### What Changed
+- ✅ **`get_session_summary` priority fix**: Now checks `Working Dir/.session_context/.ai_toolbox_memory.msgpack` FIRST (local file → plugin root fallback → in-memory RAM). Previously always used SDK's global memory which returned stale data from other projects.
+- ✅ **`get_memory` priority fix**: Same local-first retrieval pattern applied — reads `memory_*` keys from project-local msgpack before falling back to plugin root or RAM.
+- ✅ **Auto-tracker threshold prompt wired up**: The preprocessor now calls `autoTracker.checkAndGeneratePrompt()` after token counting in Step 0.5, injecting a user-facing checkpoint warning when usage reaches the configured threshold (default: 75%).
+- ✅ **Checkpoint reply handling added**: Step 0.6 now detects `YES`/`NO` replies from users to pending checkpoint prompts and triggers session memory save via `autoTracker.checkAndSaveTokenThreshold()` on confirmed "YES".
+
+#### Impact
+- ✅ **No more cross-project memory bleed**: Session summaries retrieved are always project-specific (local file first), not stale data from other workspaces.
+- ✅ **Auto-tracker threshold prompt functional**: Users now receive actionable warnings when token usage approaches context window capacity, with confirmation flow to save session memory before potential overflow.
+- ✅ **Zero breaking changes**: All existing retrieval paths preserved as fallbacks; local-first is additive priority logic.
+
+#### Engineering Details
+- `get_session_summary` and `get_memory` implementations now use direct `fs.access()` + `decode(msgpack)` calls on the project-local `.ai_toolbox_memory.msgpack` file before falling back to plugin root or in-memory StateManager.
+- Auto-tracker integration uses existing FSM states: `IDLE → THRESHOLD_REACHED` (prompt generated) → `CONFIRMED` (user said YES, checkpoint saved) or `DECLINED → IDLE` (user declined, reset for next cycle).
+- Added `let tokenCount = 0;` and `let messageCount = 0;` to function-level scope in `preprocess()` to make them accessible across Step 0.5 (ContextGuard/token counting) and Step 0.6 (AutoTracker/checkpoint handling), resolving previous scope errors.
+
+#### Execution Flow (After Fix)
+```
+User Message Arrives → Step 0.5: ContextGuard Token Counting
+    │
+    ├── autoTracker.checkAndGeneratePrompt(tokenCount, maxTokens):
+    │   ├─ usagePercentage >= threshold? (e.g., 78% ≥ 75%)
+    │   └─ YES → Generate warning + transition to THRESHOLD_REACHED state
+    │
+    ▼
+Warning injected into user message:
+⚠️ SESSION WARNING: You have reached 78% of your token limit...
+
+User replies "YES" → Step 0.6: Checkpoint Reply Detection
+    │
+    ├── autoTracker.hasPendingWarning()? YES ✓
+    ├── replyMatch === 'YES'? YES ✓
+    ├── autoTracker.processUserReply('YES') → FSM: THRESHOLD_REACHED → CONFIRMED
+    └── autoTracker.checkAndSaveTokenThreshold():
+        ├─ flushActionsToMemory() → Save buffered decisions/completions/errors
+        └─ autoSaveSessionMemory() → Create checkpoint entry with token stats
+
+User replies "NO" → Step 0.6: Checkpoint Reply Detection
+    │
+    ├── autoTracker.hasPendingWarning()? YES ✓
+    ├── replyMatch === 'NO'? YES ✓
+    └── autoTracker.processUserReply('NO') → FSM: THRESHOLD_REACHED → DECLINED → IDLE (reset)
+```
+
+**Total**: 2 files modified (`src/tools/contextManagementTools.ts`, `src/promptPreprocessor.ts`), zero breaking changes, fully backward compatible.
+
+
 
 ### Session Memory Size Increase & Date Field Addition — v1.6.5 (2026-07-19)
 
