@@ -428,11 +428,29 @@ export async function preprocess(
           // If YES → flush buffered actions + save session memory now
           if (replyMatch === 'YES') {
             const maxTokens = contextGuard?.getTokenLimit() ?? 0;
-            await autoTracker.checkAndSaveTokenThreshold(
+            
+            // 🔹 FIX: Use direct checkpoint path instead of checkAndSaveTokenThreshold()
+            // which is designed for independent threshold triggers, not post-confirmation flow.
+            console.log(`[AutoTracker DEBUG] Direct save path triggered after user confirmation`);
+            
+            // Flush buffered actions first
+            const flushedCount = await autoTracker.flushActionsToMemory();
+            if (flushedCount > 0) {
+              console.log(`[AutoTracker] ✅ Flushed ${flushedCount} buffered action(s)`);
+            }
+            
+            // Then save session memory directly
+            const saveResult = await autoTracker.autoSaveSessionMemory(
               tokenCount, 
               maxTokens, 
               messageCount
             );
+            
+            if (saveResult.saved) {
+              console.log(`[AutoTracker] ✅ Session memory checkpoint saved: ${saveResult.sessionId}`);
+            } else {
+              console.error('[AutoTracker] ❌ Checkpoint save failed');
+            }
           }
           
           console.log(`[AutoTracker] ✅ Checkpoint reply consumed — FSM state: ${autoTracker.getState()}`);
