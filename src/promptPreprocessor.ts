@@ -324,32 +324,11 @@ async function retrieveFromPdfs(
   }));
 }
 
-interface ExtendedMessage {
-  role?: string;
-  content?: unknown;
-  toolCalls?: unknown[];
-  tool_calls?: unknown[];
-  files?: unknown[];
-  images?: unknown[];
-}
 
-interface ExtendedMessage {
-  role?: string;
-  content?: unknown;
-  toolCalls?: unknown[];
-  tool_calls?: unknown[];
-  files?: unknown[];
-  images?: unknown[];
-}
 
-interface ExtendedMessage {
-  role?: string;
-  content?: unknown;
-  toolCalls?: unknown[];
-  tool_calls?: unknown[];
-  files?: unknown[];
-  images?: unknown[];
-}
+
+
+
 
 export async function preprocess(
   ctl: PromptPreprocessorController,
@@ -496,7 +475,11 @@ export async function preprocess(
     
     // 🔹 Inject checkpoint warning even if directory is detected
     if (pendingWarning) {
-      base += `\\n\\n--- SYSTEM INSTRUCTION ---\\n${pendingWarning}\\n--------------------------`;
+      base += `
+
+--- SYSTEM INSTRUCTION ---
+${pendingWarning}
+--------------------------`;
     }
     return base;
   }

@@ -42,7 +42,7 @@ This update documents the fix for session memory retrieval to prioritize local p
 - ✅ **`get_session_summary` priority fix**: Now checks `Working Dir/.session_context/.ai_toolbox_memory.msgpack` FIRST (local file → plugin root fallback → in-memory RAM). Previously always used SDK's global memory which returned stale data from other projects.
 - ✅ **`get_memory` priority fix**: Same local-first retrieval pattern applied — reads `memory_*` keys from project-local msgpack before falling back to plugin root or RAM.
 - ✅ **Auto-tracker threshold prompt wired up**: The preprocessor now calls `autoTracker.checkAndGeneratePrompt()` after token counting in Step 0.5, injecting a user-facing checkpoint warning when usage reaches the configured threshold (default: 75%).
-- ✅ **Checkpoint reply handling added**: Step 0.6 now detects `YES`/`NO` replies from users to pending checkpoint prompts and triggers session memory save via `autoTracker.checkAndSaveTokenThreshold()` on confirmed "YES".
+- ✅ **Checkpoint reply handling fixed**: Replaced broken `checkAndSaveTokenThreshold()` call with direct save path (`flushActionsToMemory()` → `autoSaveSessionMemory()`) to resolve FSM state re-entrancy bug where post-confirmation saves were blocked by IDLE-only guard.
 
 #### Impact
 - ✅ **No more cross-project memory bleed**: Session summaries retrieved are always project-specific (local file first), not stale data from other workspaces.
@@ -71,9 +71,9 @@ User replies "YES" → Step 0.6: Checkpoint Reply Detection
     ├── autoTracker.hasPendingWarning()? YES ✓
     ├── replyMatch === 'YES'? YES ✓
     ├── autoTracker.processUserReply('YES') → FSM: THRESHOLD_REACHED → CONFIRMED
-    └── autoTracker.checkAndSaveTokenThreshold():
-        ├─ flushActionsToMemory() → Save buffered decisions/completions/errors
-        └─ autoSaveSessionMemory() → Create checkpoint entry with token stats
+    └── Direct save path (replaces broken checkAndSaveTokenThreshold):
+        ├─ flushActionsToMemory() → Save buffered decisions/completions/errors ✅
+        └─ autoSaveSessionMemory() → Create checkpoint entry with token stats ✅
 
 User replies "NO" → Step 0.6: Checkpoint Reply Detection
     │
@@ -81,6 +81,24 @@ User replies "NO" → Step 0.6: Checkpoint Reply Detection
     ├── replyMatch === 'NO'? YES ✓
     └── autoTracker.processUserReply('NO') → FSM: THRESHOLD_REACHED → DECLINED → IDLE (reset)
 ```
+
+#### Critical FSM Re-entrancy Fix Explained
+**Before (v1.6.6 initial):** `checkAndSaveTokenThreshold()` was called after user confirmed "YES", but it internally called `checkTokenThreshold()`, which only triggers from `IDLE` state. Since FSM was already in `CONFIRMED`, checkpoint saves were silently skipped — returning `{ triggered: false, saved: false }`.
+
+**After (v1.6.6 patched):** Direct save path bypasses the broken wrapper entirely:
+```typescript
+// BROKEN:
+await autoTracker.checkAndSaveTokenThreshold(tokenCount, maxTokens, messageCount);
+// → Returns { triggered: false } — FSM blocked by IDLE-only guard
+
+// FIXED:
+const flushedCount = await autoTracker.flushActionsToMemory();  // Always works
+const saveResult = await autoTracker.autoSaveSessionMemory(     // Direct save
+  tokenCount, maxTokens, messageCount
+);
+```
+
+**Impact:** Session memory now correctly saves to disk on confirmed "YES" reply — no more silent failures.
 
 **Total**: 2 files modified (`src/tools/contextManagementTools.ts`, `src/promptPreprocessor.ts`), zero breaking changes, fully backward compatible.
 
