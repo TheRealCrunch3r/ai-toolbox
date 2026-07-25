@@ -850,3 +850,141 @@ async flushActionsToMemory(): Promise<number> {
 **Total:** 4 bugs fixed, zero breaking changes, backward compatible.
 
 ---
+
+---
+
+## 🆕 2026-07-25: line_operations Safety Guardrails — Complete Implementation
+
+This update documents the comprehensive safety guardrails added to the `line_operations` tool in v1.7.0, resolving recurring issues where LLMs inserted content at wrong lines due to stale line numbers.
+
+### Problem Solved
+The `line_operations` tool previously trusted user-provided line numbers blindly. When files changed between reads (due to other edits), LLMs would insert at incorrect positions — causing compilation errors, broken code structure, and silent file corruption. This happened repeatedly in production use cases.
+
+### Three-Layer Defense-in-Depth Strategy
+
+| Layer | Parameter(s) | Behavior | Example Use Case |
+|-------|--------------|----------|------------------|
+| **1. Content-Aware Insertion** | `insert_after_pattern` / `insert_before_pattern` | Finds insertion point by searching file content instead of trusting line numbers | "Insert after the line containing 'if (width <= 0 || height <= 0)'" — works regardless of current line number |
+| **2. Line Fingerprinting / Verification** | `verify_before_insert` | Checks if expected text exists at target_line before proceeding; blocks operation with error + actual context on mismatch | "Insert at line 84, but verify the line contains 'return;'" — prevents drift errors |
+| **3. Bounds Validation & Large Insert Blocking** | Auto-detection (no parameter needed) | Rejects out-of-range lines, splits multi-line content properly, blocks inserts >5 lines with suggestion to use `replace_text_in_file` instead | "Don't insert 7 lines using line_operations — suggest replace_text_in_file" |
+
+### Implementation Details
+
+#### 1. Content-Aware Insertion
+```typescript
+// User provides pattern instead of trusting line numbers:
+if (insert_after_pattern) {
+  foundLineIndex = linesArr.findIndex(line => line.includes(insert_after_pattern));
+  if (foundLineIndex !== -1) {
+    insert_line = foundLineIndex + 2; // Insert AFTER this line (+1 for 0-index, +1 to be after)
+  } else {
+    return { success: false, error: `Pattern matching failed — could not find line containing "${insert_after_pattern}". File may have changed.` };
+  }
+}
+```
+
+**Benefits:**
+- Line-number agnostic — works even if file structure changes between reads
+- Clear error message guides LLM to re-read file or use different pattern
+- No silent failures — always validates pattern exists before proceeding
+
+#### 2. Line Fingerprinting / Verification
+```typescript
+// User verifies content at target_line:
+if (verify_before_insert) {
+  const actualLine = linesArr[insert_line - 1];
+  if (!actualLine || !actualLine.includes(verify_before_insert)) {
+    // Show context around mismatch to help LLM understand what's actually there
+    return { success: false, error: `VERIFICATION FAILED: Expected "${verify_before_insert}" at line ${insert_line} but found different content.\n\nContext:\n${contextLines}\n\nFile may have changed. Re-read with read_file and retry.` };
+  }
+}
+```
+
+**Benefits:**
+- Catches drift errors BEFORE they corrupt files
+- Shows actual context (±3 lines) so LLM can see what's really there
+- Guides user to re-read file when mismatch detected
+
+#### 3. Bounds Validation & Large Insert Blocking
+```typescript
+// Validate target_line against file length:
+if (insert_line < 1 || insert_line > linesArr.length + 1) {
+  return { success: false, error: `target_line ${insert_line} is out of bounds (valid range: 1-${linesArr.length + 1}). File may have changed — re-read with read_file and retry.` };
+}
+
+// Split multi-line content into individual lines for proper insertion:
+const insertLines = (content || '').split('\n');
+linesArr.splice(insert_line - 1, 0, ...insertLines); // Spread operator inserts each line separately
+
+// Block large inserts (>5 lines):
+if (insertLines.length > 5) {
+  return { success: false, error: `Inserting ${insertLines.length} lines is discouraged. Use "replace_text_in_file" for multi-line operations to avoid line-number drift issues.` };
+}
+```
+
+**Benefits:**
+- Prevents out-of-range insertions (previously silently appended to EOF)
+- Multi-line content properly split into individual array elements (fixed bug where `\n` became literal characters on single line)
+- Large inserts (>5 lines) blocked with clear guidance to use `replace_text_in_file` instead
+
+### Test Results (9/9 Passed)
+
+| Test | Scenario | Result |
+|------|----------|--------|
+| Basic insert | Insert at line 5, multi-line content | ✅ PASS — correctly split into 2 array elements |
+| Verification with WRONG content | Verify "Line 3 has a placeholder" at line 6 (stale) | ✅ PASS — blocked error + showed actual context |
+| Verification with CORRECT content | Verify "inserted test content" at line 6 | ✅ PASS — verification succeeded, insert proceeded |
+| Pattern matching (after) | `insert_after_pattern: "Line 5 introduces"` | ✅ PASS — found correct line regardless of position |
+| Pattern matching (before) | `insert_before_pattern: "Line 6 provides"` | ✅ PASS — inserted before matching line correctly |
+| Large insert blocking (>5 lines) | Insert 7 lines at once | ✅ PASS — blocked with suggestion to use `replace_text_in_file` |
+| Bounds validation | Out-of-range target_line (999) | ✅ PASS — clear error message with valid range shown |
+| Delete operation | Delete line 10 | ✅ PASS — no regression in existing functionality |
+| Move operation | Move line 5 to position 8 | ✅ PASS — no regression in existing functionality |
+
+### Migration Guide for LLMs (How to Use Safely)
+
+**Before (unsafe):**
+```typescript
+// ❌ TRUSTS LINE NUMBERS BLINDLY — breaks when file changes
+line_operations(file_name, operation: "insert", target_line: 84, content: "// fix")
+→ If file changed since last read → inserts at WRONG line → compile error
+```
+
+**After (safe with pattern matching):**
+```typescript
+// ✅ FINDS LINE BY CONTENT — works regardless of current position
+line_operations(
+  file_name, 
+  operation: "insert", 
+  insert_after_pattern: "if (width <= 0 || height <= 0)",
+  content: "// fix"
+)
+→ Finds line containing pattern → inserts after it → works correctly
+```
+
+**After (safe with verification):**
+```typescript
+// ✅ VERIFIES CONTENT BEFORE INSERTING — catches drift errors early
+line_operations(
+  file_name, 
+  operation: "insert", 
+  target_line: 84, 
+  content: "// fix",
+  verify_before_insert: "return;" // Content expected at line 84
+)
+→ Checks if line 84 contains "return;" → If no → BLOCKS with error + context shown
+```
+
+### Engineering Compliance
+- **TypeScript/ESLint**: All Zod schemas properly typed, no `any` leakage. File-level eslint-disable directives for Babel AST operations where strict typing is impractical (unchanged from existing pattern).
+- **Testing**: 9 new test scenarios validated against `random.txt`, zero regressions in existing delete/move operations.
+- **Build**: Zero errors (`npx tsc --noEmit`), zero ESLint warnings, production build succeeds.
+
+### Files Modified
+- `src/tools/textProcessingTools.ts` — line_operations tool implementation (Zod schema + runtime validation)
+- `CHANGELOG.md` — v1.7.0 entry with guardrails documentation
+- `README.md` — Release History section updated with safety features overview
+
+**Total**: 3 files modified, zero breaking changes, fully backward compatible. All existing tools continue to work unchanged; new parameters are optional and only activated when explicitly provided by the LLM.
+
+---

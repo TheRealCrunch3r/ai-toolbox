@@ -421,6 +421,67 @@ SUMMARY:`;
   }
 
   /**
+   * Sets or updates the LM Studio client reference for dynamic model queries.
+   */
+  setLMClient(client: LMStudioClient | null): void {
+    this.lmClient = client;
+  }
+
+  /**
+   * Dynamically fetches and applies the actual context window length from the active LM Studio model.
+   */
+  async setTokenLimitFromModel(modelId?: string): Promise<void> {
+    if (!this.lmClient) return; // Cannot query without client
+    
+    try {
+      let model;
+      
+      if (modelId && typeof modelId === 'string' && modelId.trim() !== '') {
+        // User provided explicit model ID — load it directly
+        console.log(`[ContextGuard] Loading specified model: ${modelId}`);
+        model = await this.lmClient.llm.model(modelId);
+      } else {
+        // No model ID provided — use configured summaryModel if available
+        console.log('[ContextGuard] No explicit model ID. Using configured summaryModel...');
+        
+        if (this.config.summaryModel && typeof this.config.summaryModel === 'string' && this.config.summaryModel.trim() !== '') {
+          console.log(`[ContextGuard] ✅ Using configured summaryModel: ${this.config.summaryModel}`);
+          model = await this.lmClient.llm.model(this.config.summaryModel);
+        } else {
+          console.warn('[ContextGuard] ⚠️ No model ID provided and no fallback in config. Keeping default tokenLimit.');
+        }
+      }
+      
+      if (!model) {
+        // If auto-detection fails, use the config's contextGuardTokenLimit instead of hardcoded fallback
+        const configLimit = this.config.tokenLimit;
+        console.log(`[ContextGuard] ⚠️ Auto-detection failed. Using configured tokenLimit: ${configLimit}.`);
+        return; // Keep existing config.tokenLimit (which should come from plugin settings)
+      }
+
+      // ✅ Use SDK's native getContextLength() API (LM Studio TS v1.x+)
+      if (typeof (model as any).getContextLength === 'function') {
+        const actualContextLength = await (model as any).getContextLength();
+        if (actualContextLength > 0) {
+          this.config.tokenLimit = actualContextLength;
+          console.log(`[ContextGuard] ✅ Updated tokenLimit from SDK: ${actualContextLength}`);
+        } else {
+          const configLimit = this.config.tokenLimit;
+          console.warn(`[ContextGuard] getContextLength() returned ${actualContextLength}. Using configured limit: ${configLimit}`);
+        }
+      } else {
+        // Fallback: read from model config if available
+        const fallbackLimit = (model as any).config?.contextSize || this.config.tokenLimit;
+        this.config.tokenLimit = fallbackLimit;
+        console.log(`[ContextGuard] ✅ Fetched contextSize from model config: ${fallbackLimit}`);
+      }
+    } catch (err) {
+      const configLimit = this.config.tokenLimit;
+      console.error(`[ContextGuard] Failed to fetch actual context length. Using configured limit: ${configLimit} (${(err as Error).message})`);
+    }
+  }
+
+  /**
    * Gets the current cached token count (for external monitoring).
    */
   getCurrentTokenCount(): number {

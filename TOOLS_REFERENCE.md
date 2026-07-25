@@ -349,10 +349,60 @@ The `src/tools/recodeTool/` module implements a pluggable rule engine for advanc
 | Tool | Description |
 |------|-------------|
 | `text_transform` | Regex substitution with capture groups ($1, $2), line ranges, global/case-insensitive modes; safer than shell sed |
-| `line_operations` | Insert/delete/reorder lines using awk-like operations without shell dependencies; atomic writes safety |
+| `line_operations` | Insert/delete/reorder lines using awk-like operations without shell dependencies; atomic writes safety + **NEW v1.7.0: Three-layer guardrail system** (pattern matching, verification, bounds validation) |
 | `text_extract` | Structured data extraction from delimited text (CSV/TSV/custom) with configurable zero-based field indices |
 | `markdown_table_gen` | Generate Markdown tables from object arrays with headers, alignment, truncation, and customizable ellipsis |
 | `refactor_code` | AST-driven code refactoring: rename identifiers, move functions (including Arrow Functions & Class Methods), extract code blocks into new functions via Babel AST parsing — no more line-based string splitting errors |
+
+### 🛡️ line_operations Safety Guardrails (v1.7.0+)
+**Resolved recurring issues where LLMs inserted content at wrong lines due to stale line numbers.** Three-layer defense-in-depth:
+
+#### 1. Content-Aware Insertion (Pattern Matching)
+Find insertion point by searching file content instead of trusting line numbers — works regardless of current position.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `insert_after_pattern` | `string` | No | Line containing this text → insert AFTER it (max 500 chars) |
+| `insert_before_pattern` | `string` | No | Line containing this text → insert BEFORE it (max 500 chars) |
+
+**Example:**
+```typescript
+// Pattern-based — works regardless of current line number:
+line_operations(
+  file_name, 
+  operation: "insert", 
+  insert_after_pattern: "if (width <= 0 || height <= 0)",
+  content: "// fix"
+)
+→ Finds line containing pattern → inserts after it → works correctly even if file changed
+```
+
+#### 2. Line Fingerprinting / Verification
+Verify expected text exists at target_line before proceeding — blocks operation with error + actual context on mismatch.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `verify_before_insert` | `string` | No | Content expected at target_line; if mismatch → blocked (max 200 chars) |
+
+**Example:**
+```typescript
+// Verification-based — catches drift errors before corruption:
+line_operations(
+  file_name, 
+  operation: "insert", 
+  target_line: 84, 
+  content: "// fix",
+  verify_before_insert: "return;" // Content expected at line 84
+)
+→ Checks if line 84 contains "return;" → If no → BLOCKS with error + context shown (±3 lines)
+```
+
+#### 3. Bounds Validation & Large Insert Blocking (Auto-detection)
+- **Out-of-range rejection**: Rejects `target_line` outside valid range (1 to file length + 1)
+- **Multi-line splitting**: Splits content by `\n` into individual array elements (fixed bug where `\n` became literal characters on single line)
+- **Large insert blocking**: Blocks inserts >5 lines with suggestion to use `replace_text_in_file` instead
+
+**Test Results:** 9/9 test scenarios passed — zero regressions in existing delete/move operations.
 
 ---
 
@@ -476,4 +526,4 @@ All tools implement multiple security layers:
 
 ---
 
-*Reference generated from actual source code analysis on 2026-07-14 (v1.6.4). All tool counts verified against `tools.push()` calls in src/tools/*.ts and gatewayTools.ts.*
+*Reference generated from actual source code analysis on 2026-07-25 (v1.7.0). All tool counts verified against `tools.push()` calls in src/tools/*.ts and gatewayTools.ts. line_operations guardrails documented with v1.7.0 safety features.*

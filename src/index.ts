@@ -28,7 +28,7 @@ export function main(context: PluginContext) {
   
   // Initialize ContextGuard with default settings
   const contextGuard = new ContextGuard({
-    tokenLimit: 30000,           // Matches config.ts default (changed to 30k)
+    tokenLimit: 262144,          // Large fallback (256k) — dynamically overridden by SDK model info at runtime
     smartReading: true,          // Enables keyword-based file reading
     summaryModel: '',            // Empty = use current chat model for summarization
     terminalFilterEnabled: true, // Truncates long terminal outputs

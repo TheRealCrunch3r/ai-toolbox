@@ -164,6 +164,42 @@ npm test
 
 ## 📜 Release History
 
+### [1.7.0] - 2026-07-25 — 🧠 Dynamic Context Window Detection & line_operations Safety Guardrails
+**Resolved critical token limit hardcoding, fixed JSON serialization crashes, and added comprehensive safety guardrails to `line_operations` tool.**
+
+#### Dynamic Context Window Detection
+- ✅ **Dynamic token limits**: Replaced hardcoded 30k/16k fallbacks with dynamic SDK `getContextLength()` API (accurately detects up to 224k+ tokens)
+- ✅ **JSON crash fix**: Resolved plugin crashes from non-JSON-safe properties in model objects; reverted to stable `summaryModel` configuration approach
+- ✅ **ContextGuard hardening**: Added defensive checks around SDK token counting and model metadata fetching
+
+#### 🛡️ line_operations Safety Guardrails (NEW)
+**Resolved recurring issues where LLMs inserted content at wrong lines due to stale line numbers.**
+
+Three-layer defense-in-depth strategy:
+
+| Layer | Parameter | Purpose |
+|-------|-----------|---------|
+| **Content-Aware Insertion** | `insert_after_pattern` / `insert_before_pattern` | Find insertion point by searching file content instead of trusting line numbers |
+| **Line Fingerprinting** | `verify_before_insert` | Content expected at target_line — blocks operation if mismatch and shows actual context |
+| **Bounds Validation** | Auto-detection + limits | Rejects out-of-range lines, multi-line content splitting, large insert blocking (>5 lines) |
+
+**Example usage:**
+```typescript
+// Pattern-based (line-number-agnostic):
+line_operations(file_name, operation: "insert", 
+  insert_after_pattern: "if (width <= 0 || height <= 0)",
+  content: "// fix"
+)
+
+// Verification-based (prevents drift errors):
+line_operations(file_name, operation: "insert", target_line: 84, 
+  content: "// fix",
+  verify_before_insert: "return;" // Content expected at line 84
+)
+```
+
+**Impact**: All guardrails tested and verified — 9/9 test scenarios passed with zero regressions.
+
 ### [1.6.4] - 2026-07-14 — 🔒 Strict Typing & Config Resolution Hardening
 **Eliminated all `any` type usage and fixed config resolution for ParsedConfig wrapper.**
 - ✅ **Strict typing policy enforced**: Replaced all `z.any()` with `z.unknown()` in Zod schemas

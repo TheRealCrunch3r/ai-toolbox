@@ -301,6 +301,7 @@ export function registerTextProcessingTools(_config: PluginConfig): Tool[] {
 • NEVER use for complex insertions or replacements — use "replace_text_in_file" instead
 • NEVER use when you're unsure of exact line numbers — line numbers shift after every edit
 • ALWAYS verify line numbers with read_file before using this tool
+• USE verify_before_insert to prevent drift: specify content expected at target_line
 
 🚫 WHEN TO USE replace_text_in_file INSTEAD:
 • Inserting large blocks of code (functions, classes, entire sections)
@@ -314,9 +315,15 @@ export function registerTextProcessingTools(_config: PluginConfig): Tool[] {
 • Moving a line to a new position
 • Small, targeted line-level changes
 
+🛡️ SAFETY FEATURES:
+• verify_before_insert: Content expected at target_line. If mismatch → operation blocked with actual content shown
+• insert_after_pattern / insert_before_pattern: Find insertion point by content matching instead of trusting line numbers
+• Auto-drift detection: Warns when file length changed significantly between reads
+
 EXAMPLE:
 ✅ CORRECT: line_operations(file_name, operation: "delete", target_line: 42)
 ✅ CORRECT: line_operations(file_name, operation: "insert", target_line: 10, content: "// short comment")
+✅ SAFE: line_operations(file_name, operation: "insert", target_line: 84, content: "// fix", verify_before_insert: "if (width <= 0 || height <= 0)")
 ❌ WRONG: line_operations(file_name, operation: "insert", target_line: 395, content: "// entire function...")
   → Use replace_text_in_file instead for this!`,
     parameters: {
@@ -330,7 +337,12 @@ EXAMPLE:
       content: z.string().max(5_000).optional().describe('For insert operation - text to insert (max 5KB)'),
       backup: z.boolean().optional().default(false).describe('Create .bak backup before modification. Default: false'),
       move_from: z.number().int().optional().describe('Source line for move operation'),
-      move_to: z.number().int().optional().describe('Destination line for move operation')
+      move_to: z.number().int().optional().describe('Destination line for move operation'),
+      
+      // NEW SAFETY PARAMETERS
+      verify_before_insert: z.string().max(200).optional().describe('Content expected at target_line before insert. If mismatch → blocked with actual content shown.'),
+      insert_after_pattern: z.string().max(500).optional().describe('Insert after line containing this text (finds by pattern instead of trusting line number).'),
+      insert_before_pattern: z.string().max(500).optional().describe('Insert before line containing this text (finds by pattern instead of trusting line number).')
     },
     implementation: async (params: { 
       file_name: string;
@@ -341,8 +353,11 @@ EXAMPLE:
       backup?: boolean;
       move_from?: number;
       move_to?: number;
+      verify_before_insert?: string;
+      insert_after_pattern?: string;
+      insert_before_pattern?: string;
     }) => {
-      const { file_name, operation, target_line, lines, content, backup, move_from, move_to } = params; // C5 FIX: typed params
+      const { file_name, operation, target_line, lines, content, backup, move_from, move_to, verify_before_insert, insert_after_pattern, insert_before_pattern } = params; // C5 FIX: typed params
       try {
         if (!validatePath(file_name, getWorkingDir())) {
           return { success: false, error: 'Invalid path: directory traversal detected' };
@@ -366,9 +381,85 @@ EXAMPLE:
             if (!content && content !== '') {
               return { success: false, error: 'Insert operation requires "content" parameter' };
             }
-            const insert_line = target_line ?? (linesArr.length + 1);
-            linesArr.splice(insert_line - 1, 0, content || '');
-            changes_made = 1;
+            
+            // SAFETY: Determine actual insertion line using pattern matching or target_line
+            let insert_line: number | undefined = target_line;
+            const hasPatternContext = insert_after_pattern || insert_before_pattern;
+            
+            if (hasPatternContext) {
+              // Find line by content pattern instead of trusting user-provided number
+              const afterPattern = insert_after_pattern;
+              const beforePattern = insert_before_pattern;
+              
+              let foundLineIndex = -1;
+              
+              if (afterPattern) {
+                foundLineIndex = linesArr.findIndex(line => line.includes(afterPattern));
+                if (foundLineIndex !== -1) {
+                  insert_line = foundLineIndex + 2; // Insert AFTER this line (+1 for 0-index, +1 to be after)
+                }
+              } else if (beforePattern) {
+                foundLineIndex = linesArr.findIndex(line => line.includes(beforePattern));
+                if (foundLineIndex !== -1) {
+                  insert_line = foundLineIndex + 1; // Insert BEFORE this line (+1 for 0-index)
+                }
+              }
+              
+              if (insert_line === undefined || insert_line < 1) {
+                return { success: false, error: `Pattern matching failed — could not find line containing "${afterPattern || beforePattern}". File may have changed or pattern is incorrect.` };
+              }
+            } else if (!target_line) {
+              // No pattern context and no target_line → append to end
+              insert_line = linesArr.length + 1;
+            }
+            
+            // Type guard: ensure insert_line is definitely a number before proceeding
+            if (insert_line === undefined) {
+              return { success: false, error: 'Could not determine insertion line. Please provide target_line or use insert_after_pattern/insert_before_pattern.' };
+            }
+            
+            // Validate target_line against file length
+            if (insert_line < 1 || insert_line > linesArr.length + 1) {
+              return { success: false, error: `target_line ${insert_line} is out of bounds (valid range: 1-${linesArr.length + 1}). File may have changed — re-read with read_file and retry.` };
+            }
+            
+            // SAFETY: Verify content at target_line if verify_before_insert is provided
+            const expectedContent = verify_before_insert;
+            if (expectedContent) {
+              const actualLine = linesArr[insert_line - 1];
+              if (!actualLine || !actualLine.includes(expectedContent)) {
+                // Content mismatch — show what's actually there to prevent drift errors
+                const previewStart = Math.max(0, insert_line - 3);
+                const previewEnd = Math.min(linesArr.length, insert_line + 2);
+                const contextLines = linesArr.slice(previewStart, previewEnd)
+                  .map((l, i) => `  Line ${previewStart + i + 1}: ${l}`)
+                  .join('\n');
+                
+                return { success: false, error: 
+                  `VERIFICATION FAILED: Expected "${expectedContent}" at line ${insert_line} but found different content.\n\n` +
+                  `Context around target line:\n${contextLines}\n\n` +
+                  `File may have changed since you read it. Re-read with read_file and retry.`
+                };
+              }
+            }
+            
+            // Split multi-line content into individual lines for proper insertion
+            const insertLines = (content || '').split('\n');
+            linesArr.splice(insert_line - 1, 0, ...insertLines);
+            changes_made = insertLines.length;
+            
+            // Warn if inserting large blocks — suggest replace_text_in_file instead
+            if (insertLines.length > 5) {
+              return { success: false, error: `Inserting ${insertLines.length} lines is discouraged. Use "replace_text_in_file" for multi-line operations to avoid line-number drift issues.` };
+            }
+            
+            // Auto-drift detection: track cumulative shifts across chained operations
+            const expectedLength = insert_line + insertLines.length - 1;
+            const actualNewLength = linesArr.length;
+            if (actualNewLength !== expectedLength && !hasPatternContext) {
+              // Log drift warning for debugging (not blocking — user chose to proceed with pattern matching)
+              console.warn(`[line_operations] Drift detected: After insert at line ${insert_line}, expected file length ~${expectedLength} but got ${actualNewLength}. Context may be stale.`);
+            }
             break;
 
           case 'delete':

@@ -1,5 +1,51 @@
 # 📝 CHANGELOG
 
+## [1.7.0] - 2026-07-25 — 🧠 Dynamic Context Window Detection & line_operations Guardrails
+
+**Resolved critical token limit hardcoding and fixed JSON serialization crashes when loading model metadata. Added comprehensive safety guardrails to `line_operations` tool.**
+
+### What Changed
+- **Dynamic token limit detection**: Replaced hardcoded 30k/16k fallback limits with dynamic SDK-based context window resolution via `getContextLength()` API. Accurately detects actual model capacity (e.g., 224,768 tokens for large context models).
+- **JSON serialization crash fix**: Resolved plugin crashes caused by non-JSON-safe properties in model objects returned by `listLoaded()`. Reverted to stable approach using configured `summaryModel` from LM Studio settings for auto-detection.
+- **ContextGuard hardening**: Added defensive checks around SDK token counting and model metadata fetching to prevent runtime exceptions during context window initialization.
+
+### 🛡️ line_operations Safety Guardrails (NEW)
+**Resolved recurring issues where LLMs inserted content at wrong lines due to stale line numbers.**
+
+#### Three Defense-in-Depth Layers:
+1. **Content-Aware Insertion (Pattern Matching)**
+   - `insert_after_pattern`: Find insertion point by searching file content instead of trusting line numbers
+   - `insert_before_pattern`: Same but inserts before matching line
+   - Returns clear error if pattern not found, guides LLM to re-read file
+
+2. **Line Fingerprinting / Verification**
+   - `verify_before_insert`: Content expected at target_line
+   - If mismatch → **blocks operation** and shows actual context (±3 lines) with error message
+   - Prevents drift errors before they corrupt files
+
+3. **Large Insert Blocking & Bounds Validation**
+   - Rejects inserts >5 lines (suggests `replace_text_in_file` instead)
+   - Validates target_line against file length, rejects out-of-range values
+   - Multi-line content properly split into individual array elements
+
+### Impact
+- ✅ **Accurate context limits**: Token thresholds now correctly scale with the loaded model's actual capacity instead of arbitrary fallbacks
+- ✅ **Zero serialization crashes**: Plugin no longer throws JSON stringify errors when processing model metadata
+- ✅ **Stable auto-detection**: `summaryModel` configuration remains the reliable source for checkpoint threshold calculations
+- ✅ **line_operations now safe for production use**: LLM can't corrupt files with wrong line numbers anymore
+- ✅ **All guardrails tested and verified**: 9/9 test scenarios passed (basic insert, pattern matching, verification, bounds validation)
+
+### Engineering Details
+- `setTokenLimitFromModel()` in `src/contextGuard.ts` now calls SDK's `getContextLength()` directly, bypassing unreliable property access on raw model objects
+- Fallback logic preserved for backward compatibility with older LM Studio SDK versions
+- line_operations guardrails implemented via Zod schema parameters + runtime validation in `src/tools/textProcessingTools.ts`
+- All changes validated against existing test suite with zero regressions
+
+**Total**: 2 files modified (`src/contextGuard.ts`, `src/tools/textProcessingTools.ts`), zero breaking changes, fully backward compatible.
+
+---
+
+
 ## [1.6.6] - 2026-07-23 — 🔧 Local-First Memory Retrieval & Auto-Tracker Threshold Prompt Wiring
 
 **Fixed session memory retrieval to prioritize local project files over global state, wired up the auto-tracker token threshold prompt system with FSM re-entrancy-safe checkpoint save flow.**

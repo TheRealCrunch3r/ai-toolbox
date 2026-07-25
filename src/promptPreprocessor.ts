@@ -335,7 +335,11 @@ export async function preprocess(
   userMessage: ChatMessage
 ): Promise<string | ChatMessage> {
   const userPrompt = userMessage.getText();
-  
+
+  // ✅ DIAGNOSTIC: Verify preprocessor is actually being called by LM Studio
+  console.log(`✅ [Preprocessor] Called. Message length: ${userPrompt.length}`);
+  if (!contextGuard) { console.warn('[ContextGuard] contextGuard is NULL!'); }
+
   // 🔹 Declare variables at top scope so they're accessible across all steps
   let pendingWarning: string | undefined;
   let messageCount = 0;
@@ -367,17 +371,30 @@ export async function preprocess(
       }
       console.log(`[TokenDebug] Total Tool calls: ${toolCallCount}, Total Files/Images: ${imageCount}`);
 
-      // Calculate tokens for threshold check
-      tokenCount = await contextGuard.countTokens(messages, imageCount);
+      // ✅ FIX: Dynamically resolve actual model context length before counting tokens
+      const pluginConfig = ctl.getPluginConfig(configSchematics);
+      
+      // Inject LM Studio client from controller for dynamic model queries (SDK v1.x)
+      if (ctl.client && contextGuard.setLMClient) {
+        contextGuard.setLMClient(ctl.client);
+      }
+      
+      // Fetch active model ID or let ContextGuard auto-resolve it dynamically
+      const activeModelId = pluginConfig.get('contextGuardSummaryModel') || ''; 
+      await contextGuard.setTokenLimitFromModel(activeModelId);
+
+      // Calculate tokens for threshold check using actual model limit & SDK native counting
+      tokenCount = await contextGuard.countTokens(messages, imageCount, activeModelId || undefined);
+      const maxTokens = contextGuard.getTokenLimit();
       const threshold = contextGuard.getThreshold();
       
-      // 🔹 DEBUG: Log token counts to verify threshold logic
-      console.log(`[AutoTracker DEBUG] tokenCount: ${tokenCount}, maxTokens: ${contextGuard.getTokenLimit()}, threshold: ${threshold}`);
+      // ✅ DIAGNOSTIC: Log accurate token counts against real model limits
+      console.log(`✅ [TokenCheck] Model limit: ${maxTokens} | Tokens used: ${tokenCount} | Threshold: ${threshold}`);
 
-      // 🔹 WIRE UP AUTO-TRACKER THRESHOLD PROMPT — Step 0.5b
+      // 🔹 WIRE UP AUTO-TRACKER THRESHOLD PROMPT — Step 0.5b (uses correct maxTokens)
       const autoTrackingConfig = ctl.getPluginConfig(configSchematics);
-      if ((autoTrackingConfig.get('autoTrackingEnabled') ?? true) && contextGuard.getTokenLimit() > 0) {
-        const promptResult = autoTracker.checkAndGeneratePrompt(tokenCount, contextGuard.getTokenLimit());
+      if ((autoTrackingConfig.get('autoTrackingEnabled') ?? true) && maxTokens > 0) {
+        const promptResult = autoTracker.checkAndGeneratePrompt(tokenCount, maxTokens);
         if (promptResult.triggered && promptResult.warning) {
           pendingWarning = promptResult.warning;
           console.log(`[AutoTracker] ✅ THRESHOLD PROMPT GENERATED — user will be asked to save session memory`);
@@ -388,7 +405,7 @@ export async function preprocess(
       messageCount = history.getLength();
 
       if (tokenCount > threshold) {
-        console.log(`[ContextGuard] Token count ${tokenCount} exceeds threshold ${threshold}, compressing...`);
+        console.log(`[ContextGuard] Token count ${tokenCount} exceeds compression threshold ${threshold}, compressing...`);
         const compressedMessages = await contextGuard.compressHistory(messages) as unknown as ChatMessage[];
         // Clear history by popping all messages
         while (history.getLength() > 0) {
