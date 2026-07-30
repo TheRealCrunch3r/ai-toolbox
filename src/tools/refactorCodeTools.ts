@@ -21,32 +21,74 @@ import { unusedImportsRule } from './recodeTool/rules/unusedImports';
 // Safe Babel parser interface
 type ParseFunction = (code: string, opts: any) => Node;
 
+/** LRU cache entry for Babel parser */
+interface ParserCacheEntry {
+  parseFn: ParseFunction;
+  timestamp: number;
+}
+
+const babelParserLRU = new Map<string, ParserCacheEntry>();
+const MAX_PARSER_CACHE_SIZE = 5; // Limit to prevent unbounded memory growth
+const PARSER_CACHE_TTL_MS = 60_000; // 1 minute TTL for cache entries
+
+// Global fallback for backward compatibility with existing code (dead_code_detection)
 let babelParserCache: ParseFunction | null = null;
-let babelParserError: string | null = null;
 
 async function getBabelParser(): Promise<ParseFunction> {
+  const cacheKey = '@babel/parser';
+  
+  // Check LRU cache first (LRU eviction on access)
+  const cached = babelParserLRU.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < PARSER_CACHE_TTL_MS) {
+    return cached.parseFn;
+  }
+  
+  // Try global fallback for backward compatibility
   if (babelParserCache) return babelParserCache;
-  if (babelParserError) throw new Error(babelParserError);
+  
   try {
     // @babel/parser default export is the parse function itself
     const parseFn = typeof babelParser === 'function' ? babelParser : (babelParser.parse as ParseFunction);
     if (!parseFn) throw new Error('Could not locate .parse function in @babel/parser');
+    
+    // Update LRU cache (move to end by delete + reinsert)
+    babelParserLRU.delete(cacheKey);
+    babelParserLRU.set(cacheKey, { parseFn, timestamp: Date.now() });
+    
+    // Evict oldest entry if over limit (Map preserves insertion order)
+    while (babelParserLRU.size > MAX_PARSER_CACHE_SIZE) {
+      const firstKey = babelParserLRU.keys().next().value;
+      if (firstKey !== undefined) {
+        babelParserLRU.delete(firstKey);
+      } else {
+        break;
+      }
+    }
+    
+    // Also update global fallback for backward compatibility
     babelParserCache = parseFn;
-    return babelParserCache;
+    
+    return parseFn;
   } catch (err) {
-    babelParserError = err instanceof Error ? err.message : String(err);
-    throw new Error(`Babel parser failed to load: ${babelParserError}`);
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    throw new Error(`Babel parser failed to load: ${errorMsg}`);
   }
 }
 
 /** Reset babel module caches (for testing) */
 export function resetBabelCache(): void {
+  babelParserLRU.clear();
   babelParserCache = null;
-  babelParserError = null;
 }
 
 /** Minimal Unified Diff Generator */
 function generateUnifiedDiff(oldText: string, newText: string): string {
+  // Performance guard: limit diff calculation to prevent O(n²) on large files
+  const MAX_DIFF_LINES = 100;
+  if (oldText.split('\n').length > MAX_DIFF_LINES || newText.split('\n').length > MAX_DIFF_LINES) {
+    return '(Diff truncated — file too large for unified diff preview. Max 100 lines.)';
+  }
+  
   const oldLines = oldText.split('\n');
   const newLines = newText.split('\n');
   
@@ -120,15 +162,6 @@ interface RefactorCodeParams {
   dry_run?: boolean;
 }
 
-/** Interface for tracking import usage (deprecated — moved to recodeTool/rules/unusedImports.ts) */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-interface ImportInfo {
-  name: string;
-  importedName: string;
-  isTypeOnly: boolean;
-  isNamespace: boolean;
-}
-
 export function registerRefactorCodeTools(_config: PluginConfig): Tool[] {
   const tools: Tool[] = [];
 
@@ -188,7 +221,7 @@ export function registerRefactorCodeTools(_config: PluginConfig): Tool[] {
 
               const ast = localParser(code, { sourceType: 'module', plugins: isTS ? ['typescript'] : [] }) as Program;
               
-              // 1. Collect Exports
+              // Single-pass optimization: combine export collection + usage tracking in one traversal
               traverse(ast, {
                 ExportNamedDeclaration(path) {
                   if (path.node.declaration?.type === 'FunctionDeclaration' || 
@@ -207,73 +240,29 @@ export function registerRefactorCodeTools(_config: PluginConfig): Tool[] {
                     if (name && name !== 'default') exportMap.set(name, [...(exportMap.get(name) || []) as { name: string; file: string }[], { name, file: f }]);
                   }
                 },
-              });
-
-              // 2. Collect Usage and Import References
-              traverse(ast, {
                 ImportDeclaration(path) {
                   path.node.specifiers.forEach((s: any) => usageSet.add(s.local.name));
                 },
                 Identifier(p) {
                   if (p.node.name !== 'default') {
-                    // We add everything for now; we'll clean up export-related ones later
-                    usageSet.add(p.node.name); 
-                  }
-                }
-              });
-
-              // 3. Remove identifiers that belong to Export Declarations from the usage set
-              const exportIdsToRemove = new Set<string>();
-              traverse(ast, {
-                ExportNamedDeclaration(path) {
-                  if (path.node.declaration?.type === 'FunctionDeclaration' || 
-                      path.node.declaration?.type === 'ClassDeclaration') {
-                    const name = path.node.declaration.id?.name;
-                    if (name) exportIdsToRemove.add(name);
-                  } else if (path.node.specifiers?.[0] && path.node.specifiers[0].type === 'ExportSpecifier') {
-                    const name = (path.node.specifiers[0] as any).local.name;
-                    exportIdsToRemove.add(name);
-                  }
-                },
-                ExportDefaultDeclaration(path) {
-                  const decl = path.node.declaration as any;
-                  if (decl?.type === 'FunctionDeclaration' || decl?.type === 'ClassDeclaration') {
-                    const name = decl.id?.name;
-                    if (name && name !== 'default') exportIdsToRemove.add(name);
-                  }
-                }
-              });
-
-              // Better approach for Usage: Only count identifiers that are NOT inside an ExportDeclaration
-              const cleanUsageSet = new Set<string>();
-              traverse(ast, {
-                ImportDeclaration(path) {
-                  path.node.specifiers.forEach((s: any) => cleanUsageSet.add(s.local.name));
-                },
-                Identifier(p) {
-                  if (p.node.name !== 'default') {
-                    // Check if this identifier is inside an export declaration by looking up the tree or using a simpler scope check
-                    // Babel doesn't have simple scope lookup in traverse without visitor state.
-                    // We will use a heuristic: If the identifier's parent chain contains ExportNamed/Default, skip it.
-                    let node: any = p.node;
+                    // Check if identifier is inside an export declaration using Babel parentPath API
+                    let current: any = p.parentPath;
                     let isInsideExport = false;
-                    while (node) {
-                      if (node.type === 'ExportNamedDeclaration' || node.type === 'ExportDefaultDeclaration') {
+                    while (current && current.node) {
+                      const nodeType = current.node.type;
+                      if (nodeType === 'ExportNamedDeclaration' || nodeType === 'ExportDefaultDeclaration') {
                         isInsideExport = true;
                         break;
                       }
-                      node = node.parent; // Note: This requires Babel to have parent pointers, which it does in traverse.
+                      current = current.parentPath;
                     }
                     
                     if (!isInsideExport) {
-                      cleanUsageSet.add(p.node.name);
+                      usageSet.add(p.node.name);
                     }
                   }
-                }
+                },
               });
-
-              usageSet.clear();
-              for (const s of cleanUsageSet) usageSet.add(s);
 
             } catch (err: any) {
               console.error(`Error parsing ${f}:`, err.message);

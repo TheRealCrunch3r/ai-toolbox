@@ -7,6 +7,8 @@ Thank you for your interest in contributing to the AI Toolbox plugin! This docum
 ## 📋 Table of Contents
 
 - [Code of Conduct](#-code-of-conduct)
+- [Safe Editing Practices](#-safe-editing-practices)
+
 - [Getting Started](#-getting-started)
 - [Development Workflow](#-development-workflow)
 - [Adding New Tools](#-adding-new-tools)
@@ -75,6 +77,19 @@ git checkout -b docs/update-documentation
 ```
 
 ### 2. Make Changes
+
+### Safe Editing Practices
+
+When modifying files, always follow the backup-first workflow to prevent data loss:
+
+1. **Backup first** — Create a `.bak` backup before any file modification (tools like `replace_text_in_file`, `insert_at_line`, `append_file`, and `delete_lines_in_file` automatically create `.bak` backups)
+2. **Make changes** — Edit the file using AI Toolbox tools or your editor
+3. **Verify after editing** — Check syntax highlighting, run `npx tsc --noEmit`, then `npm test`
+4. **Clean up later** — Remove `.bak` files when satisfied with results
+
+For manual recovery if something goes wrong:
+- Restore from the `.bak` backup file (rename it back to the original name)
+- Or use Git: `git checkout HEAD -- <file>` to revert changes
 
 Follow the project structure when making changes:
 - **Tool modules**: Place in `src/tools/` directory
@@ -149,20 +164,27 @@ export function registerNewTools(_config: PluginConfig): Tool[] {
 
 ### Step 2: Register in toolsProvider.ts
 
-Add your tool module to the registration flow in `src/toolsProvider.ts`:
+Add your tool module to the declarative registry array in `src/toolsProvider.ts`:
 
 ```typescript
 // Import your new tool module
 import { registerNewTools } from './tools/newToolModule.js';
 
-export function createToolsProvider(config: PluginConfig) {
-  // ... existing code ...
-  
-  const tools = [...tools, ...registerNewTools(config)];
-  
-  return tools;
+// Add an entry to TOOL_REGISTRIES (v1.8.2+ Declarative Registry Pattern)
+const TOOL_REGISTRIES: ToolRegistryEntry[] = [
+  // ... existing entries ...
+  { key: 'newCategory', register: () => registerNewTools(config, stateManager) },
+];
+
+// The for...of loop automatically handles config gating + GOD MODE bypass:
+for (const entry of TOOL_REGISTRIES) {
+  if (config[entry.key] || isGodMode) {
+    tools.push(...entry.register());
+  }
 }
 ```
+
+**Note**: Use the declarative registry pattern introduced in v1.8.2. Each registry entry captures dependencies via closures at definition time, eliminating parameter-passing complexity and satisfying strict TypeScript/ESLint rules. See `docs/toolsProvider_registry_pattern.md` for detailed architecture notes.
 
 ### Step 3: Add Configuration (if needed)
 

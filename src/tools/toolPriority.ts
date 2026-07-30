@@ -116,8 +116,6 @@ export const DEFAULT_TOOL_PRIORITIES: ToolPriority[] = [
   { name: 'extract_ui_data', tier: 'standard', category: 'uiGeneration', description: 'Extract UI data' },
   
   // OPTIONAL — Specialized or low-usage tools
-  { name: 'explore_tools', tier: 'optional', category: 'gateway', description: 'Explore available tools' },
-  { name: 'execute_gateway_tool', tier: 'optional', category: 'gateway', description: 'Execute gateway tool' },
   { name: 'auto_summarize_context', tier: 'optional', category: 'contextManagement', description: 'Auto-summarize context' },
   { name: 'get_context_memory', tier: 'optional', category: 'contextManagement', description: 'Get context memory' },
   { name: 'search_context', tier: 'optional', category: 'contextManagement', description: 'Search context' },

@@ -131,51 +131,36 @@ async function loadMemoryFile(filePath: string, state: Map<string, StateEntry>, 
  */
 async function saveMemoryFile(filePath: string, state: Map<string, StateEntry>): Promise<void> {
   try {
-    logger.warn(`[StateManager.saveMemoryFile] START writing to: ${filePath}`);
-    
     const data = Array.from(state.entries()).map(([_key, entry]) => ({
       key: entry.key,
       value: entry.value,
       timestamp: entry.timestamp,
     }));
 
-    logger.warn(`[StateManager.saveMemoryFile] Data entries count: ${data.length}`);
-
     const dir = path.dirname(filePath);
     try {
       await fs.mkdir(dir, { recursive: true });
-      logger.warn(`[StateManager.saveMemoryFile] Created directory: ${dir}`);
     } catch (err) {
       logger.warn(`Could not create memory directory ${dir}: ${String(err)}`);
       return;
     }
 
     const encodedData = encode(data);
-    logger.warn(`[StateManager.saveMemoryFile] Encoded size: ${encodedData.byteLength} bytes`);
     
-    const tempFile = filePath + '.tmp';
-    await fs.writeFile(tempFile, encodedData);
-    logger.warn(`[StateManager.saveMemoryFile] Wrote to temp file: ${tempFile}`);
-    
-    // Write to temp file first
+    // Use atomic write pattern: write to temp file, then rename.
+    // On Windows, rename may fail due to file locks/antivirus — fall back to direct write.
     try {
+      const tempFile = filePath + '.tmp';
+      await fs.writeFile(tempFile, encodedData);
       await fs.rename(tempFile, filePath);
-      logger.warn(`[StateManager.saveMemoryFile] SUCCESS - renamed to: ${filePath}`);
       
-      // Create JSON backup for manual inspection
+      // Create JSON backup for manual inspection (best-effort)
       try {
         await fs.writeFile(filePath + '.backup.json', JSON.stringify(data), 'utf-8');
-        logger.warn(`[StateManager.saveMemoryFile] Created backup json`);
-      } catch (bakErr) {
-        const bakMsg = bakErr instanceof Error ? bakErr.message : String(bakErr);
-        logger.warn(`[StateManager.saveMemoryFile] Backup failed: ${bakMsg}`);
-      }
-    } catch (renameError) {
-      const renameMsg = renameError instanceof Error ? renameError.message : String(renameError);
-      logger.warn(`[StateManager.saveMemoryFile] Atomic rename failed (${renameMsg}), falling back to direct write`);
-      // Fallback: overwrite directly if atomic rename fails
+      } catch { /* Non-critical — skip if backup fails */ }
+    } catch {
+      // Fallback: write directly to the final path (non-atomic but reliable on Windows)
       await fs.writeFile(filePath, encodedData);
-      logger.warn(`[StateManager.saveMemoryFile] Fallback write completed for: ${filePath}`);
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -194,10 +179,9 @@ export class StateManager {
   /** Tracks initialization completion so reads wait for data */
   private _ready!: Promise<void>;
 
-  // 🔹 P0 Optimization #1: Debounced saves to reduce disk I/O during bulk ops
-  private saveQueue: (() => Promise<void>)[] = [];
+  // 🔹 P0 Optimization #1: Debounced save to reduce disk I/O during bulk ops
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
-  readonly SAVE_DEBOUNCE_MS = 500; // Coalesce rapid saves
+  readonly SAVE_DEBOUNCE_MS = 500; // Coalesce rapid saves into single write
 
   // 🔹 P0 Optimization #2: Key cache with invalidation to avoid O(n) disk reads on getAllKeys()
   private _keysCache: string[] | null = null;
@@ -260,12 +244,9 @@ export class StateManager {
     }
   }
 
-  // 🔹 P0 #1: Debounced save queue handler
+  // 🔹 P0 #1: Debounced save — ensures only ONE save per debounce window (prevents duplicate writes)
   private async _queueSave(): Promise<void> {
     if (!this.persistenceEnabled) return;
-
-    const queueEntry = () => this.saveToFile();
-    this.saveQueue.push(queueEntry);
 
     if (this.saveTimer) {
       clearTimeout(this.saveTimer);
@@ -273,11 +254,9 @@ export class StateManager {
 
     this.saveTimer = setTimeout(async () => {
       this.saveTimer = null;
-      const queue = [...this.saveQueue];
-      this.saveQueue = []; // Clear queue before executing
       
       try {
-        await Promise.all(queue.map(fn => fn()));
+        await this.saveToFile(); // Single save call — no queuing of multiple saves
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
         logger.warn(`Failed to persist state via debounced save: ${message}`);

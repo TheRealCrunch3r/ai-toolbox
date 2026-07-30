@@ -1953,10 +1953,20 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
             return; // Skip inaccessible directories
           }
 
+          // ==================== DEFAULT EXCLUSIONS (PERFORMANCE & TOKEN SAVING) ====================
+          const DEFAULT_EXCLUDED_DIRS = new Set([
+            'node_modules', '.git', 'dist', 'build', 
+            '.next', '.nuxt', '__pycache__', '.cache', 
+            'vendor', '.vscode', '.idea', '.vs'
+          ]);
+
           const batchPromises: Array<Promise<void>> = [];
 
           for (const entry of entries) {
-            // Check exclude patterns
+            // Skip large/bloat directories by default (unless explicitly included via include pattern)
+            if (!include && DEFAULT_EXCLUDED_DIRS.has(entry.name)) continue;
+            
+            // Check user-provided exclude patterns
             if (exclude && entry.name.includes(exclude)) continue;
 
             const fullPath = path.join(dirPath, entry.name);
@@ -2001,7 +2011,7 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
 
         if (targetStats.isFile()) {
           // ==================== TARGET IS A FILE — search within it directly ====================
-          console.warn(`[grep_files] Detected single file '${targetDir}' — searching in-file instead of listing directory`);
+          console.log(`[grep_files] Detected single file '${targetDir}' — searching in-file instead of listing directory`);
         } else {
           // ==================== TARGET IS A DIRECTORY — walk and search recursively (concurrent) ====================
           const concurrencyLimit = max_concurrent_files ?? 8;

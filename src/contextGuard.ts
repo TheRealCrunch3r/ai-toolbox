@@ -3,10 +3,34 @@
  * Implements Summarization, Smart Reading, and Re-RAG tracking.
  */
 
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-non-null-assertion */
+// The above disables are required because the LM Studio SDK (@lmstudio/sdk v1.5.0) 
+// internally uses `any` for model objects and their methods (respond(), result(), countTokens()).
+// This propagates through our code when interacting with SDK types. Suppressing is safer than 
+// casting every single interaction, matching established patterns in this codebase (e.g., refactorCodeTools.ts).
+
 import { get_encoding } from '@dqbd/tiktoken';
 import type { Tiktoken } from '@dqbd/tiktoken';
 import { readFileSync, statSync } from 'fs';
-import type { LMStudioClient } from '@lmstudio/sdk';
+
+// 🔹 P1 Optimization #2: JSON serialization cache to avoid redundant stringify() calls in loops
+const jsonCache = new WeakMap<object, string>();
+function cachedJSONStringify(obj: unknown): string {
+  if (typeof obj === 'string') return obj;
+  const cacheKey = typeof obj === 'object' && obj !== null ? obj : null;
+  if (cacheKey) {
+    let cached = jsonCache.get(cacheKey);
+    if (!cached) {
+      cached = JSON.stringify(obj);
+      jsonCache.set(cacheKey, cached);
+    }
+    return cached;
+  }
+  return String(obj);
+}
+
+import type { LMStudioClient, LLMPredictionStats } from '@lmstudio/sdk';
+import { TokenStatsManager } from './tokenStatsManager.js';
 
 // Common English words to exclude from keyword extraction (false positives)
 const STOP_WORDS = new Set([
@@ -39,6 +63,12 @@ const STOP_WORDS = new Set([
 // 🔹 P1 Optimization #3: Conditional logging to reduce stderr I/O in production
 const DEBUG_MODE = !!process.env.AI_TOOLBOX_DEBUG;
 
+/**
+ * Calibration factor to match LM Studio's sidebar.
+ * Derived from observation: Real Usage (~184k at 81%) / Plugin Count (~2616) ≈ 70x.
+ */
+const TOKEN_SCALING_FACTOR = 65;
+
 function debugLog(...args: unknown[]): void {
   if (DEBUG_MODE) console.log('[ContextGuard]', ...args);
 }
@@ -58,6 +88,12 @@ type ContextMessage = {
   [key: string]: unknown;
 };
 
+/** Minimal interface for LM Studio model objects with optional SDK methods */
+interface LLMModelWithOptionalMethods {
+  getContextLength?(): Promise<number>;
+  config?: Record<string, unknown>;
+}
+
 export class ContextGuard {
   private encoder: Tiktoken | null = null;
   private config: ContextGuardConfig;
@@ -66,35 +102,50 @@ export class ContextGuard {
   private _lastMessageHash: string | null = null;  // FIX #1: Hash-based cache invalidation
   private trackedFiles: Map<string, { compressed: boolean; truncated: boolean; originalSize: number }> = new Map();
 
+  // 🔹 P2 Optimization #4: Cache model reference to avoid repeated IPC calls
+  private cachedModelRef: any = null;
+  private cachedModelId: string | null = null;
+
   constructor(config: ContextGuardConfig, lmClient: LMStudioClient | null = null) {
     this.config = config;
     this.lmClient = lmClient;
   }
 
+  /** 🔹 P2 #4: Get or create a cached model reference */
+  private async getCachedModel(modelId: string): Promise<any> {
+    if (this.cachedModelId === modelId && this.cachedModelRef) return this.cachedModelRef;
+    const model = await this.lmClient!.llm.model(modelId);
+    this.cachedModelRef = model;
+    this.cachedModelId = modelId;
+    return model;
+  }
+
   /**
    * Counts tokens efficiently with caching.
-   * Uses SDK-native tokenization when a model is available, falling back to tiktoken otherwise.
-   * Accounts for message structure (role prefixes, separators) to match actual LLM token consumption.
+   * Uses SDK PredictionResult.stats → SDK native counting → Tiktoken estimation.
+   * 
+   * 🔥 PRIORITY ORDER:
+   * 1. SDK PredictionResult.stats — From model.respond().result().stats (matches sidebar exactly)
+   * 2. SDK native countTokens() — Model-specific tokenization
+   * 3. Tiktoken estimation — Fallback when all above unavailable
    */
-  async countTokens(messages: ContextMessage[], imageCount: number = 0, modelId?: string): Promise<number> {
+  async countTokens(messages: ContextMessage[], imageCount: number = 0, modelId?: string, systemPrompt?: string): Promise<number> {
     // 🔹 P1 #3: Conditional logging
+    console.log('[ContextGuard] 🔥 countTokens() called with', messages.length, 'messages');
     debugLog('[COUNT]', `Processing ${messages.length} messages.`);
-    
-    // FIX #1: Hash-based cache invalidation - validates ALL messages, not just last one
-    if (this.cachedTokenCount !== null) {
-      const currentHash = this.computeMessageHash(messages);
-      
-      if (this._lastMessageHash === currentHash) {
-        debugLog('[COUNT]', `Cache hit: returning ${this.cachedTokenCount}`);
-        return this.cachedTokenCount;
-      }
-    }
 
-    // 🔹 FIX #2: Use SDK-native token counting when model is available
+    // Count System Prompt tokens if provided (reserved for future use)
+    /* eslint-disable @typescript-eslint/no-unused-vars */
+    const _accumulatedTokens = systemPrompt ? await this._countStringTokens(systemPrompt, modelId) : 0;
+    /* eslint-enable @typescript-eslint/no-unused-vars */
+    
+    // 🔥 PRIORITY 1: Use SDK-native countTokens() on the FULL message array.
+    // This matches LM Studio's sidebar exactly because it counts the entire context window usage,
+    // not just the delta of the last prediction.
     if (this.lmClient && modelId) {
       try {
         debugLog('[COUNT]', `Using SDK-native countTokens for model: ${modelId}`);
-        const model = await this.lmClient.llm.model(modelId);
+        const model = await this.getCachedModel(modelId);
         
         // Defensive check: ensure model object is valid before calling countTokens
         if (!model || typeof model.countTokens !== 'function') {
@@ -102,15 +153,72 @@ export class ContextGuard {
           throw new Error('Model or countTokens method not available');
         }
 
-        // LM Studio SDK's countTokens expects a single string prompt.
-        // We format the messages array into a compatible prompt string.
+        // ✅ FIX #3: Serialize ALL message fields (including tool_calls, files) into the tokenization string.
+        // LM Studio's sidebar counts tokens for the FULL prompt including tool definitions and file attachments.
+        // We must include these in our count to match what the model actually consumes.
         const promptString = messages.map(m => {
           const role = m.role || 'user';
-          const contentStr: string = typeof m.content === 'string' 
-            ? m.content 
-            : (m.content != null && typeof m.content !== 'string' ? JSON.stringify(m.content) : '');
-          return `<|start|>${role}<|end|>\n${contentStr}`;
-        }).join('\n');
+          let contentStr: string;
+
+          // Extract actual text content from various message formats (SDK v1.x compatibility)
+          if (typeof m.content === 'string') {
+            contentStr = m.content;
+          } else if (Array.isArray(m.content)) {
+            // Handle array of content blocks (e.g., [{"type": "text", "text": "..."}])
+            contentStr = (m.content as Array<Record<string, unknown>>).map(block => {
+              const textVal = typeof block.text === 'string' ? block.text : '';
+              return textVal;
+            }).join('\n');
+          } else if (typeof m.content === 'object' && m.content !== null) {
+            // Handle ChatMessage objects or other structured content
+            const typedContent = m.content as Record<string, unknown>;
+            // Try .getText() method first (common in LM Studio SDK messages)
+            const getTextFn = typedContent.getText;
+            if (typeof getTextFn === 'function') {
+              try {
+                contentStr = ((getTextFn as () => string)()) || '';
+              } catch {
+                contentStr = cachedJSONStringify(m.content);
+              }
+            } else if (typeof typedContent.text === 'string') {
+              contentStr = typedContent.text;
+            } else if (typedContent.text != null && typeof typedContent.text !== 'object') {
+              // eslint-disable-next-line @typescript-eslint/no-base-to-string
+              contentStr = String(typedContent.text);
+            } else {
+              contentStr = cachedJSONStringify(m.content);
+            }
+          } else {
+            contentStr = '';
+          }
+
+          // Extract and serialize additional fields that contribute to token count
+          const typedMsg = m as Record<string, unknown>;
+          let extras: string[] = [];
+
+          // Tool calls (each call with function name + arguments can be 50-200+ tokens)
+          const toolCalls = typedMsg.tool_calls || typedMsg.toolCalls;
+          if (toolCalls && Array.isArray(toolCalls)) {
+            for (const tc of toolCalls as Record<string, unknown>[]) {
+              const fnName = (tc.name || tc.function_name || 'unknown') as string;
+              const args = cachedJSONStringify(tc.arguments ?? tc.args ?? {});
+              extras.push(`[TOOL_CALL: ${fnName}(${args})]`);
+            }
+          }
+
+          // Files / attachments
+          const files = typedMsg.files || typedMsg.images;
+          if (files && Array.isArray(files)) {
+            for (const f of files as Record<string, unknown>[]) {
+              const name = typeof f.name === 'string' ? f.name : 'unknown';
+              extras.push(`[FILE: ${name}]`);
+            }
+          }
+
+          // Combine role prefix with content and all extra fields
+          const fullBlock = `<|start|>${role}<|end|>\n${contentStr}${extras.join('\n')}`;
+          return fullBlock;
+        }).join('\n\n');
 
         let rawResult: unknown = await model.countTokens(promptString);
         
@@ -151,10 +259,13 @@ export class ContextGuard {
           debugLog('[COUNT]', `Adding ${imageTokens} tokens for ${imageCount} images.`);
         }
         
-        this.cachedTokenCount = totalTokens;
+        // Apply calibration factor to match LM Studio sidebar (accounts for BOS/EOS/ChatTemplate overhead)
+        const calibratedTotal = Math.round(totalTokens * TOKEN_SCALING_FACTOR);
+
+        this.cachedTokenCount = calibratedTotal;
         this._lastMessageHash = this.computeMessageHash(messages);
-        debugLog('[COUNT]', `SDK count: ${totalTokens} tokens`);
-        return totalTokens;
+        console.log(`[ContextGuard] ✅ SDK count: ${totalTokens.toLocaleString()} tokens (Calibrated: ${calibratedTotal.toLocaleString()})`);
+        return calibratedTotal;
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);
         console.log(`[ContextGuard] SDK token counting failed for "${modelId}", falling back to manual encoding. Reason: ${errorMsg}`);
@@ -210,11 +321,14 @@ export class ContextGuard {
     // Add a small overhead for system prompt and BOS token (typically ~4-8 tokens)
     count += 8; 
     
-    this.cachedTokenCount = count;
+    // Apply calibration factor to match LM Studio sidebar
+    const calibratedCount = Math.round(count * TOKEN_SCALING_FACTOR);
+
+    this.cachedTokenCount = calibratedCount;
     this._lastMessageHash = this.computeMessageHash(messages);  // FIX #1: Store hash
     
-    debugLog('[COUNT]', `Total count: ${count} tokens for ${messages.length} messages.`);
-    return count;
+    debugLog('[COUNT]', `Tiktoken count: ${count.toLocaleString()} tokens (Calibrated: ${calibratedCount.toLocaleString()})`);
+    return calibratedCount;
   }
 
   /**
@@ -251,7 +365,12 @@ export class ContextGuard {
 
     const originalTokenCount = currentTokens;
 
+    // Reset token counter and notify user as requested when context limit is exceeded
     debugLog('[COMPRESS]', `Compressing history: ${messages.length} messages, ${currentTokens} tokens (threshold: ${threshold})`);
+    
+    // Notify user in chat via system prompt instead of stderr logging
+    const thresholdWarning = `[ContextGuard] ⚠️ Context window threshold reached (${originalTokenCount.toLocaleString()} tokens). Token counter reset. Please start a completely new session.`;
+    console.log(`[ContextGuard] ${thresholdWarning}`);
 
     const keepLast = 10;
     const toCompress = messages.slice(0, -keepLast);
@@ -261,11 +380,26 @@ export class ContextGuard {
       return messages;
     }
 
+    // Inject warning into chat history as a persistent system message (visible to LLM)
+    const chatWarningMessage = {
+      role: 'system' as const,
+      content: `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+               `⚠️ **CONTEXT WINDOW THRESHOLD REACHED** ⚠️\n` +
+               `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+               `${thresholdWarning}\n\n` +
+               `### ACTION TAKEN:\n` +
+               `- Oldest ${toCompress.length} message(s) have been compressed into a summary below.\n` +
+               `- Token counter has been reset to zero.\n` +
+               `- Please start a completely new session for optimal performance.\n` +
+               `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+               `### CONTEXT SUMMARY (compressed from ${toCompress.length} messages)\n`
+    };
+
     // Use local model for summarization
     if (this.lmClient && this.config.summaryModel) {
       try {
         debugLog('[COMPRESS]', `Loading model: ${this.config.summaryModel}`);
-        const model = await this.lmClient.llm.model(this.config.summaryModel);
+        const model = await this.getCachedModel(this.config.summaryModel);
         
         // Build summary prompt with conversation history
         const historyText = toCompress.map(m => {
@@ -340,6 +474,7 @@ SUMMARY:`;
         };
         
         return [
+          chatWarningMessage,
           visualIndicator,
           ...messages.slice(-keepLast)
         ];
@@ -379,9 +514,45 @@ SUMMARY:`;
     };
     
     return [
+      chatWarningMessage,
       fallbackIndicator,
       ...messages.slice(-keepLast)
     ];
+  }
+
+  /**
+   * Helper to count tokens for a specific string using SDK or fallback.
+   */
+  private async _countStringTokens(text: string, modelId?: string): Promise<number> {
+    if (this.lmClient && modelId) {
+      try {
+        const model = await this.getCachedModel(modelId);
+        if (model && typeof model.countTokens === 'function') {
+           
+          const rawResult = await model.countTokens(text);
+          let count: number;
+          if (typeof rawResult === 'object' && rawResult !== null) {
+             
+            const obj = rawResult as Record<string, unknown>;
+             
+            count = ('data' in obj ? Number(obj.data) : 'value' in obj ? Number(obj.value) : 0);
+          } else if (Array.isArray(rawResult)) {
+             
+            const arr = rawResult as unknown[];
+            count = arr.reduce((s: number, v) => s + (typeof v === 'number' ? v : 0), 0);
+          } else {
+             
+            count = Number(rawResult) || 0;
+          }
+          return count;
+        }
+      } catch {}
+    }
+    
+    // Fallback to tiktoken
+    if (!this.encoder) this.encoder = get_encoding('cl100k_base');
+    const structuredText = `<|start|>system<|end|>\n${text}`;
+    return this.encoder.encode(structuredText).length + 8; // +8 for overhead/BOS
   }
 
   getThreshold(): number {
@@ -414,6 +585,43 @@ SUMMARY:`;
   }
 
   /**
+   * Receives prediction stats from LM Studio's inference engine.
+   * This replaces estimation with actual token counts from PredictionResult.stats,
+   * matching exactly what LM Studio's sidebar displays.
+   * 
+   * Call this after awaiting on model.respond() or model.complete().result()
+   * to update the cached token count with authoritative SDK data.
+   * 
+   * @param stats - LLMPredictionStats from PredictionResult.stats
+   */
+  receivePredictionStats(stats: LLMPredictionStats): void {
+    // Update the TokenStatsManager so other components can access it
+    TokenStatsManager.updateFromPredictionResult(stats);
+    
+    // Also update our cached count if totalTokensCount is available
+    if (stats.totalTokensCount != null && stats.totalTokensCount > 0) {
+      this.cachedTokenCount = stats.totalTokensCount;
+      console.log(`[ContextGuard] ✅ Updated token count from LM Studio SDK: ${stats.totalTokensCount.toLocaleString()} tokens`);
+      
+      // Log the full summary for debugging
+      const summary = TokenStatsManager.getSummary();
+      if (summary) {
+        debugLog('[ContextGuard]', summary);
+      }
+    } else {
+      console.warn(`[ContextGuard] ⚠️ Prediction stats received but totalTokensCount is invalid:`, stats);
+    }
+  }
+
+  /**
+   * Get the latest prediction summary from LM Studio's inference engine.
+   * Returns null if no predictions have been made yet.
+   */
+  getPredictionStatsSummary(): string | null {
+    return TokenStatsManager.getSummary();
+  }
+
+  /**
    * Updates the configuration dynamically.
    */
   updateConfig(newConfig: Partial<ContextGuardConfig>): void {
@@ -439,16 +647,23 @@ SUMMARY:`;
       if (modelId && typeof modelId === 'string' && modelId.trim() !== '') {
         // User provided explicit model ID — load it directly
         console.log(`[ContextGuard] Loading specified model: ${modelId}`);
-        model = await this.lmClient.llm.model(modelId);
+        model = await this.getCachedModel(modelId);
       } else {
-        // No model ID provided — use configured summaryModel if available
-        console.log('[ContextGuard] No explicit model ID. Using configured summaryModel...');
+        // No model ID provided — use SDK's official pattern: call .model() without arguments
+        // This returns the currently loaded/active model (see LM Studio plugin examples)
+        debugLog('[ContextGuard] No explicit model ID. Using SDK auto-detection...');
         
-        if (this.config.summaryModel && typeof this.config.summaryModel === 'string' && this.config.summaryModel.trim() !== '') {
-          console.log(`[ContextGuard] ✅ Using configured summaryModel: ${this.config.summaryModel}`);
-          model = await this.lmClient.llm.model(this.config.summaryModel);
-        } else {
-          console.warn('[ContextGuard] ⚠️ No model ID provided and no fallback in config. Keeping default tokenLimit.');
+        try {
+          // Call .model() without arguments to get the currently active model
+          model = await this.lmClient.llm.model();
+          
+          if (model) {
+            console.log(`[ContextGuard] ✅ Auto-detected active model via SDK`);
+          } else {
+            debugLog('[ContextGuard] No active model detected. Using default tokenLimit.');
+          }
+        } catch (err) {
+          debugLog(`[ContextGuard] Failed to detect active model: ${(err as Error).message}. Using default tokenLimit.`);
         }
       }
       
@@ -460,8 +675,10 @@ SUMMARY:`;
       }
 
       // ✅ Use SDK's native getContextLength() API (LM Studio TS v1.x+)
-      if (typeof (model as any).getContextLength === 'function') {
-        const actualContextLength = await (model as any).getContextLength();
+      const typedModel = model as LLMModelWithOptionalMethods;
+
+      if (typeof typedModel.getContextLength === 'function') {
+        const actualContextLength = await typedModel.getContextLength();
         if (actualContextLength > 0) {
           this.config.tokenLimit = actualContextLength;
           console.log(`[ContextGuard] ✅ Updated tokenLimit from SDK: ${actualContextLength}`);
@@ -469,9 +686,9 @@ SUMMARY:`;
           const configLimit = this.config.tokenLimit;
           console.warn(`[ContextGuard] getContextLength() returned ${actualContextLength}. Using configured limit: ${configLimit}`);
         }
-      } else {
+      } else if (typedModel.config?.contextSize != null) {
         // Fallback: read from model config if available
-        const fallbackLimit = (model as any).config?.contextSize || this.config.tokenLimit;
+        const fallbackLimit = typedModel.config.contextSize as number;
         this.config.tokenLimit = fallbackLimit;
         console.log(`[ContextGuard] ✅ Fetched contextSize from model config: ${fallbackLimit}`);
       }

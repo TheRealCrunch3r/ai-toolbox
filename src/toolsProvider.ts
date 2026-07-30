@@ -39,6 +39,14 @@ import { registerWebResearchTools } from './tools/webResearchTools.js';
 let stateManager: StateManager;
 let backgroundCommandManager: BackgroundCommandManager;
 
+// --- Registry Pattern for Declarative Tool Registration ---
+type ToolRegisterFn = () => Tool[];
+
+interface ToolRegistryEntry {
+  key: keyof PluginConfig;
+  register: ToolRegisterFn;
+}
+
 export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[]> {
   // 1. Get current configuration (respects UI toggles) — use .get() method!
   const pluginConfig = ctl.getPluginConfig(configSchematics);
@@ -115,32 +123,43 @@ export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[
   const isGodMode = config.godMode;
   const tools: Tool[] = [];
 
-  // --- Background Commands ---
-  if (config.backgroundCommands || isGodMode) {
-    tools.push(...registerBackgroundCommandTools(config, backgroundCommandManager));
+  // --- Declarative Registry Definition (Scoped to function for runtime access) ---
+  const TOOL_REGISTRIES: ToolRegistryEntry[] = [
+    { key: 'backgroundCommands', register: () => registerBackgroundCommandTools(config, backgroundCommandManager) },
+    { key: 'browserAutomation', register: () => registerBrowserTools(config) },
+    { key: 'contextManagement', register: () => registerContextManagementTools(config, stateManager) },
+    { key: 'databaseQueries', register: () => registerDatabaseTools(config) },
+    { key: 'documentParsing', register: () => registerDocumentTools(config) },
+    
+    // Utility & Maintenance Tools (multiple registries per config key)
+    { key: 'utility', register: () => registerBackupTools(config) },
+    { key: 'utility', register: () => registerCleanupBackupsTool(config) },
+    { key: 'utility', register: () => registerDataVisualizationTools(config) },
+    { key: 'utility', register: () => registerLineOperationsTools(config) },
+    { key: 'utility', register: () => registerMarkdownPreviewTools(config) },
+
+    // File System (takes extra args)
+    { key: 'fileSystem', register: () => registerFileSystemTools(config, stateManager) },
+    
+    // Standard Tools
+    { key: 'gitOperations', register: () => registerGitTools(config) },
+    { key: 'httpClient', register: () => registerHttpClientTools(config) },
+    { key: 'imageProcessing', register: () => registerImageProcessingTools(config) },
+    { key: 'refactorCode', register: () => registerRefactorCodeTools(config) },
+    { key: 'textProcessing', register: () => registerTextProcessingTools(config) },
+    { key: 'uiGeneration', register: () => registerUiGenerationTools(config) },
+    { key: 'vectorRAG', register: () => registerRagTools(config) },
+    { key: 'webSearch', register: () => registerWebResearchTools(config) },
+  ];
+
+  // --- Declarative Registry Loop (Covers most tools) ---
+  for (const entry of TOOL_REGISTRIES) {
+    if (config[entry.key] || isGodMode) {
+      tools.push(...entry.register());
+    }
   }
 
-  // --- Browser Automation Tools ---
-  if (config.browserAutomation || isGodMode) {
-    tools.push(...registerBrowserTools(config));
-  }
-
-  // --- Context Management Tools ---
-  if (config.contextManagement || isGodMode) {
-    tools.push(...registerContextManagementTools(config, stateManager));
-  }
-
-  // --- Database Queries ---
-  if (config.databaseQueries || isGodMode) {
-    tools.push(...registerDatabaseTools(config));
-  }
-
-  // --- Document Parsing ---
-  if (config.documentParsing || isGodMode) {
-    tools.push(...registerDocumentTools(config));
-  }
-
-  // --- Execution Tools (JS/Python/Terminal) — per-tool gating, GOD MODE bypasses all ---
+  // --- Execution Tools (Special Case: Manual filtering required) ---
   const hasAnyExecToggle = config.executionJavaScript ||
                            config.executionPython ||
                            config.executionTerminal ||
@@ -179,60 +198,6 @@ export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[
       const testTool = allExecTools.find(t => t.name === 'run_tests');
       if (testTool) tools.push(testTool);
     }
-  }
-
-  // --- File System Tools ---
-  if (config.fileSystem || isGodMode) {
-    tools.push(...registerFileSystemTools(config, stateManager));
-  }
-
-  // --- Git & GitHub Tools ---
-  if (config.gitOperations || isGodMode) {
-    tools.push(...registerGitTools(config));
-  }
-
-  // --- HTTP Client Tools ---
-  if (config.httpClient || isGodMode) {
-    tools.push(...registerHttpClientTools(config));
-  }
-
-  // --- Image Processing Tools ---
-  if (config.imageProcessing || isGodMode) {
-    tools.push(...registerImageProcessingTools(config));
-  }
-
-  // --- Refactor Code Tools ---
-  if (config.refactorCode || isGodMode) {
-    tools.push(...registerRefactorCodeTools(config));
-  }
-
-  // --- Text Processing Tools ---
-  if (config.textProcessing || isGodMode) {
-    tools.push(...registerTextProcessingTools(config));
-  }
-
-  // --- UI Generation Tools ---
-  if (config.uiGeneration || isGodMode) {
-    tools.push(...registerUiGenerationTools(config));
-  }
-
-  // --- Utility & Maintenance Tools ---
-  if (config.utility || isGodMode) {
-    tools.push(...registerBackupTools(config));
-    tools.push(...registerCleanupBackupsTool(config));
-    tools.push(...registerDataVisualizationTools(config));
-    tools.push(...registerLineOperationsTools(config));
-    tools.push(...registerMarkdownPreviewTools(config));
-  }
-
-  // --- Vector RAG / Semantic Search ---
-  if (config.vectorRAG || isGodMode) {
-    tools.push(...registerRagTools(config));
-  }
-
-  // --- Web Research Tools ---
-  if (config.webSearch || isGodMode) {
-    tools.push(...registerWebResearchTools(config));
   }
 
   // Sort alphabetically for consistent ordering

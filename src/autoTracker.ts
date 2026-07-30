@@ -293,7 +293,7 @@ export class AutoTracker {
     this.transitionTo(AutoTrackState.THRESHOLD_REACHED, `first_trigger=${usagePercentage.toFixed(1)}%`);
     
     const bufferedCount = this.actionBuffer.length;
-    const warning = `⚠️ SESSION WARNING: You have reached ${usagePercentage.toFixed(0)}% of your token limit. It is highly recommended to create a session backup before continuing.\n\nAuto-tracked events in buffer (will be saved with checkpoint): ${bufferedCount}\n\nDo you want to proceed with a backup? Reply 'YES' to trigger the backup tool, or 'NO' to continue.`;
+    const warning = `⚠️ SESSION WARNING: You have reached ${usagePercentage.toFixed(0)}% of your token limit. It is highly recommended to save session memory before continuing.\n\nAuto-tracked events in buffer (will be saved with checkpoint): ${bufferedCount}\n\nDo you want to proceed with a context save? Reply 'YES' to trigger the session memory save, or 'NO' to continue.`;
     
     this.pendingCheckpointWarning = warning;
     debugLog('[PROMPT]', 'Generated checkpoint prompt for user confirmation');

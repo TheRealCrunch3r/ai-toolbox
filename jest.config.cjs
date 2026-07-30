@@ -38,6 +38,7 @@ module.exports = {
     '^\\.\\/fuzzySearch\\.js$': '<rootDir>/src/fuzzySearch.ts',
     '^\\.\\/stateManager\\.js$': '<rootDir>/src/stateManager.ts',
     '^\\.\\/backgroundCommands\\.js$': '<rootDir>/src/backgroundCommands.ts',
+    '^\\.\\/toolsSchemaMinifier\\.js$': '<rootDir>/src/toolsSchemaMinifier.ts',
 
     // ── Tool modules dynamically imported by toolsProvider.ts via import('./tools/xxx.js') ──
     // These are resolved relative to <rootDir>/src/, so the path is './tools/xxx.js'

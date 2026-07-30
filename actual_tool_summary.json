@@ -21,7 +21,6 @@
     "backupTools.ts",
     "cleanupBackupsTool.ts",
     "dataVisualizationTools.ts",
-    "gatewayTools.ts",
     "gitHubTools.ts",
     "lineOperations.ts",
     "markdownPreviewTools.ts",

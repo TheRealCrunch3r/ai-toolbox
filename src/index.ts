@@ -8,7 +8,11 @@ import { toolsProvider } from './toolsProvider';
 import { configSchematics } from './config';
 import { preprocess, setContextGuard } from './promptPreprocessor';
 import { ContextGuard } from './contextGuard';
+import { TokenStatsManager } from './tokenStatsManager';
 import { cleanupBrowserSession } from './tools/browserAutomationTools';
+
+// Export for external use (e.g., in generators or other plugins)
+export { TokenStatsManager };
 
 // ✅ FIX: Use structured logging instead of console.log
 const logger = {

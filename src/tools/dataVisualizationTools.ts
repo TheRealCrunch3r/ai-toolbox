@@ -267,12 +267,9 @@ async function delay(ms: number): Promise<void> {
 /** Render chart using Puppeteer and save screenshot */
 async function renderChart(htmlContent: string, outputPath: string): Promise<boolean> {
   try {
-    const puppeteerModule = await import('puppeteer');
-    const puppeteer = puppeteerModule.default;
-    const browser = await puppeteer.launch({
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
-    });
+    // Reuse shared browser instance from browserAutomationTools (avoids launching Chromium twice)
+    const { browserManager } = await import('./browserAutomationTools.js');
+    const browser = await browserManager.getBrowser();
 
     const page = await browser.newPage() as unknown as PuppeteerPage;
  

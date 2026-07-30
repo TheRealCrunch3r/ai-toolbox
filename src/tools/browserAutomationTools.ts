@@ -120,8 +120,8 @@ class BrowserSessionManager {
   }
 }
 
-// Singleton instance for this module
-const browserManager = new BrowserSessionManager();
+// Singleton instance for this module (exported so dataVisualizationTools can reuse it)
+export const browserManager = new BrowserSessionManager();
 
 /** Export cleanup function for plugin unload lifecycle */
 export function cleanupBrowserSession(): Promise<void> {

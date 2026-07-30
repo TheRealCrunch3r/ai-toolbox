@@ -1,6 +1,6 @@
 # 🛠️ AI Toolbox — Complete Tool Reference
 
-*Updated to reflect current state: **116 unique tool names** dynamically registered across ~20 categories.*
+*Updated to reflect current state: **132+ unique tool names** dynamically registered across ~20 categories.*
 
 ---
 
@@ -8,27 +8,26 @@
 
 | Category | Count | Default State | Status |
 |----------|-------|---------------|--------|
-| File System | 17 | ✅ Enabled | Active |
-| Code Refactoring | 1 | ✅ Enabled | Active |
+| File System | 22 | ✅ Enabled | Active |
+| Code Refactoring | 2 | ✅ Enabled | Active |
 | Web Research | 4 | ✅ Enabled | Active |
 | Browser Automation | 5 | ❌ Disabled | Active |
 | Git & GitHub | 15 | ❌ Disabled | Active |
 | Database | 1 | ❌ Disabled | Active |
 | Background Commands | 3 | ❌ Disabled | Active |
-| Execution | 5 | ❌ Disabled | Active |
-| Utilities | ~29 | ✅ Enabled | Active |
+| Execution | 5 | ❌ Mixed (JS/Python: enabled) | Active |
+| Utilities | ~8 | ✅ Utility toggle | Active |
 | Image Processing | 4 | ✅ Enabled | Active |
 | Vector RAG | 4 | ✅ Enabled | Active |
 | UI Generation | 3 | ❌ Disabled | Active |
-| Context Management | 7 | ✅ Enabled | Active |
+| Context Management | 12 | ✅ Enabled | Active |
 | Text Processing | 5 | ✅ Enabled | Active |
-| Backup & Restore | 4 | ✅ Always Available | Active |
-| Data Visualization | 1 | ❌ Not Registered | ⚠️ **Inactive** (`dataVisualizationTools.ts` exists but not in `toolsProvider.ts`) |
+| Backup & Restore | 5 | ✅ Utility toggle | Active |
+| Data Visualization | 1 | ✅ Utility toggle | Active |
 | Document Parsing | 1 | ✅ Enabled | Active |
 | HTTP Client | 3 | ❌ Disabled | Active |
-| **Gateway Tools (v1.6.2+)** | **2** | **✅ Always Enabled** | **Active** |
 
-> ⚠️ **Note**: The `generate_chart` tool is defined in `src/tools/dataVisualizationTools.ts` but has not been registered in the `REGISTER_MAP` of `toolsProvider.ts`. It will not be available until added to the provider configuration.
+> **Note**: All tool categories are fully registered in `toolsProvider.ts` using the declarative registry pattern (v1.8.2+). Gateway tools exist in code but are not imported/registered — direct SDK registration handles grammar parser compatibility via schema minification.
 
 ---
 
@@ -417,12 +416,18 @@ line_operations(
 
 ---
 
-## 🔑 Gateway Tools (2 — Always Enabled, v1.6.2+)
+## 🔑 Historical Note: Gateway Pattern (v1.6.0+)
 
-**Purpose**: Single entry point for tool discovery and execution to prevent LLM tool-bloat crashes. Only 2 tools sent to llama.cpp initially, dynamically routing the full suite of **116** registered tools on demand.
+**Status**: `src/tools/gatewayTools.ts` exists with tool definitions (`explore_tools`, `execute_gateway_tool`) but is **NOT imported or registered** in the current `toolsProvider.ts`. 
 
-### `explore_tools`
-Discovers available tools and their categories without exposing the full suite of **116** dynamically registered tools at once. Returns category names only (not individual tool names) to keep schema small.
+The direct SDK registration approach (all tools exposed directly to LLM) has proven more effective for usability. Grammar parser compatibility is now handled via schema minification (`toolsSchemaMinifier.ts`), which compresses descriptions and caps constraints without limiting tool count.
+
+### Original Gateway Design (v1.6.0+ Documentation)
+
+The gateway pattern was originally designed as follows:
+
+#### `explore_tools`
+Discovers available tools and their categories without exposing all registered tools at once. Returns category names only to keep schema small.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -430,15 +435,7 @@ Discovers available tools and their categories without exposing the full suite o
 
 **Returns**: `{ success: boolean, categories: string[], message?: string }`
 
-**Example Usage**:
-```jsonc
-{
-  "category": "fileSystem"
-}
-// Returns: { success: true, categories: ["read_file", "write_file", ...] }
-```
-
-### `execute_gateway_tool`
+#### `execute_gateway_tool`
 Executes any registered tool by name with built-in validation and error handling. Delegates to the existing ToolRegistry for execution.
 
 | Parameter | Type | Required | Description |
@@ -448,36 +445,15 @@ Executes any registered tool by name with built-in validation and error handling
 
 **Returns**: Tool execution result or error message
 
-**Example Usage**:
-```jsonc
-{
-  "toolName": "read_file",
-  "arguments": {
-    "file_name": "./src/index.ts"
-  }
-}
-// Delegates to provider.executeTool("read_file", args) with full validation
-```
-
-**AI Workflow**:
-```
-User Message → AI calls explore_tools(category="fileSystem") 
-             → Returns: { success: true, categories: ["read_file", "write_file", ...] }
-             → AI decides to use read_file
-             → AI calls execute_gateway_tool(toolName="read_file", arguments={file_name: "example.txt"})
-             → Gateway delegates to provider.executeTool("read_file", args)
-             → Tool executes with full validation, security checks, error handling
-```
-
-**Why Gateway?** Sending the entire registry of **116+** tool schemas directly to llama.cpp's grammar parser causes `failed to parse grammar` errors due to EBNF recursion limits. The Gateway pattern reduces initial schema payload from 116 → 2 tools while maintaining full functionality on-demand via delegation.
+**Why Gateway Was Designed**: Sending all registered tools directly to llama.cpp's grammar parser caused `failed to parse grammar` errors due to EBNF recursion limits. The gateway pattern was intended to reduce initial schema payload while maintaining full functionality on-demand via delegation.
 
 ---
 
-## 📊 Data Visualization (1)
+## 📊 Data Visualization (1 — under `utility` toggle)
 
 | Tool | Description |
 |------|-------------|
-| `generate_chart` | Create line/bar/pie/scatter/area charts outputting SVG/PNG with customizable colors, labels, legends |
+| `generate_chart` | Create line/bar/pie/scatter/area charts outputting SVG/PNG with customizable colors, labels, legends. Registered via `dataVisualizationTools.ts` in the utility tools registry. |
 
 ---
 
@@ -526,4 +502,4 @@ All tools implement multiple security layers:
 
 ---
 
-*Reference generated from actual source code analysis on 2026-07-25 (v1.7.0). All tool counts verified against `tools.push()` calls in src/tools/*.ts and gatewayTools.ts. line_operations guardrails documented with v1.7.0 safety features.*
+*Reference generated from actual source code analysis on 2026-07-27 (v1.8.2). All tool counts verified against `toolsProvider.ts` registry entries and `src/tools/*.ts`. line_operations guardrails documented with v1.7.0 safety features.*

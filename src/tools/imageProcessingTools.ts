@@ -294,7 +294,7 @@ async function screenshotDesktop({
 
     // Execute screenshot command
     return new Promise((resolve, reject) => {
-      const proc = spawn(cmd, args, { shell: platform === 'win32' });
+      const proc = spawn(cmd, args);
       
       let stderr = '';
       proc.stderr?.on('data', (data: Buffer) => {

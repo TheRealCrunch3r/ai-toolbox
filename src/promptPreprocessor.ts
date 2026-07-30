@@ -16,6 +16,14 @@ interface ExtendedMessage {
   tool_calls?: unknown[];
   files?: unknown[];
   images?: unknown[];
+
+}
+
+
+/** Minimal interface for LM Studio LLM model objects with optional metadata */
+interface LLMModelWithOptionalFields {
+  modelKey?: string;
+  id?: string;
 }
 
 // --- Temporal Awareness Helpers (merged from up_to_date) ---
@@ -379,12 +387,60 @@ export async function preprocess(
         contextGuard.setLMClient(ctl.client);
       }
       
-      // Fetch active model ID or let ContextGuard auto-resolve it dynamically
-      const activeModelId = pluginConfig.get('contextGuardSummaryModel') || ''; 
-      await contextGuard.setTokenLimitFromModel(activeModelId);
+      // Auto-detect the currently active model and get its ID for accurate token counting
+      let activeModelId = '';
+      
+      try {
+        const llmClient = ctl.client?.llm;
+        if (llmClient && typeof llmClient.model === 'function') {
+          // Get the active model to extract its ID
+          const activeModel = await llmClient.model();
+          if (activeModel) {
+            const typedModel = activeModel as LLMModelWithOptionalFields;
+            activeModelId = typedModel.modelKey || typedModel.id || '';
+            console.log(`[ContextGuard] ✅ Auto-detected active model: ${activeModelId}`);
+            
+            // Update token limit from SDK
+            await contextGuard.setTokenLimitFromModel(activeModelId);
+          } else {
+            const configuredSummaryModel = pluginConfig.get('contextGuardSummaryModel') || '';
+            if (configuredSummaryModel) {
+              activeModelId = configuredSummaryModel;
+              await contextGuard.setTokenLimitFromModel(activeModelId);
+              console.log(`[ContextGuard] ✅ Using configured summaryModel: ${activeModelId}`);
+            } else {
+              console.warn('[ContextGuard] No active model detected. Using default tokenLimit.');
+            }
+          }
+        }
+      } catch {
+        const configuredSummaryModel = pluginConfig.get('contextGuardSummaryModel') || '';
+        if (configuredSummaryModel) {
+          activeModelId = configuredSummaryModel;
+          console.warn(`[ContextGuard] ⚠️ Auto-detection failed, using summaryModel: ${activeModelId}`);
+        } else {
+          console.warn('[ContextGuard] ⚠️ No model detected. Using default tokenLimit.');
+        }
+      }
+
+      // Extract System Prompt from history (usually index 0) to ensure accurate budget tracking
+      let extractedSystemPrompt: string | undefined;
+      if (messages.length > 0 && typeof messages[0] === 'object') {
+        const firstMsg = messages[0] as ExtendedMessage & { content?: unknown };
+        if ((firstMsg.role === 'system' || firstMsg.role === 'system_prompt') && firstMsg.content) {
+          let sysContent: string | undefined;
+          if (typeof firstMsg.content === 'string') {
+            sysContent = firstMsg.content;
+          } else if (Array.isArray(firstMsg.content)) {
+            const contentArr = firstMsg.content as Array<{ type?: string; text?: string }>;
+            sysContent = contentArr.filter((c) => c.type === 'text').map((c) => c.text ?? '').join(' ');
+          }
+          if (sysContent && sysContent.trim().length > 0) extractedSystemPrompt = sysContent;
+        }
+      }
 
       // Calculate tokens for threshold check using actual model limit & SDK native counting
-      tokenCount = await contextGuard.countTokens(messages, imageCount, activeModelId || undefined);
+      tokenCount = await contextGuard.countTokens(messages, imageCount, activeModelId || undefined, extractedSystemPrompt);
       const maxTokens = contextGuard.getTokenLimit();
       const threshold = contextGuard.getThreshold();
       

@@ -37,13 +37,49 @@ function saveState(state: { workingDir?: string }): void {
   }
 }
 
-// Mutable working directory — loaded from persistent storage or defaults to plugin root
-const persistedState = loadState();
-let currentWorkingDir: string = persistedState.workingDir || BASE_DIR;
+// Mutable working directory — resolved on each call with priority: persisted > process.cwd() > BASE_DIR
+let cachedWorkingDir: string | null = null;
 
-/** Get the current working directory */
+function resolveWorkingDir(): string {
+  // Check cache first (avoids repeated disk reads)
+  if (cachedWorkingDir !== null) return cachedWorkingDir;
+  
+  // Priority 1: Persisted state file (if valid and directory exists)
+  try {
+    const persistedState = loadState();
+    if (persistedState.workingDir && fs.existsSync(persistedState.workingDir)) {
+      cachedWorkingDir = path.resolve(persistedState.workingDir);
+      console.log(`[WorkingDir] Resolved from state file: ${cachedWorkingDir}`);
+      return cachedWorkingDir;
+    }
+  } catch {} // Ignore errors
+  
+  // Priority 2: Actual process working directory (handles LM Studio sandbox changes)
+  const cwd = path.resolve(process.cwd());
+  if (fs.existsSync(cwd)) {
+    console.log(`[WorkingDir] Resolved from process.cwd(): ${cwd}`);
+    cachedWorkingDir = cwd;
+    return cwd;
+  }
+  
+  // Priority 3: Plugin root as absolute fallback
+  console.log(`[WorkingDir] Resolved to plugin root (fallback): ${BASE_DIR}`);
+  cachedWorkingDir = BASE_DIR;
+  return BASE_DIR;
+}
+
+/** Get the current working directory — resolves fresh on each call */
 export function getWorkingDir(): string {
-  return currentWorkingDir;
+  // Reset cache if state file changed (detects external modifications)
+  try {
+    const persistedState = loadState();
+    const expected = cachedWorkingDir === BASE_DIR || !cachedWorkingDir ? null : cachedWorkingDir;
+    if (persistedState.workingDir && path.resolve(persistedState.workingDir) !== expected) {
+      cachedWorkingDir = null; // Force re-resolution
+    }
+  } catch {}
+  
+  return resolveWorkingDir();
 }
 
 /**
@@ -73,7 +109,7 @@ export function setWorkingDir(newDir: string): boolean {
     return false;
   }
 
-  currentWorkingDir = resolved;
+  cachedWorkingDir = resolved;
   
   // PERSIST the change to disk (FIX for sandbox reset issue)
   saveState({ workingDir: resolved });
@@ -87,20 +123,20 @@ export function setWorkingDir(newDir: string): boolean {
  * Also clears persisted state.
  */
 export function resetWorkingDir(): void {
-  currentWorkingDir = BASE_DIR;
+  cachedWorkingDir = BASE_DIR;
   saveState({ workingDir: undefined }); // Clear persisted state
   console.log(`[WorkingDir] Reset to plugin root: ${BASE_DIR}`);
 }
 
 /** Resolve a user-provided path against the current working directory */
 export function resolvePath(userPath: string): string {
-  return path.resolve(currentWorkingDir, userPath);
+  return path.resolve(getWorkingDir(), userPath);
 }
 
 /** Get allowed base directories for absolute-path validation */
 export function getAllowedBases(): string[] {
   // Allow both the plugin root and the current working directory
-  const bases: readonly string[] = [BASE_DIR, currentWorkingDir];
+  const bases: readonly string[] = [BASE_DIR, getWorkingDir()];
   return Array.from(new Set(bases)); // Deduplicate
 }
 

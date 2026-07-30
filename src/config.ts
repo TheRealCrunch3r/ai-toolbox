@@ -281,6 +281,8 @@ export const DEFAULT_CONFIG: PluginConfig = {
   autoTrackErrors: true,
   autoSummaryInterval: 50,
 
+  // ── 🤖 AUTO-TRACKING SETTINGS ───────────────────────────────────
+
   // ── 🛠️ GRAMMAR PARSER LIMITS (P0 Fix) ──────────────────────────────
 
 };

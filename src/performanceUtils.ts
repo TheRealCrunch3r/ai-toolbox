@@ -82,6 +82,16 @@ interface FuzzySearchCacheEntry {
 const fuzzySearchCache = new Map<string, FuzzySearchCacheEntry>();
 const CACHE_TTL_MS = 60_000; // 60 second cache TTL
 
+// 🔹 P3 Optimization #3: Enforce hard LRU size cap to prevent unbounded memory growth
+const MAX_FUZZY_CACHE_SIZE = 100;
+function evictOldestFuzzyCache(): void {
+  while (fuzzySearchCache.size > MAX_FUZZY_CACHE_SIZE) {
+    const firstKey = fuzzySearchCache.keys().next().value;
+    if (firstKey !== undefined) fuzzySearchCache.delete(firstKey);
+    else break;
+  }
+}
+
 /**
  * Get cached fuzzy search results if available and not expired.
  */
@@ -112,17 +122,10 @@ export function cacheFuzzyResults(query: string, basePath: string, results: Arra
   }); // Insert at end
   
   // Evict oldest entries (front of Map) if over limit
-  while (fuzzySearchCache.size > 100) {
-    const firstKey = fuzzySearchCache.keys().next().value;
-    if (firstKey !== undefined) {
-      fuzzySearchCache.delete(firstKey);
-    } else {
-      break; // Empty map
-    }
-  }
+  evictOldestFuzzyCache();
 }
 
-// ==================== Async File Search with Concurrency Control ====================
+// ==================== Request Caching for Web Research ====================
 
 interface SearchResult {
   files: string[];
@@ -295,6 +298,16 @@ interface CachedResponse {
 const requestCache = new Map<string, CachedResponse>();
 const REQUEST_CACHE_TTL_MS = 30_000; // 30 second cache TTL for search results
 
+// 🔹 P3 Optimization #3: Enforce hard LRU size cap to prevent unbounded memory growth
+const MAX_REQUEST_CACHE_SIZE = 50;
+function evictOldestRequestCache(): void {
+  while (requestCache.size > MAX_REQUEST_CACHE_SIZE) {
+    const firstKey = requestCache.keys().next().value;
+    if (firstKey !== undefined) requestCache.delete(firstKey);
+    else break;
+  }
+}
+
 /** Clear request cache (for testing) */
 export function clearRequestCache(): void {
   requestCache.clear();
@@ -335,6 +348,8 @@ export async function fetchWithCache(
         timestamp: Date.now(),
         status: response.status,
       });
+      // Enforce LRU size cap after adding new entry
+      evictOldestRequestCache();
     } catch {
       // Non-JSON responses are not cached (safe to ignore)
     }
