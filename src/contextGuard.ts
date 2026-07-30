@@ -258,12 +258,13 @@ export class ContextGuard {
           debugLog('[COUNT]', `Adding ${imageTokens} tokens for ${imageCount} images.`);
         }
         
-        // Use raw SDK count — no scaling factor.
-        // User's config tokenLimit is meant to match LM Studio sidebar, so we compare raw counts directly.
-        this.cachedTokenCount = totalTokens;
+        // Apply calibration factor to account for LM Studio sidebar overhead (tool defs, BOS/EOS, chat templates)
+        const calibratedTotal = Math.round(totalTokens * TOKEN_SCALING_FACTOR);
+
+        this.cachedTokenCount = calibratedTotal;
         this._lastMessageHash = this.computeMessageHash(messages);
-        console.log(`[ContextGuard] ✅ SDK count: ${totalTokens.toLocaleString()} tokens`);
-        return totalTokens;
+        console.log(`[ContextGuard] ✅ SDK count: ${totalTokens.toLocaleString()} tokens (Calibrated: ${calibratedTotal.toLocaleString()})`);
+        return calibratedTotal;
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);
         console.log(`[ContextGuard] SDK token counting failed for "${modelId}", falling back to manual encoding. Reason: ${errorMsg}`);
