@@ -258,8 +258,9 @@ export class ContextGuard {
           debugLog('[COUNT]', `Adding ${imageTokens} tokens for ${imageCount} images.`);
         }
         
-        // SDK-native count is already accurate — no scaling factor needed.
-        // (TOKEN_SCALING_FACTOR was only for Tiktoken estimation which undercounted)
+        // Use raw SDK count directly — no scaling factor needed.
+        // The TOKEN_SCALING_FACTOR was designed for Tiktoken estimation which undercounted ~65x.
+        // SDK-native counts are already accurate (may need minor calibration later once we compare against LM Studio sidebar).
         this.cachedTokenCount = totalTokens;
         this._lastMessageHash = this.computeMessageHash(messages);
         console.log(`[ContextGuard] ✅ SDK count: ${totalTokens.toLocaleString()} tokens`);
