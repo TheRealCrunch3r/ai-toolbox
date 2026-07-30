@@ -131,7 +131,6 @@ export class ContextGuard {
    */
   async countTokens(messages: ContextMessage[], imageCount: number = 0, modelId?: string, systemPrompt?: string): Promise<number> {
     // 🔹 P1 #3: Conditional logging
-    console.log('[ContextGuard] 🔥 countTokens() called with', messages.length, 'messages');
     debugLog('[COUNT]', `Processing ${messages.length} messages.`);
 
     // Count System Prompt tokens if provided (reserved for future use)
@@ -259,13 +258,12 @@ export class ContextGuard {
           debugLog('[COUNT]', `Adding ${imageTokens} tokens for ${imageCount} images.`);
         }
         
-        // Apply calibration factor to match LM Studio sidebar (accounts for BOS/EOS/ChatTemplate overhead)
-        const calibratedTotal = Math.round(totalTokens * TOKEN_SCALING_FACTOR);
-
-        this.cachedTokenCount = calibratedTotal;
+        // SDK-native count is already accurate — no scaling factor needed.
+        // (TOKEN_SCALING_FACTOR was only for Tiktoken estimation which undercounted)
+        this.cachedTokenCount = totalTokens;
         this._lastMessageHash = this.computeMessageHash(messages);
-        console.log(`[ContextGuard] ✅ SDK count: ${totalTokens.toLocaleString()} tokens (Calibrated: ${calibratedTotal.toLocaleString()})`);
-        return calibratedTotal;
+        console.log(`[ContextGuard] ✅ SDK count: ${totalTokens.toLocaleString()} tokens`);
+        return totalTokens;
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);
         console.log(`[ContextGuard] SDK token counting failed for "${modelId}", falling back to manual encoding. Reason: ${errorMsg}`);
@@ -369,7 +367,7 @@ export class ContextGuard {
     debugLog('[COMPRESS]', `Compressing history: ${messages.length} messages, ${currentTokens} tokens (threshold: ${threshold})`);
     
     // Notify user in chat via system prompt instead of stderr logging
-    const thresholdWarning = `[ContextGuard] ⚠️ Context window threshold reached (${originalTokenCount.toLocaleString()} tokens). Token counter reset. Please start a completely new session.`;
+    const thresholdWarning = `⚠️ Context window threshold reached (${originalTokenCount.toLocaleString()} tokens). Token counter reset. Please start a completely new session.`;
     console.log(`[ContextGuard] ${thresholdWarning}`);
 
     const keepLast = 10;
