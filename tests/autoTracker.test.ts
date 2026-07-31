@@ -105,7 +105,7 @@ describe('AutoTracker FSM & Core Functionality', () => {
       
       const prompt = tracker.checkAndGeneratePrompt(8000, 10000);
       expect(prompt.triggered).toBe(true);
-      expect(prompt.warning).toContain("Reply 'YES' to trigger the backup tool");
+      expect(prompt.warning).toContain("Reply 'YES' to trigger the session memory save");
       
       // User replies YES
       tracker.consumePendingConfirmation();

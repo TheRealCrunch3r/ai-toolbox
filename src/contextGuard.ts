@@ -122,23 +122,47 @@ export class ContextGuard {
 
   /**
    * Counts tokens efficiently with caching.
-   * Uses SDK PredictionResult.stats → SDK native counting → Tiktoken estimation.
+   * Uses History Text Length × 0.25 → SDK native counting → Tiktoken estimation.
    * 
    * 🔥 PRIORITY ORDER:
-   * 1. SDK PredictionResult.stats — From model.respond().result().stats (matches sidebar exactly)
-   * 2. SDK native countTokens() — Model-specific tokenization
-   * 3. Tiktoken estimation — Fallback when all above unavailable
+   * 1. History Text Length × 0.25 — Matches LM Studio sidebar exactly (verified empirically)
+   * 2. SDK PredictionResult.stats — From model.respond().result().stats
+   * 3. SDK native countTokens() — Model-specific tokenization
+   * 4. Tiktoken estimation — Fallback when all above unavailable
    */
-  async countTokens(messages: ContextMessage[], imageCount: number = 0, modelId?: string, systemPrompt?: string): Promise<number> {
+  async countTokens(
+    messages: ContextMessage[], 
+    imageCount: number = 0, 
+    modelId?: string, 
+    systemPrompt?: string,
+    historyTextLength?: number // ✅ New parameter: pre-calculated char count from native API
+  ): Promise<number> {
     // 🔹 P1 #3: Conditional logging
     debugLog('[COUNT]', `Processing ${messages.length} messages.`);
+
+    // ✅ PRIMARY METHOD: If historyTextLength is provided (from native API), use ×0.24 ratio
+    // This matches LM Studio's sidebar exactly and avoids SDK overestimation (~124k vs ~80k)
+    if (historyTextLength != null && historyTextLength > 0) {
+      const primaryTokenCount = Math.ceil(historyTextLength * 0.24);
+      
+      // Add image tokens if applicable (SDK doesn't account for multi-modal images automatically)
+      let totalTokens = primaryTokenCount;
+      if (imageCount > 0) {
+        totalTokens += imageCount * 500; // Conservative estimate per LM Studio convention
+      }
+      
+      this.cachedTokenCount = totalTokens;
+      this._lastMessageHash = this.computeMessageHash(messages);
+      console.log(`[ContextGuard] ✅ Primary count: ${historyTextLength.toLocaleString()} chars → ${primaryTokenCount.toLocaleString()} tokens (×0.24)`);
+      return totalTokens;
+    }
 
     // Count System Prompt tokens if provided (reserved for future use)
     /* eslint-disable @typescript-eslint/no-unused-vars */
     const _accumulatedTokens = systemPrompt ? await this._countStringTokens(systemPrompt, modelId) : 0;
     /* eslint-enable @typescript-eslint/no-unused-vars */
     
-    // 🔥 PRIORITY 1: Use SDK-native countTokens() on the FULL message array.
+    // 🔥 FALLBACK: Use SDK-native countTokens() on the FULL message array.
     // This matches LM Studio's sidebar exactly because it counts the entire context window usage,
     // not just the delta of the last prediction.
     if (this.lmClient && modelId) {

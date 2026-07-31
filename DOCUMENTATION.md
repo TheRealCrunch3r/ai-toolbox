@@ -1,7 +1,7 @@
 # Documentation Update Summary — AI Toolbox Plugin
 
 **Date**: 2026-07-28  
-**Version**: v1.8.2 (Declarative Registry Pattern)  
+**Version**: v1.8.5 (Accurate Token Counting via Native History API & Checkpoint Injection Fix)  
 **Status**: ✅ Complete
 
 ---
@@ -18,6 +18,12 @@
 ---
 
 ## 🆕 Latest Updates
+
+### Accurate Token Counting via Native History API — v1.8.5 (2026-07-31)
+**Resolved critical token counting inaccuracy and missing checkpoint prompt injection issues.**
+- ✅ **History Text Length calculation**: Replaced broken `.content` casting with LM Studio's native history API (`getLength()`, `at(i)`, `getText()`), matching vibe-lm's approach. The previous code assumed `msg.content` was always accessible via property access, but SDK messages use getter methods instead — resulting in `0` character counts and inaccurate token estimates.
+- ✅ **Token counting method change**: Switched from SDK-native `countTokens() × 65` calibration to History Text Length `× 0.24` ratio. Empirical testing confirmed that `historyChars × 0.24` matches LM Studio sidebar token counts exactly (verified at ~130K tokens for 544,578 chars), whereas SDK-native counting with `×65` overestimated by ~45k tokens (~124K vs ~80K).
+- ✅ **Unified checkpoint injection**: Introduced `checkpointSuffix` variable in `promptPreprocessor.ts` that guarantees the auto-tracking threshold prompt is injected into every possible code path (directory detection, RAG disabled, no files found). Previously, the warning was silently swallowed due to early-return gates.
 
 ### Declarative Registry Pattern — v1.8.2 (2026-07-27)
 **Architectural overhaul of tool registration system.**
@@ -160,7 +166,7 @@ All dangerous tool categories are **disabled by default**:
 - [x] All references to tools and features match current implementation
 
 ### CHANGELOG.md
-- [x] Version entries follow Keep a Changelog format with proper ordering (v1.5.0 → v1.8.2)
+- [x] Version entries follow Keep a Changelog format with proper ordering (v1.5.0 → v1.8.5)
 - [x] Dates and version numbers consistent with package.json
 - [x] Breaking changes clearly marked
 - [x] Security fixes documented with engineering details

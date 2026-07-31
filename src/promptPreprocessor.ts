@@ -342,7 +342,11 @@ export async function preprocess(
   ctl: PromptPreprocessorController,
   userMessage: ChatMessage
 ): Promise<string | ChatMessage> {
-  const userPrompt = userMessage.getText();
+  let userPrompt = '';
+  try {
+    const rawText = await Promise.resolve(userMessage.getText());
+    userPrompt = typeof rawText === 'string' ? rawText : String(rawText ?? '');
+  } catch {}
 
   // ✅ DIAGNOSTIC: Verify preprocessor is actually being called by LM Studio
   console.log(`✅ [Preprocessor] Called. Message length: ${userPrompt.length}`);
@@ -352,36 +356,62 @@ export async function preprocess(
   let pendingWarning: string | undefined;
   let messageCount = 0;
   let tokenCount = 0;
+  let historyTextLength = 0; // ✅ Moved outside if-block to fix scoping
   
   // Step 0.5: ContextGuard auto-compression & token tracking
   if (contextGuard) {
     try {
+      console.log('[ContextGuard DEBUG] Step 1: pullHistory()...');
       const history = await ctl.pullHistory();
+      console.log('[ContextGuard DEBUG] Step 2: checking history object...');
+      if (!history) { console.warn('[ContextGuard] pullHistory() returned undefined, skipping'); return userPrompt; }
       history.append(userMessage);
-      const messages = history.getMessagesArray() as unknown as { role?: string; content?: unknown; [key: string]: unknown }[];
+      console.log('[ContextGuard DEBUG] Step 3: getMessagesArray()...');
+      const messages = history.getMessagesArray() as unknown as { role?: string; content?: unknown; [key: string]: unknown }[] | undefined;
+      console.log('[ContextGuard DEBUG] Step 4: messages type:', typeof messages, 'isArray:', Array.isArray(messages));
       
       // Safely extract files/images, handling both arrays and single objects
       let toolCallCount = 0;
       let imageCount = 0;
-      for (const msg of messages) {
-        const typedMsg = msg as ExtendedMessage;
-        if (typedMsg.toolCalls || typedMsg.tool_calls) {
-          toolCallCount += typedMsg.toolCalls?.length || typedMsg.tool_calls?.length || 0;
+      if (messages && Array.isArray(messages)) {
+        for (const msg of messages) {
+          const typedMsg = msg as ExtendedMessage;
+          if (typedMsg.toolCalls || typedMsg.tool_calls) {
+            toolCallCount += typedMsg.toolCalls?.length || typedMsg.tool_calls?.length || 0;
+          }
+          
+          const fileObj = typedMsg.files || typedMsg.images;
+          if (fileObj && Array.isArray(fileObj) && fileObj.length > 0) {
+            imageCount += fileObj.length;
+          } else if (fileObj && typeof fileObj === 'object') {
+            // Handle single object case
+            imageCount += 1;
+          }
         }
         
-        const fileObj = typedMsg.files || typedMsg.images;
-        if (fileObj && Array.isArray(fileObj) && fileObj.length > 0) {
-          imageCount += fileObj.length;
-        } else if (fileObj && typeof fileObj === 'object') {
-          // Handle single object case
-          imageCount += 1;
+        // ✅ Use LM Studio's native history API instead of .content casting (matches vibe-lm approach)
+        historyTextLength = 0;
+        try {
+          const msgCount = history.getLength();
+          for (let i = 0; i < msgCount; i++) {
+            const msg = history.at(i);
+            let msgText = '';
+            if (msg.getText) msgText += msg.getText() || '';
+            if (msg.getToolCallRequests) msgText += JSON.stringify(msg.getToolCallRequests()) || '';
+            if (msg.getToolCallResults) msgText += JSON.stringify(msg.getToolCallResults()) || '';
+            historyTextLength += msgText.length;
+          }
+        } catch (e) {
+          console.warn('[TokenDebug] Failed to iterate native history:', e);
         }
+        const estimatedHistoryTokens = Math.ceil(historyTextLength * 0.24);
+        console.log(`[TokenDebug] History Text Length: ${historyTextLength} chars | Est. Tokens (x0.24): ${estimatedHistoryTokens}`);
       }
       console.log(`[TokenDebug] Total Tool calls: ${toolCallCount}, Total Files/Images: ${imageCount}`);
 
       // ✅ FIX: Dynamically resolve actual model context length before counting tokens
+      console.log('[ContextGuard DEBUG] Step 5: getPluginConfig()...');
       const pluginConfig = ctl.getPluginConfig(configSchematics);
-      
       // Inject LM Studio client from controller for dynamic model queries (SDK v1.x)
       if (ctl.client && contextGuard.setLMClient) {
         contextGuard.setLMClient(ctl.client);
@@ -425,7 +455,7 @@ export async function preprocess(
 
       // Extract System Prompt from history (usually index 0) to ensure accurate budget tracking
       let extractedSystemPrompt: string | undefined;
-      if (messages.length > 0 && typeof messages[0] === 'object') {
+      if (Array.isArray(messages) && messages.length > 0 && typeof messages[0] === 'object') {
         const firstMsg = messages[0] as ExtendedMessage & { content?: unknown };
         if ((firstMsg.role === 'system' || firstMsg.role === 'system_prompt') && firstMsg.content) {
           let sysContent: string | undefined;
@@ -439,32 +469,51 @@ export async function preprocess(
         }
       }
 
-      // Calculate tokens for threshold check using actual model limit & SDK native counting
-      tokenCount = await contextGuard.countTokens(messages, imageCount, activeModelId || undefined, extractedSystemPrompt);
+      // Calculate tokens for threshold check using actual model limit & History Text Length × 0.25
+      const safeMessages = messages ?? [];
+      
+      console.log('[ContextGuard DEBUG] Step 6: calling countTokens()...');
+      
+      try {
+        tokenCount = await contextGuard.countTokens(safeMessages, imageCount, activeModelId || undefined, extractedSystemPrompt, historyTextLength);
+        console.log('[ContextGuard DEBUG] Step 7: countTokens() succeeded, getting limits...');
+      } catch (countError) {
+        console.error('[ContextGuard DEBUG] STEP 6 FAILED:', countError);
+        throw countError; // Re-throw to see full stack trace
+      }
+      
       const maxTokens = contextGuard.getTokenLimit();
       const threshold = contextGuard.getThreshold();
       
       // ✅ DIAGNOSTIC: Log accurate token counts against real model limits
       console.log(`✅ [TokenCheck] Model limit: ${maxTokens} | Tokens used: ${tokenCount} | Threshold: ${threshold}`);
 
+      console.log('[ContextGuard DEBUG] Step 8: checking auto-tracker config...');
+      
       // 🔹 WIRE UP AUTO-TRACKER THRESHOLD PROMPT — Step 0.5b (uses correct maxTokens)
       const autoTrackingConfig = ctl.getPluginConfig(configSchematics);
       if ((autoTrackingConfig.get('autoTrackingEnabled') ?? true) && maxTokens > 0) {
-        const promptResult = autoTracker.checkAndGeneratePrompt(tokenCount, maxTokens);
-        if (promptResult.triggered && promptResult.warning) {
-          pendingWarning = promptResult.warning;
-          console.log(`[AutoTracker] ✅ THRESHOLD PROMPT GENERATED — user will be asked to save session memory`);
+        console.log('[ContextGuard DEBUG] Step 9: calling checkAndGeneratePrompt()...');
+        try {
+          const promptResult = autoTracker.checkAndGeneratePrompt(tokenCount, maxTokens);
+          if (promptResult.triggered && promptResult.warning) {
+            pendingWarning = promptResult.warning;
+            console.log(`[AutoTracker] ✅ THRESHOLD PROMPT GENERATED — user will be asked to save session memory`);
+          }
+        } catch (autoTrackError) {
+          console.error('[ContextGuard DEBUG] STEP 9 FAILED:', autoTrackError);
+          throw autoTrackError;
         }
       }
 
       // Capture message count for later use in Step 0.6
-      messageCount = history.getLength();
+      messageCount = history?.getLength() ?? 0;
 
       if (tokenCount > threshold) {
         console.log(`[ContextGuard] Token count ${tokenCount} exceeds compression threshold ${threshold}, compressing...`);
-        const compressedMessages = await contextGuard.compressHistory(messages) as unknown as ChatMessage[];
+        const compressedMessages = await contextGuard.compressHistory(safeMessages) as unknown as ChatMessage[];
         // Clear history by popping all messages
-        while (history.getLength() > 0) {
+        while ((history?.getLength() ?? 0) > 0) {
           history.pop();
         }
         compressedMessages.forEach((msg: ChatMessage) => history.append(msg));
@@ -473,6 +522,13 @@ export async function preprocess(
     } catch (e) {
       console.error('[ContextGuard] Auto-compression failed:', e);
     }
+  }
+
+  // 🔹 UNIFIED CHECKPOINT WARNING INJECTION (Fixes missing prompt when RAG disabled or no files found)
+  let checkpointSuffix = '';
+  if (pendingWarning) {
+    checkpointSuffix = `\n\n--- SYSTEM INSTRUCTION ---\n${pendingWarning}\n--------------------------`;
+    pendingWarning = undefined; // Clear to prevent duplication in Step 1/2
   }
 
   // Step 0.6: Auto-tracking analysis + checkpoint reply handling
@@ -531,7 +587,7 @@ export async function preprocess(
       }
 
       // Analyze user message for tracking triggers (silent background)
-      const actions = autoTracker.analyzeMessage(userPrompt);
+      const actions = autoTracker.analyzeMessage?.(userPrompt) ?? [];
       
       if (actions.length > 0) {
         console.log(`[Auto-Track] Detected ${actions.length} event(s):`, actions.map(a => `${a.type} (${a.confidence.toFixed(2)})`).join(', '));
@@ -549,7 +605,7 @@ export async function preprocess(
   }
   
   // Step 0: Always register attachments so tools can access them by name
-  const allFiles = userMessage.getFiles(ctl.client);
+  const allFiles = userMessage.getFiles?.(ctl.client) ?? [];
   setAttachments(allFiles);
   
   // Build attachment notice to inject into prompt
@@ -562,17 +618,9 @@ export async function preprocess(
   // Step 1: Directory detection (highest priority)
   const detectedPath = detectDirectoryPath(userPrompt);
   if (detectedPath) {
-    let base = injectWorkingDirectoryPrompt(userPrompt + attachmentNotice, detectedPath) + getTemporalSuffix(ctl);
+    let base = injectWorkingDirectoryPrompt(userPrompt + attachmentNotice, detectedPath) + checkpointSuffix;
     
-    // 🔹 Inject checkpoint warning even if directory is detected
-    if (pendingWarning) {
-      base += `
-
---- SYSTEM INSTRUCTION ---
-${pendingWarning}
---------------------------`;
-    }
-    return base;
+    return base + getTemporalSuffix(ctl);
   }
   
   // Step 2: Document RAG processing (if enabled)
@@ -582,8 +630,8 @@ ${pendingWarning}
   console.log(`[RAG] documentRAG enabled: ${documentRAGEnabled}`);
   
   if (!documentRAGEnabled) {
-    // If RAG is disabled, just return the message with attachment notice
-    const base = userPrompt + attachmentNotice;
+    // If RAG is disabled, just return the message with attachment notice and checkpoint warning
+    const base = userPrompt + attachmentNotice + checkpointSuffix;
     return base + getTemporalSuffix(ctl);
   }
 
@@ -591,7 +639,7 @@ ${pendingWarning}
   console.log(`[RAG] Found ${newFiles.length} non-image files`);
   
   if (newFiles.length === 0) {
-    const base = userPrompt + attachmentNotice;
+    const base = userPrompt + attachmentNotice + checkpointSuffix;
     return base + getTemporalSuffix(ctl);
   }
 
@@ -628,7 +676,7 @@ ${pendingWarning}
       });
 
       // Convert high-level API results to our format
-      const filteredEntries = result.entries.filter(
+      const filteredEntries = (result?.entries || []).filter(
         entry => entry.score > (pluginConfig.get('retrievalAffinityThreshold') ?? 0.3)
       );
       console.log(`[RAG] Native retrieval returned ${filteredEntries.length} results`);
@@ -646,11 +694,7 @@ ${pendingWarning}
   console.log(`[RAG] Total results after sorting: ${allResults.length}`);
 
   // 🔹 Inject checkpoint confirmation prompt if triggered/pending from Step 0.5
-  let finalMessage = userPrompt + attachmentNotice;
-  
-  if (pendingWarning) {
-    finalMessage += `\n\n--- SYSTEM INSTRUCTION ---\n${pendingWarning}\n--------------------------`;
-  }
+  let finalMessage = userPrompt + attachmentNotice + checkpointSuffix;
 
   // Inject context if results found
   if (allResults.length > 0) {
