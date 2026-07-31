@@ -1,5 +1,69 @@
 # 📝 CHANGELOG
 
+## [1.8.6] - 2026-07-31 — 📋 Task Planning Tools: Structured Multi-Step Workflow Management
+
+**Added three new tools for creating, tracking, and updating execution plans with persistent storage.**
+
+### What Changed
+- **NEW `src/tools/taskPlanningTools.ts` module**: Implements structured multi-step workflow management with Zod schema validation and atomic file writes
+- **Three new tools registered in `toolsProvider.ts`** under the `taskPlanning` config key:
+  - ✅ `create_plan` — Create execution plans with goal + ordered steps (1-30 steps, 500 chars max each). Replaces any existing active plan. Returns `planId`, `goal`, and `stepCount`.
+  - ✅ `get_plan` — Return the active plan details including goal, all step statuses, completion percentage, elapsed time since creation, and timestamps. Returns `null` if no plan exists.
+  - ✅ `update_plan_step` — Update a single step's status according to state machine rules (`pending→in_progress→done`, any→blocked, blocked→pending). Requires `note` when marking as `blocked`. Returns completion metrics including `completedSteps`, `totalSteps`, and `allDone` boolean.
+- **Zod schema-based JSON parsing**: Replaced manual `JSON.parse()` with `RawPlanDataSchema.parse()` and `ActivePlanSchema.safeParse()` for runtime validation and static typing — eliminates all unsafe `any` assignments and unnecessary type assertions (fixes 9 ESLint errors/warnings)
+- **Persistent storage**: Plan data persisted to `.ai_toolbox_plans.json` in working directory with atomic writes (temp file + rename pattern). Fallback to plugin root if working dir file doesn't exist.
+- **Config toggle**: `taskPlanning: z.boolean().default(true)` — enabled by default, exposed in LM Studio Settings under "📋 Task Planning Tools" category
+
+### Architecture
+```typescript
+// PlanStorageManager handles persistence with two-tier fallback
+class PlanStorageManager {
+  private workingDirPath;   // .session_context/.ai_toolbox_plans.json (primary)
+  private pluginRootPath;   // Plugin root .session_context/ (fallback)
+  
+  async load(): Promise<Record<string, ActivePlan>> {
+    // Try working dir first, fallback to plugin root if empty
+    let plans = await this.loadPlansFromFile(this.workingDirPath);
+    if (Object.keys(plans).length === 0) {
+      plans = await this.loadPlansFromFile(this.pluginRootPath);
+    }
+    return plans;
+  }
+  
+  private async loadPlansFromFile(filePath): Promise<Record<string, ActivePlan>> {
+    // Zod schema validation → safeParse each plan → typed result
+    const parsed: ParsedRawPlanData = RawPlanDataSchema.parse(JSON.parse(raw));
+    for (const [id, plan] of Object.entries(parsed.plans)) {
+      const validated = ActivePlanSchema.safeParse(plan);
+      if (validated.success) result[id] = validated.data; // No unsafe any!
+    }
+  }
+}
+
+// State Machine Enforcement
+function validateStatusTransition(current: StepStatus, newStatus: StepStatus): boolean {
+  // pending → in_progress | blocked
+  // in_progress → done | blocked  
+  // done → (terminal)
+  // blocked → pending
+}
+```
+
+### Impact
+- ✅ **Structured task execution**: LLM can now create multi-step plans and track progress systematically instead of ad-hoc tool usage
+- ✅ **Persistent plan state**: Plans survive context switches and plugin reloads — stored atomically with Zod validation
+- ✅ **Type-safe storage layer**: Zero ESLint `any` warnings, zero unnecessary type assertions in persistence code
+- ✅ **State machine enforcement**: Invalid status transitions blocked at runtime (e.g., `done→in_progress` rejected)
+- ✅ **Enabled by default**: No configuration required — works immediately after installation
+
+### Engineering Details
+- Uses same atomic write pattern as `contextManagementTools.ts` (temp file + rename for corruption safety)
+- Plans stored as `{ version: 1, plans: { [planId]: ActivePlan } }` JSON structure
+- Zod schemas provide both compile-time type inference (`ParsedRawPlanData`, `ActivePlan`) and runtime validation (`safeParse()`)
+- Plan IDs generated with timestamp + random suffix: `plan_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+- Alphabetically sorted tool return order: `create_plan` → `get_plan` → `update_plan_step`
+
+**Total**: 1 new module (`src/tools/taskPlanningTools.ts`), 3 new tools, updated config schema + UI schematics in `src/config.ts`, zero breaking changes. Fully backward compatible — existing users get the feature automatically via default enablement.
 ## [1.8.5] - 2026-07-31 — 🧠 Accurate Token Counting via Native History API & Checkpoint Injection Fix
 
 **Resolved critical token counting inaccuracy and missing checkpoint prompt injection issues.**

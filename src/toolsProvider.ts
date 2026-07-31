@@ -32,6 +32,7 @@ import { registerLineOperationsTools } from './tools/lineOperations.js';
 import { registerMarkdownPreviewTools } from './tools/markdownPreviewTools.js';
 import { registerRefactorCodeTools } from './tools/refactorCodeTools.js';
 import { registerRagTools } from './tools/vectorRagTools.js';
+import { registerTaskPlanningTools } from './tools/taskPlanningTools.js';
 import { registerTextProcessingTools } from './tools/textProcessingTools.js';
 import { registerUiGenerationTools } from './tools/uiGenerationTools.js';
 import { registerWebResearchTools } from './tools/webResearchTools.js';
@@ -107,6 +108,7 @@ export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[
     autoTrackCompletions: pluginConfig.get('autoTrackCompletions'),
     autoTrackErrors: pluginConfig.get('autoTrackErrors'),
     autoSummaryInterval: pluginConfig.get('autoSummaryInterval'),
+    taskPlanning: pluginConfig.get('taskPlanning'),
   };
 
   // Initialize StateManager if not already done
@@ -137,6 +139,9 @@ export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[
     { key: 'utility', register: () => registerDataVisualizationTools(config) },
     { key: 'utility', register: () => registerLineOperationsTools(config) },
     { key: 'utility', register: () => registerMarkdownPreviewTools(config) },
+
+    // Task Planning Tools (structured multi-step workflows)
+    { key: 'taskPlanning', register: () => registerTaskPlanningTools(config) },
 
     // File System (takes extra args)
     { key: 'fileSystem', register: () => registerFileSystemTools(config, stateManager) },

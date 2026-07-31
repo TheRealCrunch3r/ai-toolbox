@@ -1,6 +1,6 @@
 # 🧰 AI Toolbox — LM Studio Plugin
 
-> **132+ tools** across ~20 core categories, fully integrated and ready for use.  
+> **~97 tools** across 16 categories, fully integrated and ready for use.  
 *All tools dynamically registered with category-level gating.*
 > *All tools registered via direct SDK pattern (no gateway indirection).*
 ---
@@ -37,6 +37,7 @@
 | 🎨 **UI Generation** | Generate and render interactive HTML/CSS/JS components in-browser |
 | 🧠 **Context Management** | Automatic session tracking, decision logging, and memory management |
 | 📝 **Text Processing** | Advanced regex-based text transformations (sed/awk equivalents) |
+| 📋 **Task Planning** | Structured multi-step workflow tools (`create_plan`, `get_plan`, `update_plan_step`) |
 
 ---
 
@@ -88,6 +89,9 @@
 ### AST Code Refactoring Tools (2 tools — enabled by default)
 `refactor_code` · `unusedImports`
 
+### Task Planning Tools (3 tools — enabled by default)
+`create_plan` · `get_plan` · `update_plan_step`
+
 ### Execution Tools (5 tools — mixed defaults: JS/Python enabled, Terminal/Shell disabled)
 `run_javascript` · `run_python` · `execute_command` · `run_in_terminal` · `run_tests`
 
@@ -108,7 +112,7 @@ The plugin is installed as an LM Studio plugin. Ensure you have:
 1. **Load the plugin** in LM Studio's plugin settings
 2. **Configure tool access** — individual tool categories can be toggled on/off via the Settings panel. Note that some tools (like Execution) are disabled by default for security.
 3. **Authenticate with GitHub**: Run `gh auth login` in your terminal once to enable remote operations (`gh_create_issue`, `gh_list_prs`, etc.). The plugin will detect authentication status automatically.
-4. **Start a chat** and the AI can now use any of the **116** available tools based on configuration settings.
+4. **Start a chat** and the AI can now use any of the **119** available tools based on configuration settings.
 
 ---
 

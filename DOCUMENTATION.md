@@ -1,7 +1,7 @@
 # Documentation Update Summary — AI Toolbox Plugin
 
 **Date**: 2026-07-28  
-**Version**: v1.8.5 (Accurate Token Counting via Native History API & Checkpoint Injection Fix)  
+**Version**: v1.8.6 (Task Planning Tools — Structured Multi-Step Workflow Management)  
 **Status**: ✅ Complete
 
 ---
@@ -19,7 +19,7 @@
 
 ## 🆕 Latest Updates
 
-### Accurate Token Counting via Native History API — v1.8.5 (2026-07-31)
+### Accurate Token Counting via Native History API — v1.8.5+ (2026-07-31)
 **Resolved critical token counting inaccuracy and missing checkpoint prompt injection issues.**
 - ✅ **History Text Length calculation**: Replaced broken `.content` casting with LM Studio's native history API (`getLength()`, `at(i)`, `getText()`), matching vibe-lm's approach. The previous code assumed `msg.content` was always accessible via property access, but SDK messages use getter methods instead — resulting in `0` character counts and inaccurate token estimates.
 - ✅ **Token counting method change**: Switched from SDK-native `countTokens() × 65` calibration to History Text Length `× 0.24` ratio. Empirical testing confirmed that `historyChars × 0.24` matches LM Studio sidebar token counts exactly (verified at ~130K tokens for 544,578 chars), whereas SDK-native counting with `×65` overestimated by ~45k tokens (~124K vs ~80K).
@@ -58,7 +58,7 @@ The priority system (`maxToolsInSchema`, tier-based filtering, `toolPriorityOver
 
 ### Gateway Pattern — ABANDONED
 The gateway pattern (`src/tools/gatewayTools.ts`) was introduced in v1.6.0 but **abandoned in favor of direct SDK registration** (v1.8.0+).
-- Direct registration proved more effective — LLMs handle 132+ tools fine when schemas are properly minified
+- Direct registration proved more effective — LLMs handle ~97 tools fine when schemas are properly minified
 - Grammar parser crashes resolved via schema minification rather than tool count gating
 - Gateway indirection added unnecessary complexity without solving the underlying issue
 
@@ -166,7 +166,7 @@ All dangerous tool categories are **disabled by default**:
 - [x] All references to tools and features match current implementation
 
 ### CHANGELOG.md
-- [x] Version entries follow Keep a Changelog format with proper ordering (v1.5.0 → v1.8.5)
+- [x] Version entries follow Keep a Changelog format with proper ordering (v1.5.0 → v1.8.6)
 - [x] Dates and version numbers consistent with package.json
 - [x] Breaking changes clearly marked
 - [x] Security fixes documented with engineering details
@@ -177,7 +177,7 @@ All dangerous tool categories are **disabled by default**:
 
 | File | Changes Made |
 |------|-------------|
-| `README.md` | Up-to-date (v1.8.2 release history, 132+ tools) |
+| `README.md` | Up-to-date (v1.8.6 release history, ~97 tools) |
 | `ARCHITECTURE.md` | Gateway Pattern marked as ABANDONED; tool counts corrected to 20 modules |
 | `TOOLS_REFERENCE.md` | Up-to-date (~132 tools documented) |
 | `DOCUMENTATION.md` | Deprecated features clearly marked; tool count corrections applied |

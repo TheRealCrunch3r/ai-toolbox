@@ -26,6 +26,7 @@
 | Data Visualization | 1 | ✅ Utility toggle | Active |
 | Document Parsing | 1 | ✅ Enabled | Active |
 | HTTP Client | 3 | ❌ Disabled | Active |
+| Task Planning | 3 | ✅ Enabled | Active |
 
 > **Note**: All tool categories are fully registered in `toolsProvider.ts` using the declarative registry pattern (v1.8.2+). Gateway tools exist in code but are not imported/registered — direct SDK registration handles grammar parser compatibility via schema minification.
 
@@ -474,6 +475,50 @@ Executes any registered tool by name with built-in validation and error handling
 | `http_request` | Generic GET/POST/PUT/DELETE/PATCH client with retry logic, timeout config, multipart upload support |
 | `http_get_json` | GET requests expecting JSON response with automatic parsing and optional schema validation |
 | `http_post_json` | POST requests with JSON payload, content-type auto-handling, auth token support, status code return |
+
+---
+
+## 📋 Task Planning (3)
+
+*Requires `taskPlanning` toggle in settings or God Mode.*
+
+Structured multi-step workflow management tools for creating, tracking, and updating execution plans. Tools persist plan data to `.ai_toolbox_plans.json` using atomic writes with Zod schema validation.
+
+### State Machine
+```
+pending → in_progress → done (terminal)
+any     → blocked      ← blocked → pending (retry)
+```
+
+| Tool | Description |
+|------|-------------|
+| `create_plan` | Create a new execution plan with goal and ordered steps (1-30 steps, 500 chars max each). Replaces any existing active plan. Returns `planId`, `goal`, and `stepCount`. |
+| `get_plan` | Return the active plan details including goal, all step statuses, completion percentage, elapsed time since creation, and timestamps. Returns `null` if no plan exists. |
+| `update_plan_step` | Update a single step's status according to state machine rules (`pending→in_progress→done`, any→blocked, blocked→pending). Requires `note` when marking as `blocked`. Returns completion metrics including `completedSteps`, `totalSteps`, and `allDone` boolean. |
+
+**Example Workflow:**
+```typescript
+// 1. Create plan with goal and steps
+create_plan({
+  goal: "Refactor authentication module",
+  steps: [
+    "Read current auth.ts file",
+    "Identify refactoring opportunities",
+    "Implement changes to separate concerns",
+    "Run tests to verify functionality"
+  ]
+})
+
+// 2. Track progress as you work
+update_plan_step({ planId: "...", index: 0, status: "done" })
+update_plan_step({ planId: "...", index: 1, status: "in_progress" })
+
+// 3. Check current state
+get_plan() // Returns full plan with progress metrics
+
+// 4. Handle blockers if needed
+update_plan_step({ planId: "...", index: 2, status: "blocked", note: "Need API documentation for new auth flow" })
+```
 
 ---
 

@@ -46,7 +46,7 @@ Deep dive into the AI Toolbox plugin's system architecture, design patterns, and
 │  │  │  └───────────┼───────────────────────────────────────┘  │  │  │
 │  │  │              │                                         │  │  │
 │  │  │  ┌───────────┴─────────────────────────────────────┐  │  │  │
-│  │  │  │              Tool Modules (15 registered files)    │  │  │  │
+│  │  │  │              Tool Modules (19 registered files)      │  │  │  │
 │  │  │  │  ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ │  │  │  │
 │  │  │  │  │fileSys │ │webRes  │ │browser │ │  git   │ │  │  │  │
 │  │  │  │  │ (22)   │ │ (4)    │ │  (5)   │ │ (15)   │ │  │  │  │
@@ -124,7 +124,7 @@ export function main(context: PluginContext) {
 }
 ```
 
-### 2. Tool Registration Flow (Current State — v1.8.5)
+### 2. Tool Registration Flow (Current State — v1.8.6)
 
 ```
 toolsProvider() called by LM Studio SDK
@@ -158,7 +158,7 @@ createToolsProvider(config, stateManager, bgCommandManager)
             ├── registerExecutionTools()       ──► 5 tools (mixed defaults)
             │
             ▼
-        Return Tool[] to SDK ──► **132+ tools** total (configurable per user)
+        Return Tool[] to SDK ──► **~97 tools** total (configurable per user)
 ```
 
 ### ✅ Gateway Pattern Status (v1.8.2+) — ⚠️ ABANDONED
@@ -166,7 +166,7 @@ createToolsProvider(config, stateManager, bgCommandManager)
 **Status**: The gateway pattern (`src/tools/gatewayTools.ts`) was introduced in v1.6.0 but **abandoned in favor of direct SDK registration**. It is NOT imported or registered in the current `toolsProvider.ts`.
 
 **Why Abandoned**:
-- Direct registration proved more effective — LLMs handle 132+ tools fine when schemas are properly minified
+- Direct registration proved more effective — LLMs handle ~97 tools fine when schemas are properly minified
 - Grammar parser crashes resolved via `toolsSchemaMinifier.ts` (description truncation, constraint capping) rather than tool count gating
 - Gateway indirection added unnecessary complexity without solving the underlying issue
 
@@ -248,7 +248,7 @@ export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[
 
 **Key Design Decisions:**
 - Tools registered **conditionally** based on config toggles + GOD MODE bypass
-- Default states: File System, Web Research, Document Parsing, Image Processing, Vector RAG, Context Management, Text Processing, AST Refactoring — enabled by default; Git, Browser, Database, Background Commands, HTTP Client, UI Generation — disabled by default
+- Default states: File System, Web Research, Document Parsing, Image Processing, Vector RAG, Context Management, Text Processing, AST Refactoring, Task Planning — enabled by default; Git, Browser, Database, Background Commands, HTTP Client, UI Generation — disabled by default
 - Execution tools have fine-grained toggles (JS/Python vs Terminal/Shell)
 - **Closure-based dependency injection**: Each registry entry captures `config`, `stateManager`, and `backgroundCommandManager` at definition time via arrow functions
 
@@ -1063,6 +1063,7 @@ All tool categories are now fully registered in `toolsProvider.ts` using the dec
 | Data Visualization | dataVisualizationTools.ts | 1 | ✅ Yes | Utility toggle |
 | Line Operations | lineOperations.ts | 1 | ✅ Yes | Utility toggle |
 | Markdown Preview | markdownPreviewTools.ts | 1 | ✅ Yes | Utility toggle |
-| **Total Registered** | | **~89 tools** | | |
+| Task Planning | taskPlanningTools.ts | 3 | ✅ Yes | Enabled (default) |
+| **Total Registered** | | **~92 tools** | | |
 
 > **Note**: All previously "unregistered" utility tool categories (backup, data visualization, line operations, markdown preview) are now properly registered in `toolsProvider.ts` under the `utility` config key. The gateway pattern (`gatewayTools.ts`) exists but is not imported/registered — direct SDK registration with schema minification handles grammar parser compatibility.

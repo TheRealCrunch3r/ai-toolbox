@@ -46,6 +46,9 @@ export const ConfigSchema = z.object({
 
   utility: z.boolean().default(true).describe('Enable Utility & Maintenance Tools (backup, chart generation, markdown preview, line operations)'),
 
+  // ── 📋 TASK PLANNING TOOLS ───────────────────────────────────────
+  taskPlanning: z.boolean().default(true).describe('Enable structured multi-step workflow tools (create_plan, update_plan_step, get_plan)'),
+
 
   // ── ⚠️ GOD MODE (Enable ALL tools at once) ──────────────────────
 
@@ -183,31 +186,23 @@ export const DEFAULT_CONFIG: PluginConfig = {
 
   backgroundCommands: false,
 
-
-
-  // ⚠️ GOD MODE (Enable ALL tools at once) ⚠️
-
-  godMode: false,
-
-
-
-  // ── 🆕 NEW TOOL CATEGORIES ──────────────────────────────────────
-
   imageProcessing: true,
 
   httpClient: false,
 
-  vectorRAG: true,
-  uiGeneration: false,
-  contextManagement: true,
   textProcessing: true,
 
   refactorCode: true,
 
   utility: true,
 
+  uiGeneration: false,
 
-  // ⚠️ GOD MODE (Enable ALL tools at once) ⚠️
+  contextManagement: true,
+
+  vectorRAG: true,
+
+  godMode: false,
 
   documentRAG: true,
 
@@ -215,21 +210,15 @@ export const DEFAULT_CONFIG: PluginConfig = {
 
   retrievalAffinityThreshold: 0.5,
 
-
-
-  // Execution tools — granular control (JavaScript & Python enabled by default)
-
   executionJavaScript: true,
 
   executionPython: true,
 
   executionTerminal: false,
 
-  executionShell: false, // ⚠️ Disabled by default — dangerous shell commands!
+  executionShell: false,
 
-  executionTests: false, // ⚠️ Disabled by default — prevents LLM from bypassing via test runners
-
-
+  executionTests: false,
 
   searchFallbackChain: 'ddg-api',
 
@@ -261,116 +250,37 @@ export const DEFAULT_CONFIG: PluginConfig = {
 
   notificationsEnabled: true,
 
-  // Temporal Awareness (merged from up_to_date)
   temporalAwareness: true,
+
   dateFormatStyle: 'standard',
 
-  // ── 🧠 CONTEXT GUARD SETTINGS ───────────────────────────────────
   contextGuardEnabled: true,
-  contextGuardTokenLimit: 30000,           // ~30k tokens before compression (90% = 27k threshold)
-  contextGuardSmartReading: true,
-  contextGuardSummaryModel: '',            // Empty = use current chat model
-  contextGuardTerminalFilterEnabled: true,
-  contextGuardTerminalFilterLength: 2000,  // Filter terminal output > 2KB
 
-  // ── 🤖 AUTO-TRACKING SETTINGS ───────────────────────────────────
-  autoTrackingEnabled: true,               // ON BY DEFAULT — silent background tracking
-  autoTrackTokenThreshold: 75,             // Save session memory at 75% token usage
+  contextGuardTokenLimit: 30000,
+
+  contextGuardSmartReading: true,
+
+  contextGuardSummaryModel: '',
+
+  contextGuardTerminalFilterEnabled: true,
+
+  contextGuardTerminalFilterLength: 2000,
+
+  autoTrackingEnabled: true,
+
+  autoTrackTokenThreshold: 75,
+
   autoTrackDecisions: true,
+
   autoTrackCompletions: true,
+
   autoTrackErrors: true,
+
   autoSummaryInterval: 50,
 
-  // ── 🤖 AUTO-TRACKING SETTINGS ───────────────────────────────────
-
-  // ── 🛠️ GRAMMAR PARSER LIMITS (P0 Fix) ──────────────────────────────
+  taskPlanning: true,
 
 };
-
-
-
-/**
-
- * Validate and sanitize config inp
-
- */
-
-export function validateConfig(input: unknown): PluginConfig {
-
-  const result = ConfigSchema.safeParse(input);
-
-  if (!result.success) {
-
-    throw new Error(`Invalid configuration: ${result.error.message}`);
-
-  }
-
-  return result.data;
-}
-
-
-
-/**
- * Check if a tool category is enabled in config
- */
-export function isToolEnabled(config: PluginConfig, category: keyof Pick<PluginConfig, 'fileSystem' | 'webSearch' | 'browserAutomation' | 'gitOperations' | 'databaseQueries' | 'documentParsing' | 'backgroundCommands' | 'imageProcessing' | 'httpClient' | 'vectorRAG' | 'uiGeneration' | 'contextManagement' | 'textProcessing' | 'refactorCode'>): boolean {
-  return config[category] === true;
-}
-
-
-
-
-/**
-
- * Check if a specific execution tool is enabled (granular)
-
- */
-
-export function isExecutionToolEnabled(config: PluginConfig, tool: 'javascript' | 'python' | 'terminal' | 'shell' | 'tests'): boolean {
-
-  switch (tool) {
-
-    case 'javascript': return config.executionJavaScript === true;
-
-    case 'python':     return config.executionPython === true;
-
-    case 'terminal':   return config.executionTerminal === true;
-
-    case 'shell':      return config.executionShell === true;
-
-    case 'tests':      return config.executionTests === true;
-
-  }
-
-}
-
-
-
-/**
-
- * Get the execution tool key from a tool name
-
- */
-
-export function getExecutionToolKey(toolName: string): 'javascript' | 'python' | 'terminal' | 'shell' | 'tests' | null {
-
-  switch (toolName) {
-
-    case 'run_javascript': return 'javascript';
-
-    case 'run_python':     return 'python';
-
-    case 'run_in_terminal': return 'terminal';
-
-    case 'execute_command': return 'shell';
-
-    case 'run_tests':      return 'tests';
-
-    default:               return null;
-
-  }
-
-}
 
 
 
@@ -547,7 +457,20 @@ export const configSchematics = createConfigSchematics()
     displayName: '🛠️ Utility & Maintenance Tools',
     subtitle: 'Backup, chart generation, markdown preview, line operations',
     hint: 'Enable utility tools (create_backup, list_backups, restore_backup, delete_backup, cleanup_backups, generate_chart, markdown_preview, delete_lines).',
-  }, DEFAULT_CONFIG.utility)
+    }, DEFAULT_CONFIG.utility)
+
+
+  // ── 📋 TASK PLANNING TOOLS ───────────────────────────────────────
+
+  .field('taskPlanning', 'boolean', {
+
+    displayName: '📋 Task Planning Tools',
+
+    subtitle: 'Structured multi-step workflow tools',
+
+    hint: 'Enable create_plan, update_plan_step, and get_plan tools for structured task execution.',
+
+  }, DEFAULT_CONFIG.taskPlanning)
 
 
 
