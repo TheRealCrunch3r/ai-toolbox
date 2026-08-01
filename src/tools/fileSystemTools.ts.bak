@@ -531,13 +531,13 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
   }));
 
 
-// insert_at_line tool — FIXED: All safety features + READ-BACK DRIFT DETECTION (P0-P3 priority)
+// insert_at_line tool — FIXED: All safety features added (P0-P3 priority)
   tools.push(tool({
     name: 'insert_at_line',
-    description: `Insert content at a specific line number in a file. Includes binary protection, size limits, atomic writes, optional backups, and automatic drift detection.
+    description: `Insert content at a specific line number in a file. Includes binary protection, size limits, atomic writes, and optional backups.
 
 ⚠️ CRITICAL LIMITATION — Line Number Drift:
-After each insertion, ALL subsequent lines shift DOWN by the number of inserted lines.
+After each insertion, ALL subsequent lines shift DOWN by the number of inserted lines. 
 For MULTIPLE sequential inserts in the same file, hard line numbers become STALE after the first insertion.
 
 RECOMMENDATIONS:
@@ -546,7 +546,9 @@ RECOMMENDATIONS:
 - Structural changes (adding fields to schema + default + configSchematics): Always use save_file or replace_text_in_file
 - Line-number-resistant alternative: insert_after_pattern / insert_before_pattern (in line_operations tool) — finds target by text content, not line numbers
 
-If using hard line numbers for multiple operations, recalculate after each insertion: new_line = original_line + sum(lines_added_so_far).`,
+If using hard line numbers for multiple operations, recalculate after each insertion: new_line = original_line + sum(lines_added_so_far).
+
+Enable verify_before_insert=true to catch drift errors early.`,
     parameters: {
       file_name: z.string().describe('The file to modify'),
       line_number: z.number().int().min(1).describe('The line number to insert at (1-indexed)'),
@@ -620,60 +622,17 @@ If using hard line numbers for multiple operations, recalculate after each inser
 try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPath) { try { await fs.copyFile(backupPath, fullPath); } catch {} }; return handleError(err); }
 
 
-        // ========== HARD FIX — Read-Back Drift Detection ==========
-        // After writing, read the file back and verify content landed at the correct position.
-        // This catches drift errors caused by stale line numbers from prior insertions.
-        let driftWarning: string | null = null;
-        try {
-          const postWriteBuffer = await fs.readFile(fullPath);
-          const postWriteContent = postWriteBuffer.toString('utf-8');
-          const postLines = hasCRLF_insert ? postWriteContent.split('\r\n') : postWriteContent.split('\n');
-
-          // Check if the inserted content exists at or near the target line in the written file.
-          // We look within a ±3 line window to account for minor variations.
-          const searchStart = Math.max(1, line_number - 3);
-          const searchEnd = Math.min(postLines.length, line_number + textToInsert.split('\n').length + 3);
-          let foundAtLine: number | null = null;
-
-          // Build a multi-line search key (first line of inserted content)
-          const insertFirstLine = textToInsert.split('\n')[0];
-
-          for (let i = searchStart - 1; i < searchEnd && i < postLines.length; i++) {
-            if (postLines[i] === textToInsert || postLines[i].includes(insertFirstLine)) {
-              foundAtLine = i + 1; // Convert to 1-indexed
-              break;
-            }
-          }
-
-          if (foundAtLine !== null && foundAtLine !== line_number) {
-            driftWarning = `⚠️ DRIFT DETECTED: Content inserted at line ${foundAtLine} instead of requested line ${line_number}. Previous edits shifted the file. Use save_file or replace_text_in_file for multi-step changes.`;
-          }
-
-        } catch (driftErr) {
-          // Non-critical — drift detection failure should not block success
-          console.warn(`[insert_at_line] Drift detection read-back failed: ${(driftErr as Error).message}`);
-        }
-
-
         // ========== P3 FIX: Rich Return Data with Context ==========
-        const responseData = {
-          insertedAt: line_number,
-          file: fullPath,
-          bytesWritten: Buffer.byteLength(newContent, 'utf-8'),
-          backupCreated: backupPath,
-          totalLines: lines.length,
+        return {
+          success: true,
+          data: {
+            insertedAt: line_number,
+            file: fullPath,
+            bytesWritten: Buffer.byteLength(newContent, 'utf-8'),
+            backupCreated: backupPath,
+            totalLines: lines.length,
+          },
         };
-
-        // Include drift warning in response if detected
-        if (driftWarning) {
-          return {
-            success: true,
-            data: responseData,
-            warnings: [driftWarning],
-          };
-        }
-
-        return { success: true, data: responseData };
       } catch (error) {
         // ========== P3 FIX: Enhanced Error Context ==========
         const message = error instanceof Error ? error.message : String(error);

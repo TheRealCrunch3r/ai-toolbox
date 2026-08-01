@@ -59,11 +59,7 @@ The following tools ONLY accept HTTP/HTTPS URLs and will FAIL with "Only HTTP an
       sections.push(this.getExecutionDocs());
     }
     
-    // Prepend critical protocol warnings to ensure LLMs see them first
-    const allDocs = [protocolWarning, ...sections].join('\n\n---\n\n');
-    console.log(`[ToolsDoc] Generated ${allDocs.length} chars of documentation`);
-    
-    return allDocs;
+    return sections.join('\n\n---\n\n');
   }
 
   /**

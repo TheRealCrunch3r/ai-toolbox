@@ -30,12 +30,6 @@ Prior to this fix:
 - **Test console suppression**: Uses `jest.spyOn(console, 'error')` in `beforeEach` + `mockRestore()` in `afterEach` — proper cleanup per test, no global state pollution.
 - **Token ratio calibration**: ×0.25 applied directly; existing +10% buffer in ContextGuard yields effective ~0.275 multiplier for final token count.
 
-### Documentation Improvements (v1.8.7)
-- ✅ Created `CRITICAL_TOOL_USAGE_RULES.md` — comprehensive protocol restriction guide preventing local file paths from being passed to HTTP/HTTPS-only web fetching tools (`searxng_batch_fetch`, etc.)
-- ✅ Updated `src/toolsDocumentation.ts` with critical protocol warnings at top of every tool documentation block
-- ✅ Added `src/tools/toolProtocolWarnings.ts` — TypeScript module for programmatic access to tool restriction guidelines
-- ✅ Updated `DOCUMENTATION.md` with quick reference decision tree and examples
-
 **Total**: 6 files modified (`src/config.ts`, `src/contextGuard.ts`, `src/promptPreprocessor.ts`, `src/tools/fileSystemTools.ts`, `tests/webResearchTools.test.ts`, plus version bump across 6 MD/JSON files), zero breaking changes, fully backward compatible. All 23 test suites pass (~370 tests), `npm run build` compiles cleanly.
 
 ---

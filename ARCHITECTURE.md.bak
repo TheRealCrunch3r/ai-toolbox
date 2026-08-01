@@ -966,7 +966,7 @@ src/
 │   ├── documentTools.ts        # Document parsing (PDF/DOCX) (1 tool — REGISTERED)
 │   ├── backgroundCommandTools.ts # Background process management (3 tools — REGISTERED)
 │   ├── executionTools.ts       # Code execution JS/Python/Terminal (5 tools — REGISTERED)
-│   ├── utilityTools.ts         # Utility tools (~25 tools — REGISTERED under 'utility' toggle)
+│   ├── utilityTools.ts         # Utility tools (35 tools — NOT YET REGISTERED)
 │   ├── imageProcessingTools.ts # Image processing & OCR (4 tools — REGISTERED)
 │   ├── httpClientTools.ts      # HTTP client operations (3 tools — REGISTERED)
 │   ├── vectorRagTools.ts       # Vector RAG semantic search (4 tools — REGISTERED)
@@ -974,11 +974,10 @@ src/
 │   ├── uiGenerationTools.ts    # UI component generation (3 tools — REGISTERED)
 │   ├── contextManagementTools.js # Context management & tracking (12 tools — REGISTERED)
 │   ├── refactorCodeTools.ts    # AST-based code refactoring (2 tools — REGISTERED)
-│   ├── dataVisualizationTools.ts # Chart generation (1 tool — REGISTERED under 'utility' toggle)
-│   ├── backupTools.ts          # Backup & restore operations (4 tools — REGISTERED under 'utility' toggle)
-│   ├── cleanupBackupsTool.ts   # Cleanup backups utility (1 tool — REGISTERED under 'utility' toggle)
+│   ├── dataVisualizationTools.ts # Chart generation (1 tool — NOT YET REGISTERED)
+│   ├── backupTools.ts          # Backup & restore operations (4 tools — NOT YET REGISTERED)
 │   ├── gatewayTools.ts         # Gateway pattern (v1.6.2 design, 2 tools — NOT YET REGISTERED)
-│   └── lineOperations.ts       # Line-level text operations (1 tool — REGISTERED under 'utility' toggle)
+│   └── lineOperations.ts       # Line-level text operations (1 tool — NOT YET REGISTERED)
 └── types/                      # Type definitions
     └── types.d.ts
 

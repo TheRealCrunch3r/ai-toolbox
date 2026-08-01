@@ -656,28 +656,6 @@ export class AutoTracker {
       `  Transition History (last ${this.transitionHistory.length}): ${JSON.stringify(this.transitionHistory.slice(-5))}`
     ].join('\n');
   }
-
-  /**
-   * Handle ContextGuard compression event — resets threshold tracking after context refresh.
-   */
-  onContextCompressed(): void {
-    debugLog('[COMPRESS]', 'ContextGuard triggered compression — resetting AutoTracker state');
-    
-    // Clear buffer since old actions are now invalid (context was compressed)
-    this.actionBuffer = [];
-    this._nearThresholdWarned = false;
-    
-    // Reset FSM to IDLE so threshold can be re-evaluated on the fresh context
-    if (this.currentState !== AutoTrackState.IDLE) {
-      debugLog('[RESET]', `Explicit reset from ${this.currentState} → IDLE after compression`);
-      this.transitionTo(AutoTrackState.IDLE, 'context_compressed');
-    } else {
-      debugLog('[RESET]', 'Already in IDLE state — no action needed');
-    }
-    
-    // Clear pending warning so it doesn't trigger again on the fresh context
-    this.pendingCheckpointWarning = undefined;
-  }
 }
 
 // ==================== SINGLETON INSTANCE ====================

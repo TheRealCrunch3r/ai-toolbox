@@ -112,7 +112,7 @@ The plugin is installed as an LM Studio plugin. Ensure you have:
 1. **Load the plugin** in LM Studio's plugin settings
 2. **Configure tool access** — individual tool categories can be toggled on/off via the Settings panel. Note that some tools (like Execution) are disabled by default for security.
 3. **Authenticate with GitHub**: Run `gh auth login` in your terminal once to enable remote operations (`gh_create_issue`, `gh_list_prs`, etc.). The plugin will detect authentication status automatically.
-4. **Start a chat** and the AI can now use any of the **~90** registered tools based on configuration settings (configurable per user).
+4. **Start a chat** and the AI can now use any of the **119** available tools based on configuration settings.
 
 ---
 

@@ -779,30 +779,3 @@ export const configSchematics = createConfigSchematics()
   // ── 🛠️ GRAMMAR PARSER LIMITS (P0 Fix) ──────────────────────────────
 
   .build();
-
-// ==================== Utility Functions ====================
-
-/**
- * Validates a config object against the schema.
- * Returns the validated config if valid, throws on invalid input.
- */
-export function validateConfig(config: Partial<PluginConfig>): PluginConfig {
-  const result = ConfigSchema.safeParse(config);
-  if (!result.success) {
-    throw new Error(
-      `Invalid configuration:\n${result.error.errors.map((e) => `  - ${e.path.join('.')}: ${e.message}`).join('\n')}`
-    );
-  }
-  return result.data;
-}
-
-/**
- * Checks if a specific tool category is enabled in the config.
- * @param config - The plugin configuration object
- * @param category - The tool category to check (must be a key of PluginConfig)
- * @returns true if the category is enabled, false otherwise
- */
-export function isToolEnabled(config: PluginConfig, category: keyof PluginConfig): boolean {
-  const value = config[category];
-  return typeof value === 'boolean' && value === true;
-}

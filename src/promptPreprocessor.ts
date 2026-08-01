@@ -404,8 +404,8 @@ export async function preprocess(
         } catch (e) {
           console.warn('[TokenDebug] Failed to iterate native history:', e);
         }
-        const estimatedHistoryTokens = Math.ceil(historyTextLength * 0.24);
-        console.log(`[TokenDebug] History Text Length: ${historyTextLength} chars | Est. Tokens (x0.24): ${estimatedHistoryTokens}`);
+        const estimatedHistoryTokens = Math.ceil(historyTextLength * 0.25 * 1.10); // base × +10% buffer
+        console.log(`[TokenDebug] History Text Length: ${historyTextLength} chars | Est. Tokens (x0.25 + 10%): ${estimatedHistoryTokens}`);
       }
       console.log(`[TokenDebug] Total Tool calls: ${toolCallCount}, Total Files/Images: ${imageCount}`);
 

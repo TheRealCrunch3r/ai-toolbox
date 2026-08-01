@@ -106,6 +106,9 @@ export class ContextGuard {
   private cachedModelRef: any = null;
   private cachedModelId: string | null = null;
 
+  // 🔹 Optional callback invoked when compression occurs (for coordinating with AutoTracker)
+  onCompression?: () => void;
+
   constructor(config: ContextGuardConfig, lmClient: LMStudioClient | null = null) {
     this.config = config;
     this.lmClient = lmClient;
@@ -122,10 +125,10 @@ export class ContextGuard {
 
   /**
    * Counts tokens efficiently with caching.
-   * Uses History Text Length × 0.25 → SDK native counting → Tiktoken estimation.
+   * Uses History Text Length × 0.25 + 10% buffer → SDK native counting → Tiktoken estimation.
    * 
    * 🔥 PRIORITY ORDER:
-   * 1. History Text Length × 0.25 — Matches LM Studio sidebar exactly (verified empirically)
+   * 1. History Text Length × 0.25 × 1.10 (effective ~0.264) — Matches LM Studio sidebar exactly (+10% safety buffer)
    * 2. SDK PredictionResult.stats — From model.respond().result().stats
    * 3. SDK native countTokens() — Model-specific tokenization
    * 4. Tiktoken estimation — Fallback when all above unavailable
@@ -140,10 +143,10 @@ export class ContextGuard {
     // 🔹 P1 #3: Conditional logging
     debugLog('[COUNT]', `Processing ${messages.length} messages.`);
 
-    // ✅ PRIMARY METHOD: If historyTextLength is provided (from native API), use ×0.24 ratio
+    // ✅ PRIMARY METHOD: If historyTextLength is provided (from native API), use ×0.25 + 10% buffer ratio
     // This matches LM Studio's sidebar exactly and avoids SDK overestimation (~124k vs ~80k)
     if (historyTextLength != null && historyTextLength > 0) {
-      const primaryTokenCount = Math.ceil(historyTextLength * 0.24);
+      const primaryTokenCount = Math.ceil(historyTextLength * 0.25 * 1.10); // base × +10% buffer
       
       // Add image tokens if applicable (SDK doesn't account for multi-modal images automatically)
       let totalTokens = primaryTokenCount;
@@ -153,7 +156,7 @@ export class ContextGuard {
       
       this.cachedTokenCount = totalTokens;
       this._lastMessageHash = this.computeMessageHash(messages);
-      console.log(`[ContextGuard] ✅ Primary count: ${historyTextLength.toLocaleString()} chars → ${primaryTokenCount.toLocaleString()} tokens (×0.24)`);
+      console.log(`[ContextGuard] ✅ Primary count: ${historyTextLength.toLocaleString()} chars → ${primaryTokenCount.toLocaleString()} tokens (×0.25 + 10% buffer)`);
       return totalTokens;
     }
 
@@ -479,6 +482,11 @@ SUMMARY:`;
           messagesCompressed: toCompress.length,
           timestamp: new Date()
         };
+
+        // 🔹 Notify listeners (e.g., AutoTracker) that compression occurred
+        if (this.onCompression) {
+          this.onCompression();
+        }
         
         const tokensSaved = originalTokenCount - compressedTokenCount;
         const percentageSaved = Math.round((tokensSaved / originalTokenCount) * 100);
@@ -522,6 +530,11 @@ SUMMARY:`;
       messagesCompressed: toCompress.length,
       timestamp: new Date()
     };
+
+    // 🔹 Notify listeners (e.g., AutoTracker) that compression occurred
+    if (this.onCompression) {
+      this.onCompression();
+    }
     
     // Visual indicator for fallback
     const fallbackIndicator = {

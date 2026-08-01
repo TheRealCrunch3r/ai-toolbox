@@ -554,4 +554,4 @@ All tools implement multiple security layers:
 
 ---
 
-*Reference generated from actual source code analysis on 2026-08-01 (v1.8.7). All tool counts verified against `toolsProvider.ts` registry entries and `src/tools/*.ts`. insert_at_line read-back drift detection documented with v1.8.7 hard fix.*
+*Reference generated from actual source code analysis on 2026-07-27 (v1.8.2). All tool counts verified against `toolsProvider.ts` registry entries and `src/tools/*.ts`. line_operations guardrails documented with v1.7.0 safety features.*

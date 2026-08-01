@@ -34,18 +34,11 @@ jest.mock('../src/performanceUtils', () => {
 });
 
 describe('Web Research Tools', () => {
-  let consoleErrorSpy: jest.SpyInstance;
   let tools: ReturnType<typeof registerWebResearchTools>;
 
   beforeEach(() => {
     jest.clearAllMocks();
-    // Suppress search engine fallback warnings in tests (expected behavior)
-    consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     tools = registerWebResearchTools(DEFAULT_CONFIG);
-  });
-
-  afterEach(() => {
-    consoleErrorSpy.mockRestore();
   });
 
   test('should register web research tools', () => {

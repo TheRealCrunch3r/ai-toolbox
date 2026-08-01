@@ -1,42 +1,8 @@
 # Documentation Update Summary — AI Toolbox Plugin
 
-**Date**: 2026-08-01  
-**Version**: v1.8.7 (Token Counting Calibration, Config Exports, Drift Detection & Version Bump)  
+**Date**: 2026-07-28  
+**Version**: v1.8.7 (Task Planning Tools — Structured Multi-Step Workflow Management)  
 **Status**: ✅ Complete
-
----
-
-## 🚨 CRITICAL TOOL USAGE RULES — PROTOCOL RESTRICTIONS
-
-### ⚠️ NEVER PASS LOCAL FILES TO WEB FETCHING TOOLS
-
-The following tools **ONLY accept HTTP/HTTPS URLs** and will FAIL with `"Only HTTP and HTTPS URLs are allowed"` if given file:// paths:
-- `searxng_batch_fetch(urls)` — Batch fetch multiple REMOTE pages (HTTP/HTTPS only!)
-- `fetch_web_content(url)` — Fetch single remote webpage (HTTP/HTTPS only!)
-- `searxng_search(query)` — Web search ONLY, not local file access!
-
-### ✅ For LOCAL files, use filesystem tools instead:
-- `read_file(file_name="CHANGELOG.md")` — Read single local file
-- `find_files(pattern=".md", max_depth=5)` — Find files by name pattern, then read each result
-
-**❌ WRONG (will fail):** `searxng_batch_fetch(urls=["file:///C:/path/file.md"])`  
-**✅ CORRECT:** `read_file(file_name="CHANGELOG.md", max_length=5000)` for local files
-
-### 📋 Tool Selection Decision Tree
-```
-Step 1: Is this a LOCAL file or REMOTE URL?
-
-IF LOCAL FILE (file://, C:/path/, ./relative/):
-  → Use read_file(file_name) for single files
-  → Use find_files(pattern) to search first, then read each result
-
-IF REMOTE URL (http://, https://):
-  → Use fetch_web_content(url) for single page
-  → Use searxng_batch_fetch(urls=[...]) for multiple pages at once
-  → Use searxng_search(query="...") for web search only
-```
-
-**See `CRITICAL_TOOL_USAGE_RULES.md` in project root for complete reference.**
 
 ---
 

@@ -40,11 +40,6 @@ export function main(context: PluginContext) {
     terminalFilterLength: 2000,  // Max chars before truncation
   });
   
-  // 🔹 Coordinate ContextGuard + AutoTracker: when compression happens, reset AutoTracker state
-  contextGuard.onCompression = () => {
-    autoTracker.onContextCompressed();
-  };
-
   // Connect ContextGuard to the prompt preprocessor
   setContextGuard(contextGuard);
   
