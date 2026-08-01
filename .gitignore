@@ -28,3 +28,5 @@ Thumbs.db
 
 # AI Toolbox hidden session context (auto-generated, never commit)
 .session_context/
+# Backup files (auto-generated during development)
+*.bak
