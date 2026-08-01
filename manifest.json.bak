@@ -1,8 +1,0 @@
-{
-  "type": "plugin",
-  "runner": "node",
-  "owner": "crunch3r",
-  "name": "ai-toolbox",
-  "version": "1.8.6",
-  "revision": 17
-}
