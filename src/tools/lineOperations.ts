@@ -9,6 +9,7 @@ import { z } from 'zod';
 import type { PluginConfig } from '../config';
 import { getWorkingDir, resolvePath } from '../workingDir';
 import { validatePath } from '../security';
+import { recordFileModification } from './fileModTracker';
 
 /**
  * Delete a range of lines from a file safely.
@@ -88,7 +89,20 @@ export function registerLineOperationsTools(_config: PluginConfig): Tool[] {
           fs.writeFileSync(tmpPath, hasCRLF_dl ? lines.join('\r\n') : lines.join('\n'), 'utf-8');
           fs.renameSync(tmpPath, fullPath);
 
-          return {
+          // Track consecutive modifications for drift warning
+          const modTracking = recordFileModification(fullPath, 'delete_lines');
+
+          const responseData: {
+            success: boolean;
+            data: {
+              deletedLines: number;
+              deletedToLine: number;
+              linesDeleted: number;
+              remainingLines: number;
+              filePath: string;
+              guidance?: string;
+            };
+          } = {
             success: true,
             data: {
               deletedLines: start_line,
@@ -98,6 +112,12 @@ export function registerLineOperationsTools(_config: PluginConfig): Tool[] {
               filePath: fullPath,
             },
           };
+
+          if (modTracking.guidance) {
+            responseData.data.guidance = modTracking.guidance;
+          }
+
+          return responseData;
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           return { success: false, error: `Failed to delete lines: ${message}` };

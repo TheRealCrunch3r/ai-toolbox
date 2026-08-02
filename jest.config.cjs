@@ -66,6 +66,10 @@ module.exports = {
     // ── Fallback: catch any other ./tools/*.js dynamic imports not explicitly mapped ──
     '^\\.\\/tools/(.*)\\.js$': '<rootDir>/tests/__mocks__/$1.ts',
 
+    // ── Same-directory .js imports from src/tools/ (e.g., fileModTracker.js) ──
+    '^\\.\\/fileModTracker\\.js$': '<rootDir>/tests/__mocks__/fileModTracker.ts',
+    '^\\.\\/restoreFromBak\\.js$': '<rootDir>/tests/__mocks__/restoreFromBak.ts',
+
     // ── Package-level mock redirects (ESM-only deps) ──
     '^archiver$': '<rootDir>/tests/__mocks__/archiver.ts',
     '^unzipper$': '<rootDir>/tests/__mocks__/unzipper.ts',

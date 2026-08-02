@@ -24,6 +24,7 @@ import { registerDataVisualizationTools } from './tools/dataVisualizationTools.j
 import { registerDatabaseTools } from './tools/databaseTools.js';
 import { registerDocumentTools } from './tools/documentTools.js';
 import { registerExecutionTools } from './tools/executionTools.js';
+import { registerRestoreFromBakTools } from './tools/restoreFromBak.js';
 import { registerFileSystemTools } from './tools/fileSystemTools.js';
 import { registerGitTools } from './tools/gitGithubTools.js';
 import { registerHttpClientTools } from './tools/httpClientTools.js';
@@ -137,6 +138,7 @@ export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[
     { key: 'utility', register: () => registerBackupTools(config) },
     { key: 'utility', register: () => registerCleanupBackupsTool(config) },
     { key: 'utility', register: () => registerDataVisualizationTools(config) },
+    { key: 'utility', register: () => registerRestoreFromBakTools(config) },
     { key: 'utility', register: () => registerLineOperationsTools(config) },
     { key: 'utility', register: () => registerMarkdownPreviewTools(config) },
 

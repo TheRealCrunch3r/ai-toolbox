@@ -124,7 +124,7 @@ export function main(context: PluginContext) {
 }
 ```
 
-### 2. Tool Registration Flow (Current State — v1.8.7)
+### 2. Tool Registration Flow (Current State — v1.8.8)
 
 ```
 toolsProvider() called by LM Studio SDK
@@ -158,7 +158,7 @@ createToolsProvider(config, stateManager, bgCommandManager)
             ├── registerExecutionTools()       ──► 5 tools (mixed defaults)
             │
             ▼
-        Return Tool[] to SDK ──► **~90 unique tools** registered across ~20 categories (configurable per user)
+        Return Tool[] to SDK ──► **~97 unique tools** registered across 20 categories (configurable per user)
 ```
 
 ### ✅ Gateway Pattern Status (v1.8.2+) — ⚠️ ABANDONED
@@ -802,7 +802,7 @@ promptPreprocessor() → Native History API Iteration
     ▼
 contextGuard.countTokens(messages, imageCount, modelId, systemPrompt, historyTextLength)
     │
-    ├── PRIMARY METHOD: History Text Length × 0.25 ratio (v1.8.7+) — effective ~0.275 with +10% buffer
+    ├── PRIMARY METHOD: History Text Length × 0.25 ratio (v1.8.8+) — effective ~0.275 with +10% buffer
     │   ├── If historyTextLength provided from native API iteration:
     │   │         │
     │   │         ├── primaryTokenCount = Math.ceil(historyTextLength * 0.25)
@@ -1066,6 +1066,6 @@ All tool categories are now fully registered in `toolsProvider.ts` using the dec
 | Line Operations | lineOperations.ts | 1 | ✅ Yes | Utility toggle |
 | Markdown Preview | markdownPreviewTools.ts | 1 | ✅ Yes | Utility toggle |
 | Task Planning | taskPlanningTools.ts | 3 | ✅ Yes | Enabled (default) |
-| **Total Registered** | | **~90 unique tools** | | |
+| **Total Registered** | | **~97 unique tools** | | |
 
 > **Note**: All previously "unregistered" utility tool categories (backup, data visualization, line operations, markdown preview) are now properly registered in `toolsProvider.ts` under the `utility` config key. The gateway pattern (`gatewayTools.ts`) exists but is not imported/registered — direct SDK registration with schema minification handles grammar parser compatibility.

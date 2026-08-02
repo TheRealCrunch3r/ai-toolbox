@@ -7,6 +7,7 @@ import type { Tool } from '@lmstudio/sdk';
 import { tool } from '@lmstudio/sdk';
 import { z } from 'zod';
 import * as fs from 'fs/promises';
+import { recordFileModification } from './fileModTracker.js';
 import type { PluginConfig } from '../config.js';
 import { validatePath } from '../security.js';
 import { getWorkingDir, resolvePath } from '../workingDir.js';
@@ -199,13 +200,25 @@ export function registerTextProcessingTools(_config: PluginConfig): Tool[] {
           return handleError(error);
         }
 
+        // Track consecutive modifications for drift warning
+        const modTracking = recordFileModification(fullPath, 'text_transform');
+
+        // Announce .bak backup availability for LLM awareness during corruption recovery
+        let backupAnnouncement: string | undefined;
+        if (backup_created) {
+          const bakFilename = fullPath.split(/[/\\]/).pop() || fullPath;
+          backupAnnouncement = `📋 BACKUP AVAILABLE: A .bak file was created at '${bakFilename}.bak'. If you need to undo this change, use the 'restore_from_bak' tool with file_name='${bakFilename}'`;
+        }
+
         return { success: true, data: { 
           transformed: true,
           total_changes_applied: changesApplied,
           backup_created,
           lines_processed: lines ? `${lines.start ?? 1}-${lines.end}` : 'all',
           pattern_used: pattern,
-          replacement_used: replacement || '(deletion)'
+          replacement_used: replacement || '(deletion)',
+          ...(modTracking.guidance && { guidance: modTracking.guidance }),
+          ...(backupAnnouncement && { backup_message: backupAnnouncement }),
         }};
       } catch (error) {
         return handleError(error);
@@ -443,15 +456,16 @@ EXAMPLE:
               }
             }
             
-            // Split multi-line content into individual lines for proper insertion
-            const insertLines = (content || '').split('\n');
-            linesArr.splice(insert_line - 1, 0, ...insertLines);
-            changes_made = insertLines.length;
+            // FIX: Split on \r?\n to handle both LF and CRLF content without leaving \r artifacts
+            const insertLines = (content || '').split(/\r?\n/);
             
-            // Warn if inserting large blocks — suggest replace_text_in_file instead
+            // FIX: Check BEFORE splice to prevent in-memory corruption
             if (insertLines.length > 5) {
               return { success: false, error: `Inserting ${insertLines.length} lines is discouraged. Use "replace_text_in_file" for multi-line operations to avoid line-number drift issues.` };
             }
+            
+            linesArr.splice(insert_line - 1, 0, ...insertLines);
+            changes_made = insertLines.length;
             
             // Auto-drift detection: track cumulative shifts across chained operations
             const expectedLength = insert_line + insertLines.length - 1;
@@ -470,7 +484,9 @@ EXAMPLE:
              
             let deleteStart = target_line ?? (lines?.start ?? 0);
              
-            let deleteEnd = lines?.end ?? target_line ?? linesArr.length;
+            // FIX: When lines.start is provided without lines.end, default to single-line delete
+            // (not end-of-file). This prevents accidental mass deletion when LLM forgets lines.end.
+            let deleteEnd = lines?.end ?? (lines?.start ?? target_line ?? linesArr.length);
 
             // Validate range
             if (deleteStart < 1 || deleteEnd > linesArr.length || deleteStart > deleteEnd) {
@@ -524,14 +540,37 @@ EXAMPLE:
           return handleError(error);
         }
 
+        // Track consecutive modifications for drift warning
+        const modTracking = recordFileModification(fullPath, `line_operations_${operation}`);
 
-        return { success: true, data: { 
+        // Announce .bak backup availability for LLM awareness during corruption recovery
+        let backupAnnouncement: string | undefined;
+        if (backupPath) {
+          const bakFilename = fullPath.split(/[/\\]/).pop() || fullPath;
+          backupAnnouncement = `📋 BACKUP AVAILABLE: A .bak file was created at '${bakFilename}.bak'. If you need to undo this change, use the 'restore_from_bak' tool with file_name='${bakFilename}'`;
+        }
+
+        const responseData: { 
+          operations_performed: string;
+          changes_applied: number;
+          total_lines_after: number;
+          backup_created: string | null;
+          message: string;
+          backup_message?: string;
+        } = { 
           operations_performed: operation,
           changes_applied: changes_made,
           total_lines_after: linesArr.length,
           backup_created: backupPath,
           message: `${operation.charAt(0).toUpperCase() + operation.slice(1)} operation completed successfully`
-        }};
+        };
+
+        // Include guidance in data if tracking detected repeated operations
+        const response = { 
+          success: true, 
+          data: { ...responseData, ...(modTracking.guidance && { guidance: modTracking.guidance }), ...(backupAnnouncement && { backup_message: backupAnnouncement }) }
+        };
+        return response;
       } catch (error) {
         return handleError(error);
       }

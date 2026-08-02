@@ -9,6 +9,7 @@ import { spawn } from 'child_process';
 import type { PluginConfig } from '../config.js';
 import type { StateManager } from '../stateManager.js';
 import { validatePath, isSafeRegex } from '../security.js';
+import { recordFileModification } from './fileModTracker.js';
 import { getWorkingDir, setWorkingDir, resolvePath } from '../workingDir.js';
 import {
   levenshteinSimilarity,
@@ -71,6 +72,17 @@ interface ChangeDirectoryParams { directory: string; }
 function handleError(error: unknown): { success: false; error: string } {
   const message = error instanceof Error ? error.message : String(error);
   return { success: false, error: message };
+}
+
+/** Create backup announcement message for LLM awareness of .bak files */
+function createBackupAnnouncement(backupPath: string | null): string | null {
+  if (!backupPath) return null;
+  
+  // Extract just the filename (not full path) for readability
+  const bakFilename = backupPath.split(path.sep).pop() || backupPath;
+  const originalFile = bakFilename.slice(0, -4); // Remove .bak suffix
+  
+  return `📋 BACKUP AVAILABLE: A .bak file was created at '${bakFilename}'. If you need to undo this change, use the 'restore_from_bak' tool with file_name='${originalFile}'`;
 }
 
 
@@ -462,9 +474,14 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
         // Normalize both file content and search string for matching
         let normalizedContent = content;
         let normalizedOld = old_string;
+        // FIX P0: Also normalize the replacement string to prevent \r\r\n corruption
+        // When hasCRLF=true, the restore step converts ALL \n to \r\n.
+        // If new_string already had \r\n, those become \r\r\n → double carriage return.
+        let normalizedNew = new_string;
         if (normalize_line_endings) {
           normalizedContent = content.replace(/\r\n/g, '\n');
           normalizedOld = old_string.replace(/\r\n/g, '\n');
+          normalizedNew = new_string.replace(/\r\n/g, '\n');
         }
 
         // ========== P0 FIX: Verify old_string exists in file ==========
@@ -477,10 +494,10 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
         let newContent: string;
         if (global) {
           // Replace ALL occurrences using split/join on normalized content
-          newContent = normalizedContent.split(normalizedOld).join(new_string);
+          newContent = normalizedContent.split(normalizedOld).join(normalizedNew);
         } else {
           // Replace only FIRST occurrence (firstIndex already computed above)
-          newContent = normalizedContent.substring(0, firstIndex) + new_string + normalizedContent.substring(firstIndex + normalizedOld.length);
+          newContent = normalizedContent.substring(0, firstIndex) + normalizedNew + normalizedContent.substring(firstIndex + normalizedOld.length);
         }
 
         // ========== P1 FIX: Restore original line ending style ==========
@@ -511,9 +528,22 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
         // ========== P1 FIX: Atomic Write (Bug #4) ==========
         try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPath) { try { await fs.copyFile(backupPath, fullPath); } catch {} }; return handleError(err); }
 
+        // Track consecutive modifications for drift warning
+        const modTracking = recordFileModification(fullPath, 'replace_text_in_file');
+
 
         // ========== P3 FIX: Rich Return Data with Context ==========
-        return {
+        const responseData: {
+          success: boolean;
+          data: {
+            file: string;
+            replacements: number;
+            bytesWritten: number;
+            backupCreated: string | null;
+            guidance?: string;
+            backupMessage?: string;
+          };
+        } = {
           success: true,
           data: {
             file: fullPath,
@@ -522,6 +552,18 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
             backupCreated: backupPath,
           },
         };
+
+        if (modTracking.guidance) {
+          responseData.data.guidance = modTracking.guidance;
+        }
+
+        // Announce .bak backup availability for LLM awareness during corruption recovery
+        const bakAnnouncement = createBackupAnnouncement(backupPath);
+        if (bakAnnouncement) {
+          responseData.data.backupMessage = bakAnnouncement;
+        }
+
+        return responseData;
       } catch (error) {
         // ========== P3 FIX: Enhanced Error Context ==========
         const message = error instanceof Error ? error.message : String(error);
@@ -613,7 +655,9 @@ If using hard line numbers for multiple operations, recalculate after each inser
         }
 
         // ========== P0 FIX: Insert content ==========
-        lines.splice(line_number - 1, 0, textToInsert);
+        // FIX: Split multi-line content to prevent mixed line endings in CRLF files
+        const insertLines = textToInsert.split(/\r?\n/);
+        lines.splice(line_number - 1, 0, ...insertLines);
         const newContent = hasCRLF_insert ? lines.join('\r\n') : lines.join('\n');
 
         // ========== P1 FIX: Atomic Write (Bug #4) ==========
@@ -654,26 +698,53 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
           console.warn(`[insert_at_line] Drift detection read-back failed: ${(driftErr as Error).message}`);
         }
 
+        // Track consecutive modifications for drift warning
+        const modTracking = recordFileModification(fullPath, 'insert_at_line');
+
 
         // ========== P3 FIX: Rich Return Data with Context ==========
-        const responseData = {
-          insertedAt: line_number,
-          file: fullPath,
-          bytesWritten: Buffer.byteLength(newContent, 'utf-8'),
-          backupCreated: backupPath,
-          totalLines: lines.length,
+        const responseData: {
+          success: boolean;
+          data: {
+            insertedAt: number;
+            file: string;
+            bytesWritten: number;
+            backupCreated: string | null;
+            totalLines: number;
+            guidance?: string;
+            backupMessage?: string;
+          };
+          warnings?: string[];
+        } = {
+          success: true,
+          data: {
+            insertedAt: line_number,
+            file: fullPath,
+            bytesWritten: Buffer.byteLength(newContent, 'utf-8'),
+            backupCreated: backupPath,
+            totalLines: lines.length,
+          },
         };
+
+        if (modTracking.guidance) {
+          responseData.data.guidance = modTracking.guidance;
+        }
+
+        // Announce .bak backup availability for LLM awareness during corruption recovery
+        const bakAnnouncement = createBackupAnnouncement(backupPath);
+        if (bakAnnouncement) {
+          responseData.data.backupMessage = bakAnnouncement;
+        }
 
         // Include drift warning in response if detected
         if (driftWarning) {
-          return {
-            success: true,
-            data: responseData,
-            warnings: [driftWarning],
-          };
+          if (responseData.warnings === undefined) {
+            responseData.warnings = [];
+          }
+          responseData.warnings.push(driftWarning);
         }
 
-        return { success: true, data: responseData };
+        return responseData;
       } catch (error) {
         // ========== P3 FIX: Enhanced Error Context ==========
         const message = error instanceof Error ? error.message : String(error);
@@ -763,9 +834,22 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
         // Use atomic write instead of appendFile
 try { await atomicWriteFile(fullPath, fullContent); } catch (err) { if (backupPath) { try { await fs.copyFile(backupPath, fullPath); } catch {} }; return handleError(err); }
 
+        // Track consecutive modifications for drift warning
+        const modTracking = recordFileModification(fullPath, 'append_file');
+
 
         // ========== P3 FIX: Rich Return Data with Context ==========
-        return {
+        const responseData: {
+          success: boolean;
+          data: {
+            appendedTo: string;
+            bytesAppended: number;
+            totalFileSize: number;
+            backupCreated: string | null;
+            guidance?: string;
+            backupMessage?: string;
+          };
+        } = {
           success: true,
           data: {
             appendedTo: fullPath,
@@ -774,6 +858,18 @@ try { await atomicWriteFile(fullPath, fullContent); } catch (err) { if (backupPa
             backupCreated: backupPath,
           },
         };
+
+        if (modTracking.guidance) {
+          responseData.data.guidance = modTracking.guidance;
+        }
+
+        // Announce .bak backup availability for LLM awareness during corruption recovery
+        const bakAnnouncement = createBackupAnnouncement(backupPath);
+        if (bakAnnouncement) {
+          responseData.data.backupMessage = bakAnnouncement;
+        }
+
+        return responseData;
       } catch (error) {
         // ========== P3 FIX: Enhanced Error Context ==========
         const message = error instanceof Error ? error.message : String(error);
@@ -861,8 +957,23 @@ try { await atomicWriteFile(fullPath, fullContent); } catch (err) { if (backupPa
         // ========== P1 FIX: Atomic Write (Bug #4) ==========
 try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPath) { try { await fs.copyFile(backupPath, fullPath); } catch {} }; return handleError(err); }
 
+        // Track consecutive modifications for drift warning
+        const modTracking = recordFileModification(fullPath, 'delete_lines_in_file');
+
         // ========== P3 FIX: Rich Return Data with Context ==========
-        return {
+        const responseData: {
+          success: boolean;
+          data: {
+            deletedLines: string;
+            linesDeleted: number;
+            file: string;
+            bytesWritten: number;
+            backupCreated: string | null;
+            remainingLines: number;
+            guidance?: string;
+            backupMessage?: string;
+          };
+        } = {
           success: true,
           data: {
             deletedLines: `${start_line}-${clampedEnd}`,
@@ -873,6 +984,18 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
             remainingLines: lines.length,
           },
         };
+
+        if (modTracking.guidance) {
+          responseData.data.guidance = modTracking.guidance;
+        }
+
+        // Announce .bak backup availability for LLM awareness during corruption recovery
+        const bakAnnouncement = createBackupAnnouncement(backupPath);
+        if (bakAnnouncement) {
+          responseData.data.backupMessage = bakAnnouncement;
+        }
+
+        return responseData;
       } catch (error) {
         // ========== P3 FIX: Enhanced Error Context ==========
         const message = error instanceof Error ? error.message : String(error);
@@ -1831,14 +1954,30 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
         let resultsCount = 0;
         const matches: Array<{ file: string; line_number: number; content: string; node_type?: string; context?: { function_signature?: string; class_context?: string; docblock?: string } }> = [];
 
-        // ==================== REGEX VALIDATION ====================
+        // ==================== REGEX VALIDATION + AUTO-ESCAPE ====================
         let regex: RegExp;
-        let patternMode: 'regex' | 'literal' = 'regex';
+        let patternMode: 'regex' | 'literal' | 'auto_escaped' = 'regex';
+
+        // FIX: Auto-detect code signatures and auto-escape special characters
+        // If pattern contains C/C++/Rust code indicators (*, &, ->, ::, template <>) and
+        // lacks explicit regex escaping (\*, \(, \)), treat as literal search.
+        const codeSignatureIndicators = ['::', '->', '<', '>'];
+        const hasCodeIndicator = codeSignatureIndicators.some(ind => pattern.includes(ind));
+        // NOTE: Even if the user escaped SOME chars (like \( \)), unescaped * + ? still cause hangs.
+        const hasUnescapedBacktrackingChar = /(?<!\\)[*+?]/.test(pattern);
+        const hasUnescapedCodeChar = /(?<!\\)[*&]/.test(pattern);
+        const looksLikeCodeSignature = hasCodeIndicator && (hasUnescapedBacktrackingChar || hasUnescapedCodeChar);
+
         try {
-          regex = new RegExp(pattern, 'i');
-          if (!isSafeRegex(pattern)) {
+          if (looksLikeCodeSignature) {
+            // Auto-escape: treat as literal string search (prevents catastrophic backtracking on C++ signatures)
+            regex = new RegExp(escapeRegExp(pattern), 'i');
+            patternMode = 'auto_escaped';
+          } else if (!isSafeRegex(pattern)) {
             regex = new RegExp(escapeRegExp(pattern), 'i');
             patternMode = 'literal';
+          } else {
+            regex = new RegExp(pattern, 'i');
           }
         } catch {
           return handleError(new Error(`Invalid regex pattern: ${pattern}`));
@@ -2064,13 +2203,21 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
           return handleError(new Error(`Path not found or inaccessible: '${targetDir}'`));
         }
 
+        // ==================== OPERATION TIMEOUT ====================
+        // FIX: Prevent indefinite hangs from regex backtracking or large directory trees
+        const GREP_TIMEOUT_MS = 30000; // 30 seconds max
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          setTimeout(() => reject(new Error(`grep_files timed out after ${GREP_TIMEOUT_MS / 1000}s. The pattern may contain unescaped regex special characters (*, +, ?, [, \\) causing excessive backtracking. Tip: escape them with \\ or use include: "*.ext" to limit file types.`)), GREP_TIMEOUT_MS);
+        });
+
         if (targetStats.isFile()) {
           // ==================== TARGET IS A FILE — search within it directly ====================
           console.log(`[grep_files] Detected single file '${targetDir}' — searching in-file instead of listing directory`);
+          await Promise.race([processFile(targetDir, path.basename(targetDir)), timeoutPromise]);
         } else {
           // ==================== TARGET IS A DIRECTORY — walk and search recursively (concurrent) ====================
           const concurrencyLimit = max_concurrent_files ?? 8;
-          await walkDirectory(targetDir, concurrencyLimit);
+          await Promise.race([walkDirectory(targetDir, concurrencyLimit), timeoutPromise]);
         }
 
         return {
@@ -2081,6 +2228,7 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
             truncated: resultsCount >= MAX_RESULTS,
             mode,
             patternMode,
+            ...(patternMode === 'auto_escaped' && { autoEscaped: true, hint: 'Pattern was auto-escaped as it appeared to be a code signature with unescaped regex special characters. Use include: "*.ext" to further limit search scope.' }),
           },
         };
       } catch (error) {

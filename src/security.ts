@@ -76,6 +76,15 @@ export function isSafeRegex(pattern: string): boolean {
   for (const dangerousPattern of dangerousPatterns) {
     if (pattern.includes(dangerousPattern)) return false;
   }
+
+  // FIX: Detect unescaped special chars in code-like patterns (e.g., C++ signatures with *, &, ->)
+  // Patterns like "List*", "ptr->", "const&" are almost certainly literal code searches, not regex.
+  // If the pattern contains code-signature indicators, treat as unsafe to force auto-escape.
+  const hasUnescapedCodeChar = /(?<!\\)[*+?&]/.test(pattern);
+  const looksLikeCodeSignature = /::|->|[\w][*&]|[\*&]\s+\w/.test(pattern);
+  if (hasUnescapedCodeChar && looksLikeCodeSignature) {
+    return false;  // Force literal/auto-escape mode in grep_files
+  }
   
   return true;
 }

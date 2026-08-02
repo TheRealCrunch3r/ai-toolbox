@@ -1,5 +1,49 @@
 # 📝 CHANGELOG
 
+## [1.8.8] - 2026-08-02 — 🛡️ .bak Backup Discovery & Restoration Tools + LLM Awareness
+
+**Added explicit LLM-accessible tools for discovering and restoring from `.bak` backup files created by file-modifying operations.**
+
+### What Changed
+- **NEW `src/tools/restoreFromBak.ts` module**: Implements two new tools registered under the `'utility'` config key:
+  - ✅ `restore_from_bak({ file_name })` — Restores a file from its `.bak` backup. Scans for `{file_name}.bak`, copies it back to original, deletes the `.bak`. Returns success/failure with details. If no backup exists, returns list of available backups.
+  - ✅ `list_available_bak_backups()` — Scans working directory for all `.bak` files and returns structured data: `{ file, backupFile, sizeBytes }` array.
+- **Backup announcements in tool responses**: All file-modifying tools now include an explicit `backupMessage` field in their response data that announces the `.bak` backup to the LLM:
+  ```
+  📋 BACKUP AVAILABLE: A .bak file was created at 'fileSystemTools.ts.bak'. 
+  If you need to undo this change, use the 'restore_from_bak' tool with 
+  file_name='src/tools/fileSystemTools.ts'
+  ```
+- **`createBackupAnnouncement()` helper** in `src/tools/fileSystemTools.ts`: Generates human-readable backup announcements for LLM awareness during corruption recovery.
+- **Enhanced responses across 6 tools**:
+  - `replace_text_in_file`, `insert_at_line`, `append_file`, `delete_lines_in_file` (fileSystemTools.ts)
+  - `text_transform`, `line_operations` (textProcessingTools.ts)
+- **Jest mock updates**: Added manual mocks for new modules in tests to prevent test failures:
+  - ✅ `tests/__mocks__/fileModTracker.ts` — Mocks file modification tracking for isolated testing
+  - ✅ `tests/__mocks__/restoreFromBak.ts` — Returns empty tool array for utility toggle mocking
+- **Jest config fix**: Corrected regex escaping in `jest.config.cjs` moduleNameMapper entries for same-directory `.js` imports (`\\\\.js$` → `\\.js$`)
+
+### Root Cause Fixed
+Prior to this fix:
+1. When corruption occurred, the LLM tried `restore_backup` (project .zip) and failed — it had no awareness of local `.bak` backups created next to corrupted files
+2. The backup path was only returned in structured data (`backupCreated: string | null`) — easy to miss during rapid edits or truncated context
+3. No standalone tool existed for the LLM to restore from `.bak` files
+
+### Impact
+- ✅ **LLM can now discover backups**: `list_available_bak_backups()` returns all available `.bak` files with paths and sizes
+- ✅ **LLM can now restore from backups**: `restore_from_bak({ file_name })` restores any file from its backup, even recreating deleted files if the original was removed but `.bak` remains
+- ✅ **Backup awareness in every response**: Every file modification now includes explicit text announcing where the `.bak` file is and how to use it
+- ✅ **Backward compatible**: All changes are additive — new fields (`backupMessage`, `backup_message`) don't break existing consumers that only read known keys
+
+### Engineering Details
+- Backup announcement format: `📋 BACKUP AVAILABLE: A .bak file was created at '{filename}.bak'. If you need to undo this change, use the 'restore_from_bak' tool with file_name='{originalFile}'`
+- The `wasNewFile` flag in `restore_from_bak` response distinguishes between restoring over existing files vs creating new files from backups (e.g., if original was deleted)
+- Jest mocks return safe defaults (empty arrays, null guidance) that don't interfere with test assertions on the actual tool logic being tested
+
+**Total**: 2 new mock files, 4 source files modified (`restoreFromBak.ts`, `fileSystemTools.ts`, `textProcessingTools.ts`, `jest.config.cjs`), zero breaking changes. All 23 tests pass, `npm run build` compiles cleanly.
+
+---
+
 ## [1.8.7] - 2026-08-01 — 🔧 Token Counting Calibration, Config Exports, Drift Detection & Version Bump
 
 **Applied five critical fixes: token ratio calibration, missing config exports, test console suppression, insert_at_line read-back drift detection, and comprehensive version bump to v1.8.7.**

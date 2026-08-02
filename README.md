@@ -1,6 +1,6 @@
 # 🧰 AI Toolbox — LM Studio Plugin
 
-> **~90 unique tools** across 16 categories, fully integrated and ready for use.  
+> **~97 unique tools** across 20 categories, fully integrated and ready for use.  
 *All tools dynamically registered with category-level gating.*
 > *All tools registered via direct SDK pattern (no gateway indirection).*
 ---
@@ -112,7 +112,7 @@ The plugin is installed as an LM Studio plugin. Ensure you have:
 1. **Load the plugin** in LM Studio's plugin settings
 2. **Configure tool access** — individual tool categories can be toggled on/off via the Settings panel. Note that some tools (like Execution) are disabled by default for security.
 3. **Authenticate with GitHub**: Run `gh auth login` in your terminal once to enable remote operations (`gh_create_issue`, `gh_list_prs`, etc.). The plugin will detect authentication status automatically.
-4. **Start a chat** and the AI can now use any of the **~90** registered tools based on configuration settings (configurable per user).
+4. **Start a chat** and the AI can now use any of the **~97** registered tools based on configuration settings (configurable per user).
 
 ---
 
@@ -171,6 +171,38 @@ npm test
 **Architectural overhaul of tool registration system — replaced repetitive gating logic with a clean, maintainable registry pattern using closures.**
 
 #### What Changed
+
+### [1.8.8] - 2026-08-02 — 🛡️ .bak Backup Discovery & Restoration Tools + LLM Awareness
+**Added explicit LLM-accessible tools for discovering and restoring from `.bak` backup files created by file-modifying operations.**
+- ✅ **NEW `restore_from_bak(file_name)`** — Restores any file from its `.bak` backup; scans working directory, copies back original, deletes `.bak`. Returns list of available backups if none found.
+- ✅ **NEW `list_available_bak_backups()`** — Scans for all `.bak` files and returns structured data: `{file, backupFile, sizeBytes}` array.
+- ✅ **Backup announcements in tool responses**: All file-modifying tools now include explicit `backupMessage` field announcing the `.bak` location to LLM.
+
+### [1.8.7] - 2026-08-01 — 🔧 Token Counting Calibration, Config Exports, Drift Detection & Version Bump
+**Applied five critical fixes: token ratio calibration, missing config exports, test console suppression, insert_at_line read-back drift detection.**
+- ✅ **Token counting ratio ×0.24 → ×0.25**: Updated in `contextGuard.ts` and `promptPreprocessor.ts`. Effective ratio ~0.275 with +10% buffer — matches LM Studio sidebar within <0.3% deviation.
+- ✅ **Missing config exports**: Added `validateConfig()` and `isToolEnabled()` to `src/config.ts` public API.
+- ✅ **Read-back drift detection on insert_at_line**: After inserting content, tool re-reads file and searches ±3 lines for inserted content. Returns structured warning instead of silently corrupting files.
+
+### [1.8.6] - 2026-07-31 — 📋 Task Planning Tools: Structured Multi-Step Workflow Management
+**Added three new tools for creating, tracking, and updating execution plans with persistent storage.**
+- ✅ `create_plan` — Create execution plans with goal + ordered steps (1–30 steps). Returns `planId`, `goal`, `stepCount`.
+- ✅ `get_plan` — Return active plan details including step statuses, completion %, elapsed time.
+- ✅ `update_plan_step` — Update step status per state machine rules (`pending→in_progress→done`, any→blocked).
+
+### [1.8.5] - 2026-07-31 — 🧠 Accurate Token Counting via Native History API & Checkpoint Injection Fix
+**Resolved critical token counting inaccuracy and missing checkpoint prompt injection issues.**
+- ✅ **History Text Length calculation overhaul**: Replaced broken `.content` casting with LM Studio's native history API (`getLength()`, `at(i)`, `getText()`).
+- ✅ **Token counting method change**: Switched from SDK-native `countTokens() × 65` to History Text Length `× 0.24` ratio — matches sidebar exactly.
+
+### [1.8.4] - 2026-07-31 — 🐛 ContextGuard Crash Fix: Safe History Text Length Calculation
+**Resolved critical `TypeError: Cannot read properties of undefined (reading 'length')` crash in `promptPreprocessor.ts`.**
+- ✅ **Fixed history text length calculation**: Added safe type checking and try/catch around the loop calculating `historyTextLength`.
+
+### [1.8.3] - 2026-07-30 — 🧹 Final Cleanup & ContextGuard Calibration
+**Resolved critical token undercounting bug caused by incomplete message content extraction when LM Studio SDK v1.x returns array-based content blocks.**
+- ✅ **SDK v1.x compatibility overhaul**: `ContextGuard.countTokens()` now properly extracts text from arrays of content blocks, ChatMessage objects.
+
 - ✅ **Replaced ~80 lines of repetitive if/else blocks** with a single declarative registry array (`TOOL_REGISTRIES`) containing 20 entries
 - ✅ **Closure-based dependency injection**: Each registry entry captures `config`, `stateManager`, and `backgroundCommandManager` at definition time via arrow functions, eliminating parameter-passing complexity
 - ✅ **Strict TypeScript compliance**: Eliminated all `any[]` types, replaced with typed closures (`() => Tool[]`) that satisfy strict ESLint rules

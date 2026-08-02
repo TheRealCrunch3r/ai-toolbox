@@ -1,6 +1,6 @@
 # 🛠️ AI Toolbox — Complete Tool Reference
 
-*Updated to reflect current state: **~90 unique tools** dynamically registered across ~20 categories (v1.8.7).*
+*Updated to reflect current state: **~97 unique tools** dynamically registered across 20 categories (v1.8.8).*
 
 ---
 
@@ -554,4 +554,4 @@ All tools implement multiple security layers:
 
 ---
 
-*Reference generated from actual source code analysis on 2026-08-01 (v1.8.7). All tool counts verified against `toolsProvider.ts` registry entries and `src/tools/*.ts`. insert_at_line read-back drift detection documented with v1.8.7 hard fix.*
+*Reference generated from actual source code analysis on 2026-08-01 (v1.8.8). All tool counts verified against `toolsProvider.ts` registry entries and `src/tools/*.ts`. insert_at_line read-back drift detection documented with v1.8.8 hard fix.*
