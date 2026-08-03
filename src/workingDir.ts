@@ -44,13 +44,17 @@ function resolveWorkingDir(): string {
   // Check cache first (avoids repeated disk reads)
   if (cachedWorkingDir !== null) return cachedWorkingDir;
   
-  // Priority 1: Persisted state file (if valid and directory exists)
+  // Priority 1: Persisted state file — BUT only if it still exists
   try {
     const persistedState = loadState();
     if (persistedState.workingDir && fs.existsSync(persistedState.workingDir)) {
       cachedWorkingDir = path.resolve(persistedState.workingDir);
       console.log(`[WorkingDir] Resolved from state file: ${cachedWorkingDir}`);
       return cachedWorkingDir;
+    } else if (persistedState.workingDir && !fs.existsSync(persistedState.workingDir)) {
+      // FIX: Persisted path no longer exists — clear stale state and fall through
+      console.log(`[WorkingDir] WARNING: Persisted working dir '${persistedState.workingDir}' no longer exists. Clearing stale state.`);
+      saveState({ workingDir: undefined });
     }
   } catch {} // Ignore errors
   

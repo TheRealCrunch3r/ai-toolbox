@@ -327,6 +327,163 @@ class ContextAnalyzer {
   }
 }
 
+// ==================== Session Index Manager — Lightweight JSON index ===
+
+export interface SessionIndexEntry {
+  task_description: string;
+  timestamp: number;
+  date: string;
+}
+
+interface SessionIndexData {
+  sessions: SessionIndexEntry[];
+  total_count: number;
+  last_updated: number;
+}
+
+const SESSION_INDEX_MAX_ENTRIES = 50; // Prune oldest when exceeding this limit
+
+export class SessionIndexManager {
+  private workingDirPath: string;
+  private pluginRootPath: string;
+  
+  constructor() {
+    const wd = getWorkingDir();
+    this.workingDirPath = path.join(wd, '.session_context', 'sessions.json');
+    
+    const baseDir = path.resolve(__dirname, '..');
+    this.pluginRootPath = path.join(baseDir, '.session_context', 'sessions.json');
+  }
+
+  private async ensureDirectory(filePath: string): Promise<void> {
+    const dir = path.dirname(filePath);
+    try {
+      await fs.access(dir);
+    } catch {
+      await fs.mkdir(dir, { recursive: true });
+    }
+  }
+
+  /** Load session index from disk */
+  async load(): Promise<SessionIndexData | null> {
+    function validateSessionIndexData(obj: unknown): obj is SessionIndexData {
+      if (!obj || typeof obj !== 'object') return false;
+      const o = obj as Record<string, unknown>;
+      return (
+        Array.isArray(o.sessions) &&
+        typeof o.total_count === 'number' &&
+        typeof o.last_updated === 'number'
+      );
+    }
+
+    // Try working dir first
+    try {
+      if (await fs.access(this.workingDirPath).then(() => true).catch(() => false)) {
+        const raw = await fs.readFile(this.workingDirPath, 'utf-8');
+        const parsed: unknown = JSON.parse(raw);
+        if (!validateSessionIndexData(parsed)) throw new Error('Invalid session index format');
+        const data: SessionIndexData = parsed;
+        console.log(`[SessionIndex.load] Loaded ${data.sessions.length} sessions from Working Dir.`);
+        return data;
+      }
+    } catch (error) {
+      console.warn(`[SessionIndex.load] Failed to load from Working Dir: ${String(error)}`);
+    }
+
+    // Fallback to plugin root
+    try {
+      if (await fs.access(this.pluginRootPath).then(() => true).catch(() => false)) {
+        const raw = await fs.readFile(this.pluginRootPath, 'utf-8');
+        const parsed: unknown = JSON.parse(raw);
+        if (!validateSessionIndexData(parsed)) throw new Error('Invalid session index format');
+        const data: SessionIndexData = parsed;
+        console.log(`[SessionIndex.load] Loaded ${data.sessions.length} sessions from Plugin Root.`);
+        return data;
+      }
+    } catch (error) {
+      console.warn(`[SessionIndex.load] Failed to load from Plugin Root: ${String(error)}`);
+    }
+
+    console.log('[SessionIndex.load] No session index found.');
+    return null;
+  }
+
+  /** Save session index to disk */
+  async save(data: SessionIndexData): Promise<void> {
+    const filePath = this.workingDirPath; // Primary: working dir
+    
+    await this.ensureDirectory(filePath);
+    
+    const json = JSON.stringify(data, null, 2);
+    const tempPath = filePath + '.tmp';
+    await fs.writeFile(tempPath, json, 'utf-8');
+    await fs.rename(tempPath, filePath);
+    
+    // Sync to plugin root as well (best-effort)
+    if (this.pluginRootPath !== this.workingDirPath) {
+      try {
+        await this.ensureDirectory(this.pluginRootPath);
+        const pluginTemp = this.pluginRootPath + '.tmp';
+        await fs.writeFile(pluginTemp, json, 'utf-8');
+        await fs.rename(pluginTemp, this.pluginRootPath);
+      } catch (syncError) {
+        console.error(`[SessionIndex.save] Failed to sync to plugin root: ${String(syncError)}`);
+      }
+    }
+  }
+
+  /** Add a session entry to the index */
+  async addEntry(task_description: string, timestamp: number, date: string): Promise<void> {
+    let data = await this.load() || { sessions: [], total_count: 0, last_updated: Date.now() };
+    
+    // Append new entry (newest first)
+    data.sessions.unshift({ task_description, timestamp, date });
+    data.total_count = data.sessions.length;
+    data.last_updated = Date.now();
+    
+    // Prune oldest entries if exceeding limit
+    if (data.sessions.length > SESSION_INDEX_MAX_ENTRIES) {
+      data.sessions.splice(SESSION_INDEX_MAX_ENTRIES);
+    }
+    
+    await this.save(data);
+  }
+
+  /** Get all sessions sorted by date descending */
+  async getAllSessions(): Promise<SessionIndexEntry[]> {
+    const data = await this.load();
+    return data?.sessions || [];
+  }
+
+  /** Search sessions by query (matches task_description) */
+  async search(query: string, maxResults: number = 10): Promise<SessionIndexEntry[]> {
+    const allSessions = await this.getAllSessions();
+    const lowerQuery = query.toLowerCase();
+    
+    return allSessions
+      .filter(s => s.task_description.toLowerCase().includes(lowerQuery))
+      .slice(0, maxResults);
+  }
+
+  /** Delete a session entry by index position */
+  async deleteByIndex(index: number): Promise<boolean> {
+    const data = await this.load();
+    if (!data || !data.sessions[index]) return false;
+    
+    data.sessions.splice(index, 1);
+    data.total_count = data.sessions.length;
+    data.last_updated = Date.now();
+    
+    await this.save(data);
+    return true;
+  }
+
+  /** Clear all session index entries */
+  async clearAll(): Promise<void> {
+    await this.save({ sessions: [], total_count: 0, last_updated: Date.now() });
+  }
+}
+
 // ==================== Tool Implementations — ASYNC ===
 
 export function registerContextManagementTools(
@@ -339,6 +496,7 @@ export function registerContextManagementTools(
 
   // Use provided stateManager if available (from toolsProvider), otherwise fallback to direct file ops
   const memoryStore = stateManager || null;
+  const sessionIndex = new SessionIndexManager();
 
   const tools: Tool[] = [];
 
@@ -562,20 +720,48 @@ WHEN TO USE:
       readonly context_for_next_session?: string; 
     }) => {
       try {
+        // 🔹 P0 FIX: Truncate large content fields to prevent state cap overflow.
+        // Each field is capped at 2 KB (2048 chars). This prevents a single session summary
+        // from consuming excessive memory, especially in long sessions with verbose LLM output.
+        const MAX_FIELD_LENGTH = 2048;
+        const truncate = (text?: string): string => {
+          if (!text || text.length <= MAX_FIELD_LENGTH) return text ?? '';
+          console.warn(`[save_session_summary] Truncated field from ${text.length} to ${MAX_FIELD_LENGTH} chars.`);
+          return text.slice(0, MAX_FIELD_LENGTH) + '\n… (truncated for size)';
+        };
+
         const summaryData: SessionSummaryData = {
-          task_description,
-          accomplishments,
-          pending_tasks,
-          decisions_made,
-          context_for_next_session,
+          task_description: truncate(task_description),
+          accomplishments: truncate(accomplishments),
+          pending_tasks: truncate(pending_tasks),
+          decisions_made: truncate(decisions_made),
+          context_for_next_session: truncate(context_for_next_session),
           timestamp: Date.now(),
           date: new Date().toLocaleString(),
         };
 
         if (memoryStore) {
           console.log('[ContextManagement.save_session_summary] memoryStore exists, setting data...');
+          
+          // 🔹 P0 FIX: Evict ALL previous session summaries before saving the new one.
+          // This prevents unbounded accumulation of duplicate entries across sessions.
+          const allKeys = await memoryStore.getAllKeys();
+          let evictedCount = 0;
+          for (const key of allKeys) {
+            if (key.startsWith('session_summary_')) {
+              memoryStore.delete(key);
+              evictedCount++;
+            }
+          }
+          if (evictedCount > 0) {
+            console.log(`[save_session_summary] Evicted ${evictedCount} old session summary(s).`);
+          }
+
+          // 🔹 P0 FIX: Save ONLY the authoritative key — no redundant versioned backup.
           memoryStore.set('session_summary_latest', summaryData);
-          memoryStore.set(`session_summary_${Date.now()}`, summaryData); // versioned backup
+          
+          // 🔹 Update session index with metadata (task_description, timestamp, date)
+          await sessionIndex.addEntry(summaryData.task_description, Date.now(), new Date().toLocaleString());
           
           console.log('[ContextManagement.save_session_summary] Calling forceSave()...');
           await memoryStore.forceSave();
@@ -584,7 +770,7 @@ WHEN TO USE:
           console.log('[ContextManagement.save_session_summary] No StateManager provided. Session summary saved to RAM only.');
         }
 
-        return { success: true, data: { saved: true, task_description } };
+        return { success: true, data: { saved: true, task_description: summaryData.task_description } };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         console.error(`[ContextManagement.save_session_summary] ERROR: ${message}`);
@@ -593,27 +779,42 @@ WHEN TO USE:
     },
   }));
 
-  // get_session_summary tool — LOCAL FIRST: Read project file → Fallback to RAM/Plugin ===
+  // get_session_summary tool — OPTIMIZED: In-Memory Map (O(1)) → Disk Fallback ===
   tools.push(tool({
     name: 'get_session_summary',
-    description: `Retrieve the most recent saved session summary for continuity across sessions.\n\nPRIORITY ORDER:\n1. Local Project File (Working Dir/.session_context/) — Checked FIRST\n2. Plugin Root Memory (Plugin Dir/.session_context/) — Fallback\n3. In-Memory State (RAM) — Last resort`,
+    description: `Retrieve the most recent saved session summary for continuity across sessions.\n\nPRIORITY ORDER:\n1. In-Memory State (RAM) — O(1) Map lookup, fastest\n2. Local Project File (Working Dir/.session_context/) — Fallback disk read\n3. Plugin Root Memory (Plugin Dir/.session_context/) — Last resort disk read`,
     parameters: {},
     implementation: async () => {
+      const threeDaysMs = 3 * 24 * 60 * 60 * 1000;
+
+      // 🔹 PRIORITY 1: In-Memory Map (O(1) lookup — no disk I/O, no full-file scan)
+      if (memoryStore) {
+        try {
+          const latest = memoryStore.get<SessionSummaryData>('session_summary_latest');
+          if (latest && typeof latest === 'object') {
+            const isStale = (Date.now() - (latest.timestamp ?? 0)) > threeDaysMs;
+            console.log(`[ContextManagement.get_session_summary] ✅ Loaded from IN-MEMORY STATE (RAM).`);
+            return { success: true, data: { ...latest, isStale } };
+          }
+        } catch (memErr) {
+          const msg = memErr instanceof Error ? memErr.message : String(memErr);
+          console.warn(`[ContextManagement.get_session_summary] Memory lookup failed (${msg}). Falling back to disk.`);
+        }
+      }
+
+      // 🔹 FALLBACK 1: Local Project File (disk read — full scan required)
       try {
         const wd = getWorkingDir();
         const localPath = path.join(wd, '.session_context', '.ai_toolbox_memory.msgpack');
 
-        // 🔹 PRIORITY 1: Check Local Project File FIRST
         if (await fs.access(localPath).then(() => true).catch(() => false)) {
           try {
             const buffer = await fs.readFile(localPath);
             const entries = decode(buffer) as Array<{ key: string; value: unknown; timestamp: number }>;
             
-            // Find session_summary_latest from local file
             for (const entry of entries) {
               if (entry.key === 'session_summary_latest' && typeof entry.value === 'object' && entry.value !== null) {
                 const latest = entry.value as SessionSummaryData;
-                const threeDaysMs = 3 * 24 * 60 * 60 * 1000;
                 const isStale = (Date.now() - (latest.timestamp ?? 0)) > threeDaysMs;
                 
                 console.log(`[ContextManagement.get_session_summary] ✅ Loaded from LOCAL PROJECT FILE: ${localPath}`);
@@ -621,11 +822,11 @@ WHEN TO USE:
               }
             }
           } catch (parseErr) {
-            console.warn(`[ContextManagement.get_session_summary] Local file parse failed: ${String(parseErr)}. Falling back.`);
+            console.warn(`[ContextManagement.get_session_summary] Local file parse failed (${String(parseErr)}). Falling back.`);
           }
         }
 
-        // 🔹 FALLBACK 1: Plugin Root File
+        // 🔹 FALLBACK 2: Plugin Root File (disk read — full scan required)
         const pluginPath = path.join(path.resolve(__dirname, '..'), '.session_context', '.ai_toolbox_memory.msgpack');
         if (await fs.access(pluginPath).then(() => true).catch(() => false)) {
           try {
@@ -635,7 +836,6 @@ WHEN TO USE:
             for (const entry of entries) {
               if (entry.key === 'session_summary_latest' && typeof entry.value === 'object' && entry.value !== null) {
                 const latest = entry.value as SessionSummaryData;
-                const threeDaysMs = 3 * 24 * 60 * 60 * 1000;
                 const isStale = (Date.now() - (latest.timestamp ?? 0)) > threeDaysMs;
                 
                 console.log(`[ContextManagement.get_session_summary] ✅ Loaded from PLUGIN ROOT FILE: ${pluginPath}`);
@@ -643,20 +843,7 @@ WHEN TO USE:
               }
             }
           } catch (parseErr) {
-            console.warn(`[ContextManagement.get_session_summary] Plugin file parse failed: ${String(parseErr)}. Falling back to RAM.`);
-          }
-        }
-
-        // 🔹 FALLBACK 2: In-Memory State (RAM)
-        if (memoryStore) {
-          await memoryStore.forceLoad();
-          const latest = memoryStore.get<SessionSummaryData>('session_summary_latest');
-          if (latest) {
-            const threeDaysMs = 3 * 24 * 60 * 60 * 1000;
-            const isStale = (Date.now() - (latest.timestamp ?? 0)) > threeDaysMs;
-            
-            console.log(`[ContextManagement.get_session_summary] ⚠️ Loaded from IN-MEMORY STATE (RAM).`);
-            return { success: true, data: { ...latest, isStale } };
+            console.warn(`[ContextManagement.get_session_summary] Plugin file parse failed (${String(parseErr)}). No fallback.`);
           }
         }
 
@@ -801,6 +988,87 @@ WHEN TO USE:
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         return { success: false, error: `Failed to delete memory: ${message}` };
+      }
+    },
+  }));
+
+  // list_sessions tool — BROWSE ALL SAVED SESSIONS BY TASK DESCRIPTION + DATE ===
+  tools.push(tool({
+    name: 'list_sessions',
+    description: `Browse all saved session summaries. Returns a paginated list of sessions with task descriptions and dates.
+    
+WHEN TO USE:
+• User asks "what sessions have I worked on?" or "show me my history"
+• You need to find a specific past session before reading its full summary
+• Cross-session continuity — discover what work was done in previous days/weeks`,
+    parameters: {
+      limit: z.number().min(1).max(50).optional().default(20).describe('Maximum number of sessions to return (default: 20)'),
+      offset: z.number().min(0).optional().default(0).describe('Pagination offset for browsing older sessions'),
+    },
+    implementation: async ({ limit = 20, offset = 0 }: { 
+      readonly limit?: number; 
+      readonly offset?: number; 
+    }) => {
+      try {
+        const allSessions = await sessionIndex.getAllSessions();
+        const total = allSessions.length;
+        
+        // Apply pagination (sessions are already sorted newest-first)
+        const paginated = allSessions.slice(offset, offset + limit);
+        
+        return { success: true, data: { sessions: paginated, total, hasMore: offset + limit < total } };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(`[ContextManagement.list_sessions] ERROR: ${message}`);
+        return { success: false, error: `Failed to list sessions: ${message}` };
+      }
+    },
+  }));
+
+  // search_sessions tool — SEARCH SESSION INDEX BY TASK DESCRIPTION ===
+  tools.push(tool({
+    name: 'search_sessions',
+    description: `Search saved session summaries by task description. Returns matching sessions sorted by date (newest first).`,
+    parameters: {
+      query: z.string().describe('Search query to match against task descriptions'),
+      max_results: z.number().min(1).max(50).optional().default(10).describe('Maximum number of results to return'),
+    },
+    implementation: async ({ query, max_results = 10 }: { 
+      readonly query: string; 
+      readonly max_results?: number; 
+    }) => {
+      try {
+        const results = await sessionIndex.search(query, max_results);
+        
+        return { success: true, data: { sessions: results, total: results.length } };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(`[ContextManagement.search_sessions] ERROR: ${message}`);
+        return { success: false, error: `Failed to search sessions: ${message}` };
+      }
+    },
+  }));
+
+  // clear_session_index tool — CLEAR ALL SESSION INDEX ENTRIES ===
+  tools.push(tool({
+    name: 'clear_session_index',
+    description: 'Clear all session index entries. This only removes the lightweight index (sessions.json), not the actual session summaries.',
+    parameters: {
+      confirm: z.boolean().describe('Set to true to confirm deletion of all session index entries'),
+    },
+    implementation: async ({ confirm }: { readonly confirm: boolean }) => {
+      if (!confirm) {
+        return { success: false, error: 'Confirmation required. Set confirm=true to proceed.' };
+      }
+      
+      try {
+        await sessionIndex.clearAll();
+        
+        return { success: true, data: { cleared: true } };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(`[ContextManagement.clear_session_index] ERROR: ${message}`);
+        return { success: false, error: `Failed to clear session index: ${message}` };
       }
     },
   }));

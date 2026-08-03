@@ -528,7 +528,6 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
         // ========== P1 FIX: Atomic Write (Bug #4) ==========
         try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPath) { try { await fs.copyFile(backupPath, fullPath); } catch {} }; return handleError(err); }
 
-        // Track consecutive modifications for drift warning
         const modTracking = recordFileModification(fullPath, 'replace_text_in_file');
 
 
@@ -576,11 +575,13 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
 // insert_at_line tool — FIXED: All safety features + READ-BACK DRIFT DETECTION (P0-P3 priority)
   tools.push(tool({
     name: 'insert_at_line',
-    description: `Insert content at a specific line number in a file. Includes binary protection, size limits, atomic writes, optional backups, and automatic drift detection.
+    description: `Insert content at a specific line number in a file. Includes binary protection, size limits, atomic writes, optional backups, and STRICT read-back drift detection.
 
-⚠️ CRITICAL LIMITATION — Line Number Drift:
+⚠️ CRITICAL — Line Number Drift (STRICT MODE):
 After each insertion, ALL subsequent lines shift DOWN by the number of inserted lines.
 For MULTIPLE sequential inserts in the same file, hard line numbers become STALE after the first insertion.
+
+This tool will FAIL (not warn) if drift is detected during post-write verification. This prevents silent file corruption from stale line numbers.
 
 RECOMMENDATIONS:
 - Single insert at known position: OK (no drift risk)
@@ -664,44 +665,52 @@ If using hard line numbers for multiple operations, recalculate after each inser
 try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPath) { try { await fs.copyFile(backupPath, fullPath); } catch {} }; return handleError(err); }
 
 
-        // ========== HARD FIX — Read-Back Drift Detection ==========
-        // After writing, read the file back and verify content landed at the correct position.
-        // This catches drift errors caused by stale line numbers from prior insertions.
-        let driftWarning: string | null = null;
+        // ========== HARD FIX -- Read-Back Drift Detection (v2 -- full content verification) ==========
+        let driftError: string | null = null;
         try {
           const postWriteBuffer = await fs.readFile(fullPath);
           const postWriteContent = postWriteBuffer.toString('utf-8');
-          const postLines = hasCRLF_insert ? postWriteContent.split('\r\n') : postWriteContent.split('\n');
+          // Normalize both sides to the same line ending style for reliable comparison
+          const postHasCRLF = postWriteContent.includes('\r\n');
+          const normalizedPost = postHasCRLF ? postWriteContent.replace(/\r\n/g, '\n').split('\n') : postWriteContent.split('\n');
 
-          // Check if the inserted content exists at or near the target line in the written file.
-          // We look within a ±3 line window to account for minor variations.
+          // Build the expected inserted lines (normalized to LF for comparison)
+          const insertLinesList = textToInsert.replace(/\r\n/g, '\n').split('\n');
+
+          // Search within a +/-3 line window starting at target position
           const searchStart = Math.max(1, line_number - 3);
-          const searchEnd = Math.min(postLines.length, line_number + textToInsert.split('\n').length + 3);
+          const expectedEndLine = line_number + insertLinesList.length;
+          const searchEnd = Math.min(normalizedPost.length, expectedEndLine + 3);
+
           let foundAtLine: number | null = null;
 
-          // Build a multi-line search key (first line of inserted content)
-          const insertFirstLine = textToInsert.split('\n')[0];
-
-          for (let i = searchStart - 1; i < searchEnd && i < postLines.length; i++) {
-            if (postLines[i] === textToInsert || postLines[i].includes(insertFirstLine)) {
-              foundAtLine = i + 1; // Convert to 1-indexed
+          // Try to find ALL inserted lines contiguously starting at or near the target position
+          for (let startIdx = searchStart - 1; startIdx < Math.min(searchEnd, normalizedPost.length); startIdx++) {
+            let allMatch = true;
+            for (let j = 0; j < insertLinesList.length; j++) {
+              const postIdx = startIdx + j;
+              if (postIdx >= normalizedPost.length || normalizedPost[postIdx] !== insertLinesList[j]) {
+                allMatch = false;
+                break;
+              }
+            }
+            if (allMatch) {
+              foundAtLine = startIdx + 1; // Convert to 1-indexed
               break;
             }
           }
 
-          if (foundAtLine !== null && foundAtLine !== line_number) {
-            driftWarning = `⚠️ DRIFT DETECTED: Content inserted at line ${foundAtLine} instead of requested line ${line_number}. Previous edits shifted the file. Use save_file or replace_text_in_file for multi-step changes.`;
+          if (foundAtLine !== null && Math.abs(foundAtLine - line_number) > 3) {
+            driftError = `DRIFT DETECTED: Content inserted at lines ${foundAtLine}-${foundAtLine + insertLinesList.length - 1} instead of requested lines ${line_number}-${expectedEndLine}. Previous edits shifted the file. Use save_file or replace_text_in_file for multi-step changes.`;
+          } else if (foundAtLine === null) {
+            // Content not found within search window -- likely corruption from prior edits
+            driftError = `DRIFT DETECTED: Inserted content NOT FOUND near line ${line_number} after write. File may be corrupted by previous edits. Use save_file or replace_text_in_file for multi-step changes.`;
           }
 
         } catch (driftErr) {
-          // Non-critical — drift detection failure should not block success
+          // Non-critical -- drift detection failure should not block success if content was written
           console.warn(`[insert_at_line] Drift detection read-back failed: ${(driftErr as Error).message}`);
         }
-
-        // Track consecutive modifications for drift warning
-        const modTracking = recordFileModification(fullPath, 'insert_at_line');
-
-
         // ========== P3 FIX: Rich Return Data with Context ==========
         const responseData: {
           success: boolean;
@@ -714,7 +723,6 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
             guidance?: string;
             backupMessage?: string;
           };
-          warnings?: string[];
         } = {
           success: true,
           data: {
@@ -726,9 +734,6 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
           },
         };
 
-        if (modTracking.guidance) {
-          responseData.data.guidance = modTracking.guidance;
-        }
 
         // Announce .bak backup availability for LLM awareness during corruption recovery
         const bakAnnouncement = createBackupAnnouncement(backupPath);
@@ -736,13 +741,17 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
           responseData.data.backupMessage = bakAnnouncement;
         }
 
-        // Include drift warning in response if detected
-        if (driftWarning) {
-          if (responseData.warnings === undefined) {
-            responseData.warnings = [];
-          }
-          responseData.warnings.push(driftWarning);
+        // STRICT MODE: Fail on drift detection to prevent silent corruption
+        if (driftError) {
+          return { success: false, error: driftError };
         }
+        // Track consecutive modifications for drift warning -- ONLY if drift check passed
+        const modTracking = recordFileModification(fullPath, 'insert_at_line');
+
+        if (modTracking.guidance) {
+          responseData.data.guidance = modTracking.guidance;
+        }
+
 
         return responseData;
       } catch (error) {
@@ -879,7 +888,6 @@ try { await atomicWriteFile(fullPath, fullContent); } catch (err) { if (backupPa
   }));
 
 
-
 // delete_lines_in_file tool — FIXED: All safety features added (P1)
   tools.push(tool({
     name: 'delete_lines_in_file',
@@ -1003,7 +1011,6 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
       }
     },
   }));
-
 
 
   // make_directory tool — ASYNC mkdir
@@ -2258,7 +2265,6 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
       return filename.includes(pattern.replace(/[*?]/g, ''));
     }
   }
-
 
 
   // ==================== AST-Based Search Helpers ====================

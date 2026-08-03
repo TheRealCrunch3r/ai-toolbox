@@ -1,0 +1,109 @@
+{
+  "results": {
+    "T1_single_LF": {
+      "status": "PASS",
+      "detail": ""
+    },
+    "T2_multiline_3lines": {
+      "status": "PASS",
+      "detail": ""
+    },
+    "T3_single_CRLF": {
+      "status": "PASS",
+      "detail": ""
+    },
+    "T4_crlf_content_LF_file": {
+      "status": "PASS",
+      "detail": ""
+    },
+    "T5_drift_detected": {
+      "status": "PASS",
+      "detail": ""
+    },
+    "T6_exact_vs_includes": {
+      "status": "PASS",
+      "detail": ""
+    },
+    "T7_partial_match_fails": {
+      "status": "PASS",
+      "detail": ""
+    },
+    "T8_end_of_file": {
+      "status": "PASS",
+      "detail": ""
+    },
+    "T9_empty_insert": {
+      "status": "PASS",
+      "detail": ""
+    },
+    "T10_large_multiline": {
+      "status": "PASS",
+      "detail": ""
+    },
+    "T11_content_missing": {
+      "status": "PASS",
+      "detail": ""
+    },
+    "T12_crlf_roundtrip": {
+      "status": "PASS",
+      "detail": ""
+    },
+    "LO1_insert_CRLF": {
+      "status": "PASS",
+      "detail": ""
+    },
+    "LO2_insert_LF_multiline": {
+      "status": "PASS",
+      "detail": ""
+    },
+    "LO3_out_of_bounds": {
+      "status": "PASS",
+      "detail": ""
+    },
+    "LO4_delete_range": {
+      "status": "PASS",
+      "detail": ""
+    },
+    "LO5_delete_single": {
+      "status": "PASS",
+      "detail": ""
+    },
+    "LO6_move_no_ref_error_bug7": {
+      "status": "PASS",
+      "detail": ""
+    },
+    "LO7_move_same_direction": {
+      "status": "PASS",
+      "detail": ""
+    },
+    "LO8_post_write_detects_corruption": {
+      "status": "PASS",
+      "detail": ""
+    },
+    "LO9_pattern_insert_after": {
+      "status": "PASS",
+      "detail": ""
+    },
+    "LO10_pattern_insert_before": {
+      "status": "PASS",
+      "detail": ""
+    },
+    "LO11_no_reference_error_delete": {
+      "status": "PASS",
+      "detail": ""
+    },
+    "LO12_crlf_split_fixed": {
+      "status": "PASS",
+      "detail": ""
+    },
+    "LO13_structured_warning_no_console": {
+      "status": "PASS",
+      "detail": ""
+    }
+  },
+  "summary": {
+    "passed": 25,
+    "total": 25,
+    "failed": 0
+  }
+}

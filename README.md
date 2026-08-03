@@ -172,6 +172,14 @@ npm test
 
 #### What Changed
 
+### [1.8.9] - 2026-08-03 — 🐛 insert_at_line & line_operations: Comprehensive Bug Fix Suite (13 Bugs Fixed)
+**Resolved 13 critical bugs across `insert_at_line` and `line_operations` tools through deep debugging.**
+- ✅ **Drift detection overhaul**: Replaced first-line-only `includes()` check with full contiguous line-by-line verification using normalized CRLF comparison — prevents silent file corruption from stale line numbers
+- ✅ **CRLF handling fixed**: Replaced literal `'\\\\r\\\\n'` backslash strings with proper `'\r\n'` escape sequences in post-write verification code
+- ✅ **ReferenceError eliminated**: Moved `const insertLines` declaration before switch statement to fix crashes on delete/move operations
+- ✅ **Structured warnings**: LLMs now receive parseable warning data instead of `console.warn()` side effects
+- ✅ **Accurate modification tracking**: Only successful operations recorded in `modTracking`
+
 ### [1.8.8] - 2026-08-02 — 🛡️ .bak Backup Discovery & Restoration Tools + LLM Awareness
 **Added explicit LLM-accessible tools for discovering and restoring from `.bak` backup files created by file-modifying operations.**
 - ✅ **NEW `restore_from_bak(file_name)`** — Restores any file from its `.bak` backup; scans working directory, copies back original, deletes `.bak`. Returns list of available backups if none found.

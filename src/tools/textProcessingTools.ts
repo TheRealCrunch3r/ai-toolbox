@@ -389,6 +389,10 @@ EXAMPLE:
         const linesArr = hasCRLF_lo ? file_content.split('\r\n') : file_content.split('\n');
         let changes_made = 0;
 
+        // Declare insertLines here so it's accessible in the response data after the switch block
+        const insertLines: string[] = [];
+
+
         switch (operation) {
           case 'insert':
             if (!content && content !== '') {
@@ -456,8 +460,10 @@ EXAMPLE:
               }
             }
             
-            // FIX: Split on \r?\n to handle both LF and CRLF content without leaving \r artifacts
-            const insertLines = (content || '').split(/\r?\n/);
+            // Populate the pre-declared array
+            for (const line of (content || '').split(/\r?\n/)) {
+              insertLines.push(line);
+            }
             
             // FIX: Check BEFORE splice to prevent in-memory corruption
             if (insertLines.length > 5) {
@@ -471,10 +477,20 @@ EXAMPLE:
             const expectedLength = insert_line + insertLines.length - 1;
             const actualNewLength = linesArr.length;
             if (actualNewLength !== expectedLength && !hasPatternContext) {
-              // Log drift warning for debugging (not blocking — user chose to proceed with pattern matching)
-              console.warn(`[line_operations] Drift detected: After insert at line ${insert_line}, expected file length ~${expectedLength} but got ${actualNewLength}. Context may be stale.`);
+              // Return structured warning instead of console.log for LLM consumer to detect
+              return { 
+                success: true, 
+                data: { 
+                  operations_performed: operation,
+                  changes_applied: insertLines.length,
+                  total_lines_before: linesArr.length - insertLines.length,
+                  total_lines_after: actualNewLength,
+                  warning: `Drift detected: After insert at line ${insert_line}, expected file length ~${expectedLength} but got ${actualNewLength}. Context may be stale.`,
+                  message: `${operation.charAt(0).toUpperCase() + operation.slice(1)} operation completed with drift warning`
+                },
+                backup_created: null,
+              };
             }
-            break;
 
           case 'delete':
             if (!target_line && !lines) {
@@ -540,6 +556,29 @@ EXAMPLE:
           return handleError(error);
         }
 
+        // ========== Post-write verification (drift detection read-back, v2) ==========
+        const expectedLineCount = linesArr.length;
+        try {
+          const postWriteContent = await readFileWithLimit(fullPath);
+          // FIX: Use actual CRLF escape sequence, not literal backslash-r-backslash-n
+          const postHasCRLF = postWriteContent.includes('\r\n');
+          const postWriteLines = postHasCRLF ? postWriteContent.split('\r\n') : postWriteContent.split('\n');
+
+          if (postWriteLines.length !== expectedLineCount) {
+            return { 
+              success: false, 
+              error: `POST-WRITE VERIFICATION FAILED: Expected ${expectedLineCount} lines but file contains ${postWriteLines.length}. File may have been modified externally or write corrupted. Restore from backup if available.` 
+            };
+          }
+        } catch (readError) {
+          return { 
+            success: false, 
+            error: `Post-write verification failed - could not re-read file for integrity check: ${readError instanceof Error ? readError.message : String(readError)}. File may be corrupted.` 
+          };
+        }
+
+
+
         // Track consecutive modifications for drift warning
         const modTracking = recordFileModification(fullPath, `line_operations_${operation}`);
 
@@ -553,14 +592,20 @@ EXAMPLE:
         const responseData: { 
           operations_performed: string;
           changes_applied: number;
+          total_lines_before: number;
           total_lines_after: number;
+          lines_inserted?: number;
+          lines_deleted?: number;
           backup_created: string | null;
           message: string;
           backup_message?: string;
         } = { 
           operations_performed: operation,
           changes_applied: changes_made,
+          total_lines_before: file_content.split(hasCRLF_lo ? '\r\n' : '\n').length,
           total_lines_after: linesArr.length,
+          ...(operation === 'insert' && insertLines !== undefined && { lines_inserted: insertLines.length }),
+          ...(operation === 'delete' && { lines_deleted: changes_made }),
           backup_created: backupPath,
           message: `${operation.charAt(0).toUpperCase() + operation.slice(1)} operation completed successfully`
         };

@@ -1,7 +1,7 @@
 # Documentation Update Summary — AI Toolbox Plugin
 
 **Date**: 2026-08-01  
-**Version**: v1.8.8 (Token Counting Calibration, Config Exports, Drift Detection & Version Bump)  
+**Version**: v1.8.9 (insert_at_line & line_operations: Comprehensive Bug Fix Suite — 13 Bugs Fixed)  
 **Status**: ✅ Complete
 
 ---
@@ -200,7 +200,7 @@ All dangerous tool categories are **disabled by default**:
 - [x] All references to tools and features match current implementation
 
 ### CHANGELOG.md
-- [x] Version entries follow Keep a Changelog format with proper ordering (v1.5.0 → v1.8.8)
+- [x] Version entries follow Keep a Changelog format with proper ordering (v1.5.0 → v1.8.9)
 - [x] Dates and version numbers consistent with package.json
 - [x] Breaking changes clearly marked
 - [x] Security fixes documented with engineering details
@@ -211,7 +211,7 @@ All dangerous tool categories are **disabled by default**:
 
 | File | Changes Made |
 |------|-------------|
-| `README.md` | Up-to-date (v1.8.8 release history, ~97 tools) |
+| `README.md` | Up-to-date (v1.8.9 release history, ~97 tools) |
 | `ARCHITECTURE.md` | Gateway Pattern marked as ABANDONED; tool counts corrected to 20 modules |
 | `TOOLS_REFERENCE.md` | Up-to-date (~132 tools documented) |
 | `DOCUMENTATION.md` | Deprecated features clearly marked; tool count corrections applied |

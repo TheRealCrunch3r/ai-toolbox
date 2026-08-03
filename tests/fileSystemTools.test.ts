@@ -180,7 +180,10 @@ describe('File System Tools', () => {
   describe('insert_at_line', () => {
     test('should insert at valid line', async () => {
       const tool = tools?.find(t => t.name === 'insert_at_line');
-      (mockFs.promises.readFile as jest.Mock).mockResolvedValueOnce(Buffer.from('line1\nline2\nline3'));
+      // First call: initial content read for splitting. Second call: drift detection read-back.
+      (mockFs.promises.readFile as jest.Mock)
+        .mockResolvedValueOnce(Buffer.from('line1\nline2\nline3'))  // Initial content
+        .mockResolvedValueOnce(Buffer.from('line1\ninserted\nline2\nline3'));  // Post-write verification
       const result = await tool?.implementation({
         file_name: 'test.txt',
         line_number: 2,
