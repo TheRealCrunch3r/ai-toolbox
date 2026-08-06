@@ -92,6 +92,22 @@
 ### Task Planning Tools (3 tools — enabled by default)
 `create_plan` · `get_plan` · `update_plan_step`
 
+### [1.9.1] - 2026-08-06 — 🧠 Context Management Architecture: Scoping, Heuristic Scoring & TTL Pruning
+
+**Three architectural improvements to the memory system inspired by persistent-memory-v2 analysis — preserving ai-toolbox's performance advantages while adding context isolation and intelligent retrieval.**
+- ✅ **Context scoping**: Added `MemoryScope` type (`global`/`project`/`session`) to prevent cross-project memory bleed
+- ✅ **Heuristic scoring**: Deterministic composite score (Recency 70% + Frequency 30%) replaces raw insertion order for smarter retrieval
+- ✅ **TTL pruning**: 24-hour expiration for session-scoped entries; pruned automatically before every read operation
+
+---
+
+### [1.9.0] - 2026-08-06 — 🛠️ Jest Mock Compatibility Fix & Documentation Version Updates
+
+**Resolved Jest `moduleNameMapper` catch-all regex conflict with tool imports and synchronized version references across all documentation files.**
+- ✅ **Jest mock compatibility**: Resolved configuration error where the catch-all regex matched barrel file imports (`./tools/index.js`) and attempted to resolve them to non-existent mock files. Reverted to individual tool imports for Jest compatibility.
+- ✅ **Documentation synchronization**: Updated v1.8.9 → v1.9.0 across all MD files (ARCHITECTURE.md, DOCUMENTATION.md, TOOLS_REFERENCE.md, QUICK_START.md, docs/toolsProvider_registry_pattern.md)
+
+---
 ### Execution Tools (5 tools — mixed defaults: JS/Python enabled, Terminal/Shell disabled)
 `run_javascript` · `run_python` · `execute_command` · `run_in_terminal` · `run_tests`
 
@@ -172,7 +188,7 @@ npm test
 
 #### What Changed
 
-### [1.8.9] - 2026-08-03 — 🐛 insert_at_line & line_operations: Comprehensive Bug Fix Suite (13 Bugs Fixed)
+### [1.9.0] - 2026-08-03 — 🐛 insert_at_line & line_operations: Comprehensive Bug Fix Suite (13 Bugs Fixed)
 **Resolved 13 critical bugs across `insert_at_line` and `line_operations` tools through deep debugging.**
 - ✅ **Drift detection overhaul**: Replaced first-line-only `includes()` check with full contiguous line-by-line verification using normalized CRLF comparison — prevents silent file corruption from stale line numbers
 - ✅ **CRLF handling fixed**: Replaced literal `'\\\\r\\\\n'` backslash strings with proper `'\r\n'` escape sequences in post-write verification code

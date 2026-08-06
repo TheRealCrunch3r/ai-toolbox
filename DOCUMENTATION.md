@@ -1,7 +1,7 @@
 # Documentation Update Summary — AI Toolbox Plugin
 
 **Date**: 2026-08-01  
-**Version**: v1.8.9 (insert_at_line & line_operations: Comprehensive Bug Fix Suite — 13 Bugs Fixed)  
+**Version**: v1.9.1 (Context Management Architecture: Scoping, Heuristic Scoring & TTL Pruning)  
 **Status**: ✅ Complete
 
 ---
@@ -52,6 +52,27 @@ IF REMOTE URL (http://, https://):
 ---
 
 ## 🆕 Latest Updates
+
+### Context Management Architecture: Scoping, Heuristic Scoring & TTL Pruning — v1.9.1 (2026-08-06)
+**Three architectural improvements to the memory system inspired by persistent-memory-v2 analysis — preserving ai-toolbox's performance advantages while adding context isolation and intelligent retrieval.**
+
+#### 1. 🔒 Context Scoping (`MemoryScope` type)
+- Added `global`/`project`/`session` scope types to all `ContextEntry` records
+- Default scope is `'global'` — session/project entries can now be filtered for isolation
+- Prevents cross-project memory bleed and enables future scope-aware retrieval
+
+#### 2. 📈 Deterministic Heuristic Scoring (Recency + Frequency)
+- Composite scoring formula: `(RecencyDecay × 0.7) + (FrequencySaturation × 0.3)`
+- Recency decay uses exponential function with λ = 1 day threshold
+- Frequency saturation prevents infinite bias (`freq / (freq + 5)`)
+- Applied to `getRecentEntries()` and `searchContext()` — results sorted by relevance score instead of insertion order
+
+#### 3. 🧹 Automatic TTL Pruning (Session Memory Lifecycle)
+- Session-scoped entries expire after 24 hours (`SESSION_TTL_MS = 86400000`)
+- `pruneExpiredSessionEntries()` runs automatically before every retrieval operation
+- Prevents unbounded accumulation of temporary scratch notes
+
+**Performance preserved**: All improvements are deterministic (no AI inference, no WASM overhead) — retrieval latency remains <10ms.
 
 ### Accurate Token Counting via Native History API — v1.8.5+ (2026-07-31)
 **Resolved critical token counting inaccuracy and missing checkpoint prompt injection issues.**
@@ -200,7 +221,7 @@ All dangerous tool categories are **disabled by default**:
 - [x] All references to tools and features match current implementation
 
 ### CHANGELOG.md
-- [x] Version entries follow Keep a Changelog format with proper ordering (v1.5.0 → v1.8.9)
+- [x] Version entries follow Keep a Changelog format with proper ordering (v1.5.0 → v1.9.1)
 - [x] Dates and version numbers consistent with package.json
 - [x] Breaking changes clearly marked
 - [x] Security fixes documented with engineering details
@@ -211,7 +232,7 @@ All dangerous tool categories are **disabled by default**:
 
 | File | Changes Made |
 |------|-------------|
-| `README.md` | Up-to-date (v1.8.9 release history, ~97 tools) |
+| `README.md` | Up-to-date (v1.9.1 release history, ~97 tools) |
 | `ARCHITECTURE.md` | Gateway Pattern marked as ABANDONED; tool counts corrected to 20 modules |
 | `TOOLS_REFERENCE.md` | Up-to-date (~132 tools documented) |
 | `DOCUMENTATION.md` | Deprecated features clearly marked; tool count corrections applied |

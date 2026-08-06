@@ -13,8 +13,7 @@ import type { PluginConfig } from './config.js';
 import { configSchematics } from './config.js';
 import { StateManager } from './stateManager.js';
 import { BackgroundCommandManager } from './backgroundCommands.js';
-
-// Import tool registration functions (alphabetically sorted)
+// Tool registration functions — all tools remain available for runtime enable/disable via config toggles.
 import { registerBackupTools } from './tools/backupTools.js';
 import { registerBackgroundCommandTools } from './tools/backgroundCommandTools.js';
 import { registerBrowserTools } from './tools/browserAutomationTools.js';

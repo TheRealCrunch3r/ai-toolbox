@@ -124,7 +124,7 @@ export function main(context: PluginContext) {
 }
 ```
 
-### 2. Tool Registration Flow (Current State — v1.8.9)
+### 2. Tool Registration Flow (Current State — v1.9.1)
 
 ```
 toolsProvider() called by LM Studio SDK
@@ -177,6 +177,7 @@ See [CHANGELOG.md](./CHANGELOG.md) for historical context on the gateway pattern
 ---
 
 ### 3. Context Management Flow
+### Context Management Flow
 
 ```
 Session Activity Occurs
@@ -192,13 +193,56 @@ auto_summarize_context() called
     ▼
 ContextStorageManager.addEntry(entry)
     │
-    ├── Load existing entries from .ai_toolbox_context.msgpack → .session_context/.ai_toolbox_context.msgpack
+    ├── Load existing entries from .ai_toolbox_memory.msgpack (Working Dir → Plugin Root fallback)
+    ├── Apply default scope: 'global' (v1.9.1+) unless explicitly specified
+    ├── Set TTL for session-scoped entries: 24h (v1.9.1+)
+    ├── Increment frequency counter on existing entries with matching ID
+    ├── Append new entry to beginning of array
+    ├── Limit to 1000 entries (prevent unbounded growth)
+    └── Save atomically (temp file + rename)
+
+    ▼
+Persistent Storage (.ai_toolbox_memory.msgpack)
+    │
+    ├── get_context_memory(limit, type?) → Retrieve recent entries
+    │   ├── Prune expired session entries (TTL check: 24h threshold, v1.9.1+)
+    │   ├── Apply heuristic scoring: Recency(70%) + Frequency(30%) sort
+    │   └── Return top N scored entries
+    │
+    ├── search_context(query, maxResults) → Text-based search
+    │   ├── Prune expired session entries (v1.9.1+)
+    │   ├── Filter by title/content/tags match
+    │   ├── Apply heuristic scoring to results
+    │   └── Return top N scored matches
+    │
+    ├── context_summary() → Statistics & counts
+    └── delete_context_entry(id) → Remove specific entry
+```
+
+**Context Scoping (v1.9.1+):** Entries tagged with `global`/`project`/`session` scope for future isolation filtering. Session entries expire after 24h and are automatically pruned during retrieval.
+
+**Heuristic Retrieval Ordering (v1.9.1+):** All search/retrieval operations now apply deterministic composite scoring — recent + frequently accessed entries surface first, replacing raw insertion order.
+```
+Session Activity Occurs
+    │
+    ▼
+auto_summarize_context() called
+    │
+    ├── Analyze tool usage patterns
+    ├── Detect configuration changes
+    ├── Identify important decisions
+    └── Generate summary
+    
+    ▼
+ContextStorageManager.addEntry(entry)
+    │
+    ├── Load existing entries from .ai_toolbox_memory.msgpack → .session_context/.ai_toolbox_memory.msgpack
     ├── Append new entry to beginning of array
     ├── Limit to 1000 entries (prevent unbounded growth)
     └── Save atomically (temp file + rename)
     
     ▼
-Persistent Storage (.ai_toolbox_context.msgpack)
+Persistent Storage (.ai_toolbox_memory.msgpack)
     │
     ├── get_context_memory() → Retrieve recent entries
     ├── search_context(query) → Text-based search
@@ -320,17 +364,33 @@ try {
 Persistent context storage for session tracking:
 
 ```typescript
+export type MemoryScope = 'global' | 'project' | 'session';
+
 class ContextStorageManager {
-  private storagePath: string; // .ai_toolbox_context.msgpack
+  private storagePath: string; // .ai_toolbox_memory.msgpack
   
   load(): Promise<ContextEntry[]>
   save(entries: ContextEntry[]): Promise<void>
-  addEntry(entry: ContextEntry): Promise<void>
-  getRecentEntries(limit, type?): Promise<ContextEntry[]>
-  searchEntries(query, maxResults): Promise<ContextEntry[]>
+  addEntry(entry: ContextEntry): Promise<void>              // Applies default scope + TTL
+  getRecentEntries(limit, type?): Promise<ContextEntry[]>   // Heuristic scoring applied
+  searchEntries(query, maxResults): Promise<ContextEntry[]>  // Heuristic scoring applied
   deleteEntry(id): Promise<boolean>
   clearAll(): Promise<void>
   getSummary(): Promise<ContextSummary>
+  pruneExpiredSessionEntries(): Promise<number>              // TTL pruning (v1.9.1+)
+}
+
+interface ContextEntry {
+  id: string;
+  timestamp: number;
+  date: string;
+  type: 'decision' | 'pattern' | 'configuration' | 'file_change' | 'error' | 'summary';
+  title: string;
+  content: string;
+  tags?: string[];
+  scope?: MemoryScope;     // NEW (v1.9.1): Context isolation
+  frequency?: number;      // NEW (v1.9.1): Access count for scoring
+  ttl_ms?: number;         // NEW (v1.9.1): Expiration threshold
 }
 ```
 
@@ -339,6 +399,21 @@ class ContextStorageManager {
 - Atomic writes with corruption recovery
 - Automatic entry limiting (max 1000 entries)
 - Text-based search across titles, content, and tags
+- **Context Scoping (v1.9.1)**: Entries tagged with `global`/`project`/`session` scope for isolation
+- **Deterministic Heuristic Scoring (v1.9.1)**: Composite score = Recency(70%) + Frequency(30%), applied to all retrievals
+- **TTL Pruning (v1.9.1)**: Session-scoped entries expire after 24h; pruned automatically before every read operation
+
+**Heuristic Scoring Formula (v1.9.1):**
+```typescript
+// Recency Decay: Exponential decay based on age (lambda = 1 day)
+const recencyFactor = Math.exp(-ageMs / (24 * 60 * 60 * 1000));
+
+// Frequency Saturation: Prevents infinite bias toward frequently accessed entries
+const frequencyFactor = freq / (freq + 5);
+
+// Weighted composite score
+return (recencyFactor * 0.7) + (frequencyFactor * 0.3);
+```
 
 ### Security Module (`src/security.ts`)
 
@@ -638,13 +713,13 @@ auto_summarize_context(sessionEvents, configChanges)
     ▼
 ContextStorageManager.addEntry(entry)
     │
-    ├── Load existing entries from .ai_toolbox_context.msgpack
+    ├── Load existing entries from .ai_toolbox_memory.msgpack
     ├── Prepend new entry to array
     ├── Enforce 1000-entry limit
     └── Atomic save (temp file + rename)
     
     ▼
-Persistent Storage (.ai_toolbox_context.msgpack)
+Persistent Storage (.ai_toolbox_memory.msgpack)
     │
     ├── get_context_memory(limit, type?) → Retrieve entries
     ├── search_context(query, maxResults) → Text-based search

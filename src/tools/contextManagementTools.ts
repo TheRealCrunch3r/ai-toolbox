@@ -24,6 +24,8 @@ export interface SessionSummaryData {
 
 // ==================== Context Management Types ====================
 
+export type MemoryScope = 'global' | 'project' | 'session';
+
 interface ContextEntry {
   id: string;
   timestamp: number;
@@ -33,6 +35,9 @@ interface ContextEntry {
   content: string;
   tags?: string[];
   session_id?: string;
+  scope?: MemoryScope; // NEW: Explicit scoping for context isolation
+  frequency?: number;   // NEW: Access count for heuristic scoring
+  ttl_ms?: number;      // NEW: Time-to-live in milliseconds (for session pruning)
 }
 
 interface ContextSummary {
@@ -43,6 +48,9 @@ interface ContextSummary {
 }
 
 // ==================== Context Storage Manager — ASYNC ===
+
+/** Default TTL for session-scoped memories (24 hours) */
+const SESSION_TTL_MS = 24 * 60 * 60 * 1000; 
 
 export class ContextStorageManager {
   private workingDirPath: string;
@@ -132,6 +140,25 @@ export class ContextStorageManager {
   /** Add a new context entry — ASYNC === */
   async addEntry(entry: ContextEntry): Promise<void> {  // MADE ASYNC
     const entries = await this.load();  // ASYNC load
+    
+    // Apply default scope if not provided (defaults to 'global')
+    if (!entry.scope) {
+      entry.scope = 'global';
+    }
+
+    // Set TTL for session-scoped memories
+    if (entry.scope === 'session' && !entry.ttl_ms) {
+      entry.ttl_ms = SESSION_TTL_MS;
+    }
+
+    // Increment frequency for existing entries with matching ID (rare edge case)
+    const existingIdx = entries.findIndex(e => e.id === entry.id);
+    if (existingIdx !== -1) {
+      entries[existingIdx].frequency = (entries[existingIdx].frequency || 0) + 1;
+    } else {
+      entry.frequency = 1; // New entry starts at frequency 1
+    }
+
     entries.unshift(entry); // Add to beginning
     
     // Limit to last 1000 entries to prevent unbounded growth
@@ -150,35 +177,103 @@ export class ContextStorageManager {
     return (Date.now() - newestTimestamp) > threeDaysMs;
   }
 
-  /** Get recent context entries — ASYNC === */
-  async getRecentEntries(limit: number = 20, type?: string): Promise<{ data: ContextEntry[], isStale: boolean }> {  // MADE ASYNC
-    const entries = await this.load();  // ASYNC load
+  /** Determine if a session-scoped entry has expired based on TTL */
+  private _isExpired(entry: ContextEntry): boolean {
+    if (entry.scope !== 'session' || !entry.ttl_ms || !entry.timestamp) {
+      return false; // Only session entries with explicit TTL are subject to expiration
+    }
+    const age = Date.now() - entry.timestamp;
+    return age > entry.ttl_ms;
+  }
+
+  /** Prune expired session-scoped entries from the dataset */
+  async pruneExpiredSessionEntries(): Promise<number> {
+    const entries = await this.load();
+    const initialCount = entries.length;
     
-    let filtered = entries;
-    if (type) {
-      filtered = entries.filter(e => e.type === type);
+    // Filter out expired session entries
+    const pruned = entries.filter(entry => !this._isExpired(entry));
+    
+    if (pruned.length < initialCount) {
+      console.log(`[ContextStorage.prune] Removed ${initialCount - pruned.length} expired session entry(s).`);
+      await this.save(pruned);
     }
     
+    return initialCount - pruned.length;
+  }
+
+  /** Calculate deterministic heuristic score for an entry (Recency + Frequency) */
+  private _calculateScore(entry: ContextEntry): number {
+    const now = Date.now();
+    
+    // Recency Decay: Exponential decay based on age (lambda ~ 1 day)
+    const ageMs = now - entry.timestamp;
+    const recencyFactor = Math.exp(-ageMs / (24 * 60 * 60 * 1000)); 
+    
+    // Frequency Saturation: Saturated frequency to prevent staleness bias
+    const freq = entry.frequency ?? 1;
+    const frequencyFactor = freq / (freq + 5); 
+    
+    // Weighted composite score (Recency 70%, Frequency 30%)
+    return (recencyFactor * 0.7) + (frequencyFactor * 0.3);
+  }
+
+  /** Get recent context entries — ASYNC === */
+  async getRecentEntries(limit: number = 20, type?: string): Promise<{ data: ContextEntry[], isStale: boolean }> {  // MADE ASYNC
+    let entries = await this.load();  // ASYNC load
+    
+    // Prune expired session entries first
+    const prunedCount = await this.pruneExpiredSessionEntries();
+    if (prunedCount > 0) {
+      entries = await this.load(); // Reload after pruning
+    }
+
+    let filtered = entries;
+    
+    // Apply type filter if specified
+    if (type) {
+      filtered = filtered.filter(e => e.type === type);
+    }
+
+    // Apply deterministic heuristic scoring and sort by score descending
+    const scoredEntries = filtered.map(entry => ({
+      entry,
+      score: this._calculateScore(entry),
+    })).sort((a, b) => b.score - a.score).map(({ entry }) => entry);
+
     return { 
-      data: filtered.slice(0, limit), 
-      isStale: this._isStale(filtered) 
+      data: scoredEntries.slice(0, limit), 
+      isStale: this._isStale(scoredEntries) 
     };
   }
 
   /** Search context entries by query — ASYNC === */
   async searchEntries(query: string, maxResults: number = 10): Promise<{ results: ContextEntry[], isStale: boolean }> {  // MADE ASYNC
-    const entries = await this.load();  // ASYNC load
+    let entries = await this.load();  // ASYNC load
+    
+    // Prune expired session entries first
+    const prunedCount = await this.pruneExpiredSessionEntries();
+    if (prunedCount > 0) {
+      entries = await this.load(); // Reload after pruning
+    }
+
     const lowerQuery = query.toLowerCase();
     
-    const results = entries.filter(entry => 
+    let results = entries.filter(entry => 
       entry.title.toLowerCase().includes(lowerQuery) ||
       entry.content.toLowerCase().includes(lowerQuery) ||
       (entry.tags && entry.tags.some(tag => tag.toLowerCase().includes(lowerQuery)))
     );
-    
+
+    // Apply deterministic heuristic scoring and sort by score descending
+    const scoredResults = results.map(entry => ({
+      entry,
+      score: this._calculateScore(entry),
+    })).sort((a, b) => b.score - a.score).map(({ entry }) => entry);
+
     return { 
-      results: results.slice(0, maxResults), 
-      isStale: this._isStale(results) 
+      results: scoredResults.slice(0, maxResults), 
+      isStale: this._isStale(scoredResults) 
     };
   }
 

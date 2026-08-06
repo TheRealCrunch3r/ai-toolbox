@@ -1,6 +1,6 @@
 # 🛠️ AI Toolbox — Complete Tool Reference
 
-*Updated to reflect current state: **~97 unique tools** dynamically registered across 20 categories (v1.8.9).*
+*Updated to reflect current state: **~97 unique tools** dynamically registered across 20 categories (v1.9.1).*
 
 ---
 
@@ -336,9 +336,9 @@ The `src/tools/recodeTool/` module implements a pluggable rule engine for advanc
 
 | Tool | Description |
 |------|-------------|
-| `auto_summarize_context` | Analyze session patterns, tool usage frequency, config changes; saves to persistent memory |
-| `get_context_memory` | Retrieve past entries filtered by type (decision/pattern/config/error/summary) with result limits |
-| `search_context` | Fuzzy text search across titles, content bodies, tags for efficient retrieval and analysis |
+| `auto_summarize_context` | Analyze session patterns, tool usage frequency, config changes; saves to persistent memory with default `'global'` scope (v1.9.1+) |
+| `get_context_memory` | Retrieve past entries filtered by type (decision/pattern/config/error/summary) with deterministic heuristic scoring applied — recent + frequently accessed entries surface first (v1.9.1+) |
+| `search_context` | Fuzzy text search across titles, content bodies, tags for efficient retrieval and analysis; expired session entries pruned before search (24h TTL, v1.9.1+) |
 | `context_summary` | Statistical overview: total entries, type breakdowns, recent activity counts for auditing |
 | `delete_context_entry` | Remove specific context entry by unique ID without clearing entire history |
 | `clear_context_memory` | Clear all persistent memory entries (⚠️ irreversible; requires confirm=true) |
@@ -348,6 +348,11 @@ The `src/tools/recodeTool/` module implements a pluggable rule engine for advanc
 | `save_memory` | Persist facts to `.ai_toolbox_memory.msgpack` MessagePack binary for cross-session continuity |
 | `get_memory` | Retrieve all saved memory entries with optional type filtering and result limits |
 | `delete_memory` | Remove specific memory entry by unique ID returned during save operations |
+
+**Memory System Enhancements (v1.9.1):**
+- 🔒 **Context Scoping**: Entries tagged with `global`/`project`/`session` scope for future isolation filtering
+- 📈 **Heuristic Retrieval**: Composite scoring `(Recency × 0.7) + (Frequency × 0.3)` ensures intelligent ordering
+- 🧹 **TTL Pruning**: Session-scoped entries expire after 24h and are automatically removed during retrieval
 
 ---
 
@@ -554,4 +559,4 @@ All tools implement multiple security layers:
 
 ---
 
-*Reference generated from actual source code analysis on 2026-08-03 (v1.8.9). All tool counts verified against `toolsProvider.ts` registry entries and `src/tools/*.ts`. insert_at_line read-back drift detection documented with v1.8.8 hard fix.*
+*Reference generated from actual source code analysis on 2026-08-06 (v1.9.1). All tool counts verified against `toolsProvider.ts` registry entries and `src/tools/*.ts`. insert_at_line read-back drift detection documented with v1.8.8 hard fix.*
