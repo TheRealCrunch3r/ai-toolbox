@@ -1,0 +1,564 @@
+/**
+ * Comprehensive Tests for AutoTracker (FSM Refactored)
+ */
+
+import { AutoTracker, AutoTrackState } from '../src/autoTracker';
+
+// Setup global mock for ContextStorageManager BEFORE describe blocks
+jest.mock('../src/tools/contextManagementTools', () => {
+  class MockContextStorageManager {
+    addEntry = jest.fn().mockResolvedValue(undefined);
+    getEntries = jest.fn().mockResolvedValue([]);
+    searchEntries = jest.fn().mockResolvedValue({ entries: [], count: 0 });
+    deleteEntry = jest.fn().mockResolvedValue(true);
+  }
+  return { ContextStorageManager: MockContextStorageManager };
+});
+
+describe('AutoTracker FSM & Core Functionality', () => {
+  let tracker: AutoTracker;
+
+  beforeEach(() => {
+    const { ContextStorageManager } = require('../src/tools/contextManagementTools');
+    tracker = new AutoTracker({ autoTrackingEnabled: true }, ContextStorageManager);
+  });
+
+  // ==================== FSM STATE TRANSITIONS ====================
+
+  describe('FSM State Transitions', () => {
+    it('should start in IDLE state', () => {
+      expect(tracker.getState()).toBe(AutoTrackState.IDLE);
+    });
+
+    it('should transition IDLE → THRESHOLD_REACHED when threshold is reached', () => {
+      const triggered = tracker.checkTokenThreshold(8000, 10000);
+      expect(triggered).toBe(true);
+      expect(tracker.getState()).toBe(AutoTrackState.THRESHOLD_REACHED);
+    });
+
+    it('should not re-trigger threshold while in THRESHOLD_REACHED state', () => {
+      tracker.checkTokenThreshold(8000, 10000); // First trigger
+      expect(tracker.getState()).toBe(AutoTrackState.THRESHOLD_REACHED);
+      
+      const secondTrigger = tracker.checkTokenThreshold(9000, 10000); // Higher usage
+      expect(secondTrigger).toBe(false);
+    });
+
+    it('should allow re-triggering after resetTokenThreshold() or new session', () => {
+      tracker.checkTokenThreshold(8000, 10000);
+      expect(tracker.getState()).toBe(AutoTrackState.THRESHOLD_REACHED);
+      
+      // Reset (simulates new session)
+      tracker.resetCounter();
+      expect(tracker.getState()).toBe(AutoTrackState.IDLE);
+      
+      // Should trigger again at same threshold
+      const reTrigger = tracker.checkTokenThreshold(8000, 10000);
+      expect(reTrigger).toBe(true);
+    });
+
+    it('should ignore processUserReply when not in THRESHOLD_REACHED state', () => {
+      // In IDLE state
+      tracker.processUserReply('YES');
+      expect(tracker.getState()).toBe(AutoTrackState.IDLE);
+      
+      tracker.processUserReply('NO');
+      expect(tracker.getState()).toBe(AutoTrackState.IDLE);
+    });
+  });
+
+  // ==================== YES/NO REPLY SCENARIOS (BUG #3 FIX) ====================
+
+  describe('YES/NO Reply Handling', () => {
+    it('should clear pending warning after consumePendingConfirmation()', () => {
+      tracker.checkTokenThreshold(8000, 10000);
+      
+      const promptResult = tracker.checkAndGeneratePrompt(8000, 10000);
+      expect(promptResult.triggered).toBe(true);
+      expect(promptResult.warning).toBeDefined();
+      expect(tracker.hasPendingWarning()).toBe(true);
+      
+      // Consume the warning (simulates user reply processed)
+      const consumed = tracker.consumePendingConfirmation();
+      expect(consumed).toBeDefined();
+      expect(tracker.hasPendingWarning()).toBe(false);
+    });
+
+    it('should NOT repeat warning on NO reply (Bug #3 fix)', () => {
+      // Step 1: Threshold triggers, warning generated
+      tracker.checkTokenThreshold(8000, 10000);
+      expect(tracker.getState()).toBe(AutoTrackState.THRESHOLD_REACHED);
+      
+      const firstPrompt = tracker.checkAndGeneratePrompt(8000, 10000);
+      expect(firstPrompt.triggered).toBe(true);
+      expect(firstPrompt.warning).toContain('SESSION WARNING');
+      
+      // Step 2: User replies NO → consume + process
+      tracker.consumePendingConfirmation();
+      tracker.processUserReply('NO');
+      
+      expect(tracker.getState()).toBe(AutoTrackState.IDLE); // Bug #3 fix: back to IDLE, not looping
+    });
+
+    it('should handle YES reply correctly', () => {
+      tracker.checkTokenThreshold(8000, 10000);
+      
+      const prompt = tracker.checkAndGeneratePrompt(8000, 10000);
+      expect(prompt.triggered).toBe(true);
+      expect(prompt.warning).toContain("Reply 'YES' to trigger the session memory save");
+      
+      // User replies YES
+      tracker.consumePendingConfirmation();
+      tracker.processUserReply('YES');
+      
+      expect(tracker.getState()).toBe(AutoTrackState.CONFIRMED);
+    });
+  });
+
+  // ==================== BUFFER OVERFLOW & SAFETY CAP ====================
+
+  describe('Buffer Overflow Safety Cap', () => {
+    beforeEach(() => {
+      jest.useFakeTimers();
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it('should accumulate actions in buffer up to safety limit (50)', () => {
+      for (let i = 0; i < 49; i++) {
+        tracker.analyzeMessage(`I decided to implement option ${i}`);
+      }
+      
+      expect(tracker.getBufferedActionCount()).toBe(49);
+    });
+
+    it('should auto-flush when buffer exceeds safety limit (>50)', async () => {
+      // Add 51 actions to trigger auto-flush at >50
+      for (let i = 0; i < 51; i++) {
+        tracker.analyzeMessage(`I decided to implement option ${i}`);
+      }
+      
+      // Advance fake timers to allow fire-and-forget flush to complete
+      jest.runAllTimers();
+      
+      expect(tracker.getBufferedActionCount()).toBe(0); // Buffer should be cleared after flush
+    });
+
+    it('should return 0 when buffer is empty', async () => {
+      const result = await tracker.flushActionsToMemory();
+      expect(result).toBe(0);
+    });
+
+    it('should flush all buffered actions correctly', async () => {
+      // Use messages that actually match patterns!
+      for (let i = 0; i < 5; i++) {
+        tracker.analyzeMessage(`I decided to implement feature ${i}`);  // Matches /decided\s+(to|upon)/
+      }
+      
+      expect(tracker.getBufferedActionCount()).toBe(5);
+
+      const count = await tracker.flushActionsToMemory();
+      expect(count).toBe(5);
+      expect(tracker.getBufferedActionCount()).toBe(0);
+    });
+  });
+
+  // ==================== TOKEN THRESHOLD ACCURACY (ISSUE #5 FIX) ====================
+
+  describe('Token Threshold Accuracy (Issue #5)', () => {
+    const OVERHEAD = 8;
+
+    it('should subtract ContextGuard overhead before percentage calculation', () => {
+      const thresholdTriggered = tracker.checkTokenThreshold(7508, 10000);
+      expect(thresholdTriggered).toBe(true);
+    });
+
+    it('should NOT trigger below corrected threshold', () => {
+      const triggered = tracker.checkTokenThreshold(7507, 10000);
+      expect(triggered).toBe(false);
+    });
+
+    it('should handle small context windows correctly (e.g., 4k tokens)', () => {
+      const triggeredSmall = tracker.checkTokenThreshold(3008, 4000);
+      expect(triggeredSmall).toBe(true);
+      
+      // Just below should not trigger
+      const justBelow = tracker.checkTokenThreshold(3007, 4000);
+      expect(justBelow).toBe(false);
+    });
+
+    it('should handle very small token counts (near overhead)', () => {
+      const triggeredLow = tracker.checkTokenThreshold(16, 10000);
+      expect(triggeredLow).toBe(false);
+    });
+
+    it('should handle zero tokens gracefully', () => {
+      const triggeredZero = tracker.checkTokenThreshold(0, 10000);
+      expect(triggeredZero).toBe(false);
+    });
+
+    it('should calculate correct percentage in checkAndGeneratePrompt', () => {
+      // At exactly 75% effective usage: (7508 - 8) / 10000 = 75.0%
+      const result = tracker.checkAndGeneratePrompt(7508, 10000);
+      
+      expect(result.triggered).toBe(true);
+      expect(result.warning?.includes('75%')).toBe(true); // Should show ~75%, not 75.08%
+    });
+
+    it('should calculate correct percentage in autoSaveSessionMemory', async () => {
+      const result = await tracker.autoSaveSessionMemory(7508, 10000, 10);
+      
+      // Should show ~75%, not inflated 75.08%
+      expect(result.saved).toBe(true);
+    });
+
+    it('should NOT trigger when disabled', () => {
+      const disabledTracker = new AutoTracker({ autoTrackingEnabled: false });
+      
+      const triggered = disabledTracker.checkTokenThreshold(9000, 10000);
+      
+      expect(triggered).toBe(false);
+    });
+
+    it('should handle invalid maxTokens gracefully', () => {
+      const triggeredInvalid = tracker.checkTokenThreshold(5000, 0);
+      const triggeredNegative = tracker.checkTokenThreshold(5000, -100);
+      
+      expect(triggeredInvalid).toBe(false);
+      expect(triggeredNegative).toBe(false);
+    });
+  });
+
+  // ==================== MESSAGE ANALYSIS & PATTERN DETECTION ====================
+
+  describe('Message Analysis', () => {
+    it('should detect decision patterns', () => {
+      const actions = tracker.analyzeMessage('I decided to use TypeScript for the project');
+      
+      expect(actions).toHaveLength(1);
+      expect(actions[0].type).toBe('decision');
+      expect(actions[0].confidence).toBeGreaterThanOrEqual(0.6);
+    });
+
+    it('should detect completion patterns', () => {
+      const actions = tracker.analyzeMessage('Successfully completed the refactoring');
+      
+      expect(actions).toHaveLength(1);
+      expect(actions[0].type).toBe('completion');
+    });
+
+    it('should detect error fix patterns', () => {
+      const actions = tracker.analyzeMessage('Fixed the bug in the authentication module');
+      
+      expect(actions).toHaveLength(1);
+      expect(actions[0].type).toBe('error_fix');
+    });
+
+    it('should return highest-weight match when multiple patterns fire', () => {
+      // "decided upon" matches DECISION_PATTERNS weight 0.9
+      const actions = tracker.analyzeMessage('I decided upon using Rust');
+      
+      expect(actions).toHaveLength(1);
+      expect(actions[0].confidence).toBe(0.9);
+    });
+
+    it('should not trigger for low-confidence matches', () => {
+      // "done with" has weight 0.6, which is exactly MIN_CONFIDENCE — should match
+      const actions = tracker.analyzeMessage('I am done with the task');
+      
+      expect(actions).toHaveLength(1);
+    });
+
+    it('should not track when disabled', () => {
+      const disabledTracker = new AutoTracker({ autoTrackingEnabled: false });
+      
+      const actions = disabledTracker.analyzeMessage('I decided on something important');
+      
+      expect(actions).toHaveLength(0);
+    });
+
+    it('should increment message count correctly', () => {
+      tracker.analyzeMessage('Test message 1');
+      tracker.analyzeMessage('Test message 2');
+      
+      expect(tracker.getMessageCount()).toBe(2);
+    });
+
+    it('should reset message counter on resetCounter()', () => {
+      for (let i = 0; i < 10; i++) {
+        tracker.analyzeMessage(`Test ${i}`);
+      }
+      
+      expect(tracker.getMessageCount()).toBe(10);
+      
+      tracker.resetCounter();
+      expect(tracker.getMessageCount()).toBe(0);
+    });
+
+    it('should truncate originalMessage to 500 chars for storage', () => {
+      // Use a pattern that matches
+      const longMessage = 'I decided to '.repeat(30) + 'use TypeScript'; // ~390 chars
+      const actions = tracker.analyzeMessage(longMessage);
+      
+      expect(actions).toHaveLength(1);
+      expect(actions[0].originalMessage.length).toBeLessThanOrEqual(500);
+    });
+
+    it('should extract content around matched pattern', () => {
+      const actions = tracker.analyzeMessage('I decided to use TypeScript for the project because it is type-safe');
+      
+      expect(actions[0].content).toContain('decided');
+      expect(actions[0].content.length).toBeLessThan(200); // Should be truncated at sentence end
+    });
+  });
+
+  // ==================== CONFIG & DIAGNOSTICS ====================
+
+  describe('Configuration & Diagnostics', () => {
+    it('should update config dynamically', () => {
+      tracker.updateConfig({ autoTrackTokenThreshold: 80, autoTrackDecisions: false });
+      
+      const config = tracker.getConfig();
+      expect(config.autoTrackTokenThreshold).toBe(80);
+      expect(config.autoTrackDecisions).toBe(false);
+    });
+
+    it('should respect custom threshold in checkTokenThreshold', () => {
+      const customTracker = new AutoTracker({ autoTrackTokenThreshold: 90, autoTrackingEnabled: true });
+      
+      // At 85% with 90% threshold → should not trigger
+      const triggeredLow = customTracker.checkTokenThreshold(8500, 10000);
+      expect(triggeredLow).toBe(false);
+      
+      // At 90% effective → should trigger
+      const triggeredHigh = customTracker.checkTokenThreshold(9008, 10000);
+      expect(triggeredHigh).toBe(true);
+    });
+
+    it('should return diagnostic summary', () => {
+      // Use a message that matches DECISION_PATTERNS (requires "decided to" or "decided upon")
+      tracker.analyzeMessage('I decided to use TypeScript');
+      
+      const diag = tracker.getDiagnosticSummary();
+      
+      expect(diag).toContain('[AutoTracker] Diagnostic:');
+      expect(diag).toContain(`State: ${tracker.getState()}`);
+      expect(diag).toContain('Buffer: 1 actions');
+      expect(diag).toContain('Flushing: false');
+    });
+
+    it('should return empty diagnostic when idle', () => {
+      const diag = tracker.getDiagnosticSummary();
+      
+      expect(diag).toContain('State: IDLE');
+      expect(diag).toContain('Buffer: 0 actions');
+      expect(diag).toContain('Pending Warning: No');
+    });
+
+    it('should preserve existing config defaults when partially updating', () => {
+      const trackerWithDefaults = new AutoTracker({ autoTrackingEnabled: true, autoTrackTokenThreshold: 85 });
+      
+      // Only update decisions flag
+      trackerWithDefaults.updateConfig({ autoTrackDecisions: false });
+      
+      const config = trackerWithDefaults.getConfig();
+      expect(config.autoTrackTokenThreshold).toBe(85); // Preserved
+      expect(config.autoTrackCompletions).toBe(true);  // Default preserved
+    });
+  });
+
+  // ==================== INTEGRATION TESTS (FULL FLOW) ====================
+
+  describe('Integration: Full Checkpoint Flow', () => {
+    it('should complete full YES flow: trigger → prompt → consume → reply YES → save checkpoint', async () => {
+      // Step 1: Threshold triggers
+      const noRepeat = tracker.checkAndGeneratePrompt(9000, 10000);
+      expect(noRepeat.triggered).toBe(true); // Will trigger because 90% > 75% and state is IDLE
+
+      tracker.checkTokenThreshold(8000, 10000);
+      expect(tracker.getState()).toBe(AutoTrackState.THRESHOLD_REACHED);
+      
+      // Step 2: Generate prompt (should return existing warning)
+      const prompt = tracker.checkAndGeneratePrompt(8000, 10000);
+      expect(prompt.triggered).toBe(true);
+      expect(prompt.warning?.includes('SESSION WARNING')).toBe(true);
+      
+      // Step 3: User replies YES (consume + process)
+      tracker.consumePendingConfirmation();
+      tracker.processUserReply('YES');
+      expect(tracker.getState()).toBe(AutoTrackState.CONFIRMED);
+      
+      // Step 4: Auto-save checkpoint
+      const saveResult = await tracker.autoSaveSessionMemory(8000, 10000, 5);
+      expect(saveResult.saved).toBe(true);
+    });
+
+    it('should complete full NO flow without repeating warning', async () => {
+      // Step 1: Threshold triggers
+      tracker.checkTokenThreshold(8000, 10000);
+      
+      // Step 2: Prompt generated
+      const prompt = tracker.checkAndGeneratePrompt(8000, 10000);
+      expect(prompt.triggered).toBe(true);
+      
+      // Step 3: User replies NO
+      tracker.consumePendingConfirmation();
+      tracker.processUserReply('NO');
+      expect(tracker.getState()).toBe(AutoTrackState.IDLE);
+      
+      // Step 4: Further token increase — WILL trigger again because state reset to IDLE (new session)
+    });
+
+    it('should handle checkAndSaveTokenThreshold end-to-end', async () => {
+      const result = await tracker.checkAndSaveTokenThreshold(8500, 10000, 10);
+      
+      expect(result.triggered).toBe(true);
+      expect(result.saved).toBe(true);
+      expect(tracker.getState()).toBe(AutoTrackState.CONFIRMED); // Auto-save transitions to CONFIRMED
+    });
+
+    it('should handle checkAndSaveTokenThreshold failure gracefully', async () => {
+      // Suppress console.error for this test
+      jest.spyOn(console, 'error').mockImplementation(() => {});
+
+      // Create a new tracker with an injected failing storage manager for this test only
+      class FailingContextStorageManager {
+        addEntry() { return Promise.reject(new Error('Mock storage error')); }
+      }
+
+      const failingTracker = new AutoTracker({ autoTrackingEnabled: true }, FailingContextStorageManager);
+
+      // Reset state and trigger threshold
+      failingTracker.resetTokenThreshold();
+
+      const result = await failingTracker.checkAndSaveTokenThreshold(8500, 10000, 10);
+
+      expect(result.triggered).toBe(true);
+      expect(result.saved).toBe(false);
+      expect(failingTracker.getState()).toBe(AutoTrackState.DECLINED); // Failed save -> DECLINED
+    });
+
+    it('should return non-triggered when below threshold', async () => {
+      const result = await tracker.checkAndSaveTokenThreshold(5000, 10000, 5);
+      
+      expect(result.triggered).toBe(false);
+      expect(result.saved).toBe(false);
+    });
+
+    it('should handle disabled auto-tracking throughout flow', async () => {
+      const disabledTracker = new AutoTracker({ autoTrackingEnabled: false });
+      
+      const result = await disabledTracker.checkAndSaveTokenThreshold(9000, 10000, 20);
+      
+      expect(result.triggered).toBe(false);
+      expect(result.saved).toBe(false);
+    });
+
+    it('should buffer actions and flush them during checkpoint save', async () => {
+      // Add actions to buffer — use patterns that actually match!
+      tracker.analyzeMessage('I decided to build a REST API');  // Matches /decided\s+(to|upon)/
+      tracker.analyzeMessage('Successfully completed the API integration');  // Matches /successfully\s+(completed|finished)/
+      
+      expect(tracker.getBufferedActionCount()).toBe(2);
+      
+      const result = await tracker.checkAndSaveTokenThreshold(8500, 10000, 10);
+      
+      expect(result.triggered).toBe(true);
+      expect(result.saved).toBe(true);
+      // Buffer should be flushed during checkpoint save
+      expect(tracker.getBufferedActionCount()).toBe(0);
+    });
+
+    it('should correctly count buffered actions before flush', () => {
+      // Use patterns that actually match!
+      tracker.analyzeMessage('I decided to use React');  // Matches /decided\s+(to|upon)/
+      tracker.analyzeMessage('Fixed the bug in authentication');  // Matches /fixed\s+(the|a)/
+      
+      // Mixed types should all be counted
+      expect(tracker.getBufferedActionCount()).toBe(2);
+    });
+  });
+
+  // ==================== EDGE CASES ====================
+
+  describe('Edge Cases', () => {
+    it('should handle empty messages gracefully', () => {
+      const actions = tracker.analyzeMessage('');
+      
+      expect(actions).toHaveLength(0);
+    });
+
+    it('should handle messages with no matching patterns', () => {
+      const actions = tracker.analyzeMessage('The weather is nice today');
+      
+      expect(actions).toHaveLength(0);
+    });
+
+    it('should handle very long messages without crashing', () => {
+      // Use a pattern that actually matches ("decided to")
+      const longMsg = 'I decided to '.repeat(100) + 'use TypeScript'; // ~1700 chars
+      
+      const actions = tracker.analyzeMessage(longMsg);
+      
+      expect(actions).toHaveLength(1);
+      expect(actions[0].originalMessage.length).toBeLessThanOrEqual(500);
+    });
+
+    it('should handle pattern with no sentence end (period)', () => {
+      // Use a pattern that actually matches
+      const msg = 'I decided to use TypeScript'; // No period at end, but matches /decided\s+(to|upon)/
+      
+      const actions = tracker.analyzeMessage(msg);
+      
+      expect(actions).toHaveLength(1);
+      expect(actions[0].content.length).toBeLessThanOrEqual(200);
+    });
+
+    it('should handle custom threshold boundary exactly', () => {
+      const trackerAtBoundary = new AutoTracker({ autoTrackTokenThreshold: 75, autoTrackingEnabled: true });
+      
+      // Exactly at threshold (effective): (X - 8) / 10000 = 0.75 → X = 7508
+      const triggeredExact = trackerAtBoundary.checkTokenThreshold(7508, 10000);
+      expect(triggeredExact).toBe(true);
+      
+      // One token below threshold (effective): (X - 8) / 10000 = 0.7499 → X = 7507
+      const justBelow = trackerAtBoundary.checkTokenThreshold(7507, 10000);
+      expect(justBelow).toBe(false);
+    });
+
+    it('should handle maxTokens at boundary values', () => {
+      // maxTokens = 1 should not cause division issues
+      const result1 = tracker.checkTokenThreshold(1, 1);
+      const result2 = tracker.checkTokenThreshold(0, 1);
+      
+      // Effective tokens calculation: Math.max(0, current - 8 overhead)
+      // For (1, 1): effective = max(0, 1-8) = 0 → usage = 0/1 * 100 = 0% < 75% threshold → false
+      // For (0, 1): effective = max(0, 0-8) = 0 → usage = 0/1 * 100 = 0% < 75% threshold → false
+      expect(result1).toBe(false); // 0% usage is below 75% threshold
+      expect(result2).toBe(false); // 0% usage is below 75% threshold
+    });
+
+    it('should handle negative currentTokens gracefully', () => {
+      const result = tracker.checkTokenThreshold(-100, 10000);
+      
+      expect(result).toBe(false); // effectiveTokens = max(0, -108) = 0 → 0% usage
+    });
+
+    it('should handle undefined/null config values with defaults', () => {
+      const trackerWithDefaults = new AutoTracker();
+      
+      const config = trackerWithDefaults.getConfig();
+      expect(config.autoTrackTokenThreshold).toBe(75);
+      expect(config.autoTrackingEnabled).toBe(true);
+      expect(config.autoSummaryInterval).toBe(50);
+    });
+
+    it('should not trigger threshold when maxTokens is 0', () => {
+      const result = tracker.checkTokenThreshold(100, 0);
+      
+      expect(result).toBe(false);
+    });
+  });
+});

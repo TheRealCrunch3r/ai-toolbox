@@ -10,6 +10,7 @@ import { getAttachment } from '../attachmentManager';
 
 interface ReadDocumentParams {
   file_path: string;
+  max_length?: number; // Maximum characters of extracted text to return (default: 10000)
 }
 
 // ==================== Helper Functions — ASYNC ===
@@ -42,19 +43,28 @@ function handleError(error: unknown): { success: false; error: string } {
   return { success: false, error: `Document reading failed: ${message}` };
 }
 
+/** Cap text to max_length chars with truncation indicator */
+function capText(text: string, maxLength: number): { truncated: boolean; preview: string } {
+  const actualLength = Math.min(text.length, maxLength);
+  return {
+    truncated: text.length > maxLength,
+    preview: text.substring(0, actualLength) + (text.length > maxLength ? '...' : ''),
+  };
+}
+
 // ==================== Tool Implementations — ASYNC ===
 
 /**
  * Read content from PDF or DOCX files.
  * Supports both disk paths and attached files (by filename).
  */
-async function readDocument({ file_path }: ReadDocumentParams): Promise<unknown> {
+async function readDocument({ file_path, max_length }: ReadDocumentParams): Promise<unknown> {
   try {
     // 1. Check if it's an attached file
     const attachment = getAttachment(file_path);
     if (attachment) {
       console.log(`[AI Toolbox] Reading attached file: ${file_path}`);
-      
+
       // Typed interface for attachment object
       type AttachmentWithReadFile = { readFile?: () => Promise<Buffer>; read?: () => Promise<unknown> };
       const typedAttachment = attachment as unknown as AttachmentWithReadFile;
@@ -64,19 +74,20 @@ async function readDocument({ file_path }: ReadDocumentParams): Promise<unknown>
       } else if (typedAttachment.read) {
         buffer = Buffer.from(await typedAttachment.read() as string);  // ASYNC already
       }
-      
+
       if (!buffer) {
         return { success: false, error: `Unable to read attached file: ${file_path}` };
       }
-      
+
       const ext = path.extname(file_path).toLowerCase();
-      
+
+      const maxLength = max_length ?? 10000;
       if (ext === '.pdf') {
-        return await readPDFFromBuffer(buffer, file_path);  // ASYNC already
+        return await readPDFFromBuffer(buffer, file_path, maxLength);  // ASYNC already
       } else if (ext === '.docx') {
-        return await readDOCXFromBuffer(buffer, file_path);  // ASYNC already
+        return await readDOCXFromBuffer(buffer, file_path, maxLength);  // ASYNC already
       } else if (ext === '.txt') {
-        return await readTXTFromBuffer(buffer, file_path);  // ASYNC already
+        return await readTXTFromBuffer(buffer, file_path, maxLength);  // ASYNC already
       } else {
         return { 
           success: false, 
@@ -96,15 +107,17 @@ async function readDocument({ file_path }: ReadDocumentParams): Promise<unknown>
     }
 
     const ext = path.extname(file_path).toLowerCase();
-    
+    const maxLength = max_length ?? 10000;
+
     switch (ext) {
       case '.pdf':
-        return await readPDF(file_path);  // ASYNC already
+        return await readPDF(file_path, maxLength);  // ASYNC already
       case '.docx':
-        return await readDOCX(file_path);  // ASYNC already
+        return await readDOCX(file_path, maxLength);  // ASYNC already
       case '.txt': {
         const text = await fs.readFile(file_path, 'utf-8');  // ASYNC read
         const stats = await fs.stat(file_path);  // ASYNC stat for size
+        const capped = capText(text, maxLength);
         return {
           success: true,
           data: {
@@ -112,8 +125,10 @@ async function readDocument({ file_path }: ReadDocumentParams): Promise<unknown>
             format: 'TXT',
             word_count: text.split(/\s+/).filter(w => w.length > 0).length,
             size: `${(stats.size / 1024).toFixed(1)} KB`,
-            text_preview: text.substring(0, 500) + (text.length > 500 ? '...' : ''),
-            full_text: text,
+            total_chars: text.length,
+            text_preview: capped.preview,
+            full_text: capped.preview,
+            truncated: capped.truncated,
           },
         };
       }
@@ -131,7 +146,7 @@ async function readDocument({ file_path }: ReadDocumentParams): Promise<unknown>
 /**
  * Read PDF content from disk path — ASYNC read ===
  */
-async function readPDF(filePath: string): Promise<unknown> {
+async function readPDF(filePath: string, maxLength: number = 10000): Promise<unknown> {
   try {
     const pdfParse = (await import('pdf-parse')).default;
     
@@ -144,6 +159,7 @@ async function readPDF(filePath: string): Promise<unknown> {
     console.log(`[AI Toolbox] PDF read complete: ${result.numpages} pages, ${(result.text.length / 1024).toFixed(1)}KB`);
     
     const stats = await fs.stat(filePath);  // ASYNC stat for size
+    const capped = capText(result.text, maxLength);
     
     return {
       success: true,
@@ -152,9 +168,11 @@ async function readPDF(filePath: string): Promise<unknown> {
         format: 'PDF',
         pages: result.numpages,
         word_count: result.text.split(/\s+/).filter(w => w.length > 0).length,
+        total_chars: result.text.length,
         size: `${(stats.size / 1024).toFixed(1)} KB`,
-        text_preview: result.text.substring(0, 500) + (result.text.length > 500 ? '...' : ''),
-        full_text: result.text,
+        text_preview: capped.preview,
+        full_text: capped.preview,
+        truncated: capped.truncated,
       },
     };
   } catch (error) {
@@ -165,7 +183,7 @@ async function readPDF(filePath: string): Promise<unknown> {
 /**
  * Read PDF content from buffer (for attachments). — ASYNC already ===
  */
-async function readPDFFromBuffer(buffer: Buffer, fileName: string): Promise<unknown> {
+async function readPDFFromBuffer(buffer: Buffer, fileName: string, maxLength: number = 10000): Promise<unknown> {
   try {
     const pdfParse = (await import('pdf-parse')).default;
     
@@ -175,6 +193,8 @@ async function readPDFFromBuffer(buffer: Buffer, fileName: string): Promise<unkn
     
     console.log(`[AI Toolbox] PDF read complete: ${result.numpages} pages, ${(result.text.length / 1024).toFixed(1)}KB`);
     
+    const capped = capText(result.text, maxLength);
+    
     return {
       success: true,
       data: {
@@ -182,9 +202,11 @@ async function readPDFFromBuffer(buffer: Buffer, fileName: string): Promise<unkn
         format: 'PDF',
         pages: result.numpages,
         word_count: result.text.split(/\s+/).filter(w => w.length > 0).length,
+        total_chars: result.text.length,
         size: `${(buffer.length / 1024).toFixed(1)} KB`,
-        text_preview: result.text.substring(0, 500) + (result.text.length > 500 ? '...' : ''),
-        full_text: result.text,
+        text_preview: capped.preview,
+        full_text: capped.preview,
+        truncated: capped.truncated,
         source: 'attachment',
       },
     };
@@ -196,7 +218,7 @@ async function readPDFFromBuffer(buffer: Buffer, fileName: string): Promise<unkn
 /**
  * Read DOCX content from disk path — ASYNC read ===
  */
-async function readDOCX(filePath: string): Promise<unknown> {
+async function readDOCX(filePath: string, maxLength: number = 10000): Promise<unknown> {
   try {
     const mammoth = await import('mammoth');
     
@@ -213,6 +235,7 @@ async function readDOCX(filePath: string): Promise<unknown> {
     console.log(`[AI Toolbox] DOCX read complete: ${(text.length / 1024).toFixed(1)}KB`);
     
     const stats = await fs.stat(filePath);  // ASYNC stat for size
+    const capped = capText(text, maxLength);
     
     return {
       success: true,
@@ -220,9 +243,11 @@ async function readDOCX(filePath: string): Promise<unknown> {
         file_path: filePath,
         format: 'DOCX',
         word_count: text.split(/\s+/).filter(w => w.length > 0).length,
+        total_chars: text.length,
         size: `${(stats.size / 1024).toFixed(1)} KB`,
-        text_preview: text.substring(0, 500) + (text.length > 500 ? '...' : ''),
-        full_text: text,
+        text_preview: capped.preview,
+        full_text: capped.preview,
+        truncated: capped.truncated,
         warnings: warnings || undefined,
       },
     };
@@ -234,7 +259,7 @@ async function readDOCX(filePath: string): Promise<unknown> {
 /**
  * Read DOCX content from buffer (for attachments). — ASYNC already ===
  */
-async function readDOCXFromBuffer(buffer: Buffer, fileName: string): Promise<unknown> {
+async function readDOCXFromBuffer(buffer: Buffer, fileName: string, maxLength: number = 10000): Promise<unknown> {
   try {
     const mammoth = await import('mammoth');
     
@@ -248,15 +273,19 @@ async function readDOCXFromBuffer(buffer: Buffer, fileName: string): Promise<unk
     
     console.log(`[AI Toolbox] DOCX read complete: ${(text.length / 1024).toFixed(1)}KB`);
     
+    const capped = capText(text, maxLength);
+    
     return {
       success: true,
       data: {
         file_path: fileName,
         format: 'DOCX',
         word_count: text.split(/\s+/).filter(w => w.length > 0).length,
+        total_chars: text.length,
         size: `${(buffer.length / 1024).toFixed(1)} KB`,
-        text_preview: text.substring(0, 500) + (text.length > 500 ? '...' : ''),
-        full_text: text,
+        text_preview: capped.preview,
+        full_text: capped.preview,
+        truncated: capped.truncated,
         warnings: warnings || undefined,
         source: 'attachment',
       },
@@ -269,7 +298,7 @@ async function readDOCXFromBuffer(buffer: Buffer, fileName: string): Promise<unk
 /**
  * Read TXT content from buffer (for attachments). — ASYNC already ===
  */
-async function readTXTFromBuffer(buffer: Buffer, fileName: string): Promise<unknown> {
+async function readTXTFromBuffer(buffer: Buffer, fileName: string, maxLength: number = 10000): Promise<unknown> {
   try {
     console.log(`[AI Toolbox] Reading TXT from attachment: ${fileName}`);
     
@@ -277,15 +306,19 @@ async function readTXTFromBuffer(buffer: Buffer, fileName: string): Promise<unkn
     
     console.log(`[AI Toolbox] TXT read complete: ${(text.length / 1024).toFixed(1)}KB`);
     
+    const capped = capText(text, maxLength);
+    
     return {
       success: true,
       data: {
         file_path: fileName,
         format: 'TXT',
         word_count: text.split(/\s+/).filter(w => w.length > 0).length,
+        total_chars: text.length,
         size: `${(buffer.length / 1024).toFixed(1)} KB`,
-        text_preview: text.substring(0, 500) + (text.length > 500 ? '...' : ''),
-        full_text: text,
+        text_preview: capped.preview,
+        full_text: capped.preview,
+        truncated: capped.truncated,
         source: 'attachment',
       },
     };

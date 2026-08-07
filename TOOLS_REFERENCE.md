@@ -1,6 +1,6 @@
 # 🛠️ AI Toolbox — Complete Tool Reference
 
-*Updated to reflect current state: **~97 unique tools** dynamically registered across 20 categories (v1.9.1).*
+*Updated to reflect current state: **~97 unique tools** dynamically registered across 20 categories (v1.9.2).*
 
 ---
 
@@ -18,7 +18,7 @@
 | Execution | 5 | ❌ Mixed (JS/Python: enabled) | Active |
 | Utilities | ~8 | ✅ Utility toggle | Active |
 | Image Processing | 4 | ✅ Enabled | Active |
-| Vector RAG | 4 | ✅ Enabled | Active |
+| Vector RAG | 7 | ✅ Enabled | Active |
 | UI Generation | 3 | ❌ Disabled | Active |
 | Context Management | 12 | ✅ Enabled | Active |
 | Text Processing | 4 | ✅ Enabled | Active |
@@ -309,7 +309,17 @@ The `src/tools/recodeTool/` module implements a pluggable rule engine for advanc
 
 ---
 
-## 🔍 Vector RAG (4)
+## 🔍 Vector RAG (7)
+
+### Indexing Tools (3 new in v1.9.2)
+
+| Tool | Description |
+|------|-------------|
+| `rag_index_pdf` | Extract PDF text via pdf-parse, chunk by page boundary with page_number metadata; bounded ~300 words/chunk for OOM safety; traceable results per page number |
+| `rag_index_docx` | Extract DOCX raw text via mammoth library, word-bounded chunks (default 300 words, 50 overlap); same embedding pipeline as PDF |
+| `rag_index_xlsx` | Extract all sheets as row arrays via xlsx package; chunks by rows (default 100), optional sheet-name prefix for traceability; includeSheetNames parameter controls prefix behavior |
+
+### Existing Tools (4)
 
 | Tool | Description |
 |------|-------------|
@@ -559,4 +569,4 @@ All tools implement multiple security layers:
 
 ---
 
-*Reference generated from actual source code analysis on 2026-08-06 (v1.9.1). All tool counts verified against `toolsProvider.ts` registry entries and `src/tools/*.ts`. insert_at_line read-back drift detection documented with v1.8.8 hard fix.*
+*Reference generated from actual source code analysis on 2026-08-07 (v1.9.2). All tool counts verified against `toolsProvider.ts` registry entries and `src/tools/*.ts`. insert_at_line read-back drift detection documented with v1.8.8 hard fix.*

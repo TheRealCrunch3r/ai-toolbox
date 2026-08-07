@@ -124,7 +124,7 @@ export function main(context: PluginContext) {
 }
 ```
 
-### 2. Tool Registration Flow (Current State — v1.9.1)
+### 2. Tool Registration Flow (Current State — v1.9.2)
 
 ```
 toolsProvider() called by LM Studio SDK
@@ -1044,7 +1044,7 @@ src/
 │   ├── utilityTools.ts         # Utility tools (~25 tools — REGISTERED under 'utility' toggle)
 │   ├── imageProcessingTools.ts # Image processing & OCR (4 tools — REGISTERED)
 │   ├── httpClientTools.ts      # HTTP client operations (3 tools — REGISTERED)
-│   ├── vectorRagTools.ts       # Vector RAG semantic search (4 tools — REGISTERED)
+│   ├── vectorRagTools.ts       # Vector RAG semantic search (7 tools — REGISTERED: rag_index_files, rag_index_pdf, rag_index_docx, rag_index_xlsx, rag_query_vector, rag_clear_index, rag_web_content)
 │   ├── textProcessingTools.ts  # Text transformation (4 tools — REGISTERED)
 │   ├── uiGenerationTools.ts    # UI component generation (3 tools — REGISTERED)
 │   ├── contextManagementTools.js # Context management & tracking (12 tools — REGISTERED)
@@ -1130,7 +1130,7 @@ All tool categories are now fully registered in `toolsProvider.ts` using the dec
 | Background Commands | backgroundCommandTools.ts | 3 | ✅ Yes | Disabled |
 | Image Processing | imageProcessingTools.ts | 4 | ✅ Yes | Enabled |
 | HTTP Client | httpClientTools.ts | 3 | ✅ Yes | Disabled |
-| Vector RAG | vectorRagTools.ts | 4 | ✅ Yes | Enabled |
+| Vector RAG | vectorRagTools.ts | 7 | ✅ Yes | Enabled |
 | UI Generation | uiGenerationTools.ts | 3 | ✅ Yes | Disabled |
 | Context Management | contextManagementTools.ts | 12 | ✅ Yes | Enabled |
 | Text Processing | textProcessingTools.ts | 4 | ✅ Yes | Enabled |

@@ -1962,8 +1962,22 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
         const matches: Array<{ file: string; line_number: number; content: string; node_type?: string; context?: { function_signature?: string; class_context?: string; docblock?: string } }> = [];
 
         // ==================== REGEX VALIDATION + AUTO-ESCAPE ====================
-        let regex: RegExp;
+        let regexes: RegExp[] = [];  // ← Changed from single regex to array of regexes
         let patternMode: 'regex' | 'literal' | 'auto_escaped' = 'regex';
+
+        /**
+         * Check if a top-level alternation (|) exists in the pattern, NOT inside parentheses.
+         * Returns true if the pattern uses | at the top level (e.g., "a|b", "x\\(|y").
+         */
+        function hasTopLevelAlternation(p: string): boolean {
+          let depth = 0;
+          for (let i = 0; i < p.length; i++) {
+            if (p[i] === '(') depth++;
+            else if (p[i] === ')') depth--;
+            else if (p[i] === '|' && depth === 0) return true;
+          }
+          return false;
+        }
 
         // FIX: Auto-detect code signatures and auto-escape special characters
         // If pattern contains C/C++/Rust code indicators (*, &, ->, ::, template <>) and
@@ -1978,13 +1992,34 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
         try {
           if (looksLikeCodeSignature) {
             // Auto-escape: treat as literal string search (prevents catastrophic backtracking on C++ signatures)
-            regex = new RegExp(escapeRegExp(pattern), 'i');
+            regexes = [new RegExp(escapeRegExp(pattern), 'i')];
             patternMode = 'auto_escaped';
           } else if (!isSafeRegex(pattern)) {
-            regex = new RegExp(escapeRegExp(pattern), 'i');
+            regexes = [new RegExp(escapeRegExp(pattern), 'i')];
             patternMode = 'literal';
+          } else if (hasTopLevelAlternation(pattern)) {
+            // CRITICAL FIX: Split top-level alternation into separate regexes to prevent
+            // catastrophic backtracking when branches share overlapping substrings.
+            // e.g., "validateImageFile\(|\.resolvedPath!|await validateImageFile" → 3 separate tests
+            const branches: string[] = [];
+            let currentBranch = '';
+            let branchDepth = 0;
+            for (let i = 0; i < pattern.length; i++) {
+              if (pattern[i] === '(') branchDepth++;
+              else if (pattern[i] === ')') branchDepth--;
+              else if (pattern[i] === '|' && branchDepth === 0) {
+                branches.push(currentBranch);
+                currentBranch = '';
+              } else {
+                currentBranch += pattern[i];
+              }
+            }
+            if (currentBranch.length > 0) branches.push(currentBranch);
+
+            regexes = branches.map(branch => new RegExp(branch, 'i'));
+            patternMode = 'regex';
           } else {
-            regex = new RegExp(pattern, 'i');
+            regexes = [new RegExp(pattern, 'i')];
           }
         } catch {
           return handleError(new Error(`Invalid regex pattern: ${pattern}`));
@@ -2009,7 +2044,7 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
               const ast = parseToAST(content, fullPath);
               if (!ast) {
                 // AST parsing failed — fall back to regex for this file
-                return processWithRegex(content, relativePath, regex);
+                return processWithRegex(content, relativePath, regexes);
               }
 
               const remaining = MAX_RESULTS - resultsCount;
@@ -2037,7 +2072,7 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
               }
             } else {
               // ==================== REGEX MODE ====================
-              await processWithRegex(content, relativePath, regex);
+              await processWithRegex(content, relativePath, regexes);
             }
           } catch {
             // Skip binary files or unreadable files
@@ -2047,14 +2082,21 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
         /**
          * Process file with regex pattern matching.
          */
-        async function processWithRegex(content: string, relativePath: string, compiledRegex: RegExp): Promise<void> {
+        async function processWithRegex(content: string, relativePath: string, compiledRegexes: RegExp[]): Promise<void> {
           const lines = content.split('\n');
 
           for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
             // STRICT LIMIT CHECK before processing each line
             if (resultsCount >= MAX_RESULTS) return;
 
-            if (compiledRegex.test(lines[lineIdx])) {
+            let matched = false;
+            for (const r of compiledRegexes) {
+              if (r.test(lines[lineIdx])) {
+                matched = true;
+                break;
+              }
+            }
+            if (matched) {
               const rawContent = lines[lineIdx].trim();
 
               const matchEntry: { file: string; line_number: number; content: string; context?: { function_signature?: string; class_context?: string; docblock?: string } } = {

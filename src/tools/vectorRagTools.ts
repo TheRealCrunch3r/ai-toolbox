@@ -13,6 +13,24 @@ interface RagIndexFilesParams {
   batchSize?: number;
 }
 
+interface RagIndexPdfParams {
+  filePath: string;
+  chunkSize?: number; // Words per chunk (default: 300)
+  overlap?: number;   // Overlapping words between chunks (default: 50)
+}
+
+interface RagIndexDocxParams {
+  filePath: string;
+  chunkSize?: number; // Words per chunk (default: 300)
+  overlap?: number;   // Overlapping words between chunks (default: 50)
+}
+
+interface RagIndexXlsxParams {
+  filePath: string;
+  chunkSize?: number; // Rows per chunk (default: 100)
+  includeSheetNames?: boolean; // Include sheet name in each row (default: true)
+}
+
 interface RagQueryVectorParams {
   query: string;
   topK?: number;
@@ -38,6 +56,8 @@ interface DocumentChunk {
     chunk_index: number;
     total_chunks: number;
     word_count: number;
+    page_number?: number;      // PDF-specific: page where this chunk originates
+    total_pages?: number;       // PDF-specific: total pages in the source document
   };
 }
 
@@ -143,7 +163,7 @@ function getSharedStore(): LocalVectorStore {
 function chunkText(text: string, chunkSize: number = 500, overlap: number = 50): DocumentChunk[] {
   const words = text.split(/\s+/);
   const chunks: DocumentChunk[] = [];
-  
+
   if (words.length <= chunkSize) {
     return [{
       id: `chunk_${Date.now()}_0`,
@@ -164,7 +184,7 @@ function chunkText(text: string, chunkSize: number = 500, overlap: number = 50):
   while (startIndex < words.length) {
     const endIndex = Math.min(startIndex + chunkSize, words.length);
     const chunkText = words.slice(startIndex, endIndex).join(' ');
-    
+
     chunks.push({
       id: `chunk_${Date.now()}_${chunkIndex}`,
       text: chunkText,
@@ -179,6 +199,155 @@ function chunkText(text: string, chunkSize: number = 500, overlap: number = 50):
 
     chunkIndex++;
     startIndex = endIndex - overlap;
+  }
+
+  return chunks;
+}
+
+/** Chunk PDF text per-page with page number metadata */
+function chunkPdfText(
+  pdfText: string,
+  totalPages: number,
+  chunkSize: number = 300,
+  overlap: number = 50
+): DocumentChunk[] {
+  const pages = pdfText.split(/(?<=^)\s*Page\s*\d+\s*/m);
+  // First element is usually empty preamble — skip it
+  const pageContents = pages.filter(p => p.trim().length > 0);
+
+  if (pageContents.length === 0) {
+    // Fallback: treat entire text as one "page"
+    return chunkText(pdfText, chunkSize, overlap).map(chunk => ({
+      ...chunk,
+      metadata: {
+        ...chunk.metadata,
+        file_path: '',
+        file_name: '',
+        page_number: 1,
+        total_pages: totalPages,
+      },
+    }));
+  }
+
+  const chunks: DocumentChunk[] = [];
+
+  for (let pageIndex = 0; pageIndex < pageContents.length; pageIndex++) {
+    const pageText = pageContents[pageIndex];
+    const words = pageText.split(/\s+/);
+
+    let startIndex = 0;
+    let chunkIndexInPage = 0;
+
+    while (startIndex < words.length) {
+      const endIndex = Math.min(startIndex + chunkSize, words.length);
+      const chunkWords = words.slice(startIndex, endIndex);
+      const chunkTextStr = chunkWords.join(' ');
+
+      chunks.push({
+        id: `pdf_chunk_${Date.now()}_${pageIndex}_${chunkIndexInPage}`,
+        text: chunkTextStr,
+        metadata: {
+          file_path: '', // Set later
+          file_name: '', // Set later
+          chunk_index: pageIndex * 100 + chunkIndexInPage,
+          total_chunks: Math.ceil(words.length / (chunkSize - overlap)),
+          word_count: endIndex - startIndex,
+          page_number: pageIndex + 1, // 1-based
+          total_pages: totalPages,
+        },
+      });
+
+      chunkIndexInPage++;
+      startIndex = endIndex - overlap;
+    }
+  }
+
+  return chunks;
+}
+
+/** Chunk DOCX text with word-bounded splitting */
+function chunkDocxText(docxText: string, chunkSize: number = 300, overlap: number = 50): DocumentChunk[] {
+  const words = docxText.split(/\s+/);
+
+  if (words.length <= chunkSize) {
+    return [{
+      id: `docx_chunk_${Date.now()}_0`,
+      text: docxText,
+      metadata: {
+        file_path: '', // Set later
+        file_name: '', // Set later
+        chunk_index: 0,
+        total_chunks: 1,
+        word_count: words.length,
+      },
+    }];
+  }
+
+  const chunks: DocumentChunk[] = [];
+  let startIndex = 0;
+  let chunkIndex = 0;
+
+  while (startIndex < words.length) {
+    const endIndex = Math.min(startIndex + chunkSize, words.length);
+    const chunkTextStr = words.slice(startIndex, endIndex).join(' ');
+
+    chunks.push({
+      id: `docx_chunk_${Date.now()}_${chunkIndex}`,
+      text: chunkTextStr,
+      metadata: {
+        file_path: '', // Set later
+        file_name: '', // Set later
+        chunk_index: chunkIndex,
+        total_chunks: Math.ceil(words.length / (chunkSize - overlap)),
+        word_count: endIndex - startIndex,
+      },
+    });
+
+    chunkIndex++;
+    startIndex = endIndex - overlap;
+  }
+
+  return chunks;
+}
+
+/** Chunk spreadsheet data into row-based chunks with sheet awareness */
+function chunkXlsxData(
+  sheets: Array<{ name: string; rows: string[] }>,
+  chunkSize: number = 100,
+  includeSheetNames: boolean = true
+): DocumentChunk[] {
+  const chunks: DocumentChunk[] = [];
+  let globalIndex = 0;
+
+  for (const sheet of sheets) {
+    if (sheet.rows.length === 0) continue;
+
+    // Each row becomes a line in the chunk text
+    let startIndex = 0;
+
+    while (startIndex < sheet.rows.length) {
+      const endIndex = Math.min(startIndex + chunkSize, sheet.rows.length);
+      const rowsSlice = sheet.rows.slice(startIndex, endIndex);
+      const prefix = includeSheetNames ? `${sheet.name}: ` : '';
+      const chunkTextStr = rowsSlice.map(r => prefix + r).join('\n');
+
+      chunks.push({
+        id: `xlsx_chunk_${Date.now()}_${globalIndex}`,
+        text: chunkTextStr,
+        metadata: {
+          file_path: '', // Set later
+          file_name: '', // Set later
+          chunk_index: globalIndex,
+          total_chunks: Math.ceil(sheet.rows.length / chunkSize),
+          word_count: chunkTextStr.split(/\s+/).length,
+          page_number: globalIndex + 1, // Reuse as "chunk number" for consistency
+          total_pages: chunks.length + 1,
+        },
+      });
+
+      globalIndex++;
+      startIndex = endIndex;
+    }
   }
 
   return chunks;
@@ -338,17 +507,17 @@ async function ragIndexFiles({
 async function ragQueryVector({ query, topK = 5 }: RagQueryVectorParams): Promise<unknown> {
   try {
     const store = getSharedStore();
-    
+
     if (store.count === 0) {
-      return { success: false, error: 'No documents indexed. Run rag_index_files first.' };
+      return { success: false, error: 'No documents indexed. Run rag_index_files, rag_index_pdf, rag_index_docx, or rag_index_xlsx first.' };
     }
 
     // Generate embedding for the query
     const queryEmbedding = generateEmbedding(query);
-    
+
     // Search the actual vector store
     const results = store.search(queryEmbedding, topK);
-    
+
     return {
       success: true,
       data: {
@@ -365,8 +534,228 @@ async function ragQueryVector({ query, topK = 5 }: RagQueryVectorParams): Promis
 }
 
 /**
- * Clear the vector index.
+ * Index a PDF file for semantic search by extracting paginated text chunks.
  */
+async function ragIndexPdf({ filePath, chunkSize = 300, overlap = 50 }: RagIndexPdfParams): Promise<unknown> {
+  try {
+    // Validate file exists
+    if (!fs.existsSync(filePath)) {
+      return { success: false, error: `File not found: ${filePath}` };
+    }
+
+    const ext = path.extname(filePath).toLowerCase();
+    if (ext !== '.pdf') {
+      return { success: false, error: `Only PDF files are supported. Got: ${ext}` };
+    }
+
+    // Validate file size (max 100MB to prevent OOM)
+    const stats = fs.statSync(filePath);
+    const maxSize = 100 * 1024 * 1024; // 100MB
+    if (stats.size > maxSize) {
+      return { success: false, error: `File too large (${(stats.size / 1024 / 1024).toFixed(1)}MB), max is 100MB` };
+    }
+
+    const store = getSharedStore();
+
+    // Load PDF and extract text using pdf-parse
+    const dataBuffer = fs.readFileSync(filePath);
+    const pdfParse = (await import('pdf-parse')).default;
+    const result = await pdfParse(dataBuffer);
+
+    console.log(`[AI Toolbox] PDF loaded: ${result.numpages} pages, ${(result.text.length / 1024).toFixed(1)}KB raw text`);
+
+    // Chunk by page with page number metadata
+    const chunks = chunkPdfText(result.text, result.numpages, chunkSize, overlap);
+
+    if (chunks.length === 0) {
+      return { success: true, data: { indexedChunks: 0, message: 'PDF contained no extractable text' } };
+    }
+
+    // Set metadata for each chunk
+    chunks.forEach(chunk => {
+      chunk.metadata.file_path = filePath;
+      chunk.metadata.file_name = path.basename(filePath);
+    });
+
+    // Generate embeddings and add to store
+    const ids = chunks.map(c => c.id);
+    const embeddings = chunks.map(c => generateEmbedding(c.text));
+
+    store.add(chunks);
+    store.setEmbeddings(ids, embeddings);
+
+    return {
+      success: true,
+      data: {
+        indexedChunks: chunks.length,
+        totalPages: result.numpages,
+        rawTextSizeKB: (result.text.length / 1024).toFixed(1),
+        chunkSizeWords: chunkSize,
+        overlapWords: overlap,
+        totalDocumentsAfterIndexing: store.count,
+        filePath,
+      },
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { success: false, error: `PDF indexing failed: ${message}` };
+  }
+}
+
+
+/**
+ * Index a DOCX file for semantic search by extracting text via mammoth.
+ */
+async function ragIndexDocx({ filePath, chunkSize = 300, overlap = 50 }: RagIndexDocxParams): Promise<unknown> {
+  try {
+    if (!fs.existsSync(filePath)) {
+      return { success: false, error: `File not found: ${filePath}` };
+    }
+
+    const ext = path.extname(filePath).toLowerCase();
+    if (ext !== '.docx') {
+      return { success: false, error: `Only DOCX files are supported. Got: ${ext}` };
+    }
+
+    // Validate file size (max 50MB)
+    const stats = fs.statSync(filePath);
+    const maxSize = 50 * 1024 * 1024;
+    if (stats.size > maxSize) {
+      return { success: false, error: `File too large (${(stats.size / 1024 / 1024).toFixed(1)}MB), max is 50MB` };
+    }
+
+    const store = getSharedStore();
+
+    // Load DOCX and extract raw text using mammoth
+    const dataBuffer = fs.readFileSync(filePath);
+    const mammoth = await import('mammoth');
+    const mammothTyped = mammoth as unknown as { extractRawText: (opts: { buffer: Buffer }) => Promise<{ value: string; messages: Array<{ message: string }> }> };
+    const result = await mammothTyped.extractRawText({ buffer: dataBuffer });
+
+    console.log(`[AI Toolbox] DOCX loaded: ${(result.value.length / 1024).toFixed(1)}KB text`);
+
+    // Chunk the extracted text
+    const chunks = chunkDocxText(result.value, chunkSize, overlap);
+
+    if (chunks.length === 0) {
+      return { success: true, data: { indexedChunks: 0, message: 'DOCX contained no extractable text' } };
+    }
+
+    // Set metadata for each chunk
+    chunks.forEach(chunk => {
+      chunk.metadata.file_path = filePath;
+      chunk.metadata.file_name = path.basename(filePath);
+    });
+
+    // Generate embeddings and add to store
+    const ids = chunks.map(c => c.id);
+    const embeddings = chunks.map(c => generateEmbedding(c.text));
+
+    store.add(chunks);
+    store.setEmbeddings(ids, embeddings);
+
+    return {
+      success: true,
+      data: {
+        indexedChunks: chunks.length,
+        rawTextSizeKB: (result.value.length / 1024).toFixed(1),
+        chunkSizeWords: chunkSize,
+        overlapWords: overlap,
+        totalDocumentsAfterIndexing: store.count,
+        filePath,
+      },
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { success: false, error: `DOCX indexing failed: ${message}` };
+  }
+}
+
+/**
+ * Index an XLS/XLSX spreadsheet for semantic search by extracting row data.
+ */
+async function ragIndexXlsx({ filePath, chunkSize = 100, includeSheetNames }: RagIndexXlsxParams): Promise<unknown> {
+  try {
+    if (!fs.existsSync(filePath)) {
+      return { success: false, error: `File not found: ${filePath}` };
+    }
+
+    const ext = path.extname(filePath).toLowerCase();
+    if (ext !== '.xlsx' && ext !== '.xls') {
+      // Try to detect format by extension; xls requires xlsx library which may not be installed
+      return { success: false, error: `Only XLSX files are supported. Got: ${ext}. For XLS support, install 'xlsx' package.` };
+    }
+
+    // Validate file size (max 50MB)
+    const stats = fs.statSync(filePath);
+    const maxSize = 50 * 1024 * 1024;
+    if (stats.size > maxSize) {
+      return { success: false, error: `File too large (${(stats.size / 1024 / 1024).toFixed(1)}MB), max is 50MB` };
+    }
+
+    const store = getSharedStore();
+
+    // Load XLSX and extract sheet data using xlsx library
+    /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return */
+    let xlsx: any;
+    try {
+      xlsx = await import('xlsx');
+    } catch {
+      return { success: false, error: `xlsx package not installed. Run: npm install xlsx` };
+    }
+
+    const dataBuffer = fs.readFileSync(filePath);
+    const workbook = xlsx.read(dataBuffer, { type: 'buffer' });
+
+    // Extract all sheets as arrays of rows (each row is a comma-separated string)
+    const sheets: Array<{ name: string; rows: string[] }> = [];
+    for (const sheetName of workbook.SheetNames) {
+      const sheetData = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1 });
+      // Convert each row to a comma-separated string for readability in chunks
+      const rows = sheetData.map((row: any[]) => row.map(cell => cell ?? '').join(', ')) as string[];
+      sheets.push({ name: sheetName, rows });
+    }
+
+    console.log(`[AI Toolbox] XLSX loaded: ${workbook.SheetNames.length} sheets`);
+
+    // Chunk the spreadsheet data
+    const chunks = chunkXlsxData(sheets, chunkSize, includeSheetNames ?? true);
+
+    if (chunks.length === 0) {
+      return { success: true, data: { indexedChunks: 0, message: 'XLSX contained no extractable data' } };
+    }
+
+    // Set metadata for each chunk
+    chunks.forEach(chunk => {
+      chunk.metadata.file_path = filePath;
+      chunk.metadata.file_name = path.basename(filePath);
+    });
+
+    // Generate embeddings and add to store
+    const ids = chunks.map(c => c.id);
+    const embeddings = chunks.map(c => generateEmbedding(c.text));
+
+    store.add(chunks);
+    store.setEmbeddings(ids, embeddings);
+
+    return {
+      success: true,
+      data: {
+        indexedChunks: chunks.length,
+        sheetsCount: (workbook.SheetNames as string[]).length,
+        sheetNames: workbook.SheetNames as string[],
+        chunkSizeRows: chunkSize,
+        totalDocumentsAfterIndexing: store.count,
+        filePath,
+      },
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { success: false, error: `XLSX indexing failed: ${message}` };
+  }
+}
+
+
 async function ragClearIndex({ confirm }: RagClearIndexParams): Promise<unknown> {
   if (!confirm) {
     return { success: false, error: 'Confirmation required to clear index' };
@@ -513,6 +902,44 @@ export function registerRagTools(_config: PluginConfig): Tool[] {
       query: z.string().describe('The search query for relevance matching'),
     },
     implementation: async (params) => ragWebContent(params),
+  }));
+
+
+  // rag_index_pdf tool (NEW) — Index PDF files for semantic search with page-aware chunks
+  tools.push(tool({
+    name: 'rag_index_pdf',
+    description: 'Index a PDF file for semantic search by extracting paginated text chunks. Each chunk preserves its page number for traceable results.',
+    parameters: {
+      filePath: z.string().describe('Path to the PDF file'),
+      chunkSize: z.number().min(50).max(1000).optional().default(300).describe('Words per chunk (default: 300)'),
+      overlap: z.number().min(0).max(200).optional().default(50).describe('Overlapping words between chunks (default: 50)'),
+    },
+    implementation: async (params) => ragIndexPdf(params as RagIndexPdfParams),
+  }));
+
+
+  // rag_index_docx tool (NEW) — Index DOCX files for semantic search using mammoth extraction
+  tools.push(tool({
+    name: 'rag_index_docx',
+    description: 'Index a DOCX file for semantic search by extracting text via mammoth. Chunks are word-bounded with configurable size.',
+    parameters: {
+      filePath: z.string().describe('Path to the DOCX file'),
+      chunkSize: z.number().min(50).max(1000).optional().default(300).describe('Words per chunk (default: 300)'),
+      overlap: z.number().min(0).max(200).optional().default(50).describe('Overlapping words between chunks (default: 50)'),
+    },
+    implementation: async (params) => ragIndexDocx(params as RagIndexDocxParams),
+  }));
+
+  // rag_index_xlsx tool (NEW) — Index XLSX spreadsheets for semantic search by extracting row data per sheet
+  tools.push(tool({
+    name: 'rag_index_xlsx',
+    description: 'Index an XLSX spreadsheet for semantic search. Each sheet is chunked into rows with optional sheet-name prefix.',
+    parameters: {
+      filePath: z.string().describe('Path to the XLSX file'),
+      chunkSize: z.number().min(10).max(500).optional().default(100).describe('Rows per chunk (default: 100)'),
+      includeSheetNames: z.boolean().optional().default(true).describe('Include sheet name prefix in each row (default: true)'),
+    },
+    implementation: async (params) => ragIndexXlsx(params as RagIndexXlsxParams),
   }));
 
   return tools;

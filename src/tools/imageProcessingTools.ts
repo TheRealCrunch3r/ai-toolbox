@@ -8,6 +8,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import type { PluginConfig } from '../config.js';
+import { getAttachment, listAttachments } from '../attachmentManager.js';
 
 // ==================== Typed Params Interfaces ====================
 
@@ -39,36 +40,182 @@ function handleError(error: unknown): { success: false; error: string } {
   return { success: false, error: message };
 }
 
-/** Validate image file exists and is within size limits */
-function validateImageFile(imagePath: string, maxSizeBytes: number = 50 * 1024 * 1024): {
+/**
+ * Resolve an image path that may refer to a real filesystem path or an attached file.
+ * 
+ * Resolution order (most specific → most general):
+ * 1. Absolute filesystem path (if exists)
+ * 2. Relative path from working directory (if exists)
+ * 3. Common temp directories where LM Studio SDK stores attachments
+ * 
+ * @param inputPath - The raw path string provided by the tool caller
+ * @returns Resolved absolute filesystem path, or null if not found
+ */
+function resolveImagePath(inputPath: string): string | null {
+  // Case-insensitive basename for attachment lookup
+  const fileName = path.basename(inputPath);
+
+  // Strategy 1: Direct absolute/relative filesystem path
+  let resolvedPath: string;
+  
+  if (path.isAbsolute(inputPath)) {
+    resolvedPath = inputPath;
+  } else {
+    resolvedPath = path.resolve(process.cwd(), inputPath);
+  }
+  
+  if (fs.existsSync(resolvedPath)) {
+    return resolvedPath; // Found on disk, no further resolution needed
+  }
+
+  // Strategy 2: Fallback to common SDK temp directories
+  const tempDirs = [
+    os.tmpdir(),
+    path.join(os.tmpdir(), 'lmstudio'),
+    path.join(os.tmpdir(), 'ai-toolbox'),
+  ];
+
+  for (const tmpDir of tempDirs) {
+    const candidatePath = path.join(tmpDir, fileName);
+    if (fs.existsSync(candidatePath)) {
+      console.log(`[AI Toolbox] Found attached image in temp dir: ${candidatePath}`);
+      return candidatePath;
+    }
+  }
+
+  // Strategy 3: Provide helpful error context for debugging
+  const availableAttachments = listAttachments();
+  if (availableAttachments.length > 0) {
+    console.warn(`[AI Toolbox] Attachment "${fileName}" not resolved. Available attachments: ${availableAttachments.join(', ')}`);
+  }
+
+  return null; // Not found via any strategy
+}
+
+/**
+ * Resolve an attached SDK FileHandle to a real filesystem path by writing its content to temp.
+ * 
+ * LM Studio SDK's FileHandle exposes .readFile() → Promise<Buffer> or .read() → Promise<string>.
+ * This function reads the attachment content and saves it to os.tmpdir()/ai-toolbox/ for downstream fs access.
+ * 
+ * @param inputPath - The raw path string provided by the tool caller (used as basename)
+ * @returns Resolved absolute filesystem path, or null if attachment not found/readable
+ */
+async function resolveAttachmentFile(inputPath: string): Promise<string | null> {
+  const fileName = path.basename(inputPath);
+  
+  // Find matching attachment via SDK FileHandle
+  const attachment = getAttachment(fileName);
+  if (!attachment) return null;
+
+  // Typed interface matching LM Studio SDK's FileHandle (see promptPreprocessor.ts extractPdfText)
+  type FileHandleWithReadFile = {
+    name: string;
+    readFile?: () => Promise<Buffer>;
+    read?: () => Promise<unknown>;
+  };
+
+  const handle = attachment as unknown as FileHandleWithReadFile;
+
+  try {
+    let buffer: Buffer;
+
+    if (handle.readFile) {
+      // Primary method: .readFile() → Promise<Buffer>
+      buffer = await handle.readFile();
+    } else if (handle.read) {
+      // Fallback: .read() → Promise<string | unknown>, convert to Buffer
+      const readResult = await handle.read();
+      buffer = Buffer.from(String(readResult));
+    } else {
+      console.warn(`[AI Toolbox] Attachment "${fileName}" has no readFile or read method`);
+      return null;
+    }
+
+    // Write attachment content to a temp file so fs operations can access it
+    const tempDir = path.join(os.tmpdir(), 'ai-toolbox');
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
+    }
+
+    const tempFilePath = path.join(tempDir, fileName);
+    fs.writeFileSync(tempFilePath, buffer);
+    
+    console.log(`[AI Toolbox] Resolved attached image "${fileName}" → ${tempFilePath} (${buffer.length} bytes)`);
+    return tempFilePath;
+
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.warn(`[AI Toolbox] Failed to read attachment "${fileName}": ${errorMsg}`);
+    return null;
+  }
+}
+
+/** Validate image file exists and is within size limits. Returns resolved path for downstream use. */
+async function validateImageFile(imagePath: string, maxSizeBytes: number = 50 * 1024 * 1024): Promise<{
   valid: boolean;
   error?: string;
-} {
-  // Check if path exists
-  if (!fs.existsSync(imagePath)) {
-    return { valid: false, error: `Image file not found: ${imagePath}` };
+  resolvedPath?: string;
+}> {
+  // Strategy 1: Sync filesystem resolution (fast path for real files)
+  const resolvedPath = resolveImagePath(imagePath);
+  if (resolvedPath && fs.existsSync(resolvedPath)) {
+    const stat = fs.statSync(resolvedPath);
+    
+    // Verify it's a file (not directory)
+    if (!stat.isFile()) {
+      return { valid: false, error: `Path is not a file: ${imagePath}` };
+    }
+
+    // Check size limit
+    if (stat.size > maxSizeBytes) {
+      return { valid: false, error: `Image exceeds maximum size of ${(maxSizeBytes / 1024 / 1024).toFixed(0)}MB` };
+    }
+
+    // Validate extension
+    const ext = path.extname(resolvedPath).toLowerCase();
+    const validExtensions = ['.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tiff', '.webp'];
+    if (!validExtensions.includes(ext)) {
+      return { valid: false, error: `Unsupported image format: ${ext}. Supported: ${validExtensions.join(', ')}` };
+    }
+
+    return { valid: true, resolvedPath };
   }
 
-  const stat = fs.statSync(imagePath);
-  
-  // Verify it's a file (not directory)
-  if (!stat.isFile()) {
-    return { valid: false, error: `Path is not a file: ${imagePath}` };
+  // Strategy 2: Async SDK FileHandle resolution (for attached images)
+  const availableAttachments = listAttachments();
+  if (availableAttachments.length > 0) {
+    console.log(`[AI Toolbox] Sync path not found. Trying attachment resolution for "${imagePath}"...`);
+    const attachmentPath = await resolveAttachmentFile(imagePath);
+    if (attachmentPath && fs.existsSync(attachmentPath)) {
+      const stat = fs.statSync(attachmentPath);
+
+      // Verify it's a file (not directory)
+      if (!stat.isFile()) {
+        return { valid: false, error: `Resolved attachment is not a file: ${imagePath}` };
+      }
+
+      // Check size limit
+      if (stat.size > maxSizeBytes) {
+        return { valid: false, error: `Image exceeds maximum size of ${(maxSizeBytes / 1024 / 1024).toFixed(0)}MB` };
+      }
+
+      // Validate extension
+      const ext = path.extname(attachmentPath).toLowerCase();
+      const validExtensions = ['.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tiff', '.webp'];
+      if (!validExtensions.includes(ext)) {
+        return { valid: false, error: `Unsupported image format: ${ext}. Supported: ${validExtensions.join(', ')}` };
+      }
+
+      return { valid: true, resolvedPath: attachmentPath };
+    }
   }
 
-  // Check size limit
-  if (stat.size > maxSizeBytes) {
-    return { valid: false, error: `Image exceeds maximum size of ${(maxSizeBytes / 1024 / 1024).toFixed(0)}MB` };
-  }
-
-  // Validate extension
-  const ext = path.extname(imagePath).toLowerCase();
-  const validExtensions = ['.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tiff', '.webp'];
-  if (!validExtensions.includes(ext)) {
-    return { valid: false, error: `Unsupported image format: ${ext}. Supported: ${validExtensions.join(', ')}` };
-  }
-
-  return { valid: true };
+  // Strategy 3: Not found — provide helpful error context
+  return { 
+    valid: false, 
+    error: `Image file not found: ${imagePath}\nHint: If this is an attachment, ensure it was uploaded with the correct filename. Available attachments in session: ${availableAttachments.join(', ') || 'none'}` 
+  };
 }
 
 /** Get image dimensions using simple header parsing */
@@ -128,23 +275,30 @@ function getImageDimensions(imagePath: string): { width: number; height: number 
  */
 async function imageToText({ imagePath, language = 'eng' }: ImageToTextParams): Promise<unknown> {
   try {
-    const validation = validateImageFile(imagePath);
+    const validation = await validateImageFile(imagePath);
     if (!validation.valid) return { success: false, error: validation.error };
 
+    // Use resolved path for actual file operations (handles attachments transparently)
+    // Explicit guard ensures TypeScript narrows string | undefined → string without non-null assertion
+    if (!validation.resolvedPath) {
+      return handleError(new Error('Internal: validateImageFile returned valid=true but no resolvedPath'));
+    }
+    const resolvedPath = validation.resolvedPath;
+
     // Get basic metadata
-    const stat = fs.statSync(imagePath);
-    const dimensions = getImageDimensions(imagePath);
-    const ext = path.extname(imagePath).toLowerCase();
+    const stat = fs.statSync(resolvedPath);
+    const dimensions = getImageDimensions(resolvedPath);
+    const ext = path.extname(resolvedPath).toLowerCase();
 
     // Import Tesseract.js dynamically
     // eslint-disable-next-line @typescript-eslint/no-require-imports
 const Tesseract = require('tesseract.js');
 
-    console.log(`[AI Toolbox] Starting OCR on ${imagePath} with language '${language}'...`);
+    console.log(`[AI Toolbox] Starting OCR on ${resolvedPath} with language '${language}'...`);
 
     // Perform OCR with progress tracking
      
-const result = await Tesseract.recognize(imagePath, language, {
+const result = await Tesseract.recognize(resolvedPath, language, {
       logger: (m: { status?: string; progress?: number }) => {
         // Type already declared in parameter signature
         const typed = m;
@@ -169,7 +323,8 @@ const ocrData = result as { data: { text: string; confidence: number; language: 
         language: (ocrData.data as { language: string }).language,
         version: (ocrData.data as { _version?: string })._version || "unknown",
         metadata: {
-          path: imagePath,
+          path: imagePath, // Original input for user clarity
+          resolvedPath: resolvedPath, // Actual file used
           size: `${(stat.size / 1024).toFixed(1)} KB`,
           format: ext.replace('.', '').toUpperCase(),
           dimensions: dimensions || { width: 'Unknown', height: 'Unknown' },
@@ -189,12 +344,19 @@ const ocrData = result as { data: { text: string; confidence: number; language: 
  */
 async function describeImage({ imagePath }: DescribeImageParams): Promise<unknown> {
   try {
-    const validation = validateImageFile(imagePath);
+    const validation = await validateImageFile(imagePath);
     if (!validation.valid) return { success: false, error: validation.error };
 
-    const stat = fs.statSync(imagePath);
-    const dimensions = getImageDimensions(imagePath);
-    const ext = path.extname(imagePath).toLowerCase();
+    // Use resolved path for actual file operations (handles attachments transparently)
+    // Explicit guard ensures TypeScript narrows string | undefined → string without non-null assertion
+    if (!validation.resolvedPath) {
+      return handleError(new Error('Internal: validateImageFile returned valid=true but no resolvedPath'));
+    }
+    const resolvedPath = validation.resolvedPath;
+
+    const stat = fs.statSync(resolvedPath);
+    const dimensions = getImageDimensions(resolvedPath);
+    const ext = path.extname(resolvedPath).toLowerCase();
     
     // Determine MIME type
     const mimeTypeMap: Record<string, string> = {
@@ -210,7 +372,8 @@ async function describeImage({ imagePath }: DescribeImageParams): Promise<unknow
     return {
       success: true,
       data: {
-        path: imagePath,
+        path: imagePath, // Original input for user clarity
+        resolvedPath: resolvedPath, // Actual file used
         size: stat.size,
         sizeHuman: `${(stat.size / 1024).toFixed(1)} KB`,
         format: ext.replace('.', '').toUpperCase(),
@@ -336,20 +499,28 @@ async function screenshotDesktop({
  */
 async function compareImages({ image1Path, image2Path }: CompareImagesParams): Promise<unknown> {
   try {
-    // Validate both files
-    const validation1 = validateImageFile(image1Path);
+    // Validate both files (returns resolved paths for attachment support)
+    const validation1 = await validateImageFile(image1Path);
     if (!validation1.valid) return { success: false, error: validation1.error };
-    
-    const validation2 = validateImageFile(image2Path);
+
+    const validation2 = await validateImageFile(image2Path);
     if (!validation2.valid) return { success: false, error: validation2.error };
 
+    // Use resolved paths for actual file operations (handles attachments transparently)
+    // Explicit guards ensure TypeScript narrows string | undefined → string without non-null assertions
+    if (!validation1.resolvedPath || !validation2.resolvedPath) {
+      return handleError(new Error('Internal: validateImageFile returned valid=true but no resolvedPath'));
+    }
+    const resolvedPath1 = validation1.resolvedPath;
+    const resolvedPath2 = validation2.resolvedPath;
+
     // Read both images
-    const buffer1 = fs.readFileSync(image1Path);
-    const buffer2 = fs.readFileSync(image2Path);
+    const buffer1 = fs.readFileSync(resolvedPath1);
+    const buffer2 = fs.readFileSync(resolvedPath2);
 
     // Get dimensions
-    const dims1 = getImageDimensions(image1Path);
-    const dims2 = getImageDimensions(image2Path);
+    const dims1 = getImageDimensions(resolvedPath1);
+    const dims2 = getImageDimensions(resolvedPath2);
 
     if (!dims1 || !dims2) {
       return { success: false, error: 'Could not determine image dimensions' };

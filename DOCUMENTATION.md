@@ -1,7 +1,7 @@
 # Documentation Update Summary — AI Toolbox Plugin
 
 **Date**: 2026-08-01  
-**Version**: v1.9.1 (Context Management Architecture: Scoping, Heuristic Scoring & TTL Pruning)  
+**Version**: v1.9.2 (grep_files ReDoS Fix: Top-Level Alternation Detection & Split-Regex Processing)  
 **Status**: ✅ Complete
 
 ---
@@ -136,7 +136,7 @@ The following corrections reflect the current v1.8.2 implementation:
 | Utilities | ~29 → ~10 | **~10 tools** | Refactored into dedicated modules (backup, data visualization, line operations, markdown preview) under `utility` config key |
 | Image Processing | 4 | **4 tools** | No change |
 | HTTP Client | 3 | **3 tools** | No change |
-| Vector RAG | 3 → 4 | **4 tools** | Added `rag_web_content` (v1.5.23) |
+| Vector RAG | 4 → 7 | **7 tools** | Added `rag_index_pdf`, `rag_index_docx`, `rag_index_xlsx` (v1.9.2) — PDF per-page chunking, DOCX word-bounded via mammoth, XLSX row-based with sheet-name prefix |
 | Text Processing | 3 → 4 | **4 tools** | Added `line_operations` with safety guardrails (v1.7.0) |
 | Interactive UI Generation | 3 | **3 tools** | No change |
 | Context Management | 7 → 12 | **12 tools** | Expanded to include all memory/context operations |

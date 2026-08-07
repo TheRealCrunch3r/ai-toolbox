@@ -74,8 +74,8 @@
 ### HTTP Client Tools (3 tools — disabled by default)
 `http_request` · `http_get_json` · `http_post_json`
 
-### Vector RAG / Semantic Search (4 tools — enabled by default)
-`rag_index_files` · `rag_query_vector` · `rag_clear_index` · `rag_web_content`
+### Vector RAG / Semantic Search (7 tools — enabled by default)
+`rag_index_files` · `rag_index_pdf` · `rag_index_docx` · `rag_index_xlsx` · `rag_query_vector` · `rag_clear_index` · `rag_web_content`
 
 ### UI Generation Tools (3 tools — disabled by default)
 `generate_ui_component` · `render_and_preview_ui` · `extract_ui_data`
@@ -92,22 +92,6 @@
 ### Task Planning Tools (3 tools — enabled by default)
 `create_plan` · `get_plan` · `update_plan_step`
 
-### [1.9.1] - 2026-08-06 — 🧠 Context Management Architecture: Scoping, Heuristic Scoring & TTL Pruning
-
-**Three architectural improvements to the memory system inspired by persistent-memory-v2 analysis — preserving ai-toolbox's performance advantages while adding context isolation and intelligent retrieval.**
-- ✅ **Context scoping**: Added `MemoryScope` type (`global`/`project`/`session`) to prevent cross-project memory bleed
-- ✅ **Heuristic scoring**: Deterministic composite score (Recency 70% + Frequency 30%) replaces raw insertion order for smarter retrieval
-- ✅ **TTL pruning**: 24-hour expiration for session-scoped entries; pruned automatically before every read operation
-
----
-
-### [1.9.0] - 2026-08-06 — 🛠️ Jest Mock Compatibility Fix & Documentation Version Updates
-
-**Resolved Jest `moduleNameMapper` catch-all regex conflict with tool imports and synchronized version references across all documentation files.**
-- ✅ **Jest mock compatibility**: Resolved configuration error where the catch-all regex matched barrel file imports (`./tools/index.js`) and attempted to resolve them to non-existent mock files. Reverted to individual tool imports for Jest compatibility.
-- ✅ **Documentation synchronization**: Updated v1.8.9 → v1.9.0 across all MD files (ARCHITECTURE.md, DOCUMENTATION.md, TOOLS_REFERENCE.md, QUICK_START.md, docs/toolsProvider_registry_pattern.md)
-
----
 ### Execution Tools (5 tools — mixed defaults: JS/Python enabled, Terminal/Shell disabled)
 `run_javascript` · `run_python` · `execute_command` · `run_in_terminal` · `run_tests`
 
@@ -183,18 +167,41 @@ npm test
 
 ## 📜 Release History
 
+### [1.9.2] - 2026-08-07 — 🔥 grep_files ReDoS Fix & RAG System Overhaul: PDF/DOCX/XLSX Indexing Tools
+**Resolved critical Regex Denial of Service (ReDoS) vulnerability in `grep_files` AND completed comprehensive RAG system overhaul with new indexing tools for PDF, DOCX, and XLSX formats.**
+
+#### grep_files ReDoS Fix
+- ✅ **Top-level alternation detection**: Added `hasTopLevelAlternation()` scanner tracking parenthesis depth to catch `\|` at root level
+- ✅ **Split-regex processing**: Pattern split into independent `RegExp[]` branches — each tested separately with early-exit, eliminating cross-branch backtracking in V8's NFA engine
+
+#### RAG System Overhaul (NEW)
+- ✅ **Added 3 new indexing tools** (`rag_index_pdf`, `rag_index_docx`, `rag_index_xlsx`) expanding Vector RAG from 4 → 7 total tools
+- ✅ **PDF indexing**: Extracts PDF text via `pdf-parse`, chunks by page boundary with ~300 words/chunk — traceable results per page number; verified against 25MB/1690-page programming guide without OOM/crash
+- ✅ **DOCX indexing**: Uses existing `mammoth` dependency for DOCX extraction — word-bounded chunks (default 300 words, 50 overlap); semantic search working correctly
+- ✅ **XLSX indexing**: Added `xlsx ^0.18.5` dependency; extracts all sheets as row arrays with configurable sheet-name prefix; verified programmatic smoke test showing correct ranking of API vs Test Data sheets
+- ✅ **ESLint fixes in `vectorRagTools.ts`**: Resolved 4 issues (unused catch param, unsafe return cast, dead eslint-disable directives) — zero errors/warnings after fix
+
+#### Other Fixes
+- ✅ **371 tests pass** across 23 suites including 11 `grep_files`-specific tests — zero regressions
+
+### [1.9.1] - 2026-08-06 — 🧠 Context Management Architecture: Scoping, Heuristic Scoring & TTL Pruning
+**Three architectural improvements to the memory system with context isolation and intelligent retrieval.**
+- ✅ **Context scoping**: Added `MemoryScope` type (`global`/`project`/`session`) to prevent cross-project memory bleed
+- ✅ **Heuristic scoring**: Deterministic composite score (Recency 70% + Frequency 30%) replaces raw insertion order for smarter retrieval
+- ✅ **TTL pruning**: 24-hour expiration for session-scoped entries; pruned automatically before every read operation
+
+### [1.9.0] - 2026-08-06 — 🛠️ Jest Mock Compatibility Fix & Documentation Version Updates
+**Resolved Jest `moduleNameMapper` catch-all regex conflict with tool imports and synchronized version references across all documentation files.**
+- ✅ **Jest mock compatibility**: Resolved configuration error where the catch-all regex matched barrel file imports (`./tools/index.js`) and attempted to resolve them to non-existent mock files. Reverted to individual tool imports for Jest compatibility.
+- ✅ **Documentation synchronization**: Updated v1.8.9 → v1.9.0 across all MD files
+
 ### [1.8.2] - 2026-07-27 — 🏗️ `toolsProvider.ts` Refactoring: Declarative Registry Pattern
 **Architectural overhaul of tool registration system — replaced repetitive gating logic with a clean, maintainable registry pattern using closures.**
+- ✅ **Replaced ~80 lines of repetitive if/else blocks** with a single declarative registry array (`TOOL_REGISTRIES`) containing 20 entries
+- ✅ **Closure-based dependency injection**: Each registry entry captures `config`, `stateManager`, and `backgroundCommandManager` at definition time via arrow functions, eliminating parameter-passing complexity
+- ✅ **Strict TypeScript compliance**: Eliminated all `any[]` types, replaced with typed closures (`() => Tool[]`) that satisfy strict ESLint rules
+- ✅ **Simplified registry loop**: Single `for...of` iteration replaces scattered conditional blocks — adds tools based on config keys or GOD MODE bypass
 
-#### What Changed
-
-### [1.9.0] - 2026-08-03 — 🐛 insert_at_line & line_operations: Comprehensive Bug Fix Suite (13 Bugs Fixed)
-**Resolved 13 critical bugs across `insert_at_line` and `line_operations` tools through deep debugging.**
-- ✅ **Drift detection overhaul**: Replaced first-line-only `includes()` check with full contiguous line-by-line verification using normalized CRLF comparison — prevents silent file corruption from stale line numbers
-- ✅ **CRLF handling fixed**: Replaced literal `'\\\\r\\\\n'` backslash strings with proper `'\r\n'` escape sequences in post-write verification code
-- ✅ **ReferenceError eliminated**: Moved `const insertLines` declaration before switch statement to fix crashes on delete/move operations
-- ✅ **Structured warnings**: LLMs now receive parseable warning data instead of `console.warn()` side effects
-- ✅ **Accurate modification tracking**: Only successful operations recorded in `modTracking`
 
 ### [1.8.8] - 2026-08-02 — 🛡️ .bak Backup Discovery & Restoration Tools + LLM Awareness
 **Added explicit LLM-accessible tools for discovering and restoring from `.bak` backup files created by file-modifying operations.**
@@ -226,11 +233,6 @@ npm test
 ### [1.8.3] - 2026-07-30 — 🧹 Final Cleanup & ContextGuard Calibration
 **Resolved critical token undercounting bug caused by incomplete message content extraction when LM Studio SDK v1.x returns array-based content blocks.**
 - ✅ **SDK v1.x compatibility overhaul**: `ContextGuard.countTokens()` now properly extracts text from arrays of content blocks, ChatMessage objects.
-
-- ✅ **Replaced ~80 lines of repetitive if/else blocks** with a single declarative registry array (`TOOL_REGISTRIES`) containing 20 entries
-- ✅ **Closure-based dependency injection**: Each registry entry captures `config`, `stateManager`, and `backgroundCommandManager` at definition time via arrow functions, eliminating parameter-passing complexity
-- ✅ **Strict TypeScript compliance**: Eliminated all `any[]` types, replaced with typed closures (`() => Tool[]`) that satisfy strict ESLint rules
-- ✅ **Simplified registry loop**: Single `for...of` iteration replaces scattered conditional blocks — adds tools based on config keys or GOD MODE bypass
 
 ### [1.8.1] - 2026-07-27 — 🔧 grep_files Performance Fix: Default Directory Exclusions
 **Fixed critical performance issue where `grep_files` searched ALL directories including node_modules, .git, and build artifacts.**
@@ -326,6 +328,7 @@ line_operations(file_name, operation: "insert", target_line: 84,
 | `tesseract.js` | ^7.0.0 | OCR engine |
 | `pdf-parse` | ^1.1.1 | PDF document parsing |
 | `mammoth` | ^1.6.0 | DOCX document parsing |
+| `xlsx` | ^0.18.5 | XLS/XLSX spreadsheet parsing |
 | `archiver` | ^8.0.0 | ZIP archive creation |
 | `unzipper` | ^0.12.3 | ZIP extraction |
 | `zod` | ^3.25.0 | Runtime type validation |
