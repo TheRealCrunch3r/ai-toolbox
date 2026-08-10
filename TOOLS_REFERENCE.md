@@ -1,6 +1,6 @@
 # 🛠️ AI Toolbox — Complete Tool Reference
 
-*Updated to reflect current state: **~97 unique tools** dynamically registered across 20 categories (v1.9.3).*
+*Updated to reflect current state: **~97 unique tools** dynamically registered across 20 categories (v1.9.5). Includes new v1.9.5 architectural features: Confidence-Tagged Results, Hub-Exclusion Clustering, Project Auto-Detection, Context Tier Provenance, and Cluster-Aware Tool Priority.*
 
 ---
 
@@ -569,4 +569,53 @@ All tools implement multiple security layers:
 
 ---
 
-*Reference generated from actual source code analysis on 2026-08-07 (v1.9.3). All tool counts verified against `toolsProvider.ts` registry entries and `src/tools/*.ts`. insert_at_line read-back drift detection documented with v1.8.8 hard fix.*
+*Reference generated from actual source code analysis on 2026-08-10 (v1.9.5). All tool counts verified against `toolsProvider.ts` registry entries and `src/tools/*.ts`. insert_at_line read-back drift detection documented with v1.8.8 hard fix. New v1.9.5 features: Confidence-Tagged Results, Hub-Exclusion Clustering (83 tests), Project Auto-Detection, Context Tier Provenance, Cluster-Aware Tool Priority.*
+
+---
+
+## 🆕 New Features — v1.9.5 (2026-08-10)
+
+### Graphify-Inspired Architectural Intelligence Suite
+
+Five new architectural modules added in v1.9.5 following graphify repository analysis patterns:
+
+#### 1. Confidence-Tagged Results (`src/types/confidenceTypes.ts`)
+**Typed confidence metadata attached to all tool execution outputs.**
+
+Three confidence levels for result reliability assessment:
+- **EXTRACTED**: Direct, deterministic source match (file reads, grep matches, API responses)
+- **INFERRED**: Semantic relevance or computed values (RAG queries, heuristic scoring)
+- **AMBIGUOUS**: Uncertain relationships or fallback paths used
+
+Helper functions available for standardized confidence assignment:
+```typescript
+determineConfidence(operationType: 'extraction'|'inference'|'execution'|'search', success: boolean, fallbackUsed?: boolean): Confidence;
+createToolResult<T>(data: T, confidence: Confidence, options?: {provenance?: string; note?: string}): { success: true; data: T & ToolResultMetadata };
+createErrorResult(message: string, provenance?: string): { success: false; error: string; data: ToolResultMetadata };
+```
+
+#### 2. Hub-Exclusion Clustering (`src/utils/hubExclusionClustering.ts`)
+**Louvain community detection with hub-exclusion for architectural transparency.**
+
+Algorithm flow: Build dependency graph → Calculate degrees → Identify hubs (80th percentile) → Louvain clustering on non-hubs → Majority-vote hub reattachment.
+
+Output includes modularity score, cluster density metrics, and hub identification — all running synchronously under 10ms for typical plugin graphs. 83 tests verify correctness across graph construction, hub identification at various percentiles, Louvain convergence, majority-vote reattachment, and edge cases.
+
+Use cases: Architectural visualization, refactoring guidance (identify modules to refactor together), ContextGuard optimization (compress related clusters), tool priority ranking via centrality scoring.
+
+#### 3. Project Auto-Detection (`src/projectAutoDetect.ts`)
+**Automatic project registration when cross-project registry searches return empty.**
+
+Confidence scoring signals: `package.json` (+0.4), `src/` or `lib/` (+0.3), `.git` (+0.1), build configs (+0.2). Name normalization handles hyphen↔underscore variants and scoped packages (`@lmstudio/ai-toolbox`). Auto-registration runs on plugin startup via `initializeProjectDetection()`.
+
+#### 4. Context Tier Provenance (`src/contextTiers.ts`)
+**Typed provenance markers for tier-scoped context replacement.**
+
+Origin types: `_origin: 'ast' | 'semantic'` distinguishes raw file content from derived AI insights. `replaceTier()` replaces only changed tiers while preserving unchanged ones — follows graphify's incremental update pattern to prevent silent overwrites of unchanged nodes.
+
+#### 5. Cluster-Aware Tool Priority (`src/tools/toolPriority.ts`)
+**Five-tier priority ranking with hub-exclusion clustering integration.**
+
+Tiers: CRITICAL (1, file system tools), HIGH (2, web research/execution/git), STANDARD (3, browser/image/RAG), OPTIONAL (4, context management), BACKGROUND (5, backup/cleanup). Centrality scoring computed from module degree × hub bonus — used for intelligent tool filtering when grammar parser limits require pruning.
+
+---

@@ -1,7 +1,7 @@
 # 🏗️ Declarative Registry Pattern — `toolsProvider.ts` Refactoring
 
 **Date:** 2026-07-27  
-**Version:** v1.9.4 (documented in CHANGELOG.md)  
+**Version:** v1.9.5 (documented in CHANGELOG.md)  
 **Author:** AI Assistant  
 
 ---
@@ -228,4 +228,4 @@ npm test
 
 ---
 
-*Document updated: 2026-08-09 | Version: v1.9.4*
+*Document updated: 2026-08-10 | Version: v1.9.5*

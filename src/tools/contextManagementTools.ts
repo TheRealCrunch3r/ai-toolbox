@@ -10,6 +10,9 @@ import type { PluginConfig } from '../config.js';
 import type { StateManager } from '../stateManager.js';
 import type { BackgroundCommandManager } from '../backgroundCommands.js';
 import { getWorkingDir } from '../workingDir.js';
+import type { ContextOrigin, ContextNode } from '../contextTiers.js';
+import { replaceTier, createContextNode } from '../contextTiers.js';
+import type { Confidence } from '../types/confidenceTypes.js';
 
 // ==================== Session Summary Types ====================
 
@@ -40,6 +43,7 @@ interface ContextEntry {
   frequency?: number;   // NEW: Access count for heuristic scoring
   ttl_ms?: number;      // NEW: Time-to-live in milliseconds (for session pruning)
   project_path?: string; // NEW: Working directory that created this entry (isolation key)
+  _origin?: ContextOrigin; // NEW: Tier provenance ("ast" = raw file/AST, "semantic" = derived insight) — graphify-inspired
 }
 
 interface ContextSummary {
@@ -141,45 +145,106 @@ export class ContextStorageManager {
     }
   }
 
+  /**
+   * Convert ContextEntry[] to ContextNode[] for tier operations.
+   * Maps _origin from entry if present, defaults to 'semantic'.
+   */
+  private entriesToNodes(entries: ContextEntry[]): ContextNode[] {
+    return entries.map(e => ({
+      id: e.id,
+      _origin: e._origin ?? 'semantic', // Default to semantic for backward compat
+      label: e.title,
+      source_file: undefined,
+      data: { type: e.type, content: e.content, tags: e.tags },
+      timestamp: e.timestamp,
+    }));
+  }
+
+  /**
+   * Convert ContextNode[] back to ContextEntry[].
+   */
+  private nodesToEntries(nodes: ContextNode[]): ContextEntry[] {
+    return nodes.map(n => ({
+      id: n.id,
+      timestamp: n.timestamp ?? Date.now(),
+      date: new Date().toLocaleString(),
+      type: (n.data as Record<string, unknown>)?.type as ContextEntry['type'] || 'summary',
+      title: n.label || '',
+      content: (n.data as Record<string, unknown>)?.content as string || '',
+      tags: (n.data as Record<string, unknown>)?.tags as string[] || [],
+      scope: 'global', // Default scope for converted entries (inferred from MemoryScope union)
+      frequency: 1,
+      ttl_ms: undefined,
+      project_path: this.workingDirPath,
+      _origin: n._origin, // Preserve provenance
+    }));
+  }
+
+  /**
+   * Merge new entry into existing entries with tier-aware replacement.
+   * If incoming entry has _origin set, performs tier-scoped merge (graphify pattern).
+   * Otherwise falls back to simple ID-based overwrite (backward compatible).
+   */
+  private async mergeEntriesWithTiers(
+    entries: ContextEntry[],
+    newEntry: ContextEntry
+  ): Promise<ContextEntry[]> {
+    // Clone input entry
+    const cloned = { ...newEntry };
+
+    // Apply defaults
+    if (!cloned.scope) cloned.scope = 'global';
+    if (!cloned.project_path) cloned.project_path = this.workingDirPath;
+    if (cloned.scope === 'session' && !cloned.ttl_ms) cloned.ttl_ms = SESSION_TTL_MS;
+
+    // 🔹 Tiered replacement path: only when _origin is explicitly set
+    if (cloned._origin !== undefined) {
+      const oldNodes = this.entriesToNodes(entries);
+      const newNode = createContextNode(cloned.id, cloned._origin, {
+        type: cloned.type,
+        content: cloned.content,
+        title: cloned.title,
+        tags: cloned.tags,
+        frequency: (entries.find(e => e.id === cloned.id)?.frequency || 0) + 1,
+      }, undefined, cloned.title);
+
+      const mergedNodes = replaceTier(oldNodes, [newNode]);
+      const mergedEntries = this.nodesToEntries(mergedNodes);
+
+      // Re-apply scope/project_path/TTL to entries that didn't come from nodes
+      for (const entry of mergedEntries) {
+        if (!entry.scope) entry.scope = 'global';
+        if (!entry.project_path) entry.project_path = this.workingDirPath;
+      }
+
+      return mergedEntries;
+    }
+
+    // 🔹 Fallback: simple ID-based merge (backward compatible)
+    const existingIdx = entries.findIndex(e => e.id === cloned.id);
+    if (existingIdx !== -1) {
+      entries[existingIdx].frequency = (entries[existingIdx].frequency || 0) + 1;
+      entries[existingIdx] = { ...entries[existingIdx], ...cloned }; // Merge updated data
+    } else {
+      cloned.frequency = 1;
+      entries.unshift(cloned);
+    }
+
+    return entries;
+  }
+
   /** Add a new context entry — ASYNC === */
   async addEntry(entry: ContextEntry): Promise<void> {  // MADE ASYNC
     const entries = await this.load();  // ASYNC load
     
-    // 🔹 FIX #5: Clone input object to prevent mutation of caller's reference
-    const clonedEntry = { ...entry };
-    
-    // Apply default scope if not provided (defaults to 'global')
-    if (!clonedEntry.scope) {
-      clonedEntry.scope = 'global';
-    }
-
-    // Inject project identity for cross-project isolation
-    if (!clonedEntry.project_path) {
-      clonedEntry.project_path = this.workingDirPath;
-    }
-
-    // Set TTL for session-scoped memories (only if not already set)
-    if (clonedEntry.scope === 'session' && !clonedEntry.ttl_ms) {
-      clonedEntry.ttl_ms = SESSION_TTL_MS;
-    }
-
-    // 🔹 FIX #1: Increment frequency ONLY if entry with matching ID exists — don't create duplicates
-    const existingIdx = entries.findIndex(e => e.id === clonedEntry.id);
-    if (existingIdx !== -1) {
-      // Update existing entry's frequency instead of creating duplicate
-      entries[existingIdx].frequency = (entries[existingIdx].frequency || 0) + 1;
-      entries[existingIdx] = { ...entries[existingIdx], ...clonedEntry }; // Merge updated data
-    } else {
-      clonedEntry.frequency = 1; // New entry starts at frequency 1
-      entries.unshift(clonedEntry); // Add new entry to beginning
-    }
+    const mergedEntries = await this.mergeEntriesWithTiers(entries, entry);
     
     // Limit to last 1000 entries to prevent unbounded growth
-    if (entries.length > 1000) {
-      entries.splice(1000);
+    if (mergedEntries.length > 1000) {
+      mergedEntries.splice(1000);
     }
     
-    await this.save(entries);  // ASYNC save
+    await this.save(mergedEntries);  // ASYNC save
   }
 
   /** Check if stored entries are stale (>3 days old) */
@@ -233,7 +298,7 @@ export class ContextStorageManager {
   }
 
   /** Get recent context entries — ASYNC === */
-  async getRecentEntries(limit: number = 20, type?: string): Promise<{ data: ContextEntry[], isStale: boolean }> {  // MADE ASYNC
+  async getRecentEntries(limit: number = 20, type?: string): Promise<{ data: ContextEntry[], isStale: boolean; confidence: Confidence }> {  // MADE ASYNC
     let entries = await this.load();  // ASYNC load
     
     // 🔹 FIX #2: Inline pruning to eliminate double-load race condition (single I/O)
@@ -259,12 +324,13 @@ export class ContextStorageManager {
 
     return { 
       data: scoredEntries.slice(0, limit), 
-      isStale: this._isStale(scoredEntries) 
+      isStale: this._isStale(scoredEntries),
+      confidence: 'INFERRED' as Confidence, // Heuristic scoring = inferred relevance
     };
   }
 
   /** Search context entries by query — ASYNC === */
-  async searchEntries(query: string, maxResults: number = 10): Promise<{ results: ContextEntry[], isStale: boolean }> {  // MADE ASYNC
+  async searchEntries(query: string, maxResults: number = 10): Promise<{ results: ContextEntry[], isStale: boolean; confidence: Confidence }> {  // MADE ASYNC
     let entries = await this.load();  // ASYNC load
     
     // 🔹 FIX #2 (searchEntries): Inline pruning to eliminate double-load race condition
@@ -291,7 +357,8 @@ export class ContextStorageManager {
 
     return { 
       results: scoredResults.slice(0, maxResults), 
-      isStale: this._isStale(scoredResults) 
+      isStale: this._isStale(scoredResults),
+      confidence: 'INFERRED' as Confidence, // Semantic search with scoring = inferred relevance
     };
   }
 
@@ -868,7 +935,15 @@ WHEN TO USE:
       try {
         const result = await storageManager.getRecentEntries(limit || 20, type);  // ASYNC call
         
-        return { success: true, data: { entries: result.data, isStale: result.isStale } };
+        return { 
+          success: true, 
+          data: { 
+            entries: result.data, 
+            isStale: result.isStale,
+            confidence: result.confidence,
+            provenance: 'get_context_memory' as const,
+          } 
+        };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         return { success: false, error: `Failed to retrieve context memory: ${message}` };
@@ -897,7 +972,15 @@ WHEN TO USE:
       try {
         const result = await storageManager.searchEntries(query, max_results || 10);  // ASYNC call
         
-        return { success: true, data: { results: result.results, isStale: result.isStale } };
+        return { 
+          success: true, 
+          data: { 
+            results: result.results, 
+            isStale: result.isStale,
+            confidence: result.confidence,
+            provenance: 'search_context' as const,
+          } 
+        };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         return { success: false, error: `Context search failed: ${message}` };

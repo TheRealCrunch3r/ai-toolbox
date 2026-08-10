@@ -518,6 +518,20 @@ async function ragQueryVector({ query, topK = 5 }: RagQueryVectorParams): Promis
     // Search the actual vector store
     const results = store.search(queryEmbedding, topK);
 
+    // Calculate average score for confidence note
+    const avgScore = results.length > 0 
+      ? results.reduce((sum, r) => sum + r.score, 0) / results.length 
+      : 0;
+    
+    let confidenceNote = `Semantic similarity search — ${results.length} result(s) found`;
+    if (avgScore >= 0.7) {
+      confidenceNote += ' — high relevance';
+    } else if (avgScore >= 0.4) {
+      confidenceNote += ' — moderate relevance';
+    } else {
+      confidenceNote += ' — low relevance';
+    }
+
     return {
       success: true,
       data: {
@@ -525,6 +539,9 @@ async function ragQueryVector({ query, topK = 5 }: RagQueryVectorParams): Promis
         topK,
         totalDocuments: store.count,
         results,
+        confidence: 'INFERRED' as const, // Semantic similarity = inferred relevance (graphify pattern)
+        provenance: 'rag_query_vector' as const,
+        note: confidenceNote,
       },
     };
   } catch (error) {

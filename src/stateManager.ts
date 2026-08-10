@@ -21,11 +21,14 @@ import * as path from 'path';
 import { encode, decode } from '@msgpack/msgpack';
 
 import { getWorkingDir } from './workingDir';
+import type { ContextOrigin } from './contextTiers.js';
+import { replaceTier, createContextNode } from './contextTiers.js';
 
 interface StateEntry {
   key: string;
   value: unknown;
   timestamp: number;
+  _origin?: ContextOrigin; // Tier provenance ("ast" = raw file/AST, "semantic" = derived insight) — graphify-inspired
 }
 
 /** Minimal logger for state manager (avoids circular dependency with index.ts) */
@@ -376,6 +379,84 @@ export class StateManager {
     if (this.persistenceEnabled) {
       void this._queueSave(); // 🔹 P0 #1: Debounced save
     }
+  }
+
+  /**
+   * Set a state value with explicit tier provenance.
+   * If _origin is set, enables tier-aware operations for batch replacement.
+   */
+  setWithTier(key: string, value: unknown, origin: ContextOrigin): void {
+    const newValueSize = this.getSizeOfValue(value);
+    const oldValueSize = this.getExistingValueSize(key);
+
+    if (this.runningSize - oldValueSize + newValueSize > this.maxSize) {
+      throw new Error(`State size exceeds maximum (${this.maxSize} bytes)`);
+    }
+
+    this.runningSize = this.runningSize - oldValueSize + newValueSize;
+
+    this.state.set(key, {
+      key,
+      value,
+      timestamp: Date.now(),
+      _origin: origin,
+    });
+
+    if (this.persistenceEnabled) {
+      this._keysCacheInvalidated = true;
+      void this._queueSave();
+    }
+  }
+
+  /**
+   * Get all entries matching a specific tier origin.
+   */
+  getByOrigin(origin: ContextOrigin): Array<{ key: string; value: unknown; timestamp: number }> {
+    return Array.from(this.state.entries())
+      .filter(([, entry]) => entry._origin === origin)
+      .map(([key, entry]) => ({ key, value: entry.value, timestamp: entry.timestamp }));
+  }
+
+  /**
+   * Perform tier-aware batch replacement on state entries.
+   * Converts StateEntry[] to ContextNode[], applies replaceTier(), converts back.
+   * 
+   * @param oldEntries — Current state entries (from load)
+   * @param newEntries — Incoming entries with _origin set for tier scoping
+   * @returns Merged entries with only changed tiers replaced
+   */
+  static mergeStateWithTiers(
+    oldEntries: StateEntry[],
+    newEntries: StateEntry[]
+  ): StateEntry[] {
+    // Convert to ContextNode format
+    const oldNodes = oldEntries.map(e => ({
+      id: e.key,
+      _origin: e._origin ?? 'semantic',
+      label: undefined,
+      source_file: undefined,
+      data: e.value,
+      timestamp: e.timestamp,
+    }));
+
+    const newNodes = newEntries.map(e => createContextNode(
+      e.key, 
+      e._origin ?? 'semantic', 
+      e.value, 
+      undefined, 
+      undefined
+    ));
+
+    // Apply tier replacement
+    const mergedNodes = replaceTier(oldNodes, newNodes);
+
+    // Convert back to StateEntry format
+    return mergedNodes.map(n => ({
+      key: n.id,
+      value: n.data ?? {},
+      timestamp: n.timestamp || Date.now(),
+      _origin: n._origin,
+    }));
   }
 
   /**

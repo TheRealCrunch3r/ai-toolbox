@@ -892,3 +892,196 @@ SUMMARY:`;
     return result;
   }
 }
+
+/**
+ * Hub-Exclusion Clustering Integration for ContextGuard
+ * 
+ * Provides architectural transparency insights during context analysis:
+ * - Identifies which modules are hubs vs regular members
+ * - Tracks cluster membership for tracked files
+ * - Enables cluster-aware compression strategies
+ */
+
+import type { HubExclusionResult } from './utils/hubExclusionClustering.js';
+import { analyzeAiToolboxDependencies } from './utils/hubExclusionClustering.js';
+
+/**
+ * Cache for clustering analysis results (avoid recomputation).
+ */
+let cachedClusteringResult: HubExclusionResult | null = null;
+let clusteringCacheTimestamp = 0;
+
+/**
+ * Get or compute the Hub-Exclusion Clustering result.
+ * Cached for performance — invalidates after 5 minutes.
+ */
+function getClusteringResult(): HubExclusionResult {
+  const now = Date.now();
+  if (cachedClusteringResult && (now - clusteringCacheTimestamp) < 5 * 60 * 1000) {
+    return cachedClusteringResult;
+  }
+
+  cachedClusteringResult = analyzeAiToolboxDependencies();
+  clusteringCacheTimestamp = now;
+  
+  debugLog('[CLUSTERING]', `Computed Hub-Exclusion Clustering: ${cachedClusteringResult.nodes.length} modules, ${cachedClusteringResult.clusters.length} clusters`);
+  return cachedClusteringResult;
+}
+
+/**
+ * Get the cluster membership for a given file/module path.
+ */
+export function getFileClusterInfo(filePath: string): {
+  isHub: boolean;
+  clusterId?: number;
+  moduleDegree: number;
+  clusterSize?: number;
+  clusterDensity?: number;
+} | null {
+  const result = getClusteringResult();
+  
+  // Normalize the file path to match node IDs in the clustering result
+  const normalizedPath = filePath.replace(/\\/g, '/').replace(/^.*\/src\//, '');
+  
+  const matchingNode = result.nodes.find(n => n.id.includes(normalizedPath) || normalizedPath.includes(n.id));
+  if (!matchingNode) return null;
+
+  const isHub = result.hubs.includes(matchingNode.id);
+  let clusterId: number | undefined;
+  let clusterSize: number | undefined;
+  let clusterDensity: number | undefined;
+
+  // Find the cluster this node belongs to (or a hub's assigned cluster)
+  for (const cluster of result.clusters) {
+    if (cluster.members.includes(matchingNode.id)) {
+      clusterId = cluster.clusterId;
+      clusterSize = cluster.size;
+      clusterDensity = cluster.density;
+      break;
+    }
+  }
+
+  // If it's a hub, check its assignment
+  if (!clusterId && result.hubAssignments[matchingNode.id] != null) {
+    const assignedClusterId = result.hubAssignments[matchingNode.id];
+    if (assignedClusterId >= 0) {
+      clusterId = assignedClusterId;
+      const assignedCluster = result.clusters.find(c => c.clusterId === assignedClusterId);
+      clusterSize = assignedCluster?.size;
+      clusterDensity = assignedCluster?.density;
+    }
+  }
+
+  return {
+    isHub,
+    clusterId,
+    moduleDegree: matchingNode.degree,
+    clusterSize,
+    clusterDensity
+  };
+}
+
+/**
+ * Generate an architectural insight summary for the current context.
+ * 
+ * Used during compression to provide users with insights about which
+ * modules are being affected and their roles in the architecture.
+ */
+export function getArchitecturalInsights(): string {
+  const result = getClusteringResult();
+
+  let insights = '\n🏗️ Architectural Context Summary\n';
+  insights += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
+  
+  // Module distribution
+  insights += `Modules analyzed: ${result.nodes.length}\n`;
+  insights += `Clusters identified: ${result.clusters.length}\n`;
+  insights += `Hub modules: ${result.hubs.length}\n\n`;
+
+  // Hub roles
+  if (result.hubs.length > 0) {
+    insights += '🔶 Architectural Hubs:\n';
+    for (const hubId of result.hubs.slice(0, 5)) {
+      const node = result.nodes.find(n => n.id === hubId);
+      if (node) {
+        insights += `  • ${node.label || hubId} — connects ${node.degree} modules\n`;
+      }
+    }
+    if (result.hubs.length > 5) {
+      insights += `  ... and ${result.hubs.length - 5} more hubs\n`;
+    }
+    insights += '\n';
+  }
+
+  // Cluster summary
+  insights += '📦 Module Clusters:\n';
+  for (const cluster of result.clusters.slice(0, 3)) {
+    const densityStr = cluster.density != null ? ` | density: ${cluster.density.toFixed(2)}` : '';
+    insights += `  Cluster ${cluster.clusterId}: ${cluster.size} modules${densityStr}\n`;
+    
+    // Show representative members
+    for (const member of cluster.members.slice(0, 3)) {
+      const node = result.nodes.find(n => n.id === member);
+      if (node) {
+        insights += `    • ${node.label || member}\n`;
+      }
+    }
+  }
+
+  // Modularity quality
+  if (result.modularity != null) {
+    const quality = result.modularity > 0.3 ? 'Strong' : result.modularity > 0.2 ? 'Moderate' : 'Weak';
+    insights += `\n📊 Clustering quality: ${quality} (${result.modularity.toFixed(3)})\n`;
+  }
+
+  return insights;
+}
+
+/**
+ * Check if a file belongs to a hub module — useful for compression priority.
+ * Hub modules should be preserved during context compression as they are
+ * architecturally critical.
+ */
+export function isHubModule(filePath: string): boolean {
+  const info = getFileClusterInfo(filePath);
+  return info?.isHub ?? false;
+}
+
+/**
+ * Get the cluster ID for a file — useful for cluster-aware compression strategies.
+ * Files in the same cluster can be compressed together to reduce redundancy.
+ */
+export function getModuleClusterId(filePath: string): number | null {
+  const info = getFileClusterInfo(filePath);
+  return info?.clusterId ?? null;
+}
+
+/**
+ * Compress files from the same cluster together (optimization).
+ * 
+ * When multiple tracked files belong to the same cluster, they can be
+ * compressed in a single operation rather than individually.
+ */
+export function groupTrackedFilesByCluster(trackedPaths: string[]): Map<number, string[]> {
+  const clusters = new Map<number, string[]>();
+
+  for (const filePath of trackedPaths) {
+    const clusterId = getModuleClusterId(filePath);
+    if (clusterId != null && clusterId >= 0) {
+      if (!clusters.has(clusterId)) {
+        clusters.set(clusterId, []);
+      }
+      clusters.get(clusterId)!.push(filePath);
+    } else {
+      // Files not in any cluster or hubs go to a special group
+      const unclustered = clusters.get(-1);
+      if (!unclustered) {
+        clusters.set(-1, [filePath]);
+      } else {
+        unclustered.push(filePath);
+      }
+    }
+  }
+
+  return clusters;
+}

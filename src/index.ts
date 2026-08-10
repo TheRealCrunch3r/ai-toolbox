@@ -11,6 +11,7 @@ import { ContextGuard } from './contextGuard';
 import { TokenStatsManager } from './tokenStatsManager';
 import { cleanupBrowserSession } from './tools/browserAutomationTools';
 import { autoTracker } from './autoTracker';
+import { initializeProjectDetection } from './projectAutoDetect';
 
 // Export for external use (e.g., in generators or other plugins)
 export { TokenStatsManager };
@@ -27,6 +28,10 @@ const logger = {
  */
 export function main(context: PluginContext) {
   logger.info('Initializing...');
+  
+  // Auto-detect and register current working directory as a project (if valid)
+  const cwd = process.cwd();
+  initializeProjectDetection(cwd);
   
   // Register the configuration schematics (makes toggles appear in UI)
   context.withConfigSchematics(configSchematics);

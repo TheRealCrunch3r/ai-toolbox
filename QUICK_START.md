@@ -72,7 +72,7 @@ executionTerminal: true (for shell scripting)
 
 ## Documentation
 
-- **Tool Reference**: `TOOLS_REFERENCE.md` — Complete parameter documentation for all ~97 tools (v1.9.3)
+- **Tool Reference**: `TOOLS_REFERENCE.md` — Complete parameter documentation for all ~97 tools (v1.9.5). Includes new v1.9.5 architectural features: Confidence-Tagged Results, Hub-Exclusion Clustering, Project Auto-Detection, Context Tier Provenance, Cluster-Aware Tool Priority.
 - **Architecture**: `ARCHITECTURE.md` — System design, registration pattern, data flows
 - **Security**: `SECURITY.md` — Threat model, input validation, secure defaults
 - **Contributing**: `CONTRIBUTING.md` — Development workflow, adding new tools

@@ -245,3 +245,196 @@ export function generateFilterReport(tools: { name: string }[], limit: number): 
   
   return report;
 }
+
+/**
+ * Hub-Exclusion Clustering Integration for Tool Priority Ranking
+ * 
+ * Enhances priority sorting with cluster-awareness: tools in high-centrality
+ * clusters (architecturally important) receive a slight priority boost, while
+ * isolated tools remain at their base tier.
+ */
+
+import type { HubExclusionResult } from '../utils/hubExclusionClustering.js';
+import { generateClusteringReport } from '../utils/hubExclusionClustering.js';
+
+/**
+ * Category-to-module mapping for centrality scoring.
+ * Maps each tool category to the corresponding source file(s) in the plugin.
+ * Supports both bare names and path-prefixed variants (e.g., "tools/fileSystemTools.ts").
+ */
+const CATEGORY_TO_MODULE: Record<string, string | readonly string[]> = {
+  fileSystem: ['fileSystemTools.ts', 'tools/fileSystemTools.ts'],
+  webResearch: ['webResearchTools.ts', 'tools/webResearchTools.ts'],
+  browser: ['browserAutomationTools.ts', 'tools/browserAutomationTools.ts'],
+  git: ['gitGithubTools.ts', 'tools/gitGithubTools.ts'],
+  gitHub: ['gitGithubTools.ts', 'tools/gitGithubTools.ts'],
+  database: ['databaseTools.ts', 'tools/databaseTools.ts'],
+  document: ['documentTools.ts', 'tools/documentTools.ts'],
+  backgroundCommands: ['backgroundCommandTools.ts', 'tools/backgroundCommandTools.ts'],
+  execution: ['executionTools.ts', 'tools/executionTools.ts'],
+  imageProcessing: ['imageProcessingTools.ts', 'tools/imageProcessingTools.ts'],
+  httpClient: ['httpClientTools.ts', 'tools/httpClientTools.ts'],
+  vectorRAG: ['vectorRagTools.ts', 'tools/vectorRagTools.ts'],
+  textProcessing: ['textProcessingTools.ts', 'tools/textProcessingTools.ts'],
+  uiGeneration: ['uiGenerationTools.ts', 'tools/uiGenerationTools.ts'],
+  contextManagement: ['contextManagementTools.ts', 'tools/contextManagementTools.ts'],
+  refactorCode: ['refactorCodeTools.ts', 'tools/refactorCodeTools.ts'],
+  dataVisualization: ['dataVisualizationTools.ts', 'tools/dataVisualizationTools.ts'],
+  backup: ['backupTools.ts', 'tools/backupTools.ts'],
+  markdownPreview: ['markdownPreviewTools.ts', 'tools/markdownPreviewTools.ts'],
+  lineOperations: ['lineOperations.ts', 'tools/lineOperations.ts'],
+};
+
+/**
+ * Extended tool priority with cluster-aware scoring.
+ */
+export interface ClusterAwarePriority extends ToolPriority {
+  /** Module degree (number of dependencies/connections) */
+  moduleDegree?: number;
+  /** Whether this tool's module is identified as a hub */
+  isHub?: boolean;
+  /** Assigned cluster ID from Hub-Exclusion clustering */
+  clusterId?: number;
+  /** Centrality score [0-1] — higher = more architecturally important */
+  centralityScore?: number;
+}
+
+/**
+ * Compute centrality scores for all tools based on their module's graph position.
+ * 
+ * Centrality = (moduleDegree / maxDegree) × hubBonus, where:
+ * - hubBonus = 1.5 if the module is a hub
+ * - hubBonus = 1.0 otherwise
+ */
+export function computeCentralityScores(
+  tools: ToolPriority[],
+  clusteringResult: HubExclusionResult
+): Map<string, number> {
+  const maxDegree = Math.max(...clusteringResult.nodes.map(n => n.degree), 1);
+  
+  // Build hub set for quick lookup
+  const hubSet = new Set(clusteringResult.hubs);
+
+  const centralityScores = new Map<string, number>();
+
+  for (const tool of tools) {
+    // Find the module node corresponding to this tool's category
+    const moduleNames = CATEGORY_TO_MODULE[tool.category || ''];
+    
+    let matchingNode: typeof clusteringResult.nodes[number] | undefined;
+    
+    if (moduleNames) {
+      // Try each possible name variant (e.g., both bare and path-prefixed)
+      const names = Array.isArray(moduleNames) ? moduleNames : [moduleNames];
+      for (const name of names) {
+        matchingNode = clusteringResult.nodes.find(n => n.id === name);
+        if (matchingNode) break;
+      }
+    }
+    
+    if (!matchingNode) {
+      centralityScores.set(tool.name, 0); // No graph data → baseline score
+      continue;
+    }
+
+    const degreeRatio = matchingNode.degree / maxDegree;
+    const hubBonus = hubSet.has(matchingNode.id) ? 1.5 : 1.0;
+    
+    centralityScores.set(tool.name, Math.min(degreeRatio * hubBonus, 1));
+  }
+
+  return centralityScores;
+}
+
+/**
+ * Sort tools by priority tier + cluster-awareness.
+ * 
+ * Within each tier, tools are sorted by:
+ * 1. Centrality score (descending) — more connected modules first
+ * 2. Alphabetical name (ascending) — for deterministic ordering
+ */
+export function sortToolsByClusterAwarePriority(
+  tools: { name: string }[],
+  clusteringResult?: HubExclusionResult
+): typeof tools {
+  if (!clusteringResult || clusteringResult.nodes.length === 0) {
+    // Fallback to standard priority sorting if no clustering data available
+    return sortToolsByPriority(tools);
+  }
+
+  const centralityScores = computeCentralityScores(DEFAULT_TOOL_PRIORITIES, clusteringResult);
+
+  return [...tools].sort((a, b) => {
+    const priorityA = getToolPriority(a.name);
+    const priorityB = getToolPriority(b.name);
+    
+    const tierValueA = priorityA ? PRIORITY_TIER_VALUES[priorityA.tier] : 3;
+    const tierValueB = priorityB ? PRIORITY_TIER_VALUES[priorityB.tier] : 3;
+    
+    if (tierValueA !== tierValueB) {
+      return tierValueA - tierValueB; // Primary sort by tier
+    }
+
+    // Secondary sort: centrality score (descending), then alphabetical
+    const scoreA = centralityScores.get(a.name) ?? 0;
+    const scoreB = centralityScores.get(b.name) ?? 0;
+    
+    if (scoreA !== scoreB) {
+      return scoreB - scoreA; // Higher centrality first
+    }
+
+    return a.name.localeCompare(b.name);
+  });
+}
+
+/**
+ * Generate a cluster-aware tool filtering report.
+ */
+export function generateClusterAwareFilterReport(
+  tools: { name: string }[],
+  limit: number,
+  clusteringResult?: HubExclusionResult
+): string {
+  const sorted = sortToolsByClusterAwarePriority(tools, clusteringResult);
+  const retained = sorted.slice(0, limit);
+  const filtered = sorted.slice(limit);
+
+  let report = `\n🔗 Cluster-Aware Tool Filtering Report (limit: ${limit})\n`;
+  report += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+  report += `Total tools: ${tools.length}\n`;
+  report += `Retained: ${retained.length}\n`;
+  report += `Filtered: ${filtered.length}\n\n`;
+
+  if (clusteringResult) {
+    report += generateClusteringReport(clusteringResult);
+    report += '\n';
+  }
+
+  // Group filtered tools by tier and cluster
+  const filteredByTierAndCluster = new Map<string, string[]>();
+  
+  for (const tool of filtered) {
+    const priority = getToolPriority(tool.name);
+    const tier = priority ? priority.tier : 'unknown';
+    const key = `${tier}`;
+    
+    if (!filteredByTierAndCluster.has(key)) {
+      filteredByTierAndCluster.set(key, []);
+    }
+    const tierList = filteredByTierAndCluster.get(key);
+    if (tierList) tierList.push(tool.name);
+  }
+
+  for (const [tier, toolNames] of filteredByTierAndCluster.entries()) {
+    report += `🔻 ${tier.toUpperCase()} tier filtered:\n`;
+    toolNames.forEach(name => {
+      const priority = getToolPriority(name);
+      const desc = priority?.description || '';
+      const centrality = clusteringResult ? computeCentralityScores(DEFAULT_TOOL_PRIORITIES, clusteringResult).get(name) ?? 0 : 0;
+      report += `  • ${name}${desc ? ` (${desc})` : ''} | centrality: ${centrality.toFixed(2)}\n`;
+    });
+    report += '\n';
+  }
+
+  return report;
+}

@@ -7,6 +7,7 @@ import { spawn } from 'child_process';
 import type { PluginConfig } from '../config.js';
 import { sanitizeCommand } from '../security.js';
 import { getWorkingDir, resolvePath } from '../workingDir.js';
+import type { Confidence } from '../types/confidenceTypes.js';
 
 // ==================== Shared Spawn Helper ====================
 
@@ -138,6 +139,7 @@ export function registerExecutionTools(_config: PluginConfig): Tool[] {
         // npx (if available) → node → shell-based detection
         let result: SpawnResult | null = null;
         const candidates = ['npx', 'node'];
+        let fallbackUsed = false;
         
         for (const exe of candidates) {
           try {
@@ -152,6 +154,7 @@ export function registerExecutionTools(_config: PluginConfig): Tool[] {
         // Final fallback: use shell to find node via PATH/where/node -v
         const jsErrLower = result?.error?.toLowerCase() || '';
         if (jsErrLower.includes('not found') || jsErrLower.includes('enoent')) {
+          fallbackUsed = true;
           const isWindows = process.platform === 'win32';
           const whichCmd = isWindows ? 'where node' : 'which node';
           result = await safeSpawn(isWindows ? 'cmd.exe' : 'sh', 
@@ -163,6 +166,7 @@ export function registerExecutionTools(_config: PluginConfig): Tool[] {
           } else {
             // Try 'node.cmd' as last resort on Windows
             if (isWindows) {
+              fallbackUsed = true;
               result = await safeSpawn('cmd.exe', ['/c', `node -e "${javascript.replace(/"/g, '\\\"')}"`], timeoutMs);
             }
           }
@@ -177,7 +181,18 @@ export function registerExecutionTools(_config: PluginConfig): Tool[] {
           return { success: false, error: result.data.stderr };
         }
 
-        return { success: true, data: { output: result.data?.stdout || '' } };
+        // Determine confidence based on whether fallback was used
+        const confidence: Confidence = fallbackUsed ? 'AMBIGUOUS' : 'EXTRACTED';
+        
+        return { 
+          success: true, 
+          data: { 
+            output: result.data?.stdout || '',
+            confidence,
+            provenance: 'run_javascript',
+            note: fallbackUsed ? 'Fallback path used for Node.js detection — lower confidence' : undefined,
+          } 
+        };
       } catch (error) {
         return handleError(error);
       }
@@ -220,6 +235,7 @@ export function registerExecutionTools(_config: PluginConfig): Tool[] {
         // py (Python Launcher) → python3 → python → shell-based detection
         let result: SpawnResult | null = null;
         const candidates = ['py', 'python3', 'python'];
+        let fallbackUsed = false;
         
         for (const exe of candidates) {
           try {
@@ -234,6 +250,7 @@ export function registerExecutionTools(_config: PluginConfig): Tool[] {
         // Final fallback: use shell to find python via PATH/where/py -0
         const pyErr = result?.error?.toLowerCase() || '';
         if (pyErr.includes('not found') || pyErr.includes('enoent')) {
+          fallbackUsed = true;
           const isWindows = process.platform === 'win32';
           const whichCmd = isWindows ? 'where py' : 'which python3 || which python';
           result = await safeSpawn(isWindows ? 'cmd.exe' : 'sh', 
@@ -245,6 +262,8 @@ export function registerExecutionTools(_config: PluginConfig): Tool[] {
           } else {
             // Try 'py -3' as last resort on Windows
             if (isWindows) {
+              fallbackUsed = true;
+
               result = await safeSpawn('cmd.exe', ['/c', `py -3 -c "${python.replace(/"/g, '\\"')}"`], timeoutMs);
             }
           }
@@ -259,7 +278,18 @@ export function registerExecutionTools(_config: PluginConfig): Tool[] {
           return { success: false, error: result.data.stderr };
         }
 
-        return { success: true, data: { output: result.data?.stdout || '' } };
+        // Determine confidence based on whether fallback was used
+        const confidence: Confidence = fallbackUsed ? 'AMBIGUOUS' : 'EXTRACTED';
+        
+        return { 
+          success: true, 
+          data: { 
+            output: result.data?.stdout || '',
+            confidence,
+            provenance: 'run_python',
+            note: fallbackUsed ? 'Fallback path used for Python detection — lower confidence' : undefined,
+          } 
+        };
       } catch (error) {
         return handleError(error);
       }
@@ -294,12 +324,15 @@ export function registerExecutionTools(_config: PluginConfig): Tool[] {
 
         // Return combined output for better debugging
         const fullOutput = [result.data?.stdout, result.data?.stderr].filter(Boolean).join('\n');
+        
         return { 
           success: true, 
           data: { 
             stdout: result.data?.stdout || '', 
             stderr: result.data?.stderr || '',
-            output: fullOutput || '(No output)'
+            output: fullOutput || '(No output)',
+            confidence: 'EXTRACTED' as Confidence, // Direct shell execution = deterministic
+            provenance: 'execute_command',
           } 
         };
       } catch (error) {
@@ -515,6 +548,8 @@ export function registerExecutionTools(_config: PluginConfig): Tool[] {
               durationMs,
             },
             output: fullOutput.trim() || '(No test output)',
+            confidence: 'EXTRACTED' as Confidence, // Direct test execution = deterministic results
+            provenance: 'run_tests',
           },
         };
       } catch (error) {

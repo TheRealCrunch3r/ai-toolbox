@@ -1,0 +1,5 @@
+fix(lint): remove unused filterByOrigin import and unnecessary type assertion
+
+- Remove 'filterByOrigin' from imports in stateManager.ts (unused)
+- Remove 'filterByOrigin' from imports in contextManagementTools.ts (unused)  
+- Remove unnecessary 'as MemoryScope' cast on scope: 'global' — TypeScript infers from union type automatically
