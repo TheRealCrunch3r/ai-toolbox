@@ -167,6 +167,22 @@ npm test
 
 ## 📜 Release History
 
+### [v1.9.3] - 2026-08-09 — 🔧 ESLint `no-unsafe-assignment` Hardening & Type-Safety Refinement
+**Resolved unused eslint-disable directives and eliminated implicit `any` assignments in HTTP client tools through explicit type annotations.**
+
+#### What Changed
+- ✅ **Removed 4 unused suppression directives**: In `src/tools/httpClientTools.ts` and `src/tools/networkToolsRegistry.ts`, `eslint-disable-next-line @typescript-eslint/no-unsafe-assignment` comments were flagged as unused because assigning `response.json()` to variables with explicit `: unknown` type is already safe per TypeScript/ESLint rules.
+- ✅ **Added explicit `unknown` annotations**: Replaced implicit `any` assignments (`const data = await response.json();`) with typed declarations (`const data: unknown = await response.json();`) across all HTTP response parsing paths — 10 warnings resolved total.
+- ✅ **Version bump**: Updated all project metadata from v1.9.2 → v1.9.3.
+
+#### Root Cause Addressed
+Prior to this fix, ESLint's `@typescript-eslint/no-unsafe-assignment` rule flagged assignments where the source expression was `any` (from `response.json()`) and the target variable was implicitly typed as `any`. TypeScript infers `any` when no explicit type annotation is provided, which defeats compile-time safety checks. The previous session added suppression directives with justifications, but ESLint correctly reported them as unused because assigning `any` → explicit `unknown` satisfies the rule without needing suppression.
+
+#### Impact
+- ✅ **Zero ESLint warnings**: All 10 `no-unsafe-assignment` warnings resolved across both files
+- ✅ **Strict type safety preserved**: Explicit `: unknown` annotations force downstream consumers to perform type guards or assertions before using HTTP response payloads
+- ✅ **No functional changes**: Only static analysis directives and type annotations adjusted; runtime behavior identical
+
 ### [1.9.2] - 2026-08-07 — 🔥 grep_files ReDoS Fix & RAG System Overhaul: PDF/DOCX/XLSX Indexing Tools
 **Resolved critical Regex Denial of Service (ReDoS) vulnerability in `grep_files` AND completed comprehensive RAG system overhaul with new indexing tools for PDF, DOCX, and XLSX formats.**
 

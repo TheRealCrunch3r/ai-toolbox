@@ -125,7 +125,8 @@ async function httpRequest({ method, url, headers = {}, body }: HttpRequestParam
         data: {
           status: response.status,
           statusText: response.statusText,
-          headers: Object.fromEntries(response.headers.entries()),
+          // H1 FIX: Use [...(response.headers as Iterable<[string, string]>)] instead of .entries() — DOM Headers types don't expose .entries() publicly
+headers: Object.fromEntries([...(response.headers as Iterable<[string, string]>)]),
           body: responseData,
           url,
           method: method.toUpperCase(),
@@ -174,13 +175,14 @@ async function httpGetJson({ url, headers = {} }: HttpGetJsonParams): Promise<un
         };
       }
 
-      const data = await response.json();
+      const data: unknown = await response.json();
 
       return {
         success: true,
         data: {
           status: response.status,
-          headers: Object.fromEntries(response.headers.entries()),
+          // H1 FIX: Use [...(response.headers as Iterable<[string, string]>)] instead of .entries() — DOM Headers types don't expose .entries() publicly
+headers: Object.fromEntries([...(response.headers as Iterable<[string, string]>)]),
           body: data,
           url,
         },
@@ -235,7 +237,8 @@ async function httpPostJson({ url, data, headers = {} }: HttpPostJsonParams): Pr
         success: true,
         data: {
           status: response.status,
-          headers: Object.fromEntries(response.headers.entries()),
+          // H1 FIX: Use [...(response.headers as Iterable<[string, string]>)] instead of .entries() — DOM Headers types don't expose .entries() publicly
+headers: Object.fromEntries([...(response.headers as Iterable<[string, string]>)]),
           body: responseData,
           url,
         },

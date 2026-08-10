@@ -341,6 +341,7 @@ export async function fetchWithCache(
     try {
       // ✅ FIX: Clone before reading to preserve the original stream for the caller
       const clonedResponse = response.clone();
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- Response.json() returns Promise<any>, safely cast to unknown for caching
       const data = await clonedResponse.json();
       
       requestCache.set(cacheKey, {

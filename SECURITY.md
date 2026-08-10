@@ -137,9 +137,9 @@ Tools are gated by configuration categories in `src/config.ts`:
    - Alternating groups with quantifiers (`((a|b)+)+`) — catastrophic backtracking
    - Safe patterns like `(a|b)+`, `[a-z]+`, `^import\s+` are correctly accepted
 
-2. **`hasTopLevelAlternation()` — Top-level alternation detection** (v1.9.2): Character-by-character scanner tracking parenthesis depth to detect unescaped `\|` at depth 0. Patterns like `'validateImageFile\(|\.resolvedPath!|await validateImageFile'` that contain shared substrings across branches are now caught.
+2. **`hasTopLevelAlternation()` — Top-level alternation detection** (v1.9.3): Character-by-character scanner tracking parenthesis depth to detect unescaped `\|` at depth 0. Patterns like `'validateImageFile\(|\.resolvedPath!|await validateImageFile'` that contain shared substrings across branches are now caught.
 
-3. **Split-Regex Processing** (v1.9.2): When top-level alternation is detected, the pattern is split on `\|` into individual `RegExp[]`, each compiled and tested independently per line with early-exit on first match. This eliminates cross-branch backtracking entirely since each branch runs in isolation within V8's NFA engine.
+3. **Split-Regex Processing** (v1.9.3): When top-level alternation is detected, the pattern is split on `\|` into individual `RegExp[]`, each compiled and tested independently per line with early-exit on first match. This eliminates cross-branch backtracking entirely since each branch runs in isolation within V8's NFA engine.
 
 4. **Literal fallback**: Patterns that fail all safety checks are converted to literal string matching (not silently dropped).
 **Transparency:** The `grep_files` tool returns a `patternMode: 'regex' | 'literal' | 'auto_escaped'` field indicating whether the pattern was matched as regex, escaped to literal text, or split into separate regexes for top-level alternation.  

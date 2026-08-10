@@ -72,7 +72,7 @@ executionTerminal: true (for shell scripting)
 
 ## Documentation
 
-- **Tool Reference**: `TOOLS_REFERENCE.md` — Complete parameter documentation for all ~97 tools (v1.9.2)
+- **Tool Reference**: `TOOLS_REFERENCE.md` — Complete parameter documentation for all ~97 tools (v1.9.3)
 - **Architecture**: `ARCHITECTURE.md` — System design, registration pattern, data flows
 - **Security**: `SECURITY.md` — Threat model, input validation, secure defaults
 - **Contributing**: `CONTRIBUTING.md` — Development workflow, adding new tools

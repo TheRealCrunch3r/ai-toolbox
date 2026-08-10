@@ -3,6 +3,7 @@ import { tool } from '@lmstudio/sdk';
 import { z } from 'zod';
 import * as fs from 'fs/promises';  // ASYNC import ===
 import * as path from 'path';
+import * as crypto from 'crypto';
 import { encode, decode } from '@msgpack/msgpack';
 
 import type { PluginConfig } from '../config.js';
@@ -38,6 +39,7 @@ interface ContextEntry {
   scope?: MemoryScope; // NEW: Explicit scoping for context isolation
   frequency?: number;   // NEW: Access count for heuristic scoring
   ttl_ms?: number;      // NEW: Time-to-live in milliseconds (for session pruning)
+  project_path?: string; // NEW: Working directory that created this entry (isolation key)
 }
 
 interface ContextSummary {
@@ -75,29 +77,42 @@ export class ContextStorageManager {
     }
   }
 
-  /** Load context entries from disk — Strict W.D. -> Plugin Fallback */
+  /** Load context entries from disk — Strict W.D. -> Plugin Fallback WITH PROJECT FILTER */
   async load(): Promise<ContextEntry[]> {
     // Priority 1: Working Directory (Always check first)
     try {
       if (await fs.access(this.workingDirPath).then(() => true).catch(() => false)) {
         const buffer = await fs.readFile(this.workingDirPath);
         const entries = decode(buffer) as ContextEntry[];
-        if (Array.isArray(entries)) {
-          console.log(`[ContextStorage.load] Loaded ${entries.length} entries from Working Dir.`);
-          return entries;
+        // Filter to only return entries from this project's working directory
+        const filtered = entries.filter(e => 
+          e.project_path === this.workingDirPath || !e.project_path  // legacy entries without path
+        );
+        if (Array.isArray(filtered)) {
+          if (filtered.length === 0 && entries.length > 0) {
+            console.warn(`[ContextStorage.load] ⚠️ Working Dir file exists but all ${entries.length} entries filtered out by project_path. Falling back to Plugin Root.`);
+          } else {
+            console.log(`[ContextStorage.load] Loaded ${filtered.length} entries from Working Dir. (${entries.length - filtered.length} cross-project entries excluded)`);
+          }
+          return filtered;
         }
       }
     } catch (error) {
       console.warn(`[ContextStorage.load] Failed to load from Working Dir: ${String(error)}`);
     }
 
-    // Fallback: Plugin Root
+    // Fallback: Plugin Root — ONLY for legacy entries lacking project_path
     try {
       if (await fs.access(this.pluginRootPath).then(() => true).catch(() => false)) {
         const buffer = await fs.readFile(this.pluginRootPath);
-        const entries = decode(buffer) as ContextEntry[];
-        console.log(`[ContextStorage.load] Working Dir empty/missing. Loaded ${entries.length} entries from Plugin Root fallback.`);
-        return entries || [];
+        const allEntries = decode(buffer) as ContextEntry[];
+        // Only return legacy entries that DON'T have project_path set 
+        // (entries from projects whose working dir storage was lost/corrupted)
+        const legacyOnly = allEntries.filter(e => !e.project_path || e.project_path === this.workingDirPath);
+        if (legacyOnly.length > 0) {
+          console.log(`[ContextStorage.load] Working Dir empty/missing. Loaded ${legacyOnly.length} legacy entries from Plugin Root fallback.`);
+          return legacyOnly;
+        }
       }
     } catch (error) {
       console.warn(`[ContextStorage.load] Failed to load from Plugin Root: ${String(error)}`);
@@ -107,7 +122,7 @@ export class ContextStorageManager {
     return [];
   }
 
-  /** Save context entries to disk — Primary W.D., Backup Plugin */
+  /** Save context entries to disk — Primary W.D., NO fallback sync */
   async save(entries: ContextEntry[], targetPath?: string): Promise<void> {
     try {
       const filePath = targetPath || this.workingDirPath; // Default to working dir for writes
@@ -120,17 +135,6 @@ export class ContextStorageManager {
       await fs.writeFile(tempPath, encoded);  // ASYNC write (Buffer format)
       await fs.rename(tempPath, filePath);  // ASYNC rename
       
-      // 🔹 DUAL WRITE: Always sync to plugin root as well
-      if (this.pluginRootPath !== this.workingDirPath) {
-        try {
-          await this.ensureDirectory(this.pluginRootPath);
-          const pluginTemp = this.pluginRootPath + '.tmp';
-          await fs.writeFile(pluginTemp, encoded);
-          await fs.rename(pluginTemp, this.pluginRootPath);
-        } catch (syncError) {
-          console.error(`[ContextStorage.save] Failed to sync to plugin root: ${String(syncError)}`);
-        }
-      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.error(`[ContextStorage.save] Failed to save context storage: ${message}`);
@@ -141,25 +145,34 @@ export class ContextStorageManager {
   async addEntry(entry: ContextEntry): Promise<void> {  // MADE ASYNC
     const entries = await this.load();  // ASYNC load
     
+    // 🔹 FIX #5: Clone input object to prevent mutation of caller's reference
+    const clonedEntry = { ...entry };
+    
     // Apply default scope if not provided (defaults to 'global')
-    if (!entry.scope) {
-      entry.scope = 'global';
+    if (!clonedEntry.scope) {
+      clonedEntry.scope = 'global';
     }
 
-    // Set TTL for session-scoped memories
-    if (entry.scope === 'session' && !entry.ttl_ms) {
-      entry.ttl_ms = SESSION_TTL_MS;
+    // Inject project identity for cross-project isolation
+    if (!clonedEntry.project_path) {
+      clonedEntry.project_path = this.workingDirPath;
     }
 
-    // Increment frequency for existing entries with matching ID (rare edge case)
-    const existingIdx = entries.findIndex(e => e.id === entry.id);
+    // Set TTL for session-scoped memories (only if not already set)
+    if (clonedEntry.scope === 'session' && !clonedEntry.ttl_ms) {
+      clonedEntry.ttl_ms = SESSION_TTL_MS;
+    }
+
+    // 🔹 FIX #1: Increment frequency ONLY if entry with matching ID exists — don't create duplicates
+    const existingIdx = entries.findIndex(e => e.id === clonedEntry.id);
     if (existingIdx !== -1) {
+      // Update existing entry's frequency instead of creating duplicate
       entries[existingIdx].frequency = (entries[existingIdx].frequency || 0) + 1;
+      entries[existingIdx] = { ...entries[existingIdx], ...clonedEntry }; // Merge updated data
     } else {
-      entry.frequency = 1; // New entry starts at frequency 1
+      clonedEntry.frequency = 1; // New entry starts at frequency 1
+      entries.unshift(clonedEntry); // Add new entry to beginning
     }
-
-    entries.unshift(entry); // Add to beginning
     
     // Limit to last 1000 entries to prevent unbounded growth
     if (entries.length > 1000) {
@@ -208,7 +221,8 @@ export class ContextStorageManager {
     
     // Recency Decay: Exponential decay based on age (lambda ~ 1 day)
     const ageMs = now - entry.timestamp;
-    const recencyFactor = Math.exp(-ageMs / (24 * 60 * 60 * 1000)); 
+    // 🔹 FIX #14: Clamp recencyFactor to prevent floating-point underflow for entries >30 days old
+    const recencyFactor = Math.max(0.001, Math.exp(-ageMs / (24 * 60 * 60 * 1000))); 
     
     // Frequency Saturation: Saturated frequency to prevent staleness bias
     const freq = entry.frequency ?? 1;
@@ -222,10 +236,12 @@ export class ContextStorageManager {
   async getRecentEntries(limit: number = 20, type?: string): Promise<{ data: ContextEntry[], isStale: boolean }> {  // MADE ASYNC
     let entries = await this.load();  // ASYNC load
     
-    // Prune expired session entries first
-    const prunedCount = await this.pruneExpiredSessionEntries();
-    if (prunedCount > 0) {
-      entries = await this.load(); // Reload after pruning
+    // 🔹 FIX #2: Inline pruning to eliminate double-load race condition (single I/O)
+    const initialCount = entries.length;
+    entries = entries.filter(entry => !this._isExpired(entry));
+    if (entries.length < initialCount) {
+      console.log(`[ContextStorage.getRecentEntries] Pruned ${initialCount - entries.length} expired session entry(s).`);
+      await this.save(entries); // Save pruned entries immediately — no reload needed
     }
 
     let filtered = entries;
@@ -251,10 +267,12 @@ export class ContextStorageManager {
   async searchEntries(query: string, maxResults: number = 10): Promise<{ results: ContextEntry[], isStale: boolean }> {  // MADE ASYNC
     let entries = await this.load();  // ASYNC load
     
-    // Prune expired session entries first
-    const prunedCount = await this.pruneExpiredSessionEntries();
-    if (prunedCount > 0) {
-      entries = await this.load(); // Reload after pruning
+    // 🔹 FIX #2 (searchEntries): Inline pruning to eliminate double-load race condition
+    const initialCount = entries.length;
+    entries = entries.filter(entry => !this._isExpired(entry));
+    if (entries.length < initialCount) {
+      console.log(`[ContextStorage.searchEntries] Pruned ${initialCount - entries.length} expired session entry(s).`);
+      await this.save(entries); // Save pruned entries immediately — no reload needed
     }
 
     const lowerQuery = query.toLowerCase();
@@ -311,6 +329,24 @@ export class ContextStorageManager {
       last_updated: Date.now(),
       isStale: this._isStale(entries),
     };
+  }
+
+  /** Remove entries from other projects — identifies by project_path mismatch */
+  async removeCrossProjectEntries(): Promise<number> {
+    const entries = await this.load();
+    const initialCount = entries.length;
+    
+    // Filter: keep only entries matching this working directory or legacy (no project_path)
+    const filtered = entries.filter(e => 
+      e.project_path === this.workingDirPath || !e.project_path
+    );
+    
+    if (filtered.length < initialCount) {
+      console.log(`[ContextStorage.cleanup] Removed ${initialCount - filtered.length} cross-project entry(s).`);
+      await this.save(filtered);
+    }
+    
+    return initialCount - filtered.length;
   }
 }
 
@@ -372,11 +408,11 @@ class ContextAnalyzer {
     // Detect important decisions (based on event patterns)
     const decisionEvents = sessionEvents.filter(e => 
       e.type === 'decision' || 
-      (e.data && typeof (e.data as Record<string, unknown>).decision === 'string')
+      (e.data && typeof ((e.data as Record<string, unknown>)?.decision) === 'string')  // 🔹 FIX #12: Optional chaining to prevent runtime error
     );
 
     decisionEvents.forEach(event => {
-      const decisionText = (event.data as { decision?: string })?.decision || `Decision made at ${event.timestamp ? new Date(event.timestamp).toLocaleTimeString() : 'unknown time'}`;
+      const decisionText = ((event.data as { decision?: string })?.decision) || `Decision made at ${event.timestamp ? new Date(event.timestamp).toLocaleTimeString() : 'unknown time'}`;  // 🔹 FIX #12: Optional chaining on property access
       entries.push({
         id: this.generateId(),
         timestamp: event.timestamp || Date.now(),
@@ -418,7 +454,8 @@ class ContextAnalyzer {
 
   /** Generate a unique ID for context entry — ASYNC already === */
   private generateId(): string {
-    return `ctx_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    // 🔹 FIX #6: Use crypto.randomBytes (static ESM import, no dynamic require)
+    return `ctx_${Date.now()}_${crypto.randomBytes(9).toString('hex')}`;
   }
 }
 
@@ -533,13 +570,15 @@ export class SessionIndexManager {
     
     // Append new entry (newest first)
     data.sessions.unshift({ task_description, timestamp, date });
-    data.total_count = data.sessions.length;
     data.last_updated = Date.now();
     
     // Prune oldest entries if exceeding limit
     if (data.sessions.length > SESSION_INDEX_MAX_ENTRIES) {
       data.sessions.splice(SESSION_INDEX_MAX_ENTRIES);
     }
+    
+    // 🔹 FIX #7: Update total_count AFTER pruning to maintain consistency
+    data.total_count = data.sessions.length;
     
     await this.save(data);
   }
@@ -576,6 +615,186 @@ export class SessionIndexManager {
   /** Clear all session index entries */
   async clearAll(): Promise<void> {
     await this.save({ sessions: [], total_count: 0, last_updated: Date.now() });
+  }
+}
+
+// ==================== Project Registry — Cross-Project Context Locator ===
+
+/** Represents a registered project in the registry */
+export interface RegisteredProject {
+  name: string;              // Human-readable project name (e.g., "ai_toolbox", "Direct2D App")
+  path: string;              // Absolute working directory path
+  lastAccessed?: number;     // Timestamp of last access
+  sessionCount?: number;     // Number of sessions in this project
+  sourceDirs?: string[];     // Known source directories within the project (e.g., "src/", "lib/")
+}
+
+/** Registry data structure */
+interface ProjectRegistryData {
+  projects: RegisteredProject[];
+  lastUpdated: number;
+}
+
+const PROJECT_REGISTRY_MAX_ENTRIES = 100; // Prune oldest when exceeding this limit
+
+export class ProjectRegistryManager {
+  private registryPath: string;  // Stored in plugin root (shared across all projects)
+  
+  constructor() {
+    const baseDir = path.resolve(__dirname, '..');
+    this.registryPath = path.join(baseDir, '.session_context', 'project_registry.json');
+  }
+
+  /** Ensure the .session_context directory exists */
+  private async ensureDirectory(filePath: string): Promise<void> {
+    const dir = path.dirname(filePath);
+    try {
+      await fs.access(dir);
+    } catch {
+      await fs.mkdir(dir, { recursive: true });
+    }
+  }
+
+  /** Load project registry from disk */
+  async load(): Promise<ProjectRegistryData | null> {
+    function validateProjectRegistryData(obj: unknown): obj is ProjectRegistryData {
+      if (!obj || typeof obj !== 'object') return false;
+      const o = obj as Record<string, unknown>;
+      return (
+        Array.isArray(o.projects) &&
+        typeof o.lastUpdated === 'number'
+      );
+    }
+
+    try {
+      if (await fs.access(this.registryPath).then(() => true).catch(() => false)) {
+        const raw = await fs.readFile(this.registryPath, 'utf-8');
+        const parsed: unknown = JSON.parse(raw);
+        if (!validateProjectRegistryData(parsed)) throw new Error('Invalid project registry format');
+        const data: ProjectRegistryData = parsed;
+        console.log(`[ProjectRegistry.load] Loaded ${data.projects.length} projects.`);
+        return data;
+      }
+    } catch (error) {
+      console.warn(`[ProjectRegistry.load] Failed to load from disk: ${String(error)}`);
+    }
+
+    console.log('[ProjectRegistry.load] No project registry found.');
+    return null;
+  }
+
+  /** Save project registry to disk */
+  async save(data: ProjectRegistryData): Promise<void> {
+    const filePath = this.registryPath; // Primary: plugin root (shared)
+    
+    await this.ensureDirectory(filePath);
+    
+    const json = JSON.stringify(data, null, 2);
+    const tempPath = filePath + '.tmp';
+    await fs.writeFile(tempPath, json, 'utf-8');
+    await fs.rename(tempPath, filePath);
+    
+    console.log(`[ProjectRegistry.save] Saved ${data.projects.length} projects.`);
+  }
+
+  /** Register or update a project in the registry */
+  async registerProject(projectName: string, workingDirPath: string, sourceDirs?: string[]): Promise<void> {
+    let data = await this.load() || { projects: [], lastUpdated: Date.now() };
+    
+    // Check if project already exists (match by path)
+    const existingIdx = data.projects.findIndex(p => p.path === workingDirPath);
+    
+    if (existingIdx !== -1) {
+      // Update existing project
+      data.projects[existingIdx].name = projectName;
+      data.projects[existingIdx].lastAccessed = Date.now();
+      data.projects[existingIdx].sourceDirs = sourceDirs || data.projects[existingIdx].sourceDirs;
+      console.log(`[ProjectRegistry.register] Updated project: ${projectName}`);
+    } else {
+      // Add new project (newest first)
+      const newProject: RegisteredProject = {
+        name: projectName,
+        path: workingDirPath,
+        lastAccessed: Date.now(),
+        sessionCount: 0,
+        sourceDirs: sourceDirs || [],
+      };
+      
+      data.projects.unshift(newProject);
+      console.log(`[ProjectRegistry.register] Registered new project: ${projectName}`);
+    }
+    
+    data.lastUpdated = Date.now();
+    
+    // Prune oldest entries if exceeding limit
+    if (data.projects.length > PROJECT_REGISTRY_MAX_ENTRIES) {
+      data.projects.splice(PROJECT_REGISTRY_MAX_ENTRIES);
+    }
+    
+    await this.save(data);
+  }
+
+  /** Get project info by working directory path */
+  async getProjectByPath(workingDirPath: string): Promise<RegisteredProject | null> {
+    const data = await this.load();
+    return data?.projects.find(p => p.path === workingDirPath) || null;
+  }
+
+  /** Get all registered projects sorted by last access (newest first) */
+  async getAllProjects(): Promise<RegisteredProject[]> {
+    const data = await this.load();
+    return data?.projects || [];
+  }
+
+  /** Increment session count for a project */
+  async incrementSessionCount(workingDirPath: string): Promise<void> {
+    let data = await this.load() || { projects: [], lastUpdated: Date.now() };
+    
+    const existingIdx = data.projects.findIndex(p => p.path === workingDirPath);
+    if (existingIdx !== -1) {
+      data.projects[existingIdx].sessionCount = (data.projects[existingIdx].sessionCount || 0) + 1;
+      await this.save(data);
+    }
+  }
+
+  /** Search projects by name or path */
+  async search(query: string, maxResults: number = 10): Promise<RegisteredProject[]> {
+    const allProjects = await this.getAllProjects();
+    const lowerQuery = query.toLowerCase();
+    
+    return allProjects
+      .filter(p => 
+        p.name.toLowerCase().includes(lowerQuery) || 
+        p.path.toLowerCase().includes(lowerQuery)
+      )
+      .slice(0, maxResults);
+  }
+
+  /** Get context storage path for a specific project */
+  async getContextStoragePath(workingDirPath: string): Promise<string | null> {
+    // Return the working directory's session_context path if it exists
+    const localContextPath = path.join(workingDirPath, '.session_context', '.ai_toolbox_memory.msgpack');
+    
+    try {
+      await fs.access(localContextPath);
+      console.log(`[ProjectRegistry.getContextStoragePath] Found context storage for project: ${localContextPath}`);
+      return localContextPath;
+    } catch {
+      // Try plugin root fallback (legacy entries only)
+      const fallbackPath = path.join(path.resolve(__dirname, '..'), '.session_context', '.ai_toolbox_memory.msgpack');
+      try {
+        await fs.access(fallbackPath);
+        console.log(`[ProjectRegistry.getContextStoragePath] Using plugin root fallback: ${fallbackPath}`);
+        return fallbackPath;
+      } catch {
+        return null;
+      }
+    }
+  }
+
+  /** Clear all session index entries */
+  async clearAll(): Promise<void> {
+    await this.save({ projects: [], lastUpdated: Date.now() });
   }
 }
 
@@ -801,11 +1020,11 @@ WHEN TO USE:
     name: 'save_session_summary',
     description: `Save a structured session summary for cross-session continuity. Includes accomplishments, pending tasks, decisions made, and context for the next session.\n\nPERSISTENCE BEHAVIOR:\n• Saves to internal state manager (RAM)\n• ALWAYS writes atomic copy to working dir (.ai_toolbox_memory.msgpack)\n• Falls back to plugin root if working dir is invalid/stale`,
     parameters: {
-      task_description: z.string().describe('Brief description of what was being worked on'),
-      accomplishments: z.string().optional().describe('List key accomplishments or completed tasks'),
-      pending_tasks: z.string().optional().describe('List remaining work that needs to continue in the next session'),
-      decisions_made: z.string().optional().describe('Key architectural or implementation decisions made during this session'),
-      context_for_next_session: z.string().optional().describe('Important context, file locations, or setup steps needed for the next session'),
+      task_description: z.string().min(1).max(2500).describe('Brief description of what was being worked on (max 2.5KB)'),
+      accomplishments: z.string().max(2500).optional().describe('List key accomplishments or completed tasks (max 2.5KB)'),
+      pending_tasks: z.string().max(2500).optional().describe('List remaining work that needs to continue in the next session (max 2.5KB)'),
+      decisions_made: z.string().max(2500).optional().describe('Key architectural or implementation decisions made during this session (max 2.5KB)'),
+      context_for_next_session: z.string().max(2500).optional().describe('Important context, file locations, or setup steps needed for the next session (max 2.5KB)'),
     },
     implementation: async ({ task_description, accomplishments, pending_tasks, decisions_made, context_for_next_session }: { 
       readonly task_description: string; 
@@ -815,22 +1034,38 @@ WHEN TO USE:
       readonly context_for_next_session?: string; 
     }) => {
       try {
+        // 🔹 FIX #3: Declare index save status at function scope for visibility across branches
+        let indexSaveSuccess = true;
+
         // 🔹 P0 FIX: Truncate large content fields to prevent state cap overflow.
         // Each field is capped at 2 KB (2048 chars). This prevents a single session summary
         // from consuming excessive memory, especially in long sessions with verbose LLM output.
         const MAX_FIELD_LENGTH = 2048;
-        const truncate = (text?: string): string => {
-          if (!text || text.length <= MAX_FIELD_LENGTH) return text ?? '';
+        const TRUNCATION_SUFFIX = '\n… (truncated for size)'; // 21 chars
+        const SAFE_SLICE_LEN = MAX_FIELD_LENGTH - TRUNCATION_SUFFIX.length; // 2027
+        
+        const truncate = (text?: string): { content: string; truncated: boolean } => {
+          if (!text || text.length <= MAX_FIELD_LENGTH) return { content: text ?? '', truncated: false };
           console.warn(`[save_session_summary] Truncated field from ${text.length} to ${MAX_FIELD_LENGTH} chars.`);
-          return text.slice(0, MAX_FIELD_LENGTH) + '\n… (truncated for size)';
+          return { 
+            content: text.slice(0, SAFE_SLICE_LEN) + TRUNCATION_SUFFIX, 
+            truncated: true 
+          };
         };
 
+        // 🔹 FIX #3: Cache truncate results to avoid double-calls (performance + logic)
+        const taskDesc = truncate(task_description);
+        const accomplishmentsTrunc = truncate(accomplishments);
+        const pendingTasksTrunc = truncate(pending_tasks);
+        const decisionsMadeTrunc = truncate(decisions_made);
+        const contextForNextSessionTrunc = truncate(context_for_next_session);
+
         const summaryData: SessionSummaryData = {
-          task_description: truncate(task_description),
-          accomplishments: truncate(accomplishments),
-          pending_tasks: truncate(pending_tasks),
-          decisions_made: truncate(decisions_made),
-          context_for_next_session: truncate(context_for_next_session),
+          task_description: taskDesc.content,
+          accomplishments: accomplishmentsTrunc.content,
+          pending_tasks: pendingTasksTrunc.content,
+          decisions_made: decisionsMadeTrunc.content,
+          context_for_next_session: contextForNextSessionTrunc.content,
           timestamp: Date.now(),
           date: new Date().toLocaleString(),
         };
@@ -843,7 +1078,8 @@ WHEN TO USE:
           const allKeys = await memoryStore.getAllKeys();
           let evictedCount = 0;
           for (const key of allKeys) {
-            if (key.startsWith('session_summary_')) {
+            // 🔹 FIX #6: Only evict the authoritative key, not all session_summary_* variants
+            if (key === 'session_summary_latest') {
               memoryStore.delete(key);
               evictedCount++;
             }
@@ -852,20 +1088,55 @@ WHEN TO USE:
             console.log(`[save_session_summary] Evicted ${evictedCount} old session summary(s).`);
           }
 
-          // 🔹 P0 FIX: Save ONLY the authoritative key — no redundant versioned backup.
+          // 🔹 FIX #1: Set new summary BEFORE forceSave to guarantee atomic state transition
           memoryStore.set('session_summary_latest', summaryData);
           
-          // 🔹 Update session index with metadata (task_description, timestamp, date)
-          await sessionIndex.addEntry(summaryData.task_description, Date.now(), new Date().toLocaleString());
-          
-          console.log('[ContextManagement.save_session_summary] Calling forceSave()...');
-          await memoryStore.forceSave();
-          console.log('[ContextManagement.save_session_summary] forceSave() completed.');
+          // 🔹 FIX #3a: Flush StateManager FIRST to guarantee durable summary on disk
+          try {
+            console.log('[ContextManagement.save_session_summary] Calling forceSave()...');
+            await memoryStore.forceSave();
+            console.log('[ContextManagement.save_session_summary] forceSave() completed.');
+          } catch (diskErr) {
+            const msg = diskErr instanceof Error ? diskErr.message : String(diskErr);
+            console.error(`[save_session_summary] Disk persistence FAILED: ${msg}`);
+            return { success: false, error: `Failed to persist session summary to disk: ${msg}` };
+          }
+
+          // 🔹 FIX #3b: Now safely update index (disk is already durable)
+          try {
+            await sessionIndex.addEntry(summaryData.task_description, Date.now(), new Date().toLocaleString());
+          } catch (indexErr) {
+            const msg = indexErr instanceof Error ? indexErr.message : String(indexErr);
+            console.warn(`[save_session_summary] Session index update failed (summary already persisted): ${msg}`);
+            indexSaveSuccess = false; // Non-fatal — summary is safe on disk
+          }
+
         } else {
-          console.log('[ContextManagement.save_session_summary] No StateManager provided. Session summary saved to RAM only.');
+          // 🔹 FIX #4: Return error when StateManager is null to prevent silent data loss
+          console.error('[ContextManagement.save_session_summary] ❌ No StateManager provided — persistence DISABLED.');
+          return { 
+            success: false, 
+            error: 'StateManager not available. Session summary saved to RAM only and will be lost on reload.' 
+          };
         }
 
-        return { success: true, data: { saved: true, task_description: summaryData.task_description } };
+        // 🔹 FIX #3 (continued): Use cached truncate results for truncatedFields calculation
+        const truncatedFields = [
+          ...(accomplishmentsTrunc.truncated ? ['accomplishments'] : []),
+          ...(pendingTasksTrunc.truncated ? ['pending_tasks'] : []),
+          ...(decisionsMadeTrunc.truncated ? ['decisions_made'] : []),
+          ...(contextForNextSessionTrunc.truncated ? ['context_for_next_session'] : []),
+        ];
+
+        return { 
+          success: true, 
+          data: { 
+            saved: true, 
+            task_description: summaryData.task_description,
+            truncatedFields,
+            indexUpdated: indexSaveSuccess // Already boolean — no ?? needed
+          } 
+        };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         console.error(`[ContextManagement.save_session_summary] ERROR: ${message}`);
@@ -897,58 +1168,37 @@ WHEN TO USE:
         }
       }
 
-      // 🔹 FALLBACK 1: Local Project File (disk read — full scan required)
+      // 🔹 FIX #6 + FIX #4 (schema alignment): RESTORE .msgpack disk fallback with correct ContextEntry schema
       try {
         const wd = getWorkingDir();
         const localPath = path.join(wd, '.session_context', '.ai_toolbox_memory.msgpack');
-
+        
         if (await fs.access(localPath).then(() => true).catch(() => false)) {
-          try {
-            const buffer = await fs.readFile(localPath);
-            const entries = decode(buffer) as Array<{ key: string; value: unknown; timestamp: number }>;
-            
-            for (const entry of entries) {
-              if (entry.key === 'session_summary_latest' && typeof entry.value === 'object' && entry.value !== null) {
-                const latest = entry.value as SessionSummaryData;
-                const isStale = (Date.now() - (latest.timestamp ?? 0)) > threeDaysMs;
-                
-                console.log(`[ContextManagement.get_session_summary] ✅ Loaded from LOCAL PROJECT FILE: ${localPath}`);
-                return { success: true, data: { ...latest, isStale } };
-              }
+          const buffer = await fs.readFile(localPath);
+          // 🔹 FIX #4: Read as ContextEntry[] — session_summary_latest stored with id field, not key
+          const entries = decode(buffer) as ContextEntry[];
+          
+          const summaryEntry = entries.find(e => e.id === 'session_summary_latest');
+          if (summaryEntry && typeof summaryEntry.content === 'string') {
+            // Parse the task_description from content field (stored as structured JSON string in older versions)
+            try {
+              const parsedSummary = JSON.parse(summaryEntry.content) as SessionSummaryData;
+              console.log(`[ContextManagement.get_session_summary] ✅ Loaded from DISK FALLBACK (.msgpack).`);
+              return { success: true, data: { ...parsedSummary, isStale: (Date.now() - (parsedSummary.timestamp ?? 0)) > threeDaysMs } };
+            } catch {
+              // Fallback: treat content as plain text summary
+              console.log(`[ContextManagement.get_session_summary] ✅ Loaded from DISK FALLBACK (.msgpack) — legacy format.`);
+              return { success: true, data: { task_description: summaryEntry.content, timestamp: summaryEntry.timestamp, date: summaryEntry.date, isStale: (Date.now() - (summaryEntry.timestamp ?? 0)) > threeDaysMs } as unknown as SessionSummaryData };
             }
-          } catch (parseErr) {
-            console.warn(`[ContextManagement.get_session_summary] Local file parse failed (${String(parseErr)}). Falling back.`);
           }
         }
-
-        // 🔹 FALLBACK 2: Plugin Root File (disk read — full scan required)
-        const pluginPath = path.join(path.resolve(__dirname, '..'), '.session_context', '.ai_toolbox_memory.msgpack');
-        if (await fs.access(pluginPath).then(() => true).catch(() => false)) {
-          try {
-            const buffer = await fs.readFile(pluginPath);
-            const entries = decode(buffer) as Array<{ key: string; value: unknown; timestamp: number }>;
-            
-            for (const entry of entries) {
-              if (entry.key === 'session_summary_latest' && typeof entry.value === 'object' && entry.value !== null) {
-                const latest = entry.value as SessionSummaryData;
-                const isStale = (Date.now() - (latest.timestamp ?? 0)) > threeDaysMs;
-                
-                console.log(`[ContextManagement.get_session_summary] ✅ Loaded from PLUGIN ROOT FILE: ${pluginPath}`);
-                return { success: true, data: { ...latest, isStale } };
-              }
-            }
-          } catch (parseErr) {
-            console.warn(`[ContextManagement.get_session_summary] Plugin file parse failed (${String(parseErr)}). No fallback.`);
-          }
-        }
-
-        console.log(`[ContextManagement.get_session_summary] ❌ No session summary found in any location.`);
-        return { success: false, error: 'No session summary found.' };
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        console.error(`[ContextManagement.get_session_summary] ERROR: ${message}`);
-        return { success: false, error: `Failed to retrieve session summary: ${message}` };
+      } catch (diskErr) {
+        console.warn(`[ContextManagement.get_session_summary] Disk fallback failed: ${String(diskErr)}`);
       }
+
+      // 🔹 FINAL: No data found anywhere
+      console.log(`[ContextManagement.get_session_summary] ❌ No session summary found.`);
+      return { success: false, error: 'No session summary found.' };
     },
   }));
 
@@ -1164,6 +1414,160 @@ WHEN TO USE:
         const message = error instanceof Error ? error.message : String(error);
         console.error(`[ContextManagement.clear_session_index] ERROR: ${message}`);
         return { success: false, error: `Failed to clear session index: ${message}` };
+      }
+    },
+  }));
+
+  // ==================== Project Registry Tools ===
+
+  const projectRegistry = new ProjectRegistryManager();
+
+  // register_project tool — REGISTER OR UPDATE A PROJECT IN THE REGISTRY ===
+  tools.push(tool({
+    name: 'register_project',
+    description: `Register or update a project in the cross-project registry. This enables switching between projects and accessing their session memory.\n\nWHEN TO USE:\n• When starting work on a new project directory\n• When user changes working directory to a different project\n• Before saving context for a specific project`,
+    parameters: {
+      project_name: z.string().describe('Human-readable project name (e.g., "ai_toolbox", "Direct2D App")'),
+      working_dir_path: z.string().describe('Absolute path to the project working directory'),
+      source_dirs: z.array(z.string()).optional().describe('Known source directories within the project (e.g., ["src/", "lib/"])'),
+    },
+    implementation: async ({ project_name, working_dir_path, source_dirs }: { 
+      readonly project_name: string; 
+      readonly working_dir_path: string; 
+      readonly source_dirs?: string[]; 
+    }) => {
+      try {
+        await projectRegistry.registerProject(project_name, working_dir_path, source_dirs);
+        
+        return { success: true, data: { registered: true, project_name } };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(`[ContextManagement.register_project] ERROR: ${message}`);
+        return { success: false, error: `Failed to register project: ${message}` };
+      }
+    },
+  }));
+
+  // get_project_info tool — GET INFO ABOUT A SPECIFIC PROJECT ===
+  tools.push(tool({
+    name: 'get_project_info',
+    description: `Get information about a specific registered project by its working directory path.`,
+    parameters: {
+      working_dir_path: z.string().describe('Absolute path to the project working directory'),
+    },
+    implementation: async ({ working_dir_path }: { readonly working_dir_path: string }) => {
+      try {
+        const project = await projectRegistry.getProjectByPath(working_dir_path);
+        
+        if (!project) {
+          return { success: false, error: `Project not found for path: ${working_dir_path}` };
+        }
+        
+        return { success: true, data: project };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(`[ContextManagement.get_project_info] ERROR: ${message}`);
+        return { success: false, error: `Failed to get project info: ${message}` };
+      }
+    },
+  }));
+
+  // list_projects tool — LIST ALL REGISTERED PROJECTS ===
+  tools.push(tool({
+    name: 'list_projects',
+    description: `List all registered projects in the cross-project registry. Shows project names, paths, last accessed time, and session counts.\n\nWHEN TO USE:\n• User asks "what projects have I worked on?"\n• Before switching to a different project's context\n• Checking which projects are tracked`,
+    parameters: {},
+    implementation: async () => {
+      try {
+        const projects = await projectRegistry.getAllProjects();
+        
+        return { success: true, data: { projects } };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(`[ContextManagement.list_projects] ERROR: ${message}`);
+        return { success: false, error: `Failed to list projects: ${message}` };
+      }
+    },
+  }));
+
+  // search_projects tool — SEARCH PROJECTS BY NAME OR PATH ===
+  tools.push(tool({
+    name: 'search_projects',
+    description: `Search registered projects by name or path.`,
+    parameters: {
+      query: z.string().describe('Search query to match against project names or paths'),
+      max_results: z.number().min(1).max(50).optional().default(10).describe('Maximum number of results to return'),
+    },
+    implementation: async ({ query, max_results = 10 }: { 
+      readonly query: string; 
+      readonly max_results?: number; 
+    }) => {
+      try {
+        const results = await projectRegistry.search(query, max_results);
+        
+        return { success: true, data: { projects: results } };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(`[ContextManagement.search_projects] ERROR: ${message}`);
+        return { success: false, error: `Failed to search projects: ${message}` };
+      }
+    },
+  }));
+
+  // switch_context tool — SWITCH TO A DIFFERENT PROJECT'S CONTEXT STORAGE ===
+  tools.push(tool({
+    name: 'switch_context',
+    description: `Switch the context storage to a different project's working directory. This allows accessing session memory from another project.\n\nWHEN TO USE:\n• User explicitly asks to switch to another project's context\n• When working on multiple projects in the same LM Studio instance`,
+    parameters: {
+      target_working_dir_path: z.string().describe('Absolute path to the target project\'s working directory'),
+    },
+    implementation: async ({ target_working_dir_path }: { readonly target_working_dir_path: string }) => {
+      try {
+        // Check if project is registered
+        const project = await projectRegistry.getProjectByPath(target_working_dir_path);
+        
+        if (!project) {
+          console.warn(`[ContextManagement.switch_context] Project not registered. Registering it now.`);
+          await projectRegistry.registerProject(
+            path.basename(target_working_dir_path), // Use directory name as fallback
+            target_working_dir_path
+          );
+        }
+        
+        // Get context storage path for the target project
+        const contextPath = await projectRegistry.getContextStoragePath(target_working_dir_path);
+        
+        if (!contextPath) {
+          return { success: false, error: `No context storage found for project: ${target_working_dir_path}` };
+        }
+        
+        // 🔹 FIX #10: Validate contextPath before unsafe cast — ensure it's a valid msgpack file path
+        try {
+          await fs.access(contextPath);  // Verify file exists and is readable
+        } catch {
+          console.warn(`[ContextManagement.switch_context] Invalid context path detected: ${contextPath}`);
+          return { success: false, error: `Invalid context storage path: ${contextPath}` };
+        }
+        
+        // Update storage manager's working directory path for project switching
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access -- Required to switch internal workingDirPath for cross-project context access
+        (storageManager as any).workingDirPath = contextPath;
+        
+        console.log(`[ContextManagement.switch_context] Switched to project: ${project?.name || path.basename(target_working_dir_path)}`);
+        
+        return { 
+          success: true, 
+          data: { 
+            switched: true, 
+            target_path: target_working_dir_path,
+            context_storage_path: contextPath,
+            project_name: project?.name || path.basename(target_working_dir_path),
+          } 
+        };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(`[ContextManagement.switch_context] ERROR: ${message}`);
+        return { success: false, error: `Failed to switch context: ${message}` };
       }
     },
   }));

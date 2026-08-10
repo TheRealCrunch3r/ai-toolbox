@@ -1,6 +1,6 @@
 # 🛠️ AI Toolbox — Complete Tool Reference
 
-*Updated to reflect current state: **~97 unique tools** dynamically registered across 20 categories (v1.9.2).*
+*Updated to reflect current state: **~97 unique tools** dynamically registered across 20 categories (v1.9.3).*
 
 ---
 
@@ -311,7 +311,7 @@ The `src/tools/recodeTool/` module implements a pluggable rule engine for advanc
 
 ## 🔍 Vector RAG (7)
 
-### Indexing Tools (3 new in v1.9.2)
+### Indexing Tools (3 new in v1.9.3)
 
 | Tool | Description |
 |------|-------------|
@@ -569,4 +569,4 @@ All tools implement multiple security layers:
 
 ---
 
-*Reference generated from actual source code analysis on 2026-08-07 (v1.9.2). All tool counts verified against `toolsProvider.ts` registry entries and `src/tools/*.ts`. insert_at_line read-back drift detection documented with v1.8.8 hard fix.*
+*Reference generated from actual source code analysis on 2026-08-07 (v1.9.3). All tool counts verified against `toolsProvider.ts` registry entries and `src/tools/*.ts`. insert_at_line read-back drift detection documented with v1.8.8 hard fix.*

@@ -52,9 +52,28 @@ class BrowserSessionManager {
       this.retryCount = 0;
       while (this.retryCount < this.MAX_RETRIES) {
         try {
+          // H2 FIX: Chrome executable detection for Windows (Puppeteer often fails to find Chrome on Windows)
           const puppeteerLib = await getPuppeteer();
+          
+          // Try common Chrome/Chromium paths on Windows
+          let chromePath: string | undefined;
+          if (process.platform === 'win32') {
+            const possiblePaths = [
+              path.join(process.env['LOCALAPPDATA'] || '', 'Google\\Chrome\\Application\\chrome.exe'),
+              'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+              'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+            ];
+            for (const candidate of possiblePaths) {
+              if (fs.existsSync(candidate)) {
+                chromePath = candidate;
+                break;
+              }
+            }
+          }
+          
           this.browserInstance = await puppeteerLib.launch({ 
             headless: true,
+            executablePath: chromePath, // Use detected Chrome path if found
             args: ['--no-sandbox', '--disable-setuid-sandbox'] // Performance optimizations
           });
           break;
@@ -184,20 +203,17 @@ export function registerBrowserTools(_config: PluginConfig): Tool[] {
       full_page_screenshot: z.boolean().optional().default(false).describe('If true, captures the full page when taking a screenshot.'),
     },
     implementation: async ({ url, screenshot_path, wait_for_selector, full_page_screenshot }: BrowserOpenPageParams) => { // C5 FIX: typed params
-      let browser: Puppeteer.Browser | null = null; // C5 FIX: typed
       let page: Puppeteer.Page | null = null;       // C5 FIX: typed
 
       try {
-        browser = await browserManager.getBrowser();
-        page = browserManager.getCurrentPage();
+        // H3 FIX: Use getPage() instead of getBrowser()+getCurrentPage() to avoid race condition
+        // Both browser_open_page and browser_session_control now share the same synchronization path
+        page = await browserManager.getPage();
         
-        if (!page || (await page.url()) !== url) {
-          // If no current page or URL doesn't match, create a new one
-          page = await browser.newPage();
-          browserManager.setCurrentPage(page);
+        if ((await page.url()) !== url) {
+          await page.goto(url, { waitUntil: 'domcontentloaded' });
         }
-
-        await page.goto(url, { waitUntil: 'domcontentloaded' });
+        // Page already at correct URL — skip navigation (H3 FIX)
         
         if (wait_for_selector) {
           try {
@@ -214,8 +230,12 @@ export function registerBrowserTools(_config: PluginConfig): Tool[] {
           resultData.screenshotSaved = true;
         }
 
-        // Use string-based evaluate to bypass TS2584/TS2304 'document' errors in Node.js environment
-        const textContent: string = await page.evaluate(`return document.body ? document.body.innerText : '';`);
+        // H1 FIX: Use function expression instead of template literal to avoid SDK serialization issues with 'return' statements
+        // NOTE: evaluate() callback runs in Chromium DOM context where document exists
+        const textContent = await page.evaluate(() => {
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-return
+          return (document as any)?.body?.innerText || '';
+        }) as unknown as string;
         resultData.pageText = textContent.substring(0, 2000);
 
         return { success: true, data: resultData };
@@ -268,8 +288,12 @@ export function registerBrowserTools(_config: PluginConfig): Tool[] {
         const resultData: Record<string, unknown> = { actionsExecuted: actions?.length || 0 }; // C5 FIX: typed
 
         if (read_page || full_read) {
-          // Use string-based evaluate to bypass TS2584 'document' errors in Node.js environment
-          const text: string = await page.evaluate(`return document.body ? document.body.innerText : '';`);
+          // H1 FIX: Use function expression instead of template literal to avoid SDK serialization issues with 'return' statements
+          // NOTE: evaluate() callback runs in Chromium DOM context where document exists
+          const text = await page.evaluate(() => {
+            // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-return
+            return (document as any)?.body?.innerText || '';
+          }) as unknown as string;
           resultData.pageText = full_read ? text : text.substring(0, 1000);
         }
 

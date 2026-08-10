@@ -1,7 +1,7 @@
 # Documentation Update Summary — AI Toolbox Plugin
 
 **Date**: 2026-08-01  
-**Version**: v1.9.2 (grep_files ReDoS Fix: Top-Level Alternation Detection & Split-Regex Processing)  
+**Version**: v1.9.4 (Context Management Disk Fallback Restoration + Comprehensive Bug Fix Suite)  
 **Status**: ✅ Complete
 
 ---
@@ -52,6 +52,12 @@ IF REMOTE URL (http://, https://):
 ---
 
 ## 🆕 Latest Updates
+
+### ESLint `no-unsafe-assignment` Hardening & Type-Safety Refinement — v1.9.3 (2026-08-09)
+**Resolved unused eslint-disable directives and eliminated implicit `any` assignments in HTTP client tools through explicit type annotations.**
+- ✅ **Removed 4 unused suppression directives**: In `src/tools/httpClientTools.ts` and `src/tools/networkToolsRegistry.ts`, `eslint-disable-next-line @typescript-eslint/no-unsafe-assignment` comments were flagged as unused because assigning `response.json()` to variables with explicit `: unknown` type is already safe per TypeScript/ESLint rules.
+- ✅ **Added explicit `unknown` annotations**: Replaced implicit `any` assignments (`const data = await response.json();`) with typed declarations (`const data: unknown = await response.json();`) across all HTTP response parsing paths — 10 warnings resolved total.
+- ✅ **Version bump**: Updated all project metadata from v1.9.2 → v1.9.3.
 
 ### Context Management Architecture: Scoping, Heuristic Scoring & TTL Pruning — v1.9.1 (2026-08-06)
 **Three architectural improvements to the memory system inspired by persistent-memory-v2 analysis — preserving ai-toolbox's performance advantages while adding context isolation and intelligent retrieval.**
@@ -136,7 +142,7 @@ The following corrections reflect the current v1.8.2 implementation:
 | Utilities | ~29 → ~10 | **~10 tools** | Refactored into dedicated modules (backup, data visualization, line operations, markdown preview) under `utility` config key |
 | Image Processing | 4 | **4 tools** | No change |
 | HTTP Client | 3 | **3 tools** | No change |
-| Vector RAG | 4 → 7 | **7 tools** | Added `rag_index_pdf`, `rag_index_docx`, `rag_index_xlsx` (v1.9.2) — PDF per-page chunking, DOCX word-bounded via mammoth, XLSX row-based with sheet-name prefix |
+| Vector RAG | 4 → 7 | **7 tools** | Added `rag_index_pdf`, `rag_index_docx`, `rag_index_xlsx` (v1.9.3) — PDF per-page chunking, DOCX word-bounded via mammoth, XLSX row-based with sheet-name prefix |
 | Text Processing | 3 → 4 | **4 tools** | Added `line_operations` with safety guardrails (v1.7.0) |
 | Interactive UI Generation | 3 | **3 tools** | No change |
 | Context Management | 7 → 12 | **12 tools** | Expanded to include all memory/context operations |
