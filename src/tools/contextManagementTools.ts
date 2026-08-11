@@ -704,6 +704,19 @@ interface ProjectRegistryData {
 
 const PROJECT_REGISTRY_MAX_ENTRIES = 100; // Prune oldest when exceeding this limit
 
+/** Session Index file path — legacy project registration format (StateManager) === */
+function getSessionIndexPath(): string {
+  const baseDir = path.resolve(__dirname, '..');
+  return path.join(baseDir, '.session_index.json');
+}
+
+/** Legacy session index entry format from stateManager.ts === */
+interface LegacySessionIndexEntry {
+  path: string;
+  last_session_saved?: number | null;
+  status?: 'active' | 'registered';
+}
+
 export class ProjectRegistryManager {
   private registryPath: string;  // Stored in plugin root (shared across all projects)
   
@@ -719,6 +732,45 @@ export class ProjectRegistryManager {
       await fs.access(dir);
     } catch {
       await fs.mkdir(dir, { recursive: true });
+    }
+  }
+
+  /** Load legacy session index from .session_index.json (StateManager format) === */
+  private async _loadFromSessionIndex(): Promise<RegisteredProject[]> {
+    const indexPath = getSessionIndexPath();
+    
+    try {
+      if (!await fs.access(indexPath).then(() => true).catch(() => false)) {
+        return [];
+      }
+      
+      const raw = await fs.readFile(indexPath, 'utf-8');
+      const parsed: unknown = JSON.parse(raw);
+      
+      if (!parsed || typeof parsed !== 'object') return [];
+      const o = parsed as Record<string, unknown>;
+      
+      // Expected format: { projects: { name: { path, last_session_saved, status } } }
+      const projectsObj = o.projects;
+      if (typeof projectsObj !== 'object' || Array.isArray(projectsObj)) return [];
+      
+      const legacyEntries = projectsObj as Record<string, LegacySessionIndexEntry>;
+      
+      // Convert to RegisteredProject[] format
+      const projects: RegisteredProject[] = Object.entries(legacyEntries).map(([name, entry]) => ({
+        name,
+        path: entry.path,
+        lastAccessed: entry.last_session_saved || undefined,
+        sessionCount: 0, // Not tracked in legacy format
+        sourceDirs: [],    // Not tracked in legacy format
+      }));
+      
+      console.log(`[ProjectRegistry._loadFromSessionIndex] Loaded ${projects.length} project(s) from .session_index.json fallback.`);
+      return projects;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`[ProjectRegistry._loadFromSessionIndex] Failed to load session index: ${message}`);
+      return [];
     }
   }
 
@@ -801,16 +853,40 @@ export class ProjectRegistryManager {
     await this.save(data);
   }
 
-  /** Get project info by working directory path */
+  /** Get project info by working directory path. ===
+   * Falls back to .session_index.json if primary registry is empty/missing. */
   async getProjectByPath(workingDirPath: string): Promise<RegisteredProject | null> {
     const data = await this.load();
-    return data?.projects.find(p => p.path === workingDirPath) || null;
+    
+    // Primary: project_registry.json
+    const found = data?.projects.find(p => p.path === workingDirPath);
+    if (found) return found;
+    
+    // Fallback: .session_index.json
+    const fallback = await this._loadFromSessionIndex();
+    return fallback.find(p => p.path === workingDirPath) || null;
   }
 
-  /** Get all registered projects sorted by last access (newest first) */
+  /** Get all registered projects sorted by last access (newest first). ===
+   * Falls back to .session_index.json if primary registry is empty/missing. */
   async getAllProjects(): Promise<RegisteredProject[]> {
     const data = await this.load();
-    return data?.projects || [];
+    
+    // Primary: project_registry.json
+    if (data && data.projects.length > 0) {
+      console.log(`[ProjectRegistry.getAllProjects] Loaded ${data.projects.length} project(s) from primary registry.`);
+      return data.projects;
+    }
+    
+    // Fallback: .session_index.json (StateManager legacy format)
+    const fallback = await this._loadFromSessionIndex();
+    if (fallback.length > 0) {
+      console.log(`[ProjectRegistry.getAllProjects] Primary registry empty. Loaded ${fallback.length} project(s) from session index fallback.`);
+      return fallback;
+    }
+    
+    console.log('[ProjectRegistry.getAllProjects] No projects found in any registry.');
+    return [];
   }
 
   /** Increment session count for a project */
@@ -824,9 +900,10 @@ export class ProjectRegistryManager {
     }
   }
 
-  /** Search projects by name or path */
+  /** Search projects by name or path. ===
+   * Uses getAllProjects() which already includes session index fallback. */
   async search(query: string, maxResults: number = 10): Promise<RegisteredProject[]> {
-    const allProjects = await this.getAllProjects();
+    const allProjects = await this.getAllProjects(); // Already includes fallback
     const lowerQuery = query.toLowerCase();
     
     return allProjects

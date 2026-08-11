@@ -1,17 +1,16 @@
 /**
- * Persistent state management for plugin operations
+ * Persistent state management for plugin operations — Per-Project Memory Isolation
  * 
- * 📌 PROTOCOL RULE (Permanent): User Specified Working Directory takes absolute precedence.
+ * 📌 PROTOCOL RULE (Permanent): Each project has its own isolated session memory file.
  * 
- * Hierarchy:
- * 1. PRIMARY: User Specified Working Directory (First place to read/write).
- *    - Path: `<workingDir>/.session_context/.ai_toolbox_memory.msgpack`
- * 2. SECONDARY: Plugin Directory (Fallback/Backup source).
- *    - Path: `<pluginRoot>/.session_context/.ai_toolbox_memory.msgpack`
+ * Architecture:
+ * 1. Session Index (`ai_toolbox/.session_index.json`) — maps projects → paths + last_saved timestamps
+ * 2. Per-Project Memory (`<project>/.session_context/.<name>_memory.msgpack`) — ONE file per project, NO double-write
  * 
  * Behavior:
- * - Reading: Project data is loaded AFTER plugin data, ensuring it overrides keys (Precedence).
- * - Writing: Data is written to Project directory FIRST, then Plugin directory.
+ * - Writes go ONLY to the active project's memory file (no plugin-level fallback)
+ * - Session index is updated with timestamp after every successful save
+ * - New projects are registered automatically when first initialized; user prompted for confirmation on new registration
  */
 
 import type { PluginConfig } from './config';
@@ -43,46 +42,103 @@ const logger = {
 /** Plugin root directory (always valid) */
 const PLUGIN_ROOT = path.join(__dirname, '..');
 
-/** Plugin-level memory file path (global, survives project changes) */
-function getPluginMemoryFilePath(): string {
-  return path.join(PLUGIN_ROOT, '.session_context', '.ai_toolbox_memory.msgpack');
+/** Session index file — maps project names to their paths and tracks last saved timestamps */
+const SESSION_INDEX_FILE = path.join(PLUGIN_ROOT, '.session_index.json');
+
+interface SessionIndexEntry {
+  path: string;
+  last_session_saved: number | null; // Unix timestamp (ms), or null if never saved
+  status: 'active' | 'registered';
 }
 
-// 🔹 P2 #6: Cache resolved project path with 5s TTL to avoid duplicate fs.stat() calls
-let _projectPathCache: string | null = null;
-let _lastProjectPathCheck = 0;
-const PROJECT_PATH_CACHE_TTL_MS = 5000; // 5 seconds
+/** Load the session index from disk */
+async function loadSessionIndex(): Promise<Record<string, SessionIndexEntry>> {
+  try {
+    const content = await fs.readFile(SESSION_INDEX_FILE, 'utf-8');
+    const data = JSON.parse(content) as { projects: Record<string, SessionIndexEntry> };
+    if (data && data.projects) return data.projects;
+  } catch {} // Ignore errors — fallback to empty index
+  return {};
+}
 
-/**
- * Resolve the project-level memory file path.
- * Returns null when workingDir is invalid (stale/deleted).
- */
-async function getProjectMemoryFilePath(): Promise<string | null> {
-  const now = Date.now();
-  
-  // Skip validation if cache is fresh
-  if (_projectPathCache && (now - _lastProjectPathCheck) < PROJECT_PATH_CACHE_TTL_MS) {
-    return _projectPathCache;
+/** Save the session index back to disk */
+async function saveSessionIndex(index: Record<string, SessionIndexEntry>): Promise<void> {
+  const payload = JSON.stringify({
+    index_version: '1.0',
+    created_at: new Date().toISOString(),
+    last_updated: new Date().toISOString(),
+    projects: index,
+  }, null, 2);
+
+  try {
+    await fs.mkdir(path.dirname(SESSION_INDEX_FILE), { recursive: true });
+    const tempFile = SESSION_INDEX_FILE + '.tmp';
+    await fs.writeFile(tempFile, payload, 'utf-8');
+    // Atomic rename (Windows fallback handled below)
+    try {
+      await fs.rename(tempFile, SESSION_INDEX_FILE);
+    } catch {
+      await fs.writeFile(SESSION_INDEX_FILE, payload, 'utf-8'); // Direct write on Windows
+    }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.warn(`Failed to save session index: ${msg}`);
   }
+}
 
-  let cwd = getWorkingDir();
+async function getProjectMemoryFilePath(projectName: string): Promise<string | null> {
+  const cwd = getWorkingDir();
 
-  // Validate: ensure it's an actual accessible directory
+  // Validate working directory exists and is valid
   try {
     await fs.access(cwd);
     const stats = await fs.stat(cwd);
     if (!stats.isDirectory()) throw new Error('Not a directory');
   } catch {
-    // WorkingDir is stale (e.g. from test temp dir cleanup)
     logger.warn(`Configured workingDir invalid: ${cwd}. Project-level memory disabled.`);
-    _projectPathCache = null; // Invalidate cache
     return null;
   }
 
-  const resolvedPath = path.join(cwd, '.session_context', '.ai_toolbox_memory.msgpack');
-  _projectPathCache = resolvedPath;
-  _lastProjectPathCheck = now;
+  // Use project-specific filename instead of hardcoded .ai_toolbox_memory.msgpack
+  const resolvedPath = path.join(cwd, '.session_context', `.${projectName}_memory.msgpack`);
+  
+  logger.info(`[StateManager] Resolved memory file for '${projectName}': ${resolvedPath}`);
   return resolvedPath;
+}
+
+/** Update the session index with last saved timestamp */
+async function updateSessionIndex(projectName: string): Promise<void> {
+  const index = await loadSessionIndex();
+  
+  if (index[projectName]) {
+    // Only updates projects that are explicitly registered via register_project() tool.
+    // Unregistered projects will fail silently — this prevents accidental registration on first save without user confirmation.
+    index[projectName].last_session_saved = Date.now();
+    
+    // Auto-promote from 'registered' to 'active' after first save (only for previously-registered projects)
+    if (index[projectName].status === 'registered') {
+      logger.info(`[StateManager] Project '${projectName}' promoted to active status.`);
+      index[projectName].status = 'active';
+    }
+
+    await saveSessionIndex(index);
+  } else {
+    // ⚠️ CRITICAL: This should NOT happen — project must be registered via register_project() tool first.
+    logger.warn(`[StateManager.updateSessionIndex] Project '${projectName}' is not yet registered in index. ` +
+                 `Call register_project(project_name="${projectName}", working_dir_path="<confirmed path>") to resolve.`);
+  }
+}
+
+/** Get the current project name from context (defaults to active working dir's basename) */
+function resolveProjectName(): string {
+  const cwd = getWorkingDir();
+  // Extract last directory component as fallback project name
+  return path.basename(cwd).toLowerCase().replace(/[^a-z0-9]/g, '_');
+}
+
+/** Plugin-level memory file path (global baseline — kept for backward compatibility) */
+function getPluginMemoryFilePath(): string {
+  return path.join(PLUGIN_ROOT, '.session_context', '.ai_toolbox_memory.msgpack');
 }
 
 /**
@@ -175,8 +231,12 @@ export class StateManager {
   private state: Map<string, StateEntry>;
   private maxSize: number;
   private persistenceEnabled: boolean;
+  /** Plugin-level memory file path (global baseline — kept for backward compatibility) */
   private pluginMemoryFile: string = getPluginMemoryFilePath();
-  private projectMemoryFile: string | null = null;
+  /** Project-specific session context directory root */
+  private projectContextDir: string | null = null;
+  /** Current active project name resolved from working dir or explicit registration */
+  private currentProjectName: string = resolveProjectName();
   private runningSize: number;
 
   /** Tracks initialization completion so reads wait for data */
@@ -207,26 +267,50 @@ export class StateManager {
       ? effectiveConfig.statePersistenceEnabled
       : true;
 
+    // Resolve current project name from working dir or explicit config if provided
+    interface PluginConfigWithProject extends Omit<PluginConfig, 'projectName'> {
+      projectName?: string;
+    }
+    
+    const typedConfig = (config ?? {}) as unknown as PluginConfigWithProject;
+    this.currentProjectName = typedConfig.projectName || resolveProjectName();
+
     const persistenceEnabled = this.persistenceEnabled;
     const stateMap = this.state;
 
-    // Synchronous initialization — load plugin first, then project (project overrides)
+    // Initialize: load ONLY its session context file. Registration happens via register_project() tool only (explicit user confirmation).
     this._ready = (async () => {
       try {
-        this.projectMemoryFile = await getProjectMemoryFilePath();
-
-        if (persistenceEnabled && stateMap.size === 0) {
-          // Load plugin-level memory first (global baseline)
-          await loadMemoryFile(this.pluginMemoryFile, stateMap, 0);
-          // Load project-level memory second (overrides plugin for same keys)
-          if (this.projectMemoryFile) {
-            await loadMemoryFile(this.projectMemoryFile, stateMap, 0);
-          }
-          // Recalculate running size after merge
-          this.recalculateSize();
-        } else {
+        if (!persistenceEnabled) {
           logger.warn('State persistence is DISABLED. Data will not survive reloads.');
+          return;
         }
+
+        // Create project-specific context directory and resolve memory file path
+        this.projectContextDir = path.join(getWorkingDir(), '.session_context');
+        
+        try {
+          await fs.mkdir(this.projectContextDir, { recursive: true });
+        } catch (err) {
+          logger.warn(`Could not create session context dir ${this.projectContextDir}: ${String(err)}`);
+          return; // Disable persistence if directory cannot be created
+        }
+
+        const projectMemoryFile = await getProjectMemoryFilePath(this.currentProjectName);
+        
+        if (!projectMemoryFile || !(await fs.access(projectMemoryFile).then(() => true).catch(() => false))) {
+          logger.info(`No existing session memory for '${this.currentProjectName}'. Starting fresh.`);
+          this.recalculateSize();
+          return;
+        }
+
+        // Load ONLY project-specific file (no plugin-level merge)
+        await loadMemoryFile(projectMemoryFile, stateMap, 0);
+        
+        // Recalculate running size after load
+        this.recalculateSize();
+        logger.info(`[StateManager] Initialized for '${this.currentProjectName}' — loaded ${stateMap.size} entries.`);
+
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
         logger.warn(`Failed to initialize state manager: ${message}`);
@@ -347,21 +431,19 @@ export class StateManager {
 
   /** Rebuild the keys cache by reloading from disk and syncing with active state */
   private async _rebuildKeysCache(): Promise<string[]> {
-    const newProjectPath = await getProjectMemoryFilePath();
-    if (newProjectPath !== this.projectMemoryFile) {
-      logger.info(`Working dir changed: ${this.projectMemoryFile} → ${newProjectPath}`);
-      this.projectMemoryFile = newProjectPath;
-    }
+    // Reload ONLY project-specific file (no plugin-level merge)
+    if (!this.persistenceEnabled || !this.projectContextDir) return Array.from(this.state.keys());
 
-    // Load directly into the active state map instead of a local one.
-    await loadMemoryFile(this.pluginMemoryFile, this.state, 0);
-    if (this.projectMemoryFile) {
-      await loadMemoryFile(this.projectMemoryFile, this.state, 0);
-    }
+    const projectMemoryFile = await getProjectMemoryFilePath(this.currentProjectName);
+    
+    if (!projectMemoryFile) return Array.from(this.state.keys());
 
-    // Recalculate running size to keep memory usage tracking accurate after a cold read.
+    // Clear and reload fresh from project file only (syncs in-memory state with disk)
+    this.state.clear();
+    await loadMemoryFile(projectMemoryFile, this.state, 0);
+    
+    // Recalculate running size after cold read to keep memory tracking accurate
     this.recalculateSize(); 
-
     this._keysCacheInvalidated = true; 
     this._lastKeysCacheTime = Date.now();
 
@@ -511,26 +593,32 @@ export class StateManager {
   }
 
   /**
-   * Save merged state to BOTH plugin-level and project-level files atomically.
-   * 
-   * 📌 PROTOCOL RULE: User Specified Working Directory is the FIRST place to write.
+   * Save state to project-specific memory file ONLY. No double-write.
    */
   private async saveToFile(): Promise<void> {
-    // Re-resolve project path in case working dir changed mid-session
-    const newProjectPath = await getProjectMemoryFilePath();
-    if (newProjectPath !== this.projectMemoryFile) {
-      this.projectMemoryFile = newProjectPath;
+    if (!this.projectContextDir || !this.persistenceEnabled) return;
+
+    const projectMemoryFile = await getProjectMemoryFilePath(this.currentProjectName);
+    
+    if (!projectMemoryFile) {
+      logger.warn(`[StateManager.saveToFile] No memory file path for '${this.currentProjectName}'. Skip save.`);
+      return;
     }
 
-    // 1. PRIMARY WRITE: User Specified Working Directory (Highest Priority)
-    if (this.projectMemoryFile) {
-      logger.info(`[StateManager.saveToFile] Writing to PRIMARY location (User Dir): ${this.projectMemoryFile}`);
-      await saveMemoryFile(this.projectMemoryFile, this.state);
-    }
+    try {
+      // Create session context directory if missing
+      await fs.mkdir(this.projectContextDir, { recursive: true });
+      
+      const filePath = projectMemoryFile;
+      logger.info(`[StateManager.saveToFile] Writing to '${this.currentProjectName}': ${filePath}`);
+      await saveMemoryFile(filePath, this.state);
 
-    // 2. SECONDARY WRITE: Plugin Directory (Backup/Fallback)
-    logger.info(`[StateManager.saveToFile] Writing to SECONDARY location (Plugin Dir): ${this.pluginMemoryFile}`);
-    await saveMemoryFile(this.pluginMemoryFile, this.state);
+      // Update session index timestamp after successful write
+      await updateSessionIndex(this.currentProjectName);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.error(`[StateManager.saveToFile] FAILED for '${this.currentProjectName}': ${msg}`);
+    }
   }
 
   /**
@@ -571,10 +659,14 @@ export class StateManager {
   }
 
   /**
-   * Get the path(s) to the memory file(s) on disk.
+   * Get the current session memory path and project name.
    */
-  getMemoryFilePath(): { plugin: string; project: string | null } {
-    return { plugin: this.pluginMemoryFile, project: this.projectMemoryFile };
+  getMemoryFilePath(): { filePath: string; projectName: string; indexPath: string | null } {
+    return { 
+      filePath: this.pluginMemoryFile, // Legacy compat — primary path for now
+      projectName: this.currentProjectName,
+      indexPath: SESSION_INDEX_FILE,
+    };
   }
 
   /**
@@ -585,16 +677,24 @@ export class StateManager {
   }
 
   /**
-   * Force load from disk (useful for debugging).
+   * Force load from disk — reloads ONLY project-specific file.
    */
   async forceLoad(): Promise<void> {
     await this.ensureReady();
+    
+    if (!this.projectContextDir || !this.persistenceEnabled) return;
+
+    const projectMemoryFile = await getProjectMemoryFilePath(this.currentProjectName);
+    
     this.state.clear();
     this.runningSize = 0;
-    await loadMemoryFile(this.pluginMemoryFile, this.state, 0);
-    if (this.projectMemoryFile) {
-      await loadMemoryFile(this.projectMemoryFile, this.state, 0);
+    
+    if (projectMemoryFile && await fs.access(projectMemoryFile).then(() => true).catch(() => false)) {
+      await loadMemoryFile(projectMemoryFile, this.state, 0);
+    } else {
+      logger.info(`[StateManager.forceLoad] No existing file for '${this.currentProjectName}'. State is empty.`);
     }
+
     this.recalculateSize();
   }
 }

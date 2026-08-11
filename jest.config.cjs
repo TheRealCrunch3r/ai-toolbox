@@ -70,7 +70,7 @@ module.exports = {
     '^\\.\\/fileModTracker\\.js$': '<rootDir>/tests/__mocks__/fileModTracker.ts',
     '^\\.\\/restoreFromBak\\.js$': '<rootDir>/tests/__mocks__/restoreFromBak.ts',
 
-    // ── Context tier system (v1.9.5) ──
+    // ── Context tier system (v1.9.6) ──
     '^\\.\\/contextTiers\\.js$': '<rootDir>/src/contextTiers.ts',
 
     // ── Source file .js rewrites for utils/ directory ──

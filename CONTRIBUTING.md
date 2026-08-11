@@ -128,7 +128,7 @@ Create a new file in `src/tools/` directory (e.g., `newToolModule.ts`):
 ```typescript
 import { tool, type Tool } from '@lmstudio/sdk';
 import { z } from 'zod';
-import type { PluginConfig } from '@/config.js'; // ✅ Use @/ alias for cleaner imports
+import type { PluginConfig } from '@/config.ts'; // Source file extension (.ts) — runtime uses .js via ESM bundler
 
 interface NewToolParams {
   parameter1: string;
@@ -167,8 +167,8 @@ export function registerNewTools(_config: PluginConfig): Tool[] {
 Add your tool module to the declarative registry array in `src/toolsProvider.ts`:
 
 ```typescript
-// Import your new tool module
-import { registerNewTools } from './tools/newToolModule.js';
+// Import your new tool module (source: .ts, runtime: .js via ESM bundler)
+import { registerNewTools } from './tools/newToolModule.ts';
 
 // Add an entry to TOOL_REGISTRIES (v1.8.2+ Declarative Registry Pattern)
 const TOOL_REGISTRIES: ToolRegistryEntry[] = [

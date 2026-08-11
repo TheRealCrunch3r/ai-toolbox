@@ -1,6 +1,6 @@
 # 🛠️ AI Toolbox — Complete Tool Reference
 
-*Updated to reflect current state: **~97 unique tools** dynamically registered across 20 categories (v1.9.5). Includes new v1.9.5 architectural features: Confidence-Tagged Results, Hub-Exclusion Clustering, Project Auto-Detection, Context Tier Provenance, and Cluster-Aware Tool Priority.*
+*Updated to reflect current state: **130 unique tools** dynamically registered across 24 modules (v1.9.6). Includes new v1.9.6 architectural features: Confidence-Tagged Results, Hub-Exclusion Clustering, Project Auto-Detection, Context Tier Provenance, and Cluster-Aware Tool Priority.*
 
 ---
 
@@ -569,15 +569,15 @@ All tools implement multiple security layers:
 
 ---
 
-*Reference generated from actual source code analysis on 2026-08-10 (v1.9.5). All tool counts verified against `toolsProvider.ts` registry entries and `src/tools/*.ts`. insert_at_line read-back drift detection documented with v1.8.8 hard fix. New v1.9.5 features: Confidence-Tagged Results, Hub-Exclusion Clustering (83 tests), Project Auto-Detection, Context Tier Provenance, Cluster-Aware Tool Priority.*
+*Reference generated from actual source code analysis on 2026-08-10 (v1.9.6). All tool counts verified against `toolsProvider.ts` registry entries and `src/tools/*.ts`. insert_at_line read-back drift detection documented with v1.8.8 hard fix. New v1.9.6 features: Confidence-Tagged Results, Hub-Exclusion Clustering (83 tests), Project Auto-Detection, Context Tier Provenance, Cluster-Aware Tool Priority.*
 
 ---
 
-## 🆕 New Features — v1.9.5 (2026-08-10)
+## 🆕 New Features — v1.9.6 (2026-08-10)
 
 ### Graphify-Inspired Architectural Intelligence Suite
 
-Five new architectural modules added in v1.9.5 following graphify repository analysis patterns:
+Five new architectural modules added in v1.9.6 following graphify repository analysis patterns:
 
 #### 1. Confidence-Tagged Results (`src/types/confidenceTypes.ts`)
 **Typed confidence metadata attached to all tool execution outputs.**

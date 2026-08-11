@@ -1,9 +1,21 @@
 # Documentation Update Summary — AI Toolbox Plugin
 
 **Date**: 2026-08-01  
-**Version**: v1.9.5  
+**Version**: v1.9.6  
 **Status**: ✅ Complete
 
+---
+
+## 📋 Version Status Overview (v1.9.6)
+
+| Component | Status | Notes |
+|-----------|--------|-------|
+| **Tool Count** | ✅ 24 tool modules (130 unique tools) | All registered via declarative pattern (v1.8.2+) |
+| **Context Management** | ✅ Scoping + Heuristic Scoring + TTL Pruning | v1.9.1+ improvements active |
+| **Token Counting** | ✅ Native History API × 0.24 ratio | Matches LM Studio sidebar <0.3% deviation |
+| **Graphify Intelligence Suite** | ✅ Fully Implemented (v1.9.6) | Confidence tags, hub-exclusion clustering, project auto-detection, tier provenance, cluster-aware priority |
+| **Gateway Pattern** | ⚠️ Abandoned (v1.8.0+) | Direct SDK registration + schema minification handles compatibility |
+| **Priority System** | ❌ Removed (v1.6.4) | Replaced by toolsSchemaMinifier.ts description truncation |
 ---
 
 ## 🚨 CRITICAL TOOL USAGE RULES — PROTOCOL RESTRICTIONS
@@ -119,7 +131,7 @@ The priority system (`maxToolsInSchema`, tier-based filtering, `toolPriorityOver
 
 ### Gateway Pattern — ABANDONED
 The gateway pattern (`src/tools/gatewayTools.ts`) was introduced in v1.6.0 but **abandoned in favor of direct SDK registration** (v1.8.0+).
-- Direct registration proved more effective — LLMs handle ~97 tools fine when schemas are properly minified
+- Direct registration proved more effective — LLMs handle 130 tools fine when schemas are properly minified
 - Grammar parser crashes resolved via schema minification rather than tool count gating
 - Gateway indirection added unnecessary complexity without solving the underlying issue
 
@@ -197,7 +209,7 @@ All dangerous tool categories are **disabled by default**:
 ## ✅ Verification Checklist
 
 ### README.md
-- [x] Tool count updated dynamically; currently **~97** unique tools registered across 20 categories
+- [x] Tool count updated dynamically; currently **130** unique tools registered across 24 modules
 - [x] Release History updated with v1.8.x entries (declarative registry, grep_files fix, token counting)
 - [x] All tool names verified against source code
 - [x] Configuration table matches `config.ts` Zod schema exactly
@@ -238,7 +250,7 @@ All dangerous tool categories are **disabled by default**:
 
 | File | Changes Made |
 |------|-------------|
-| `README.md` | Up-to-date (v1.9.1 release history, ~97 tools) |
+| `README.md` | Up-to-date (v1.9.6 release history, 130 unique tools across 24 modules) |
 | `ARCHITECTURE.md` | Gateway Pattern marked as ABANDONED; tool counts corrected to 20 modules |
 | `TOOLS_REFERENCE.md` | Up-to-date (~132 tools documented) |
 | `DOCUMENTATION.md` | Deprecated features clearly marked; tool count corrections applied |
@@ -292,7 +304,7 @@ All changes verified with comprehensive test suite:
 
 ---
 
-## 🆕 Latest Updates — v1.9.5 (2026-08-10)
+## 🆕 Latest Updates — v1.9.6 (2026-08-10)
 
 ### Graphify-Inspired Architectural Intelligence Suite
 

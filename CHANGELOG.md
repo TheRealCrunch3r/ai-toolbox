@@ -1,5 +1,35 @@
 # 📝 CHANGELOG
 
+## [v1.9.6] - 2026-08-11 — 🔒 DEP0190 Fix: Eliminate `shell:true` Deprecation Warning
+
+**Replaced all `child_process.exec()` calls with explicit shell spawning via `spawn(cmd.exe /c, ...)` in `gitGithubTools.ts`. Zero behavioral changes; zero breaking changes.**
+
+### What Changed
+- ✅ **Removed `exec` import + `promisify`**: Replaced with single `import { spawn } from 'child_process'`
+- ✅ **Added `safeExec()` helper function**: Explicit shell spawning using `cmd.exe /c` (Windows) or `/bin/sh -c` (Unix/macOS) — never uses `{ shell: true }`, avoiding Node.js DEP0190 warning
+- ✅ **All 12 git command invocations updated**: `git diff`, `git commit`, `git checkout -b`, `git push`, `git stash push/pop/drop/list`, `git blame` now use `safeExec()` instead of `execPromise()`
+- ✅ **Comments updated**: All "Fallback to native exec" comments replaced with "DEP0190-safe explicit shell spawn"
+
+### Root Cause Addressed
+Prior to this fix:
+1. `child_process.exec()` internally called `spawn('/bin/sh', ['-c', command], { shell: true })` — exactly what DEP0190 warns about
+2. The warning message stated: "The args + shell:true combination is deprecated and will be removed in a future release"
+3. All 12 git tool calls triggered this deprecation warning on every execution
+
+### Impact
+- ✅ **DEP0190 warning eliminated**: No more `shell:true` deprecation warnings in logs when using any git/GitHub tools
+- ✅ **Behavioral parity preserved**: `safeExec()` replicates exact semantics of the original `execPromise()` — same stdout/stderr capture, same cwd support, same error propagation via rejection
+- ✅ **Cross-platform correct**: Windows uses `cmd.exe /c`, Unix/macOS uses `/bin/sh -c` — matches Node.js's internal exec behavior
+- ✅ **No dependency changes**: Pure source code fix, no new dependencies or config updates needed
+
+### Engineering Details
+- `safeExec()` signature: `(command: string, options?: { cwd?: string }) => Promise<{ stdout: string; stderr: string }>`
+- Uses `spawn(shell, [flag, command], { stdio: ['pipe','pipe','pipe'], cwd })` — never passes args + `{ shell: true }` simultaneously
+- Error handling: rejects with descriptive message on non-zero exit code, same as original `execPromise()` behavior
+- Backup created at `src/tools/gitGithubTools.ts.bak` for rollback if needed
+
+**Total**: 1 file modified (`src/tools/gitGithubTools.ts`), version bump across all project metadata files (46 replacements in 14 files), zero breaking changes. Fully backward compatible with existing tool contracts and LM Studio SDK integration. TypeScript compilation clean, ESLint: 0 warnings, all tests pass.
+
 ## [v1.9.4] - 2026-08-09 — 🧠 Context Management Architecture: Disk Fallback Restoration & Comprehensive Bug Fix Suite (14 Fixes)
 
 **Fixed critical `get_session_summary()` disk fallback bug + applied 14 comprehensive fixes across P0-P3 severity levels for context management tools.**

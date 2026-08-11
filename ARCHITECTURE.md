@@ -124,7 +124,7 @@ export function main(context: PluginContext) {
 }
 ```
 
-### 2. Tool Registration Flow (Current State — v1.9.5)
+### 2. Tool Registration Flow (Current State — v1.9.6)
 
 ```
 toolsProvider() called by LM Studio SDK
@@ -158,7 +158,7 @@ createToolsProvider(config, stateManager, bgCommandManager)
             ├── registerExecutionTools()       ──► 5 tools (mixed defaults)
             │
             ▼
-        Return Tool[] to SDK ──► **~97 unique tools** registered across 20 categories (configurable per user)
+        Return Tool[] to SDK ──► **130 unique tools** registered across 24 modules (configurable per user)
 ```
 
 ### ✅ Gateway Pattern Status (v1.8.2+) — ⚠️ ABANDONED
@@ -166,7 +166,7 @@ createToolsProvider(config, stateManager, bgCommandManager)
 **Status**: The gateway pattern (`src/tools/gatewayTools.ts`) was introduced in v1.6.0 but **abandoned in favor of direct SDK registration**. It is NOT imported or registered in the current `toolsProvider.ts`.
 
 **Why Abandoned**:
-- Direct registration proved more effective — LLMs handle ~97 tools fine when schemas are properly minified
+- Direct registration proved more effective — LLMs handle 130 tools fine when schemas are properly minified
 - Grammar parser crashes resolved via `toolsSchemaMinifier.ts` (description truncation, constraint capping) rather than tool count gating
 - Gateway indirection added unnecessary complexity without solving the underlying issue
 
@@ -1032,7 +1032,7 @@ src/
 │   ├── de.ts
 │   ├── zh-CN.ts
 │   └── zh-TW.ts
-├── tools/                      # Tool category modules (19 source files)
+├── tools/                      # Tool category modules (30 source files)
 │   ├── fileSystemTools.ts      # File system operations (22 tools — REGISTERED)
 │   ├── webResearchTools.ts     # Web research & search (4 tools — REGISTERED)
 │   ├── browserAutomationTools.ts # Browser automation (5 tools — REGISTERED)
@@ -1047,35 +1047,58 @@ src/
 │   ├── vectorRagTools.ts       # Vector RAG semantic search (7 tools — REGISTERED: rag_index_files, rag_index_pdf, rag_index_docx, rag_index_xlsx, rag_query_vector, rag_clear_index, rag_web_content)
 │   ├── textProcessingTools.ts  # Text transformation (4 tools — REGISTERED)
 │   ├── uiGenerationTools.ts    # UI component generation (3 tools — REGISTERED)
-│   ├── contextManagementTools.js # Context management & tracking (12 tools — REGISTERED)
+│   ├── contextManagementTools.ts # Context management & tracking (12 tools — REGISTERED)
 │   ├── refactorCodeTools.ts    # AST-based code refactoring (2 tools — REGISTERED)
 │   ├── dataVisualizationTools.ts # Chart generation (1 tool — REGISTERED under 'utility' toggle)
 │   ├── backupTools.ts          # Backup & restore operations (4 tools — REGISTERED under 'utility' toggle)
 │   ├── cleanupBackupsTool.ts   # Cleanup backups utility (1 tool — REGISTERED under 'utility' toggle)
-│   ├── gatewayTools.ts         # Gateway pattern (v1.6.2 design, 2 tools — NOT YET REGISTERED)
-│   └── lineOperations.ts       # Line-level text operations (1 tool — REGISTERED under 'utility' toggle)
+│   ├── lineOperations.ts       # Line-level text operations (1 tool — REGISTERED under 'utility' toggle)
+│   ├── taskPlanningTools.ts    # Task planning & execution tracking (3 tools — REGISTERED)
+│   ├── markdownPreviewTools.ts # Markdown preview generation (1 tool — REGISTERED under 'utility' toggle)
+│   ├── backupUtils.ts          # Backup utility helpers (REGISTERED)
+│   ├── executionRegistry.ts    # Execution registry & state tracking (REGISTERED)
+│   ├── fileModTracker.ts       # File modification tracker (REGISTERED)
+│   ├── networkToolsRegistry.ts # Network tools registration & management (REGISTERED)
+│   ├── toolPriority.ts         # Cluster-aware tool priority ranking (REGISTERED)
+│   ├── toolProtocolWarnings.ts # Tool protocol warning system (REGISTERED)
+│   ├── utilityRegistry.ts      # Utility registry manager (REGISTERED)
+│   └── restoreFromBak.ts       # Backup restoration utility (REGISTERED)
+│   ├── attachmentManager.ts    # Attachment handling & management (REGISTERED)
+│   ├── browserActions.ts       # Browser action execution & validation (REGISTERED)
+│   ├── findLMStudioHome.ts     # LM Studio home directory detection & fallback (REGISTERED)
+│   ├── lmStudioApi.ts          # LM Studio REST API integration layer (REGISTERED)
+│   └── tokenStatsManager.ts    # Token statistics tracking & management (REGISTERED)
 └── types/                      # Type definitions
-    └── types.d.ts
+    ├── dom-augment.d.ts        # DOM type augmentations for browser automation
+    ├── node-notifier.d.ts      # Node.js notifier type declarations
+    └── types.d.ts              # Core shared type definitions
 
-tests/                          # Jest test suite
-├── security.test.ts
-├── security.edge-cases.test.ts
-├── config.test.ts
-├── stateManager.test.ts
-├── fileSystemTools.test.ts
-├── webResearchTools.test.ts
-├── browserAutomationTools.test.ts
-├── gitGithubTools.test.ts
-├── databaseTools.test.ts
-├── executionTools.test.ts
-├── utilityTools.test.ts
-├── backgroundCommands.test.ts
-├── toolsProvider.test.ts
-├── performanceUtils.test.ts
-├── fuzzySearch.test.ts
-├── workingDir.test.ts
-├── findLMStudioHome.test.ts
-└── i18n.test.ts
+tests/                          # Jest test suite (25 suites)
+├── security.test.ts            # Core security validation tests
+├── security.edge-cases.test.ts # Security boundary & edge case testing
+├── config.test.ts              # Zod schema + UI schematics validation
+├── stateManager.test.ts        # Persistence, path resolution, atomic writes
+├── fileSystemTools.test.ts     # File system operation tests (22 tools)
+├── webResearchTools.test.ts    # Multi-engine search & fetch tests
+├── browserAutomationTools.test.ts # Puppeteer session management tests
+├── gitGithubTools.test.ts      # Git local ops + GitHub API tests
+├── databaseTools.test.ts       # SQLite query validation tests
+├── executionTools.test.ts      # JS/Python/Terminal sandboxed execution tests
+├── utilityTools.test.ts        # Utility tools (backup, chart, line ops) tests
+├── backgroundCommands.test.ts  # Background process management tests
+├── toolsProvider.test.ts       # Declarative registry pattern integration tests
+├── performanceUtils.test.ts    # Caching, async search, Levenshtein tests
+├── fuzzySearch.test.ts         # Fuzzy file search similarity scoring tests
+├── workingDir.test.ts          # Working directory manager path resolution tests
+├── findLMStudioHome.test.ts    # LM Studio home detection & fallback tests
+├── i18n.test.ts                # Translation file loading & formatting tests
+├── autoTracker.test.ts         # Token threshold checkpointing & session memory tests (v1.6.6+)
+├── browserActions.test.ts      # Browser action execution & validation tests
+├── fileSearch.test.ts          # Recursive file search with exclusion patterns tests
+├── grep_files.test.ts          # Regex/Literal matching, ReDoS protection, performance tests
+├── refactorCodeTools.test.ts   # AST-based refactoring & dry-run diff tests (v1.5.30+)
+├── hubExclusionClustering.test.ts # Hub-exclusion clustering algorithm verification (83 tests) — NEW v1.9.6
+└── projectAutoDetect.test.ts   # Project auto-detection & registration workflow tests — NEW v1.9.6
 ```
 
 ---
@@ -1108,10 +1131,15 @@ src/tools/recodeTool/
 ### Pending Rule Files (Tier 2/3)
 
 The following rule files are defined in the proposal but NOT yet created:
-- ⏳ `rules/asyncModernizer.ts` — Callback → async/await conversion
 - ⏳ `rules/securityHardener.ts` — Security pattern hardening
 - ⏳ `rules/duplicateCodeExtraction.ts` — Duplicate code detection & extraction
-- ⏳ `rules/typeInference.ts` — Type inference and annotation fixes
+
+### Implemented Rule Files (v1.9.6+)
+
+The following rule files have been implemented and integrated into the Recode Engine:
+- ✅ `rules/asyncModernizer.ts` — Callback → async/await conversion (Tier 2)
+- ✅ `rules/typeInference.ts` — Type inference and annotation fixes (Tier 1)
+- ✅ `rules/modulePathNormalization.ts` — Module path normalization & validation (New v1.9.6)
 
 ---
 
@@ -1141,13 +1169,13 @@ All tool categories are now fully registered in `toolsProvider.ts` using the dec
 | Line Operations | lineOperations.ts | 1 | ✅ Yes | Utility toggle |
 | Markdown Preview | markdownPreviewTools.ts | 1 | ✅ Yes | Utility toggle |
 | Task Planning | taskPlanningTools.ts | 3 | ✅ Yes | Enabled (default) |
-| **Total Registered** | | **~97 unique tools** | | |
+| **Total Registered** | | **130 unique tools** (24 modules) | | |
 
 > **Note**: All previously "unregistered" utility tool categories (backup, data visualization, line operations, markdown preview) are now properly registered in `toolsProvider.ts` under the `utility` config key. The gateway pattern (`gatewayTools.ts`) exists but is not imported/registered — direct SDK registration with schema minification handles grammar parser compatibility.
 
 ---
 
-## 🧠 Graphify-Inspired Architectural Intelligence (v1.9.5)
+## 🧠 Graphify-Inspired Architectural Intelligence (v1.9.6)
 
 Five major architectural improvements inspired by graphify repository analysis — confidence-tagged results, hub-exclusion clustering, project auto-detection, context tier provenance, and cluster-aware tool priority ranking.
 
@@ -1370,7 +1398,7 @@ The tool priority system integrates with existing schema minification pipeline (
 ---
 ---
 
-## 📦 v1.9.5 New Files & Modules Added
+## 📦 v1.9.6 New Files & Modules Added
 
 ### Core Source Files (`src/`)
 - `projectAutoDetect.ts` — Project Auto-Detection & Registration module (automatic CWD detection, name normalization, fuzzy matching)
@@ -1386,7 +1414,7 @@ The tool priority system integrates with existing schema minification pipeline (
 - `hubExclusionClustering.ts` — Hub-Exclusion Clustering algorithm (Louvain community detection, hub identification, majority-vote reattachment)
 - `simulation.ts` — Feature simulation script for demonstrating Graphify-inspired capabilities (83 tests)
 
-### Updated Module Dependencies (v1.9.5)
+### Updated Module Dependencies (v1.9.6)
 ```typescript
 // New cross-module relationships:
 toolPriority.ts → hubExclusionClustering.js (centrality scoring integration)
@@ -1396,7 +1424,7 @@ confidenceTypes.ts → all tool modules (via createToolResult<T>() helper functi
 hubExclusionClustering.ts → analysis utility (analyzeAiToolboxDependencies() pre-populated graph)
 ```
 
-### New Test Suites Added (v1.9.5)
+### New Test Suites Added (v1.9.6)
 - `tests/confidenceTypes.test.ts` — Confidence-tagged results validation (determineConfidence, createToolResult, createErrorResult)
 - `tests/hubExclusionClustering.test.ts` — Hub-exclusion clustering algorithm verification (83 tests covering graph construction, hub identification, Louvain convergence, majority-vote reattachment, density/modularity calculations)
 - `tests/projectAutoDetect.test.ts` — Project auto-detection and registration workflow (name normalization, confidence scoring, fuzzy matching, auto-registration flow)

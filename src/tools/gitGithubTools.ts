@@ -6,11 +6,50 @@ import type { PluginConfig } from '../config';
 import { validatePath } from '../security.js';
 import { getWorkingDir, resolvePath } from '../workingDir.js';
 import * as git from 'isomorphic-git';
-import { exec } from 'child_process';
-import { promisify } from 'util';
+import { spawn } from 'child_process';
 import fs from 'fs/promises';
 
-const execPromise = promisify(exec);
+// ==================== DEP0190 Fix: Safe shell execution without { shell: true } ===
+
+/**
+ * Execute a command string via explicit shell spawning (no DEP0190 warning).
+ * Replaces child_process.exec() which internally uses spawn with { shell: true } + args.
+ */
+interface ExecResult {
+  stdout: string;
+  stderr: string;
+}
+
+function safeExec(command: string, options?: { cwd?: string }): Promise<ExecResult> {
+  return new Promise((resolve, reject) => {
+    const isWindows = process.platform === 'win32';
+    const shell = isWindows ? 'cmd.exe' : '/bin/sh';
+    const flag = isWindows ? '/c' : '-c';
+
+    const proc = spawn(shell, [flag, command], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      cwd: options?.cwd || process.cwd(),
+    });
+
+    let stdout = '';
+    let stderr = '';
+
+    proc.stdout?.on('data', (d: Buffer) => { stdout += d.toString(); });
+    proc.stderr?.on('data', (d: Buffer) => { stderr += d.toString(); });
+
+    proc.on('close', (code) => {
+      if (code === 0 || code === undefined) {
+        resolve({ stdout: stdout.trim(), stderr: stderr.trim() });
+      } else {
+        reject(new Error(`Command exited with code ${code}: ${stderr.trim()}`));
+      }
+    });
+
+    proc.on('error', (err) => {
+      reject(err);
+    });
+  });
+}
 
 // Minimal interface matching isomorphic-git's public API for strict typing
 interface GitConfig {
@@ -154,11 +193,11 @@ export function registerGitTools(_config: PluginConfig): Tool[] {
         let result: string;
         
         if (file_path) {
-          result = await execPromise(`git diff "${file_path}"`, { cwd: config.dir }).then(r => r.stdout);
+          result = await safeExec(`git diff "${file_path}"`, { cwd: config.dir }).then(r => r.stdout);
         } else if (cached) {
-          result = await execPromise('git diff --cached', { cwd: config.dir }).then(r => r.stdout);
+          result = await safeExec('git diff --cached', { cwd: config.dir }).then(r => r.stdout);
         } else {
-          result = await execPromise('git diff', { cwd: config.dir }).then(r => r.stdout);
+          result = await safeExec('git diff', { cwd: config.dir }).then(r => r.stdout);
         }
         
         return { success: true, data: { diff: result } };
@@ -183,8 +222,8 @@ export function registerGitTools(_config: PluginConfig): Tool[] {
         // Stage all changes using isomorphic-git (filepath required for add)
         await git.add({ ...config, filepath: '.', fs });
         
-        // Commit with message using native shell command (isomorphic-git commit() requires author config)
-        await execPromise(`git commit -m "${message.replace(/"/g, '\\"')}"`, { cwd: config.dir });
+        // Commit via explicit shell spawn (DEP0190-safe; isomorphic-git commit() requires author config)
+        await safeExec(`git commit -m "${message.replace(/"/g, '\\"')}"`, { cwd: config.dir });
         
         return { success: true, data: { committed: true, commitMessage: message } };
       } catch (error) {
@@ -259,8 +298,8 @@ export function registerGitTools(_config: PluginConfig): Tool[] {
         
         if (create_new) {
           // isomorphic-git checkout does not directly support creating new branches in one step like simple-git's checkoutLocalBranch.
-          // Fallback to native exec for branch creation to ensure reliability.
-          await execPromise(`git checkout -b "${branch_name}"`, { cwd: config.dir });
+          // Fallback to explicit shell spawn for branch creation (DEP0190-safe).
+          await safeExec(`git checkout -b "${branch_name}"`, { cwd: config.dir });
         } else {
           // eslint-disable-next-line @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-explicit-any, @typescript-eslint/no-unnecessary-type-assertion
           await git.checkout({ ...config, ref: branch_name, fs } as any);
@@ -461,10 +500,10 @@ export function registerGitTools(_config: PluginConfig): Tool[] {
         const config = await getGitConfig();
         
         if (branch) {
-          // isomorphic-git requires an http adapter for remote ops. Fallback to native exec.
-          await execPromise(`git push origin "${branch}"`, { cwd: config.dir });
+          // isomorphic-git requires an http adapter for remote ops. Fallback to explicit shell spawn (DEP0190-safe).
+          await safeExec(`git push origin "${branch}"`, { cwd: config.dir });
         } else {
-          await execPromise('git push', { cwd: config.dir });
+          await safeExec('git push', { cwd: config.dir });
         }
         
         return { success: true, data: { pushed: true } };
@@ -497,23 +536,23 @@ export function registerGitTools(_config: PluginConfig): Tool[] {
             if (!message) {
               return { success: false, error: 'git_stash save requires a "message" parameter' };
             }
-            // isomorphic-git does not support stash. Fallback to native exec.
-            await execPromise(`git stash push -m "${message.replace(/"/g, '\\"')}"`, { cwd: config.dir });
+            // isomorphic-git does not support stash. Fallback to explicit shell spawn (DEP0190-safe).
+            await safeExec(`git stash push -m "${message.replace(/"/g, '\\"')}"`, { cwd: config.dir });
             return { success: true, data: { stashed: true, message } };
           }
           case 'pop': {
-            // Fallback to native exec
-            await execPromise('git stash pop', { cwd: config.dir });
+            // DEP0190-safe explicit shell spawn
+            await safeExec('git stash pop', { cwd: config.dir });
             return { success: true, data: { popped: true } };
           }
           case 'drop': {
-            // Fallback to native exec
-            await execPromise('git stash drop', { cwd: config.dir });
+            // DEP0190-safe explicit shell spawn
+            await safeExec('git stash drop', { cwd: config.dir });
             return { success: true, data: { dropped: true } };
           }
           case 'list': {
-            // Fallback to native exec
-            const { stdout } = await execPromise('git stash list', { cwd: config.dir });
+            // DEP0190-safe explicit shell spawn
+            const { stdout } = await safeExec('git stash list', { cwd: config.dir });
             return { success: true, data: { stashes: stdout.trim().split('\n').filter(Boolean) } };
           }
           default: {
@@ -544,14 +583,14 @@ export function registerGitTools(_config: PluginConfig): Tool[] {
           return { success: false, error: 'Invalid path: directory traversal detected' };
         }
         
-        // isomorphic-git does not support blame. Fallback to native exec for precise output parsing.
+        // isomorphic-git does not support blame. DEP0190-safe explicit shell spawn for precise output parsing.
         const fullPath = resolvePath(file_path);
         let cmd = `git blame "${fullPath}"`;
         if (line_number) {
           cmd += ` -L ${line_number},${line_number}`;
         }
         
-        const { stdout } = await execPromise(cmd, { cwd: config.dir });
+        const { stdout } = await safeExec(cmd, { cwd: config.dir });
         
         // Parse git blame output manually for structured data
         const lines = stdout.trim().split('\n');

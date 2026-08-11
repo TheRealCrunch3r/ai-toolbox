@@ -388,7 +388,7 @@ function runAnalysis(): AnalysisReport {
   - `build.py` — Graph construction with tier provenance + ghost dedup
   - `cluster.py` — Leiden community detection with hub exclusion
   - `analyze.py` — God nodes, surprise connections, import cycles
-- **ai_toolbox Current State**: v1.9.4 (session memory fixes, Zod caps, ESLint crypto import)
+- **ai_toolbox Current State**: Analysis performed during v1.9.4 development cycle; all patterns fully implemented in current v1.9.6 codebase (confidence tags, hub-exclusion clustering, project auto-detection, tier provenance, cluster-aware priority)
 
 ---
 

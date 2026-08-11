@@ -1,6 +1,6 @@
 # 🧰 AI Toolbox — LM Studio Plugin
 
-> **~97 unique tools** across 20 categories, fully integrated and ready for use.  
+> **130 unique tools** across 24 modules, fully integrated and ready for use.  
 *All tools dynamically registered with category-level gating.*
 > *All tools registered via direct SDK pattern (no gateway indirection).*
 ---
@@ -112,7 +112,7 @@ The plugin is installed as an LM Studio plugin. Ensure you have:
 1. **Load the plugin** in LM Studio's plugin settings
 2. **Configure tool access** — individual tool categories can be toggled on/off via the Settings panel. Note that some tools (like Execution) are disabled by default for security.
 3. **Authenticate with GitHub**: Run `gh auth login` in your terminal once to enable remote operations (`gh_create_issue`, `gh_list_prs`, etc.). The plugin will detect authentication status automatically.
-4. **Start a chat** and the AI can now use any of the **~97** registered tools based on configuration settings (configurable per user).
+4. **Start a chat** and the AI can now use any of the **130** registered tools based on configuration settings (configurable per user, organized across 24 modules).
 
 ---
 
@@ -182,6 +182,26 @@ Prior to this fix, ESLint's `@typescript-eslint/no-unsafe-assignment` rule flagg
 - ✅ **Zero ESLint warnings**: All 10 `no-unsafe-assignment` warnings resolved across both files
 - ✅ **Strict type safety preserved**: Explicit `: unknown` annotations force downstream consumers to perform type guards or assertions before using HTTP response payloads
 - ✅ **No functional changes**: Only static analysis directives and type annotations adjusted; runtime behavior identical
+
+### [v1.9.6] - 2026-08-10 — 🧠 Graphify-Inspired Architectural Intelligence Suite
+**Five major architectural improvements inspired by graphify repository analysis — confidence-tagged results, hub-exclusion clustering, project auto-detection, context tier provenance, and cluster-aware tool priority ranking.**
+
+#### What Changed
+- ✅ **Confidence-Tagged Results (`src/types/confidenceTypes.ts`)**: Typed metadata (`EXTRACTED | INFERRED | AMBIGUOUS`) with provenance tracking for all tool outputs — enables LLMs to distinguish deterministic results from semantic inferences.
+- ✅ **Hub-Exclusion Clustering (`src/utils/hubExclusionClustering.ts`)**: Louvain community detection with hub-exclusion for architectural transparency; identifies high-degree modules, calculates cluster density/modularity, and reattaches hubs via majority-vote. 83 tests covering graph construction, convergence, and edge cases.
+- ✅ **Project Auto-Detection (`src/projectAutoDetect.ts`)**: Automatically detects and registers projects in the cross-project registry when searches return empty results; uses confidence scoring (`package.json +0.4`, `src/ +0.3`) with name normalization for fuzzy matching.
+- ✅ **Context Tier Provenance (`src/contextTiers.ts`)**: Typed `_origin: 'ast' | 'semantic'` markers for tier-scoped context replacement — prevents silent overwrites of unchanged nodes during incremental updates.
+- ✅ **Cluster-Aware Tool Priority (`src/tools/toolPriority.ts`)**: Five-tier priority ranking (Critical → Background) with hub-exclusion clustering integration; ensures architecturally important modules are retained first when grammar parser limits require tool pruning.
+
+#### Root Cause Addressed
+Prior to v1.9.6, the plugin lacked systematic architectural analysis capabilities, cross-project auto-discovery, and intelligent tool filtering. Confidence tags prevent LLM over-trusting of semantic results; hub-exclusion clustering enables dependency visualization; project auto-detection eliminates "ai-toolbox not found" errors; tier provenance prevents context data loss; cluster-aware priority ensures critical tools survive grammar parser limits.
+
+#### Impact
+- ✅ **Confidence transparency**: Users distinguish deterministic vs inferred outputs
+- ✅ **Architectural visibility**: Modularity scoring, cluster density metrics, hub identification
+- ✅ **Cross-project registry reliability**: Automatic CWD registration when searches return empty
+- ✅ **Lossless context updates**: Incremental tier replacement prevents silent overwrites
+- ✅ **Intelligent tool filtering**: High-centrality modules retained first during pruning
 
 ### [1.9.2] - 2026-08-07 — 🔥 grep_files ReDoS Fix & RAG System Overhaul: PDF/DOCX/XLSX Indexing Tools
 **Resolved critical Regex Denial of Service (ReDoS) vulnerability in `grep_files` AND completed comprehensive RAG system overhaul with new indexing tools for PDF, DOCX, and XLSX formats.**

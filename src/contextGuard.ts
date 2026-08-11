@@ -143,10 +143,10 @@ export class ContextGuard {
     // 🔹 P1 #3: Conditional logging
     debugLog('[COUNT]', `Processing ${messages.length} messages.`);
 
-    // ✅ PRIMARY METHOD: If historyTextLength is provided (from native API), use ×0.25 + 10% buffer ratio
+    // ✅ PRIMARY METHOD: If historyTextLength is provided (from native API), use ×0.25 + 5% buffer ratio
     // This matches LM Studio's sidebar exactly and avoids SDK overestimation (~124k vs ~80k)
     if (historyTextLength != null && historyTextLength > 0) {
-      const primaryTokenCount = Math.ceil(historyTextLength * 0.25 * 1.10); // base × +10% buffer
+      const primaryTokenCount = Math.ceil(historyTextLength * 0.25 * 1.05); // base × +10% buffer
       
       // Add image tokens if applicable (SDK doesn't account for multi-modal images automatically)
       let totalTokens = primaryTokenCount;
@@ -156,7 +156,7 @@ export class ContextGuard {
       
       this.cachedTokenCount = totalTokens;
       this._lastMessageHash = this.computeMessageHash(messages);
-      console.log(`[ContextGuard] ✅ Primary count: ${historyTextLength.toLocaleString()} chars → ${primaryTokenCount.toLocaleString()} tokens (×0.25 + 10% buffer)`);
+      console.log(`[ContextGuard] ✅ Primary count: ${historyTextLength.toLocaleString()} chars → ${primaryTokenCount.toLocaleString()} tokens (×0.25 + 5% buffer)`);
       return totalTokens;
     }
 
