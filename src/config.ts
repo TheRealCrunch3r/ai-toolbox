@@ -34,6 +34,8 @@ export const ConfigSchema = z.object({
 
   imageProcessing: z.boolean().default(true).describe('Enable image OCR, screenshot, and comparison tools'),
 
+  imageAnalysis: z.boolean().default(true).describe('Enable vision-model-based image analysis (analyze_image tool)'),
+
   httpClient: z.boolean().default(false).describe('Enable generic HTTP client for REST API calls'),
 
   vectorRAG: z.boolean().default(true).describe('Enable semantic search with vector embeddings'),
@@ -187,6 +189,8 @@ export const DEFAULT_CONFIG: PluginConfig = {
   backgroundCommands: false,
 
   imageProcessing: true,
+
+  imageAnalysis: true,
 
   httpClient: false,
 
@@ -391,6 +395,12 @@ export const configSchematics = createConfigSchematics()
     hint: 'Enable image OCR (Tesseract.js), screenshot capture, and image comparison tools.',
 
   }, DEFAULT_CONFIG.imageProcessing)
+  .field('imageAnalysis', 'boolean', { 
+    displayName: '🔍 Vision Model Image Analysis', 
+    subtitle: 'LLM-based contextual analysis with vision models',
+    hint: 'Enable analyze_image tool for sending images to a loaded vision-capable LLM (e.g., Llama 3.2 Vision, Moondream) for contextual understanding and reasoning.',
+  }, DEFAULT_CONFIG.imageAnalysis)
+
 
   
 

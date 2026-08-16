@@ -27,6 +27,7 @@ import { registerRestoreFromBakTools } from './tools/restoreFromBak.js';
 import { registerFileSystemTools } from './tools/fileSystemTools.js';
 import { registerGitTools } from './tools/gitGithubTools.js';
 import { registerHttpClientTools } from './tools/httpClientTools.js';
+import { registerImageAnalysisTools } from './tools/imageAnalysisTools.js';
 import { registerImageProcessingTools } from './tools/imageProcessingTools.js';
 import { registerLineOperationsTools } from './tools/lineOperations.js';
 import { registerMarkdownPreviewTools } from './tools/markdownPreviewTools.js';
@@ -62,6 +63,7 @@ export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[
     databaseQueries: pluginConfig.get('databaseQueries'),
     documentParsing: pluginConfig.get('documentParsing'),
     backgroundCommands: pluginConfig.get('backgroundCommands'),
+    imageAnalysis: pluginConfig.get('imageAnalysis'),
     imageProcessing: pluginConfig.get('imageProcessing'),
     httpClient: pluginConfig.get('httpClient'),
     vectorRAG: pluginConfig.get('vectorRAG'),
@@ -150,6 +152,7 @@ export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[
     // Standard Tools
     { key: 'gitOperations', register: () => registerGitTools(config) },
     { key: 'httpClient', register: () => registerHttpClientTools(config) },
+    { key: 'imageAnalysis', register: () => registerImageAnalysisTools(config) },
     { key: 'imageProcessing', register: () => registerImageProcessingTools(config) },
     { key: 'refactorCode', register: () => registerRefactorCodeTools(config) },
     { key: 'textProcessing', register: () => registerTextProcessingTools(config) },

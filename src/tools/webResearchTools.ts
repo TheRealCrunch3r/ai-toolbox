@@ -24,6 +24,36 @@ async function searchDDGApi(query: string): Promise<SearchResultItem[]> {
   }));
 }
 
+/** Domains to exclude from search results (non-authoritative or duplicate tool coverage) */
+const EXCLUDED_DOMAINS = new Set([
+  'wikipedia.org',       // Covered by wikipedia_search tool
+  'reddit.com',          // Low-quality for research
+  'quora.com',           // Unreliable user-generated content
+]);
+
+/** Check if a URL should be excluded from results */
+function isExcludedDomain(url: string): boolean {
+  try {
+    const hostname = new URL(url).hostname.replace(/^www\./, '');
+    return EXCLUDED_DOMAINS.has(hostname);
+  } catch {
+    // If URL parsing fails, don't exclude (safe fallback)
+    return false;
+  }
+}
+
+/** Strip HTML entities and tags from a title string */
+function cleanTitle(raw: string): string {
+  return raw
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&#39;/g, "'")
+    .replace(/&quot;/g, '"')
+    .replace(/<[^>]+>/g, '')  // Remove any remaining HTML tags
+    .trim();
+}
+
 /** DuckDuckGo HTML Fetch (fallback when API fails) */
 async function searchDDGFetch(query: string): Promise<SearchResultItem[]> {
   const response = await fetchWithRetry(
@@ -41,9 +71,13 @@ async function searchDDGFetch(query: string): Promise<SearchResultItem[]> {
   let match;
   
   while ((match = titleRegex.exec(html)) !== null) {
+    const url = match[1];
+    // Skip excluded domains (e.g., wikipedia.org, reddit.com)
+    if (isExcludedDomain(url)) continue;
+    
     results.push({
-      title: match[2].replace(/&amp;/g, '&').trim(),
-      url: match[1],
+      title: cleanTitle(match[2]),
+      url: url,
       description: '',
     });
   }
@@ -66,8 +100,9 @@ async function searchGoogle(query: string): Promise<SearchResultItem[]> {
 
   let match;
   while ((match = titleRegex.exec(html)) !== null) {
+    // Skip excluded domains if URL is available (Google HTML often has URLs nearby)
     results.push({
-      title: match[1].replace(/<[^>]*>/g, ''), // Remove HTML tags
+      title: cleanTitle(match[1]),
       url: '',
       description: '',
     });
@@ -94,9 +129,13 @@ async function searchBing(query: string): Promise<SearchResultItem[]> {
     const block = match[1];
     const titleMatch = block.match(/<a[^>]+href="([^"]+)"[^>]*>([^<]+)<\/a>/);
     if (titleMatch) {
+      const url = titleMatch[1];
+      // Skip excluded domains
+      if (isExcludedDomain(url)) continue;
+      
       results.push({
-        title: titleMatch[2],
-        url: titleMatch[1],
+        title: cleanTitle(titleMatch[2]),
+        url: url,
         description: '',
       });
     }

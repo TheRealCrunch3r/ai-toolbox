@@ -670,3 +670,33 @@ Origin types: `_origin: 'ast' | 'semantic'` distinguishes raw file content from 
 Tiers: CRITICAL (1, file system tools), HIGH (2, web research/execution/git), STANDARD (3, browser/image/RAG), OPTIONAL (4, context management), BACKGROUND (5, backup/cleanup). Centrality scoring computed from module degree × hub bonus — used for intelligent tool filtering when grammar parser limits require pruning.
 
 ---
+---
+
+## 🖼️ Image Analysis (1 — under `imageAnalysis` toggle)
+
+**Vision model-based image analysis via loaded LM Studio vision models (e.g., Llama 3.2 Vision, Moondream).** Requires a vision-enabled model loaded in LM Studio (`model.vision === true`).
+
+| Tool | Description |
+|------|-------------|
+| `analyze_image` | Sends image to loaded vision-capable LLM along with optional prompt; returns model's textual analysis + image metadata (size, format, dimensions). Supports filesystem paths and attached files via SDK attachment resolution. Uses shared `atomicWriteBinaryFile()` for any saved outputs. |
+
+### Parameters
+```typescript
+{
+  imagePath: string;        // Path to image file or attached filename
+  prompt?: string;          // Optional analysis prompt (e.g., "Describe this image in detail", "What text is visible?")
+}
+```
+
+### Resolution Chain
+1. Absolute filesystem path → `fs.existsSync()` check
+2. Relative path from working directory → `path.resolve(process.cwd(), inputPath)`
+3. SDK temp directories (`os.tmpdir()`, `lmstudio/`, `ai-toolbox/`)
+4. Attachment resolution via `listAttachments()` / `getAttachment()` from `attachmentManager.js` (ESM import, v1.9.8+)
+
+### Type-Safety Notes (v1.9.8+ Fixes)
+- ✅ ESM conversion: Replaced `require('../attachmentManager.js')` with static `import { listAttachments, getAttachment }` — eliminates `@typescript-eslint/no-require-imports` warning
+- ✅ FileHandle type assertion: Local `type FileHandleWithReadFile = { name: string; readFile?: () => Promise<Buffer> }` + cast via `as unknown as FileHandleWithReadFile | undefined` resolves TS2339 where SDK's `FileHandle` lacks `.readFile()` declaration (pattern matches `promptPreprocessor.ts:218-247`)
+- ✅ Removed unused eslint-disable directive for Tesseract.js (`@typescript-eslint/no-unsafe-*`) — file no longer imports Tesseract
+
+---

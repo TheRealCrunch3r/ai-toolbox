@@ -30,3 +30,5 @@ Thumbs.db
 .session_context/
 # Backup files (auto-generated during development)
 *.bak
+# AI Toolbox internal plans & drafts (never commit)
+future_improvements/

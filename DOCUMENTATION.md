@@ -495,3 +495,70 @@ Source code protection — failed AST transformations automatically restore orig
 - ✅ **Binary integrity**: `atomicWriteBinaryFile()` uses raw buffer writes for image processing and chart generation
 - ✅ **Source code safety**: Rollback-on-failure prevents corrupted source files from failed AST transformations
 - ✅ **Zero sync writes remaining**: All `writeFileSync`/`renameSync` eliminated from `src/tools/`
+---
+
+### v1.9.8+ Module Additions & Recent Fixes (2026-08-17)
+
+**New aggregator modules, file modification tracking, protocol warnings documentation, and image analysis tool type-safety fixes.**
+
+#### 1. 🔧 Execution Tool Aggregator (`src/tools/executionRegistry.ts`)
+**Consolidated execution tools into a single registration function to reduce import count in `toolsProvider.ts`.**
+
+- ✅ **Centralized filtering**: All five execution tools (`run_javascript`, `run_python`, `run_in_terminal`, `execute_command`, `run_tests`) registered via `registerExecutionTools()` — each gated by individual config toggles + GOD MODE override
+- ✅ **Import reduction**: Replaces 5 separate imports in `toolsProvider.ts` with a single import of `executionRegistry.ts`
+- ✅ **God Mode integration**: Each tool checks `config.godMode` as fallback if its specific toggle is disabled
+
+**Root Cause Addressed**: Prior to this module, each execution tool was imported and filtered individually in `toolsProvider.ts`, creating ~50 lines of repetitive `if (config.X || godMode)` blocks. The aggregator pattern eliminates duplication while preserving per-tool gating.
+
+#### 2. 📝 File Modification Tracker (`src/tools/fileModTracker.ts`)
+**Tracks consecutive file modifications within a session to warn LLM about stale line numbers.**
+
+- ✅ **Consecutive modification counting**: Each file path tracked via `Map<string, FileModEntry>` — increments counter on repeated operations
+- ✅ **Tiered warnings**: 
+  - 2nd op: ⚠️ Warning returned in response ("line numbers may have shifted")
+  - 3rd+ op: 🛑 Strong recommendation to use `save_file` or pattern-based replacement instead of line-number operations
+- ✅ **Session-scoped reset**: `resetTracking()` clears all entries — call at session boundaries
+
+**Root Cause Addressed**: When the LLM rapidly calls multiple tools on the same file, each tool reads from disk independently and operates correctly in isolation. The corruption happens because the LLM's context contains STALE line numbers that don't account for previous operations' effects. This tracker provides explicit guidance to switch strategies after repeated modifications.
+
+#### 3. ⚠️ Tool Protocol Warnings (`src/tools/toolProtocolWarnings.ts`)
+**Critical protocol restrictions documentation for preventing file:// → HTTP tool misuse.**
+
+- ✅ **WEB_FETCHING_TOOLS constant**: Lists all tools that ONLY accept HTTP/HTTPS URLs — `searxng_batch_fetch`, `fetch_web_content`, `searxng_search`, `searxng_fetch_url`
+- ✅ **TOOL_SELECTION_GUIDE decision tree**: Step-by-step flow for choosing correct tool based on LOCAL vs REMOTE target
+- ✅ **PROTOCOL_REFERENCE_TABLE**: Quick-reference table mapping each tool to its protocol support and intended use case
+- ✅ **`getCriticalToolWarnings()` function**: Returns all warnings concatenated — can be injected into system prompts
+
+**Root Cause Addressed**: The `searxng_*` tools are external LM Studio system tools with descriptions that cannot be modified in this codebase. This module documents the restrictions here and enforces them via tool selection guidelines, preventing the error where local file paths were incorrectly passed to HTTP/HTTPS-only web fetching tools.
+
+#### 4. 🧰 Utility Tool Aggregator (`src/tools/utilityRegistry.ts`)
+**Consolidates multiple small utility modules into a single registration function.**
+
+- ✅ **Aggregation**: `registerUtilityTools()` combines backup, cleanup-backups, data-visualization, line-operations, and markdown-preview tools
+- ✅ **Import reduction**: Single import in `toolsProvider.ts` replaces 5 separate imports
+- ✅ **Config pass-through**: Each sub-module receives the full `PluginConfig` for individual tool gating
+
+**Root Cause Addressed**: Similar to executionRegistry — reduces `toolsProvider.ts` import count and centralizes utility tool registration logic. Follows the same aggregator pattern established in v1.8.2 declarative registry.
+
+#### 5. 🧪 Hub-Exclusion Clustering Simulation (`src/utils/simulation.ts`)
+**Comprehensive test harness for Graphify-inspired architectural analysis features.**
+
+- ✅ **9 simulation functions**: Hub detection at multiple thresholds, Louvain community detection, majority-vote hub reattachment with tie-breaking, cluster density & modularity scoring, full end-to-end pipeline, report generation, real ai-toolbox dependency analysis, ToolPriority integration, ContextGuard integration
+- ✅ **Real-world validation**: `analyzeAiToolboxDependencies()` runs clustering on actual 24-module source graph (50+ connections) — verifies hub identification, cluster formation, and quality metrics
+- ✅ **Output**: Console-formatted reports with modularity interpretation ("Strong/Moderate/Weak community structure")
+
+**Root Cause Addressed**: Prior to this simulation, hub-exclusion clustering features had no systematic test harness. The simulation validates all 83 clustering tests plus additional integration scenarios (ToolPriority centrality scores, ContextGuard file cluster info) — ensuring architectural analysis tools produce correct results before deployment.
+
+#### 6. 🖼️ Image Analysis Tool Type-Safety Fixes (`src/tools/imageAnalysisTools.ts`)
+**Resolved TypeScript compilation errors and ESLint warnings through ESM conversion and proper type assertions.**
+
+- ✅ **ESM import conversion**: Replaced `require('../attachmentManager.js')` (CommonJS) with static ESM import `import { listAttachments, getAttachment } from '../attachmentManager.js'` — eliminates `@typescript-eslint/no-require-imports` warning
+- ✅ **FileHandle type assertion**: Added local `type FileHandleWithReadFile = { name: string; readFile?: () => Promise<Buffer>; read?: () => Promise<unknown> }` and cast via `as unknown as FileHandleWithReadFile | undefined` — resolves TS2339 error where SDK's `FileHandle` type lacks `.readFile()` declaration (matching pattern from `promptPreprocessor.ts:218-247`)
+- ✅ **Removed unused eslint-disable directive**: Deleted dead Tesseract.js disable block (`@typescript-eslint/no-unsafe-*`) — file no longer imports Tesseract.js
+
+**Impact**: 
+- ✅ Zero TypeScript compilation errors in `imageAnalysisTools.ts`
+- ✅ Zero ESLint warnings (no-require-imports, unused directives)
+- ✅ Runtime behavior unchanged — attachment resolution logic identical to pre-fix version
+
+---

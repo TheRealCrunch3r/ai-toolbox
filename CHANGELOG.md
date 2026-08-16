@@ -1,5 +1,43 @@
 # 📝 CHANGELOG
 
+### v1.9.8+ Module Additions & Recent Fixes (2026-08-17)
+
+**New aggregator modules, file modification tracking, protocol warnings documentation, and image analysis tool type-safety fixes.**
+
+#### 1. 🔧 Execution Tool Aggregator (`src/tools/executionRegistry.ts`)
+Consolidated execution tools into a single registration function to reduce import count in `toolsProvider.ts`.
+- ✅ **Centralized filtering**: All five execution tools registered via `registerExecutionTools()` — each gated by individual config toggles + GOD MODE override
+- ✅ **Import reduction**: Replaces 5 separate imports with a single import of `executionRegistry.ts`
+
+#### 2. 📝 File Modification Tracker (`src/tools/fileModTracker.ts`)
+Tracks consecutive file modifications within a session to warn LLM about stale line numbers.
+- ✅ **Consecutive modification counting**: Each file path tracked via `Map<string, FileModEntry>` — increments counter on repeated operations
+- ✅ **Tiered warnings**: 
+  - 2nd op: ⚠️ Warning returned in response ("line numbers may have shifted")
+  - 3rd+ op: 🛑 Strong recommendation to use `save_file` or pattern-based replacement instead of line-number operations
+
+#### 3. ⚠️ Tool Protocol Warnings (`src/tools/toolProtocolWarnings.ts`)
+Critical protocol restrictions documentation for preventing file:// → HTTP tool misuse.
+- ✅ **WEB_FETCHING_TOOLS constant**: Lists all tools that ONLY accept HTTP/HTTPS URLs — `searxng_batch_fetch`, `fetch_web_content`, `searxng_search`, `searxng_fetch_url`
+- ✅ **TOOL_SELECTION_GUIDE decision tree**: Step-by-step flow for choosing correct tool based on LOCAL vs REMOTE target
+- ✅ **PROTOCOL_REFERENCE_TABLE**: Quick-reference table mapping each tool to its protocol support
+
+#### 4. 🧰 Utility Tool Aggregator (`src/tools/utilityRegistry.ts`)
+Consolidates multiple small utility modules into a single registration function.
+- ✅ **Aggregation**: `registerUtilityTools()` combines backup, cleanup-backups, data-visualization, line-operations, and markdown-preview tools
+- ✅ **Import reduction**: Single import in `toolsProvider.ts` replaces 5 separate imports
+
+#### 5. 🧪 Hub-Exclusion Clustering Simulation (`src/utils/simulation.ts`)
+Comprehensive test harness for Graphify-inspired architectural analysis features.
+- ✅ **9 simulation functions**: Hub detection at multiple thresholds, Louvain community detection, majority-vote hub reattachment with tie-breaking, cluster density & modularity scoring, full end-to-end pipeline, report generation, real ai-toolbox dependency analysis, ToolPriority integration, ContextGuard integration
+
+#### 6. 🖼️ Image Analysis Tool Type-Safety Fixes (`src/tools/imageAnalysisTools.ts`)
+Resolved TypeScript compilation errors and ESLint warnings through ESM conversion and proper type assertions.
+- ✅ **ESM import conversion**: Replaced `require('../attachmentManager.js')` (CommonJS) with static ESM import — eliminates `@typescript-eslint/no-require-imports` warning
+- ✅ **FileHandle type assertion**: Added local `type FileHandleWithReadFile = { name: string; readFile?: () => Promise<Buffer> }` and cast via `as unknown as FileHandleWithReadFile | undefined` — resolves TS2339 error where SDK's `FileHandle` type lacks `.readFile()` declaration (matching pattern from `promptPreprocessor.ts:218-247`)
+- ✅ **Removed unused eslint-disable directive**: Deleted dead Tesseract.js disable block (`@typescript-eslint/no-unsafe-*`) — file no longer imports Tesseract
+
+---
 ### Project Keyword Detection + Cross-Project Registry Sync Fix — v1.9.8+ (2026-08-17)
 **Eliminated the "ai-toolbox not found" clarification loop by adding Step 0.7 project keyword detection in promptPreprocessor.ts and `_syncFromSessionMemory()` lazy registry sync.**
 
