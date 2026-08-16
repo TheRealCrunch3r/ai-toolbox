@@ -7,6 +7,7 @@ import { z } from 'zod';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { atomicWriteBinaryFile } from '../utils/atomicWrite.js';  // ← Shared atomic write utility for binary files
 import type { PluginConfig } from '../config.js';
 import { getAttachment, listAttachments } from '../attachmentManager.js';
 
@@ -139,7 +140,8 @@ async function resolveAttachmentFile(inputPath: string): Promise<string | null> 
     }
 
     const tempFilePath = path.join(tempDir, fileName);
-    fs.writeFileSync(tempFilePath, buffer);
+    // ASYNC atomic write for binary data — crash-resilient
+    await atomicWriteBinaryFile(tempFilePath, buffer);
     
     console.log(`[AI Toolbox] Resolved attached image "${fileName}" → ${tempFilePath} (${buffer.length} bytes)`);
     return tempFilePath;

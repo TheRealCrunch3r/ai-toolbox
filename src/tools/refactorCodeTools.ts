@@ -10,7 +10,9 @@ import { tool } from '@lmstudio/sdk';
 import { z } from 'zod';
 import type { PluginConfig } from '../config.js';
 import * as fs from 'node:fs';
+import * as fsp from 'node:fs/promises';  // ← Async operations for crash-resilient writes
 import * as path from 'node:path';
+import { atomicWriteFile } from '../utils/atomicWrite.js';  // ← Shared atomic write utility
 import type { Node, Statement, Program, ArrowFunctionExpression } from '@babel/types';
 import traverse from '@babel/traverse';
 import * as babelParser from '@babel/parser';
@@ -348,7 +350,8 @@ export function registerRefactorCodeTools(_config: PluginConfig): Tool[] {
           if (fs.existsSync(actualTargetPath)) {
             targetContent = fs.readFileSync(actualTargetPath, 'utf-8');
           } else {
-            fs.writeFileSync(actualTargetPath, '');
+            // Create empty file atomically — crash-resilient
+            await atomicWriteFile(actualTargetPath, '');
           }
 
           const targetAst = parser(targetContent || 'export {}', { sourceType: 'module', plugins: isTypeScript ? ['typescript'] : [] }) as Program;
@@ -427,13 +430,28 @@ export function registerRefactorCodeTools(_config: PluginConfig): Tool[] {
           const backupPath = resolvedPath + '.bak';
           fs.copyFileSync(resolvedPath, backupPath);
           
-          // Write source file
-          fs.writeFileSync(resolvedPath, newContent); 
-          
-          // Write target file for move_function if calculated
-          if (operation === 'move_function' && extraData.newTargetContent) {
-            const resolvedFinalTarget = path.resolve(target_path || '');
-            fs.writeFileSync(resolvedFinalTarget, extraData.newTargetContent);
+          // Write source file — ASYNC atomic write for crash resilience
+          try {
+            await fsp.writeFile(resolvedPath, newContent);
+            
+            // Write target file for move_function if calculated — ASYNC atomic write
+            if (operation === 'move_function' && extraData.newTargetContent) {
+              const resolvedFinalTarget = path.resolve(target_path || '');
+              await fsp.writeFile(resolvedFinalTarget, extraData.newTargetContent);
+            }
+          } catch (writeErr) {
+            // Restore from backup on write failure to prevent corruption
+            try {
+              fs.copyFileSync(backupPath, resolvedPath);
+              if (operation === 'move_function' && extraData.newTargetContent) {
+                const resolvedFinalTarget = path.resolve(target_path || '');
+                const targetBackup = resolvedFinalTarget + '.bak';
+                if (fs.existsSync(targetBackup)) {
+                  fs.copyFileSync(targetBackup, resolvedFinalTarget);
+                }
+              }
+            } catch {}
+            return { success: false, error: `Write failed: ${(writeErr as Error).message}. Restored from backup.` };
           }
 
           return { success: true, data: { operation, message, backupPath, ...extraData } };

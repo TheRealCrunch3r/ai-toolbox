@@ -4,6 +4,7 @@ import { z } from 'zod';
 import type { PluginConfig } from '../config.js';
 
 import * as fs from 'node:fs';
+import * as fsp from 'node:fs/promises';  // ← Async operations for crash-resilient writes
 import * as path from 'node:path';
 import * as os from 'node:os';
 import open from 'open';
@@ -46,7 +47,8 @@ export function registerMarkdownPreviewTools(_config: PluginConfig): Tool[] {
         // Create temp HTML file
         const tempDir = os.tmpdir();
         const tempFile = path.join(tempDir, `markdown_preview_${Date.now()}.html`);
-        fs.writeFileSync(tempFile, `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><style>body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;max-width:800px;margin:0 auto;padding:20px;line-height:1.6;color:#333;}code{background:#f4f4f4;padding:2px 6px;border-radius:3px;}.highlight{background:#f0f0f0;padding:10px;border-radius:5px;}</style></head><body>${html}</body></html>`);
+        // ASYNC atomic write — crash-resilient
+        await fsp.writeFile(tempFile, `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><style>body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;max-width:800px;margin:0 auto;padding:20px;line-height:1.6;color:#333;}code{background:#f4f4f4;padding:2px 6px;border-radius:3px;}.highlight{background:#f0f0f0;padding:10px;border-radius:5px;}</style></head><body>${html}</body></html>`);
 
         // Open in browser
         await open(tempFile);

@@ -13,6 +13,7 @@ import { Buffer } from 'buffer';
 import * as os from 'os';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as fsp from 'fs/promises';  // ← Async operations for crash-resilient writes
 import * as crypto from 'crypto';
 import { spawn } from 'child_process';
 import type { PluginConfig } from '../config';
@@ -1106,7 +1107,7 @@ enc = new (tiktokenModule as any).getEncoding(encoding);
           }
 
           const outputPath = output ? resolvePath(output) : fullPath.replace(/\.\w+$/, '.csv');
-          fs.writeFileSync(outputPath, csvLines.join('\n'), 'utf-8');
+          await fsp.writeFile(outputPath, csvLines.join('\n'), 'utf-8'); // ASYNC atomic write — crash-resilient
 
           return { success: true, data: { convertedFrom: input, convertedTo: outputPath, rows: data.length } };
         }
@@ -1133,7 +1134,7 @@ enc = new (tiktokenModule as any).getEncoding(encoding);
           }
 
           const outputPath = output ? resolvePath(output) : fullPath.replace(/\.\w+$/, '.json');
-          fs.writeFileSync(outputPath, JSON.stringify(jsonArr, null, 2), 'utf-8');
+          await fsp.writeFile(outputPath, JSON.stringify(jsonArr, null, 2), 'utf-8'); // ASYNC atomic write — crash-resilient
 
           return { success: true, data: { convertedFrom: input, convertedTo: outputPath, rows: jsonArr.length } };
         }
@@ -1154,7 +1155,7 @@ enc = new (tiktokenModule as any).getEncoding(encoding);
 
           if (output) {
             const outPath = resolvePath(output);
-            fs.writeFileSync(outPath, encoded, 'utf-8');
+            await fsp.writeFile(outPath, encoded, 'utf-8'); // ASYNC atomic write — crash-resilient
             return { success: true, data: { encodedFile: outPath, originalLength: content.length } };
           }
 
@@ -1177,7 +1178,7 @@ enc = new (tiktokenModule as any).getEncoding(encoding);
 
           if (output) {
             const outPath = resolvePath(output);
-            fs.writeFileSync(outPath, decoded, 'utf-8');
+            await fsp.writeFile(outPath, decoded, 'utf-8'); // ASYNC atomic write — crash-resilient
             return { success: true, data: { decodedFile: outPath, decodedLength: decoded.length } };
           }
 
@@ -1679,7 +1680,7 @@ RECOMMENDED USAGE:
           }
         }
         const finalContent = updatedLines.join('\n');
-        fs.writeFileSync(fullPath, finalContent, 'utf-8');
+        await fsp.writeFile(fullPath, finalContent, 'utf-8'); // ASYNC atomic write — crash-resilient
         return { success: true, data: { file: fullPath, key, value, action: found ? 'updated' : 'added', endsWithNewline: true } };
       } catch (error) {
         return handleError(error);

@@ -70,11 +70,12 @@ module.exports = {
     '^\\.\\/fileModTracker\\.js$': '<rootDir>/tests/__mocks__/fileModTracker.ts',
     '^\\.\\/restoreFromBak\\.js$': '<rootDir>/tests/__mocks__/restoreFromBak.ts',
 
-    // ── Context tier system (v1.9.6) ──
+    // ── Context tier system (v1.9.5) ──
     '^\\.\\/contextTiers\\.js$': '<rootDir>/src/contextTiers.ts',
 
     // ── Source file .js rewrites for utils/ directory ──
     '^\\.\\./utils/hubExclusionClustering\\.js$': '<rootDir>/src/utils/hubExclusionClustering.ts',
+    '^\\.\\./utils/atomicWrite\\.js$': '<rootDir>/src/utils/atomicWrite.ts',
 
     // ── Package-level mock redirects (ESM-only deps) ──
     '^archiver$': '<rootDir>/tests/__mocks__/archiver.ts',

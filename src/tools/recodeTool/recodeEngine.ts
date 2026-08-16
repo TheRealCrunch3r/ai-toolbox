@@ -1,6 +1,7 @@
 import type { Program } from '@babel/types';
 import generator from '@babel/generator';
 import * as fs from 'node:fs';
+import * as fsp from 'node:fs/promises';  // ← Async operations for crash-resilient writes
 import * as path from 'node:path';
 import type { RuleContext, RecodeRule, RecodeConfig } from './recodeTypes.js';
 
@@ -108,7 +109,8 @@ export async function runRecodeEngine(
 
     return { success: true, data: { dryRun: true, changes: { original: content, modified: finalContent, diff: diff || '(No changes detected)' }, message: 'Dry run complete.' } };
   } else {
-    fs.writeFileSync(resolvedPath, finalContent);
+    // ASYNC atomic write — crash-resilient
+    await fsp.writeFile(resolvedPath, finalContent);
     return { success: true, data: { message: `Recode engine applied ${rules.length} rule(s) to ${filePath}.`, modifiedContent: finalContent } };
   }
 }

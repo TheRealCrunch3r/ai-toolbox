@@ -142,6 +142,11 @@ Tools are gated by configuration categories in `src/config.ts`:
 3. **Split-Regex Processing** (v1.9.3): When top-level alternation is detected, the pattern is split on `\|` into individual `RegExp[]`, each compiled and tested independently per line with early-exit on first match. This eliminates cross-branch backtracking entirely since each branch runs in isolation within V8's NFA engine.
 
 4. **Literal fallback**: Patterns that fail all safety checks are converted to literal string matching (not silently dropped).
+
+5. **Quantifier count check** (v1.9.8): `isSafeRegex()` counts total quantifiers (`+`, `*`, `?`) in the pattern — returns `false` if more than 5 quantifiers detected, preventing patterns like `(a+)(b+)(c+)(d+)(e+)(f+)` that could cause exponential backtracking.
+
+6. **Consecutive quantified character class detection** (v1.9.8): Detects patterns with multiple consecutive quantified character classes (e.g., `[[^]]+]+[+*]`) that can trigger catastrophic backtracking in V8's NFA engine, even when nested repetition is absent.
+
 **Transparency:** The `grep_files` tool returns a `patternMode: 'regex' | 'literal' | 'auto_escaped'` field indicating whether the pattern was matched as regex, escaped to literal text, or split into separate regexes for top-level alternation.  
 **Test Case:** `pattern="((a+)+)b"` → Treated as literal string; `pattern="(a|b)+"` → Accepted as valid regex; `pattern="validateImageFile\(|\.resolvedPath!|await validateImageFile"` → Split into 3 separate regexes tested independently
 
@@ -157,7 +162,13 @@ Tools are gated by configuration categories in `src/config.ts`:
 
 #### 6. Token Explosion via grep_files
 **Risk:** High  
-**Mitigation:** Three-layer defense-in-depth (`max_content_length`, `max_file_size`, `max_results`)  
+**Mitigation:** Four-layer defense-in-depth (`max_content_length`, `max_file_size`, `max_results`, `max_depth`):
+- `max_content_length`: 150 chars/line (balance readability and token economy)
+- `max_file_size`: 100KB per file (skip larger files to prevent processing overhead)
+- `max_results`: 20 results default — prevents excessive output
+- `max_depth`: 10 directory depth default (range: 1–50) — prevents infinite recursion into nested directories
+- `MAX_LINES_PER_FILE`: 5,000 line limit per file in processing loop — prevents hanging on large files
+
 **Test Case:** `grep_files(pattern="." , max_results=500)` → Should be capped at default limit (20)
 
 ---

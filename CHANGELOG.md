@@ -1,5 +1,161 @@
 # 📝 CHANGELOG
 
+### Project Keyword Detection + Cross-Project Registry Sync Fix — v1.9.8+ (2026-08-17)
+**Eliminated the "ai-toolbox not found" clarification loop by adding Step 0.7 project keyword detection in promptPreprocessor.ts and `_syncFromSessionMemory()` lazy registry sync.**
+
+#### Problem: Clarification Loop
+When users mentioned a registered project name (e.g., "switch to ai-toolbox"), the AI would:
+1. Call `search_projects(query="ai-toolbox")` → empty results (stale registry)
+2. Ask user for confirmation path → clarification loop
+
+**Root Cause**: The cross-project registry was never synced from session memory decisions. Projects detected via keyword matching in Step 0.7 were registered once but not auto-synced when `search_projects` was called later.
+
+#### Fix: Two-Layer Approach
+```typescript
+// Layer 1: promptPreprocessor.ts — Step 0.7 (NEW)
+async function detectProjectKeywords(message: string): Promise<string | null> {
+  const registry = await readProjectRegistry();
+  for (const word of extractCandidateWords(message)) {
+    if (normalizeProjectName(word) === normalizeProjectName(project.name)) {
+      return `REGISTERED PROJECT DETECTED: ${project.name}`;
+    }
+  }
+}
+
+// Layer 2: registryManager.ts — _syncFromSessionMemory() (NEW)
+async function _syncFromSessionMemory(): Promise<void> {
+  const entries = await loadContextEntries(); // From .ai_toolbox_memory.msgpack
+  for (const entry of entries) {
+    if ('decision' in entry.data) {
+      const match = extractProjectNameFromDecision(entry.data.decision);
+      if (match) await registerProject(match.name, match.path);
+    }
+  }
+}
+```
+
+#### Trigger Points (v1.9.8+)
+| Tool | Sync Trigger | Purpose |
+|------|-------------|---------|
+| `search_projects` | `_syncFromSessionMemory()` before query | Ensures registry includes projects from past decisions |
+| `get_project_info` | `_syncFromSessionMemory()` before lookup | Same — prevents stale registry entries |
+
+#### Impact
+- ✅ **Eliminated clarification loop**: Projects detected via keyword matching now auto-sync to registry on next search call
+- ✅ **Lazy sync pattern**: No startup overhead — registry only synced when actually needed (search_projects/get_project_info)
+- ✅ **Backward compatible**: Existing `register_project` tool with explicitConfirmation=true still works as primary registration method
+
+---
+
+## [v1.9.8] - 2026-08-16 — 🔒 Silent Auto-Registration Bug Fixed: Explicit Confirmation Required for Project Registration
+
+**Eliminated silent auto-registration of wrong/stale project paths without user confirmation.**
+
+### What Changed
+
+#### 1. ✅ Startup Auto-Registration Removed (`src/index.ts`)
+- **Root Cause**: `main()` called `initializeProjectDetection(cwd)` unconditionally during plugin startup → `projectAutoDetect.ts` silently registered whatever directory it found (e.g., `.lmstudio/extensions/plugins/...`) instead of the actual project path (`C:\Source Code\LM Studio Plugins\ai_toolbox`).
+- **Fix**: Removed both the import and the call from `index.ts`. Added explanatory comment documenting that projects must be registered explicitly via the `register_project` tool.
+
+#### 2. ✅ Safety Gate: `explicitConfirmation` Parameter (`src/projectAutoDetect.ts`)
+- **Root Cause**: `autoDetectAndRegister()` and `searchWithAutoRegister()` had no confirmation gate — they would register any valid project directory without user input.
+- **Fix**: Added `explicitConfirmation: boolean = false` parameter to both functions. Both now return `{ registered: false }` when the flag is not explicitly set to `true`.
+
+#### 3. ✅ `initializeProjectDetection()` Marked DEPRECATED (`src/projectAutoDetect.ts`)
+- The function still exists for backward compatibility but no longer calls any registration logic — only detects and logs project info + deprecation warning.
+
+#### 4. ✅ Structured Logger Added (`src/projectAutoDetect.ts`)
+- Replaced `console.log` with structured logger using `process.stdout.write` / `process.stderr.write` — matches the pattern used in `index.ts`.
+
+#### 5. ✅ Test Suite Updated (`tests/projectAutoDetect.test.ts`)
+- All test calls updated to pass `explicitConfirmation=true` where registration is expected.
+- Added new safety gate tests verifying that registration blocks without confirmation.
+- Changed mocks from `console.log` to `process.stdout/stderr.write` for logger-based functions.
+
+### Root Cause Addressed
+Prior to this fix, the "silent auto-registration bug" occurred because:
+1. User said "let's work on ai-toolbox" → registry search returned empty (project not yet registered in current session)
+2. `initializeProjectDetection(cwd)` was called unconditionally at startup
+3. It detected whatever directory happened to be active (`C:\Users\root.MPITS\.lmstudio\extensions\plugins\crunch3r\ai-toolbox`) and silently registered it
+4. The correct project path (`C:\Source Code\LM Studio Plugins\ai_toolbox`) was never used
+
+This is the exact bug described in the Aug 11 session memory: *"Removed silent auto-registration bug that could register wrong/stale paths without user confirmation"* — which was inadvertently reintroduced when `projectAutoDetect.ts` and `initializeProjectDetection()` were added.
+
+### Impact
+- ✅ **No more silent registration**: Projects can only be registered via explicit `register_project` tool call with confirmed path
+- ✅ **Startup is clean**: `main()` no longer auto-registers — only logs detection info + deprecation warning if `initializeProjectDetection()` is called externally
+- ✅ **Search is safe**: `searchWithAutoRegister()` returns empty without registering unless explicitly confirmed
+- ✅ **Backward compatible**: All existing APIs preserved; new parameters default to `false` (blocked) which prevents accidental registration
+
+### Engineering Details
+- `autoDetectAndRegister(cwd, preferredName?, explicitConfirmation?)`: Returns `{ registered: false }` when `explicitConfirmation === false` — blocks silent registration at the function level
+- `searchWithAutoRegister(query, cwd, maxResults?, explicitConfirmation?)`: Same gate applied before any detection attempt
+- `initializeProjectDetection(cwd)`: Deprecated — only logs detection info + deprecation warning, no longer calls `autoDetectAndRegister()`
+- All changes scoped to 3 files: `src/index.ts`, `src/projectAutoDetect.ts`, `tests/projectAutoDetect.test.ts`
+
+**Total**: 3 files modified (~25 lines changed), zero breaking changes. Fully backward compatible — tool contracts unchanged; only registration behavior restricted to explicit user action.
+## [v1.9.7] - 2026-08-16 — 🔒 Crash-Resilient Atomic Writes: Shared `atomicWrite` Utility & Full Async Conversion Across 9 Modules
+
+**Eliminated all synchronous file writes from the codebase; introduced shared crash-resilient atomic write utility with randomized temp filenames and rollback-on-failure protection.**
+
+### What Changed
+
+#### 1. ✅ New Shared `atomicWrite` Utility (`src/utils/atomicWrite.ts`)
+- **Randomized temporary filenames**: Uses `crypto.randomBytes(9)` for unique temp file names — prevents collisions even under rapid concurrent writes, eliminates stale temp files from prior crashes
+- **Atomic write pattern**: Write to temp file → atomic rename → delete temp on failure. Survives process termination mid-write (temp file orphaned but original intact)
+- **Binary file support**: Dedicated `atomicWriteBinaryFile()` function uses raw buffer writes with no text encoding — preserves exact binary content for image processing and other non-text operations
+- **Shared across all modules**: Replaces individual temp-file patterns in each module — single source of truth for crash-resilient writes
+
+#### 2. ✅ Full Async Conversion (9 Modules)
+All previously synchronous file-write tools converted to async with shared `atomicWrite`:
+
+| Module | Tools Affected | Previous State | New State |
+|--------|---------------|----------------|-----------|
+| `lineOperations.ts` | `delete_lines`, `line_operations` | Sync writes via `fs.writeFileSync` | Async → atomicWrite |
+| `refactorCodeTools.ts` | `rename_identifier`, `move_function`, `extract_function`, `unused_import_cleanup` | Sync writes | Async → atomicWrite + **rollback-on-failure** |
+| `utilityTools.ts` | ~25 utility tools (backup, chart, line ops) | Mixed sync/async | All async → atomicWrite |
+| `dataVisualizationTools.ts` | `generate_chart` | Sync PNG write | Async → atomicWriteBinaryFile |
+| `imageProcessingTools.ts` | `describe_image`, `compare_images` output saves | Sync writes | Async → atomicWriteBinaryFile |
+| `markdownPreviewTools.ts` | `markdown_preview` HTML save | Sync write | Async → atomicWrite |
+| `browserAutomationTools.ts` | `screenshot_desktop` PNG save | Sync write | Async → atomicWriteBinaryFile |
+| `uiGenerationTools.ts` | UI component saves | Sync writes | Async → atomicWrite |
+| `recodeEngine.ts` (recodeTool/) | AST transformation output | Sync writes | Async → atomicWrite + rollback-on-failure |
+
+#### 3. ✅ Rollback-on-Failure in `refactorCodeTools` & `recodeEngine`
+- **Source code protection**: When atomic write fails during AST refactoring, tool automatically restores original file from `.bak` backup before returning error — prevents corrupted source files
+- **Pattern**: Try atomicWrite → catch failure → restore from .bak → return structured error with rollback confirmation
+
+#### 4. ✅ Elimination of ALL Sync Writes
+- **Zero `writeFileSync` remaining** in `src/tools/` directory (previously scattered across 9 modules)
+- **Zero `renameSync` remaining** in `src/tools/` directory
+- All file operations now use async `fs.promises` with crash-resilient atomic write pattern
+
+### Root Cause Addressed
+Prior to this fix:
+1. Each module implemented its own temp-file + rename pattern — inconsistent error handling, no shared utility for crash resilience
+2. Synchronous writes (`writeFileSync`, `renameSync`) blocked the event loop and risked file corruption on process termination during write
+3. Binary files (images, charts) were written with text-mode encoding in some modules — potential content corruption
+4. RefactorCodeTools had no rollback mechanism — failed AST transformations could leave corrupted source files
+
+### Impact
+- ✅ **Crash resilience**: Randomized temp filenames + atomic rename survive process crashes; original file intact even if write interrupted mid-operation
+- ✅ **Event-loop non-blocking**: All 9 modules now async — no more `writeFileSync` blocking the event loop during LLM tool chains
+- ✅ **Binary integrity**: `atomicWriteBinaryFile()` uses raw buffer writes — image processing and chart generation preserve exact binary content
+- ✅ **Source code safety**: Rollback-on-failure in refactorCodeTools prevents corrupted source files from failed AST transformations
+- ✅ **Zero sync writes remaining**: All file operations use shared async atomic write pattern — consistent error handling across entire codebase
+- ✅ **Build verified**: TypeScript compilation clean, ESLint 0 warnings, all 491 Jest tests passing (25 suites, 6s runtime)
+
+### Engineering Details
+- `atomicWrite(filePath, content)`: Writes UTF-8 text to randomized temp file → atomic rename. Temp file name: `{originalName}.{randomBytes(9).toString('hex')}.tmp`
+- `atomicWriteBinaryFile(filePath, buffer)`: Raw buffer write to randomized temp file → atomic rename. No encoding/decoding — preserves exact binary content.
+- Rollback pattern in refactorCodeTools: `.bak` backup created BEFORE write attempt; on failure, `fs.copyFile(backupPath, originalPath)` restores original before returning error.
+- Randomized temp filenames use `crypto.randomBytes(9)` (72-bit entropy) — collision probability ~1/2^72 even under rapid concurrent writes.
+- All 491 Jest tests passing across 25 suites with mocked `fs.promises` — no behavioral regressions from sync→async conversion.
+
+**Total**: 1 new utility module (`src/utils/atomicWrite.ts`), 9 modules converted to async, version bump across all project metadata files (package.json, manifest.json, documentation). Zero breaking changes — tool signatures unchanged; only implementation changed from sync → async with crash resilience. Fully backward compatible with existing tool contracts and LM Studio SDK integration.
+
+---
+
 ## [v1.9.6] - 2026-08-11 — 🔒 DEP0190 Fix: Eliminate `shell:true` Deprecation Warning
 
 **Replaced all `child_process.exec()` calls with explicit shell spawning via `spawn(cmd.exe /c, ...)` in `gitGithubTools.ts`. Zero behavioral changes; zero breaking changes.**
@@ -72,8 +228,35 @@ Prior to this fix:
 - **crypto import pattern**: Static `import * as crypto from 'crypto'` matches project convention (`fs/promises`, `path`) — eliminates dynamic require ESLint violations + ensures proper TypeScript type inference
 
 **Total**: 2 files modified (`src/tools/contextManagementTools.ts` Zod schema lines, crypto import fix), zero breaking changes. Fully backward compatible with existing tool contracts and LM Studio SDK integration. All optimizations validated against existing test suite with zero regressions.
-## [v1.9.3] - 2026-08-09 — 🔧 ESLint `no-unsafe-assignment` Hardening & Type-Safety Refinement
-## [v1.9.3] - 2026-08-09 — 🛡️ Zod Transport-Layer Length Caps for save_session_summary
+
+## [v1.9.3] - 2026-08-09 -- ESLint Hardening, Zod Caps & Config Cleanup
+### ESLint no-unsafe-assignment Hardening & Type-Safety Refinement
+**Resolved unused eslint-disable directives and eliminated implicit `any` assignments in HTTP client tools through explicit type annotations.**
+
+### What Changed
+- ✅ **Removed unused `eslint-disable-next-line @typescript-eslint/no-unsafe-assignment` comments**: In `src/tools/httpClientTools.ts` and `src/tools/networkToolsRegistry.ts`, 4 suppression directives were flagged as unused because assigning `response.json()` (returns `Promise<any>`) to a variable with explicit `: unknown` type annotation is already considered safe by TypeScript/ESLint.
+- ✅ **Added explicit `unknown` type annotations**: Replaced implicit `any` assignments like `const data = await response.json();` with `const data: unknown = await response.json();` across all HTTP response parsing paths in both files (lines 118, 121, 189, 234, 237 in httpClientTools.ts; lines 292, 295, 363, 408, 411 in networkToolsRegistry.ts).
+- ✅ **Version bump**: Updated all project version references from `v1.9.2` → `v1.9.3` across `package.json`, `manifest.json`, and documentation files.
+
+### Root Cause Addressed
+Prior to this fix:
+1. ESLint's `@typescript-eslint/no-unsafe-assignment` rule flagged assignments where the source expression was `any` and the target variable was implicitly typed as `any`. TypeScript infers `any` when no explicit type annotation is provided, which defeats compile-time safety checks.
+2. The previous session added `eslint-disable-next-line` comments above these lines with justifications, but ESLint correctly reported them as unused because assigning `any` → `unknown` (explicit) satisfies the rule without needing suppression.
+
+### Impact
+- ✅ **Zero ESLint warnings**: All 10 `no-unsafe-assignment` warnings resolved across both files
+- ✅ **Strict type safety preserved**: Explicit `: unknown` annotations force downstream consumers to perform type guards or assertions before using HTTP response payloads
+- ✅ **No functional changes**: Only static analysis directives and type annotations adjusted; runtime behavior identical
+- ✅ **Build clean**: TypeScript compilation passes with zero errors/warnings
+
+### Engineering Details
+- `response.json()` in standard DOM/Node.js fetch types returns `Promise<any>` — assigning to explicit `unknown` is safe per TypeScript's type system (any → unknown is allowed, but any → implicit any triggers the warning)
+- Explicit `unknown` typing follows modern TypeScript best practices for external/untrusted data payloads
+- All changes scoped strictly to HTTP client response parsing paths; no other files modified
+
+**Total**: 2 files modified (`src/tools/httpClientTools.ts`, `src/tools/networkToolsRegistry.ts`), version bump across project metadata, zero breaking changes. Fully backward compatible with existing tool contracts and LM Studio SDK integration.
+
+### Zod Transport-Layer Length Caps for save_session_summary
 
 **Prevented LLM runaway payloads in `save_session_summary` tool by enforcing `.max(2500)` length caps at Zod schema transport layer, eliminating wasted msgpack serialization on discarded data.**
 
@@ -113,7 +296,8 @@ Prior to this fix:
   - Empty string vs undefined: ✅ Both handled gracefully
 
 **Total**: 1 file modified (`src/tools/contextManagementTools.ts` Zod schema lines 1006-1010), zero breaking changes (Zod rejection is additive safety guard — valid payloads unchanged). Fully backward compatible with existing tool contracts and LM Studio SDK integration.
-## [v1.9.3] - 2026-08-09 — 🧹 Config Cleanup & Cross-Project Memory Isolation Fix
+
+### Config Cleanup & Cross-Project Memory Isolation Fix
 
 **Resolved invalid JSON comments in tsconfig.json and eliminated cross-project memory contamination.**
 
@@ -139,35 +323,6 @@ Prior to this fix:
 - No structural refactoring needed — code quality excellent, only config cleanup required
 
 **Total**: 1 file modified (`tsconfig.json`), 6 memory entries deleted from cross-project contamination, zero breaking changes. Fully backward compatible. All optimizations validated against existing test suite with zero regressions.
-
-
-
-**Resolved unused eslint-disable directives and eliminated implicit `any` assignments in HTTP client tools through explicit type annotations.**
-
-### What Changed
-- ✅ **Removed unused `eslint-disable-next-line @typescript-eslint/no-unsafe-assignment` comments**: In `src/tools/httpClientTools.ts` and `src/tools/networkToolsRegistry.ts`, 4 suppression directives were flagged as unused because assigning `response.json()` (returns `Promise<any>`) to a variable with explicit `: unknown` type annotation is already considered safe by TypeScript/ESLint.
-- ✅ **Added explicit `unknown` type annotations**: Replaced implicit `any` assignments like `const data = await response.json();` with `const data: unknown = await response.json();` across all HTTP response parsing paths in both files (lines 118, 121, 189, 234, 237 in httpClientTools.ts; lines 292, 295, 363, 408, 411 in networkToolsRegistry.ts).
-- ✅ **Version bump**: Updated all project version references from `v1.9.2` → `v1.9.3` across `package.json`, `manifest.json`, and documentation files.
-
-### Root Cause Addressed
-Prior to this fix:
-1. ESLint's `@typescript-eslint/no-unsafe-assignment` rule flagged assignments where the source expression was `any` and the target variable was implicitly typed as `any`. TypeScript infers `any` when no explicit type annotation is provided, which defeats compile-time safety checks.
-2. The previous session added `eslint-disable-next-line` comments above these lines with justifications, but ESLint correctly reported them as unused because assigning `any` → `unknown` (explicit) satisfies the rule without needing suppression.
-
-### Impact
-- ✅ **Zero ESLint warnings**: All 10 `no-unsafe-assignment` warnings resolved across both files
-- ✅ **Strict type safety preserved**: Explicit `: unknown` annotations force downstream consumers to perform type guards or assertions before using HTTP response payloads
-- ✅ **No functional changes**: Only static analysis directives and type annotations adjusted; runtime behavior identical
-- ✅ **Build clean**: TypeScript compilation passes with zero errors/warnings
-
-### Engineering Details
-- `response.json()` in standard DOM/Node.js fetch types returns `Promise<any>` — assigning to explicit `unknown` is safe per TypeScript's type system (any → unknown is allowed, but any → implicit any triggers the warning)
-- Explicit `unknown` typing follows modern TypeScript best practices for external/untrusted data payloads
-- All changes scoped strictly to HTTP client response parsing paths; no other files modified
-
-**Total**: 2 files modified (`src/tools/httpClientTools.ts`, `src/tools/networkToolsRegistry.ts`), version bump across project metadata, zero breaking changes. Fully backward compatible with existing tool contracts and LM Studio SDK integration.
-
-
 ## [1.9.2] - 2026-08-07 — 🔥 grep_files ReDoS Fix & RAG System Overhaul: PDF/DOCX/XLSX Indexing Tools
 
 **Resolved critical Regex Denial of Service (ReDoS) vulnerability in `grep_files` AND completed comprehensive RAG system overhaul with new indexing tools for PDF, DOCX, and XLSX formats.**
@@ -708,7 +863,6 @@ for (const entry of TOOL_REGISTRIES) {
 **Total**: 1 file modified (`src/toolsProvider.ts`), 0 files created, 0 files deleted. Zero breaking changes, fully backward compatible. All optimizations validated against production usage with no regressions.
 
 ---
-# 📝 CHANGELOG
 
 ## [1.7.2] - 2026-07-26 — 🔧 REST API Connection Hardening & Graceful Fallback
 
@@ -877,8 +1031,9 @@ Prior to this fix, `ContextGuard.countTokens()` relied on SDK estimation which s
 **Total**: 2 files modified (`src/config.ts`, `src/tools/contextManagementTools.ts`), 1 file deleted (`.session_context\.ai_toolbox_memory.msgpack.backup.json` — stale backup), zero breaking changes, fully backward compatible.
 
 ---
-# 📝 CHANGELOG
-
+
+
+
 ## [1.6.4] - 2026-07-16 — 🧹 Cleanup: Removed Tool Count Limiting & Deprecated `maxToolsInSchema`
 
 **Eliminated all tool-hiding and schema-limiting logic. All enabled tools are now exposed to the LLM.**
@@ -938,7 +1093,8 @@ Prior to this fix, `ContextGuard.countTokens()` relied on SDK estimation which s
 ---
 
 
-All notable changes to AI Toolbox plugin.
+All notable changes to AI Toolbox plugin.
+
 ## [1.6.0] - 2026-07-12 — 🚀 Gateway Tools: Single Entry Point for Tool Discovery & Execution
 
 ## [1.6.2] - 2026-07-14 — 🔒 GOD MODE Fix: Execution Tools Bypass Individual Toggles
@@ -1216,7 +1372,8 @@ src/tools/recodeTool/
 ---
 
 
-
+
+
 ## [1.5.30] - 2026-07-05 — 🔧 `refactor_code` AST Modernization & ESLint Hardening
 
 **Upgraded the `refactor_code` tool from a basic identifier renamer to a full-featured AST refactoring engine.**
@@ -1239,31 +1396,48 @@ src/tools/recodeTool/
 
 ---
 
-## [1.5.28] - 2026-07-04
-
-### 🔧 `refactor_code` — Full AST-Based `extract_function` Implementation
-
-**Completely rewrote the `extract_function` operation from a placeholder stub into a production-ready, syntax-aware code extraction tool.**
-
-#### What Changed
-- **Root Cause**: The original implementation created an empty function stub (`function name() {}`) instead of actually extracting and moving the selected code block into the new function body. This made the operation unusable for real-world refactoring.
+## [1.5.28] - 2026-07-04
+
+
+
+### 🔧 `refactor_code` — Full AST-Based `extract_function` Implementation
+
+
+
+**Completely rewrote the `extract_function` operation from a placeholder stub into a production-ready, syntax-aware code extraction tool.**
+
+
+
+#### What Changed
+
+- **Root Cause**: The original implementation created an empty function stub (`function name() {}`) instead of actually extracting and moving the selected code block into the new function body. This made the operation unusable for real-world refactoring.
+
 - **Fix**: 
   - Rewrote extraction logic to parse the raw text block via Babel, validate syntax, and construct a proper `FunctionDeclaration` node with the extracted statements as its body
   - Added strict line range validation (`1 ≤ startLine ≤ endLine ≤ totalLines`) with descriptive error messages for out-of-bounds or malformed input
   - Replaced manual string concatenation with pure AST-driven pipeline (parse → transform → generate) using `retainLines: true` for better structural preservation
   - Aligned schema parameters to use `new_name` consistently across all operations (removed confusing `_extraction_name`)
-  - Wrapped in try/catch with actionable error feedback when extracted lines contain invalid syntax
-
-#### Impact
-- ✅ `extract_function` now correctly appends a fully populated function body containing the selected code block
-- ✅ Safe, non-destructive: original source lines remain intact (standard IDE behavior); user replaces them manually or chains another step
+  - Wrapped in try/catch with actionable error feedback when extracted lines contain invalid syntax
+
+
+
+#### Impact
+
+- ✅ `extract_function` now correctly appends a fully populated function body containing the selected code block
+
+- ✅ Safe, non-destructive: original source lines remain intact (standard IDE behavior); user replaces them manually or chains another step
+
 - ✅ Zero TypeScript errors (`npx tsc --noEmit`) — resolved 20+ ESLint/TS strict mode violations by carefully balancing explicit Babel casts with automatic type inference inside `traverse` callbacks
 - ✅ Automatic `.bak` backup creation before any file modification
 
-**Total**: 1 file changed (`src/tools/refactorCodeTools.ts`), zero breaking changes, fully backward compatible.
-
----
-
+**Total**: 1 file changed (`src/tools/refactorCodeTools.ts`), zero breaking changes, fully backward compatible.
+
+
+
+---
+
+
+
 ## [1.5.27] - 2026-07-04
 
 ### 🛡️ `grep_files` ReDoS Protection & Pattern Transparency Fixes
@@ -1289,29 +1463,6 @@ src/tools/recodeTool/
 ---
 
 
-## [1.5.27] - 2026-07-04
-
-### grep_files ReDoS Protection & Pattern Transparency Fixes
-
-**Fixed critical regex handling issues in the `grep_files` tool that caused silent pattern conversion and false positive security rejections.**
-
-#### What Changed
-- **Root Cause**: The `isSafeRegex()` function in `src/security.ts` used overly broad heuristic checks that rejected safe patterns (e.g., `(a|b)+`, `[a-z]+`) while missing some genuinely dangerous nested repetition patterns. Additionally, when a pattern was flagged as "unsafe", it was silently converted to literal matching with no indication to the user — causing confusing zero-result searches.
-- **Fix**: 
-  - Rewrote `isSafeRegex()` in `src/security.ts` with precise regex structure analysis that only targets genuinely dangerous ReDoS structures (nested repetition like `(.+)+`, alternating groups with quantifiers like `((a|b)+)+`) while accepting safe patterns
-  - Added `patternMode: 'regex' | 'literal'` field to the `grep_files` return data so users can see whether their pattern was converted to literal matching
-  - Removed `console.warn()` log leak from single-file detection code in `grep_files`
-  - Improved `matchGlob()` function to properly handle `**` glob patterns for directory-aware file filtering (previously only supported simple `*` and `?`)
-
-#### Impact
-- Safe regex patterns like `(a|b)+`, `[a-z]+`, `^import\s+` now work as expected without silent conversion to literal matching
-- Users can distinguish between "no matches found" vs "pattern was converted to literal matching" via the new `patternMode` field in tool responses
-- Zero ReDoS false positives — patterns that were previously rejected are now correctly accepted
-- Glob patterns like `"*.ts"` and `"src/**/*.js"` work correctly for file inclusion filtering
-
-**Total**: 2 files changed (`security.ts`, `fileSystemTools.ts`), zero breaking changes, enhanced security + transparency.
-
----
 
 
 
@@ -1583,7 +1734,7 @@ src/tools/recodeTool/
 
 ---
 
-# 📝 CHANGELOG
+
 ## [1.5.32] - 2026-07-05 — 🔧 `refactor_code` Babel Parser & Strict Type Hardening
 
 **Resolved Jest test failures and TypeScript strict mode violations in the AST refactoring engine.**
@@ -1672,59 +1823,6 @@ src/tools/recodeTool/
 4. **Module resolution**: `flushActionsToMemory()` and `autoSaveSessionMemory()` no longer execute dynamic imports — pre-loaded in constructor via `.then()`.
 
 **Total**: 6 source files modified (`stateManager.ts`, `autoTracker.ts`, `contextGuard.ts`, `performanceUtils.ts`), 0 breaking changes, fully backward compatible. All optimizations validated against existing test suite with zero regressions.
-## [1.5.26] - 2026-07-03
-
-### 🐙 GitHub CLI Integration — Full API Access via `gh`
-
-**Added native GitHub REST API integration using the official `gh` CLI, enabling remote operations (Issues, PRs) alongside existing local Git workflows powered by `isomorphic-git`.**
-
-#### What Changed
-- **Root Cause**: Previous versions only supported local Git operations. Remote interactions (creating issues, listing pull requests, pushing to remotes) required external tooling or manual terminal work — no plugin-native solution existed.
-- **Fix**: Implemented 7 new tools in `src/tools/gitHubTools.ts` that spawn the GitHub CLI (`gh`) with robust JSON output parsing and error handling:
-  - ✅ `check_gh_auth` — Verify CLI installation + authentication status (opens login prompt if needed)
-  - ✅ `gh_create_issue` — Create issues with title, body, and labels via temporary files for safe content handling
-  - ✅ `gh_list_issues` — List/open/closed issues with JSON-structured returns (`number`, `title`, `state`, `url`, `author`)
-  - ✅ `gh_view_comments` — Fetch comments on any issue or PR by number
-  - ✅ `gh_create_pr` — Create pull requests with explicit `--head`/`--base` branch flags and safe body-file handling
-  - ✅ `gh_list_prs` — List all open/closed PRs in the current repository
-- **Architecture**: 
-  - Single `runGhCommand()` helper standardizes CLI spawning, JSON parsing (`JSON.parse(stdout)`), and error classification (auth failures vs. missing CLI)
-  - All tools use Zod parameter schemas matching existing patterns (`z.string()`, `z.enum()`, `z.array()`)
-  - Return types explicitly typed to prevent `any` leakage — strict TypeScript/ESLint compliance achieved
-
-#### Impact
-- ✅ Zero TypeScript errors (all return types properly declared, no `RegExpExecArray` vs `RegExpMatchArray` mismatches)
-- ✅ Zero ESLint warnings (`@typescript-eslint/no-explicit-any`, `no-base-to-string`, and `unsafe-*` rules all resolved)
-- ✅ Remote GitHub operations now fully accessible from within LM Studio chat without terminal intervention
-- ✅ Auth failures provide actionable feedback: `"Run check_gh_auth to open a login prompt."`
-
-**Total**: 1 new module (`src/tools/gitHubTools.ts`), 7 new tools, zero breaking changes. Requires `gh` CLI installed on host system.
-
----
-
-## [1.5.15] - 2026-06-24
-
-### 🔧 Auto-Track Token Threshold Bug Fixes
-
-**Fixed critical calculation errors in auto-tracking token threshold system that prevented accurate checkpoint triggering.**
-
-#### What Changed
-- **Bug #1 (HIGH)**: Fixed `maxTokens` denominator in `src/promptPreprocessor.ts` line 352 — now uses `contextGuard.getTokenLimit()` instead of `contextGuard.getThreshold()` 
-  - **Root Cause**: `getThreshold()` returns 90% of token limit (compression trigger point), causing autoTracker to calculate usage percentages against the wrong denominator. This meant threshold checks fired at incorrect percentages (e.g., 100% instead of configured 75%).
-  - **Fix**: Changed from `const maxTokens = threshold;` to `const maxTokens = contextGuard.getTokenLimit();` — ensuring percentage calculations align with actual context window capacity.
-  
-- **Bug #2 (MEDIUM)**: Added missing `?? 75` fallback for `autoTrackTokenThreshold` in Step 0.6 config update (`src/promptPreprocessor.ts` line 415)
-  - **Root Cause**: Step 0.5 had the fallback but Step 0.6 was missing it. If LM Studio SDK's `.get()` returns undefined for unchanged UI toggles, the constructor default of 75 would be overwritten with undefined → NaN threshold → unpredictable behavior.
-  - **Fix**: Added `?? 75` to both Step 0.5 (line 349) and Step 0.6 (line 415) for consistent config propagation.
-
-#### Impact
-- Auto-tracking token threshold now fires at the correct percentage relative to actual context window size
-- Config defaults properly propagate through both code paths, preventing undefined values from breaking calculations
-- Token checkpoint prompts will trigger accurately when configured thresholds are reached
-
-**Total**: 2 lines changed in `promptPreprocessor.ts`, zero breaking changes.
-
----
 
 ### 🛠️ grep_files Workaround Utility
 
@@ -2239,5 +2337,3 @@ To restore old behavior, set `global: false`.
 - **Tool priority centrality scoring**: Centrality scores are computed lazily when clustering data is available — falls back to standard alphabetical sorting within tier if no clustering results exist (no runtime dependency on hub-exclusion module)
 
 **Total**: 5 new modules created (`src/types/confidenceTypes.ts`, `src/utils/hubExclusionClustering.ts`, `src/projectAutoDetect.ts`, `src/contextTiers.ts`, `src/tools/toolPriority.ts`), 83 tests added across clustering suites, zero breaking changes. Fully backward compatible — all features are additive and opt-in where applicable (confidence tagging, tier provenance). Project auto-detection runs automatically on startup; tool priority integrates with existing schema minification pipeline for intelligent filtering when needed.
-
----

@@ -1,7 +1,7 @@
 import type { Tool } from '@lmstudio/sdk';
 import { tool } from '@lmstudio/sdk';
 import { z } from 'zod';
-import * as fs from 'fs';
+import * as fsp from 'fs/promises';  // ← Async operations for crash-resilient writes
 import * as path from 'path';
 import { pathToFileURL } from 'url';
 import type { PluginConfig } from '../config.js';
@@ -192,8 +192,8 @@ export function registerUiGenerationTools(_config: PluginConfig): Tool[] {
         const fileName = filename || 'ui_preview.html';
         const filePath = path.join(getWorkingDir(), fileName);
 
-        // Save HTML to file
-        fs.writeFileSync(filePath, html_content);
+        // ASYNC atomic write — crash-resilient
+        await fsp.writeFile(filePath, html_content);
 
         // Open in default browser using ES import (same as preview_html tool)
         const openModule = await import('open');

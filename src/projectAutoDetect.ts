@@ -1,19 +1,29 @@
 /**
- * Project Auto-Detection & Registration Module
+ * Project Auto-Detection & Registration Module (v1.9.8+)
  * 
- * Fixes the "project not found" issue when searching by name in a multi-project environment.
- * Automatically detects and registers projects in the current working directory if they're
- * missing from the registry, using user-mentioned names as strong signals for registration.
+ * ⚠️ IMPORTANT: Silent auto-registration has been REMOVED as of v1.9.8.
+ * Projects must be registered explicitly via the register_project tool with user confirmation.
+ * This module only provides detection utilities and explicit registration functions —
+ * NO automatic registration occurs during plugin startup or search operations.
  * 
- * Workflow:
- * 1. User mentions project name (e.g., "ai-toolbox")
- * 2. System searches Cross-Project Registry
- * 3. If empty → auto-detects cwd as project and registers it
+ * Workflow (v1.9.8+):
+ * 1. User mentions project name → searches Cross-Project Registry
+ * 2. If empty → LLM asks user for confirmed working directory path
+ * 3. User confirms → register_project tool called explicitly with confirmation flag
  * 4. Searches again with normalized name (hyphen ↔ underscore)
  */
 
 import fs from 'node:fs';
 import path from 'node:path';
+
+// ==================== Structured Logging ====================
+
+/** Lightweight logger — mirrors the pattern in index.ts */
+const logger = {
+  info: (msg: string) => typeof process.stdout.write === 'function' && process.stdout.write(`[ProjectAutoDetect] ${msg}\n`),
+  warn: (msg: string) => typeof process.stderr.write === 'function' && process.stderr.write(`[ProjectAutoDetect WARN] ${msg}\n`),
+  error: (msg: string) => typeof process.stderr.write === 'function' && process.stderr.write(`[ProjectAutoDetect ERROR] ${msg}\n`),
+};
 
 // ==================== Type Definitions ====================
 
@@ -199,15 +209,32 @@ export function detectProjectFromPath(dirPath: string): ProjectDetectionResult {
 /**
  * Auto-detect and register the current working directory if it's a valid project.
  * 
+ * ⚠️ CRITICAL SAFETY GATE (v1.9.8 fix): This function MUST only be called explicitly
+ * by user-facing tools (register_project). It is NOT called during startup — that was
+ * a bug in v1.6–v1.9.7 where silent auto-registration registered wrong paths without
+ * confirmation. Registration now requires explicit user action via the register_project tool.
+ * 
  * Uses user-mentioned name as override if provided (stronger signal than auto-detected).
+ * 
+ * @param cwd - Current working directory to detect and register
+ * @param preferredName - User-provided project name (higher priority than auto-detected)
+ * @param explicitConfirmation - Must be true when called from user-facing tools. Prevents silent registration.
  */
 export function autoDetectAndRegister(
   cwd: string,
-  preferredName?: string
+  preferredName?: string,
+  explicitConfirmation: boolean = false
 ): { registered: boolean; projectName: string } {
   const detection = detectProjectFromPath(cwd);
   
   if (!detection.isValid) {
+    return { registered: false, projectName: '' };
+  }
+
+  // ⚠️ SAFETY CHECK: Require explicit confirmation when called from user-facing tools.
+  // This prevents silent auto-registration of wrong paths (v1.9.8 fix).
+  if (!explicitConfirmation) {
+    logger.warn(`[ProjectAutoDetect] Registration blocked — no explicit confirmation provided.`);
     return { registered: false, projectName: '' };
   }
 
@@ -292,59 +319,72 @@ export function enhancedSearchProjects(
 }
 
 /**
- * Search with auto-registration fallback.
+ * Search with explicit user-triggered registration fallback.
  * 
- * If no projects are found in the registry, automatically detects and registers
- * the current working directory before searching again.
+ * ⚠️ CRITICAL SAFETY GATE (v1.9.8 fix): This function MUST only be called explicitly
+ * by the LLM when the user asks to register a project. It no longer auto-registers silently.
+ * Registration requires explicitConfirmation=true — see autoDetectAndRegister().
+ * 
+ * If no projects are found in the registry, attempts to detect and register cwd
+ * ONLY if explicit confirmation is provided.
  */
 export async function searchWithAutoRegister(
   query: string,
   cwd: string,
-  maxResults: number = 10
+  maxResults: number = 10,
+  explicitConfirmation: boolean = false
 ): Promise<Array<{ name: string; path: string }>> {
   // First attempt: search registry as-is
   let results = await enhancedSearchProjects(query, maxResults);
   
   if (results.length === 0) {
-    console.log(`[ProjectAutoDetect] No projects found in registry. Auto-detecting current directory...`);
+    // ⚠️ SAFETY CHECK: Require explicit confirmation — no silent auto-registration.
+    if (!explicitConfirmation) {
+      logger.warn(`[ProjectAutoDetect] Registration blocked in searchWithAutoRegister — no explicit confirmation.`);
+      return results;  // Return empty, let the caller handle it (e.g., ask user for path)
+    }
     
-    // Auto-detect and register cwd
-    const autoDetected = autoDetectAndRegister(cwd, query);
+    logger.info(`[ProjectAutoDetect] No projects found. Attempting to register current directory...`);
+    
+    // Auto-detect and register cwd with explicit confirmation
+    const autoDetected = autoDetectAndRegister(cwd, query, true /* explicitConfirmation */);
     
     if (autoDetected.registered) {
-      console.log(`[ProjectAutoDetect] Registered "${autoDetected.projectName}" from CWD detection.`);
+      logger.info(`[ProjectAutoDetect] Registered "${autoDetected.projectName}" from CWD detection.`);
       
       // Search again with the newly registered project
       results = await enhancedSearchProjects(query, maxResults);
     } else {
-      console.log(`[ProjectAutoDetect] Current directory does not appear to be a valid project.`);
+      logger.warn(`[ProjectAutoDetect] Current directory does not appear to be a valid project.`);
     }
   }
   
   return results;
 }
 
-// ==================== Startup Initialization ====================
+// ==================== Startup Initialization (DEPRECATED — v1.9.8+) ====================
 
 /**
- * Initialize project detection on startup.
+ * ⚠️ DEPRECATED: initializeProjectDetection on startup.
  * 
- * Called automatically when the plugin loads to ensure the current working directory
- * is registered in the cross-project registry if it's a valid project.
+ * This function was removed from index.ts in v1.9.8 to prevent silent auto-registration
+ * of wrong/stale paths without user confirmation. It is retained for backward compatibility
+ * but will NOT register any project — it only detects and logs.
+ * 
+ * To register a project, use the explicit `register_project` tool with confirmation.
  */
 export function initializeProjectDetection(cwd: string): void {
   const detection = detectProjectFromPath(cwd);
   
   if (detection.isValid) {
-    console.log(`[ProjectAutoDetect] Detected project at startup:`);
-    console.log(`  Name: ${detection.name}`);
-    console.log(`  Path: ${detection.path}`);
-    console.log(`  Confidence: ${(detection.confidence * 100).toFixed(0)}%`);
-    
-    // Auto-register if not already registered (would check registry first in production)
-    autoDetectAndRegister(cwd, detection.name);
+    logger.info(`[ProjectAutoDetect] Detected project at startup:`);
+    logger.info(`  Name: ${detection.name}`);
+    logger.info(`  Path: ${detection.path}`);
+    logger.info(`  Confidence: ${(detection.confidence * 100).toFixed(0)}%`);
+    logger.warn(`[ProjectAutoDetect] ⚠️ Registration SKIPPED — silent auto-registration disabled in v1.9.8.`);
+    logger.warn(`[ProjectAutoDetect] Use the register_project tool explicitly to register this project.`);
   } else {
-    console.log(`[ProjectAutoDetect] Current directory does not appear to be a project.`);
+    logger.info(`[ProjectAutoDetect] Current directory does not appear to be a project.`);
   }
 }
 

@@ -52,7 +52,7 @@ export function isBinaryFile(content: string): boolean {
  */
 export function isSafeRegex(pattern: string): boolean {
   if (!pattern || pattern.length > 500) return false;
-  
+
   // Only flag genuinely dangerous ReDoS structures — not safe alternation or simple quantifiers.
   const dangerousStructures = [
     // Nested repetition: (.+)+, (a*)*, ((ab)+)+ — exponential backtracking risk
@@ -60,11 +60,11 @@ export function isSafeRegex(pattern: string): boolean {
     // Alternation inside group with quantifier: (a|b)+, ([a-z]+)+, etc.
     /\([^)]*\|[^)]*\)[+*]/,
   ];
-  
+
   for (const structure of dangerousStructures) {
     if (structure.test(pattern)) return false;
   }
-  
+
   // Fallback: check for known canonical ReDoS patterns as exact substrings.
   const dangerousPatterns = [
     '(.+)+',              // Classic repetition of repetition  
@@ -72,10 +72,22 @@ export function isSafeRegex(pattern: string): boolean {
     '(.*?)**',            // Group followed by double star (ReDoS)
     '(a|b)+',             // Alternation with repetition — can cause ReDoS in certain contexts
   ];
-  
+
   for (const dangerousPattern of dangerousPatterns) {
     if (pattern.includes(dangerousPattern)) return false;
   }
+
+  // CRITICAL FIX: Detect multiple consecutive quantified groups that can cause exponential backtracking.
+  // Patterns like [a-z]+[0-9]+[a-z]+ or \w+\s*\w+ on strings with many overlapping matches are dangerous.
+  const quantifierCount = (pattern.match(/[+*?]/g) || []).length;
+  if (quantifierCount > 5) {
+    return false; // More than 5 quantifiers is suspicious — likely ReDoS risk
+  }
+
+  // Detect multiple different quantified character classes in sequence.
+  // e.g., [a-z]+[0-9]+, \w+\s+, etc. Each pair of adjacent quantified groups increases backtracking risk.
+  const consecutiveQuantified = /\[[^\]]+\][+*]\s*\[[^\]]+\][+*]/.test(pattern);
+  if (consecutiveQuantified) return false;
 
   // FIX: Detect unescaped special chars in code-like patterns (e.g., C++ signatures with *, &, ->)
   // Patterns like "List*", "ptr->", "const&" are almost certainly literal code searches, not regex.
@@ -85,7 +97,7 @@ export function isSafeRegex(pattern: string): boolean {
   if (hasUnescapedCodeChar && looksLikeCodeSignature) {
     return false;  // Force literal/auto-escape mode in grep_files
   }
-  
+
   return true;
 }
 

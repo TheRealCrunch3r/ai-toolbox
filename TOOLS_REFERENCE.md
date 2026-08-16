@@ -1,6 +1,6 @@
 # 🛠️ AI Toolbox — Complete Tool Reference
 
-*Updated to reflect current state: **130 unique tools** dynamically registered across 24 modules (v1.9.6). Includes new v1.9.6 architectural features: Confidence-Tagged Results, Hub-Exclusion Clustering, Project Auto-Detection, Context Tier Provenance, and Cluster-Aware Tool Priority.*
+*Updated to reflect current state: **130 unique tools** dynamically registered across 24 modules (v1.9.8). Includes the Graphify-Inspired Suite (v1.9.5) — Confidence-Tagged Results, Hub-Exclusion Clustering, Project Auto-Detection, Context Tier Provenance, Cluster-Aware Tool Priority — plus v1.9.7 crash-resilient atomic writes and v1.9.8 hang prevention & registry sync.*
 
 ---
 
@@ -41,24 +41,60 @@
 | `list_directory` | List files and directories with optional depth control; supports recursive traversal |
 | `read_file` | Read file content with auto-chunking for large files; binary detection prevents corrupt output |
 | `read_file_chunked` | Read files in structured chunks returning start/end indices for streaming control |
-| `save_file` | Atomic write operations (temp-file-then-rename) with parent directory creation; batch save support |
+| `save_file` | Async atomic write operations via shared `atomicWrite` utility (`src/utils/atomicWrite.ts`) — randomized temp filenames prevent collisions, crash-resilient (original intact if interrupted); parent directory auto-creation; batch save support |
 
 ### Text Editing
 
 | Tool | Description |
 |------|-------------|
-| `replace_text_in_file` | Replace text globally or per-occurrence with backup, line-ending preservation, binary protection |
-| `insert_at_line` | Insert content at specific 1-indexed line number; CRLF/LF detection preserves Windows line endings |
-| `append_file` | Append text to file end (or create if missing); combined size limit enforcement (existing + new ≤ 10MB) |
-| `delete_lines_in_file` | Delete single or range of lines; default backup=true for irreversible operations |
+| `replace_text_in_file` | Replace text globally or per-occurrence with async atomic write + backup; line-ending preservation, binary protection, crash-resilient temp-file pattern |
+| `insert_at_line` | Insert content at specific 1-indexed line number; CRLF/LF detection preserves Windows line endings; async atomic write via shared utility |
+| `append_file` | Append text to file end (or create if missing); combined size limit enforcement (existing + new ≤ 10MB); async atomic write with crash resilience |
+| `delete_lines_in_file` | Delete single or range of lines; default backup=true for irreversible operations; async atomic write via shared utility |
 
 ### Directory & File Management
 
 | Tool | Description |
 |------|-------------|
 | `make_directory` | Create directory with recursive parent creation; idempotent (succeeds if exists) |
-| `move_file` | Move/rename files or directories using atomic rename with cross-filesystem copy+delete fallback |
-| `copy_file` | Copy file to new location with atomic write and parent directory auto-creation |
+| `move_file` | Move/rename files or directories using async atomic rename with cross-filesystem copy+delete fallback |
+| `copy_file` | Copy file to new location with async atomic write and parent directory auto-creation |
+| `delete_files_by_pattern` | Delete multiple files in the current directory matching a regex pattern |
+
+### ⚡ Crash-Resilient Atomic Writes (v1.9.7)
+
+**All file-modifying tools now use the shared `atomicWrite` utility (`src/utils/atomicWrite.ts`) for crash-resilient writes.**
+
+#### How It Works
+```typescript
+// Atomic write pattern: Write to temp → atomic rename → delete temp on failure
+const tempFile = `${originalPath}.${crypto.randomBytes(9).toString('hex')}.tmp`; // 72-bit entropy
+await fs.writeFile(tempFile, content);           // Write to randomized temp
+await fs.rename(tempFile, originalPath);          // Atomic rename (survives crashes)
+// If interrupted: temp file orphaned but original intact
+```
+
+#### Key Features
+- ✅ **Randomized temp filenames**: `crypto.randomBytes(9)` (72-bit entropy) — collision probability ~1/2^72 even under rapid concurrent writes
+- ✅ **Crash resilience**: Original file remains intact if process terminates mid-write; orphaned temp files don't corrupt data
+- ✅ **Binary support**: `atomicWriteBinaryFile()` uses raw buffer writes for image processing, chart generation, screenshots — no encoding corruption
+- ✅ **Rollback-on-failure**: `refactorCodeTools` and `recodeEngine` automatically restore from `.bak` backup if atomic write fails during AST transformations
+
+#### Converted Modules (v1.9.7)
+All 9 modules converted from sync writes to async atomic pattern:
+| Module | Tools | Pattern |
+|--------|-------|---------|
+| `lineOperations.ts` | delete_lines, line_operations | async → atomicWrite |
+| `refactorCodeTools.ts` | rename_identifier, move_function, extract_function, unused_import_cleanup | async → atomicWrite + rollback-on-failure |
+| `utilityTools.ts` | ~25 tools (backup, chart, etc.) | All async → atomicWrite |
+| `dataVisualizationTools.ts` | generate_chart | async → atomicWriteBinaryFile |
+| `imageProcessingTools.ts` | describe_image, compare_images saves | async → atomicWriteBinaryFile |
+| `markdownPreviewTools.ts` | markdown_preview HTML save | async → atomicWrite |
+| `browserAutomationTools.ts` | screenshot_desktop PNG save | async → atomicWriteBinaryFile |
+| `uiGenerationTools.ts` | UI component saves | async → atomicWrite |
+| `recodeEngine.ts` (recodeTool/) | AST transformation output | async → atomicWrite + rollback-on-failure |
+
+> **Note**: Zero `writeFileSync`/`renameSync` calls remain in `src/tools/`. All file operations use async `fs.promises` with crash-resilient atomic write pattern.
 | `delete_path` | Delete file or recursively delete directory with proper error handling |
 | `change_directory` | Set working directory for all subsequent file operations; validates path exists and is a directory |
 
@@ -69,6 +105,11 @@
 | `find_files` | Recursive filename search with async optimization and configurable depth limit (default: 5) |
 | `fuzzy_find_local_files` | Levenshtein-based fuzzy name matching with 60s caching; excludes large directories automatically |
 | `get_file_metadata` | Retrieve size, creation/modification/access timestamps via fs.stat() |
+| `analyze_project` | Project-wide analysis: TypeScript diagnostics, circular dependency detection, ESLint, config optimization, import structure (configurable max-imports warning) |
+| `file_diff` | Compare two files and return a unified diff with +/− markers and line numbers |
+| `directory_tree` | Visualize directory structure in tree format; supports max depth, optional file sizes, automatic exclusion of large directories |
+| `grep_files` | Regex or AST pattern search across files; ReDoS-validated patterns (top-level alternation split processing), include/exclude globs, context lines; **`max_depth`** parameter (default 10, range 1–50) + `MAX_LINES_PER_FILE=5000` hang prevention (v1.9.8+) |
+| `find_replace_all` | Regex search & replace across multiple files with dry-run preview, `.bak` backups, file-extension filter; **`max_depth`** enforcement (default 10, range 1–50) + `MAX_LINES_PER_FILE=5000` hang prevention (v1.9.8+) |
 
 ---
 
@@ -311,7 +352,7 @@ The `src/tools/recodeTool/` module implements a pluggable rule engine for advanc
 
 ## 🔍 Vector RAG (7)
 
-### Indexing Tools (3 new in v1.9.3)
+### Indexing Tools (3 new in v1.9.2)
 
 | Tool | Description |
 |------|-------------|
@@ -363,6 +404,10 @@ The `src/tools/recodeTool/` module implements a pluggable rule engine for advanc
 - 🔒 **Context Scoping**: Entries tagged with `global`/`project`/`session` scope for future isolation filtering
 - 📈 **Heuristic Retrieval**: Composite scoring `(Recency × 0.7) + (Frequency × 0.3)` ensures intelligent ordering
 - 🧹 **TTL Pruning**: Session-scoped entries expire after 24h and are automatically removed during retrieval
+
+**Cross-Project Registry (v1.9.8+):**
+- `search_projects` / `get_project_info` now call `_syncFromSessionMemory()` before lookup — auto-registers projects discovered from session memory decisions (`.ai_toolbox_memory.msgpack`) so the registry never returns stale empty results. Lazy pattern: no startup overhead.
+- `register_project` remains the primary explicit registration method (requires confirmed path). Silent auto-registration was removed in v1.9.8; Step 0.7 keyword detection in `promptPreprocessor.ts` surfaces registered projects on mention.
 
 ---
 
@@ -423,6 +468,12 @@ line_operations(
 - **Out-of-range rejection**: Rejects `target_line` outside valid range (1 to file length + 1)
 - **Multi-line splitting**: Splits content by `\n` into individual array elements (fixed bug where `\n` became literal characters on single line)
 - **Large insert blocking**: Blocks inserts >5 lines with suggestion to use `replace_text_in_file` instead
+
+#### 4. Hash-Based Post-Write Integrity Verification (v1.9.8+) — NEW
+**MD5 hash verification ensures file content was written correctly.** After writing content, the tool:
+1. Computes expected MD5 hash of final content before write (`crypto.createHash('md5')`)
+2. Reads back the file after write and computes actual MD5 hash
+3. Compares hashes — if mismatch → returns `success: false` with error showing both hashes
 
 **Test Results:** 9/9 test scenarios passed — zero regressions in existing delete/move operations.
 
@@ -569,15 +620,15 @@ All tools implement multiple security layers:
 
 ---
 
-*Reference generated from actual source code analysis on 2026-08-10 (v1.9.6). All tool counts verified against `toolsProvider.ts` registry entries and `src/tools/*.ts`. insert_at_line read-back drift detection documented with v1.8.8 hard fix. New v1.9.6 features: Confidence-Tagged Results, Hub-Exclusion Clustering (83 tests), Project Auto-Detection, Context Tier Provenance, Cluster-Aware Tool Priority.*
+*Reference updated from actual source code analysis on 2026-08-17 (v1.9.8). All tool counts verified against `toolsProvider.ts` registry entries and `src/tools/*.ts`. insert_at_line read-back drift detection documented with v1.8.8 hard fix. Graphify-Inspired Suite features (v1.9.5): Confidence-Tagged Results, Hub-Exclusion Clustering (83 tests), Project Auto-Detection, Context Tier Provenance, Cluster-Aware Tool Priority.*
 
 ---
 
-## 🆕 New Features — v1.9.6 (2026-08-10)
+## 🆕 New Features — v1.9.5 (2026-08-10)
 
 ### Graphify-Inspired Architectural Intelligence Suite
 
-Five new architectural modules added in v1.9.6 following graphify repository analysis patterns:
+Five new architectural modules added in v1.9.5 following graphify repository analysis patterns:
 
 #### 1. Confidence-Tagged Results (`src/types/confidenceTypes.ts`)
 **Typed confidence metadata attached to all tool execution outputs.**
@@ -606,7 +657,7 @@ Use cases: Architectural visualization, refactoring guidance (identify modules t
 #### 3. Project Auto-Detection (`src/projectAutoDetect.ts`)
 **Automatic project registration when cross-project registry searches return empty.**
 
-Confidence scoring signals: `package.json` (+0.4), `src/` or `lib/` (+0.3), `.git` (+0.1), build configs (+0.2). Name normalization handles hyphen↔underscore variants and scoped packages (`@lmstudio/ai-toolbox`). Auto-registration runs on plugin startup via `initializeProjectDetection()`.
+Confidence scoring signals: `package.json` (+0.4), `src/` or `lib/` (+0.3), `.git` (+0.1), build configs (+0.2). Name normalization handles hyphen↔underscore variants and scoped packages (`@lmstudio/ai-toolbox`). ⚠️ **DEPRECATED (v1.9.8+)**: `initializeProjectDetection()` no longer called from index.ts at startup. Registration requires explicitConfirmation=true via register_project tool. See src/index.ts comment: "NO AUTO-REGISTRATION ON STARTUP".
 
 #### 4. Context Tier Provenance (`src/contextTiers.ts`)
 **Typed provenance markers for tier-scoped context replacement.**

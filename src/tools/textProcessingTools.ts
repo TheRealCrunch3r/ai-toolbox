@@ -7,6 +7,7 @@ import type { Tool } from '@lmstudio/sdk';
 import { tool } from '@lmstudio/sdk';
 import { z } from 'zod';
 import * as fs from 'fs/promises';
+import { createHash } from 'crypto';
 import { recordFileModification } from './fileModTracker.js';
 import type { PluginConfig } from '../config.js';
 import { validatePath } from '../security.js';
@@ -479,16 +480,8 @@ EXAMPLE:
             if (actualNewLength !== expectedLength && !hasPatternContext) {
               // Return structured warning instead of console.log for LLM consumer to detect
               return { 
-                success: true, 
-                data: { 
-                  operations_performed: operation,
-                  changes_applied: insertLines.length,
-                  total_lines_before: linesArr.length - insertLines.length,
-                  total_lines_after: actualNewLength,
-                  warning: `Drift detected: After insert at line ${insert_line}, expected file length ~${expectedLength} but got ${actualNewLength}. Context may be stale.`,
-                  message: `${operation.charAt(0).toUpperCase() + operation.slice(1)} operation completed with drift warning`
-                },
-                backup_created: null,
+                success: false, 
+                error: `Drift detected: After insert at line ${insert_line}, expected file length ~${expectedLength} but got ${actualNewLength}. Context may be stale. Re-read with read_file and retry.`
               };
             }
 
@@ -549,8 +542,10 @@ EXAMPLE:
         }
 
         // ========== P1 FIX: Atomic Write (Bug #4) ==========
+        let expectedContentHash: string;
         try {
           const finalContent = hasCRLF_lo ? linesArr.join('\r\n') : linesArr.join('\n');
+          expectedContentHash = createHash('md5').update(finalContent).digest('hex');
           await writeFileAtomic(fullPath, finalContent);
         } catch (error) {
           return handleError(error);
@@ -568,6 +563,14 @@ EXAMPLE:
             return { 
               success: false, 
               error: `POST-WRITE VERIFICATION FAILED: Expected ${expectedLineCount} lines but file contains ${postWriteLines.length}. File may have been modified externally or write corrupted. Restore from backup if available.` 
+            };
+          }
+          // ========== Fix #1 (continued): Hash-based content integrity verification ==========
+          const actualContentHash = createHash('md5').update(postWriteContent).digest('hex');
+          if (actualContentHash !== expectedContentHash) {
+            return { 
+              success: false, 
+              error: `POST-WRITE CONTENT INTEGRITY FAILED: File content hash mismatch. Expected ${expectedContentHash} but got ${actualContentHash}. File may have been modified externally or write corrupted. Restore from backup if available.` 
             };
           }
         } catch (readError) {

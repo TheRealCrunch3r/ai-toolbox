@@ -124,7 +124,7 @@ export function main(context: PluginContext) {
 }
 ```
 
-### 2. Tool Registration Flow (Current State — v1.9.6)
+### 2. Tool Registration Flow (Current State — v1.9.8)
 
 ```
 toolsProvider() called by LM Studio SDK
@@ -646,17 +646,42 @@ promptPreprocessor()
 Final Prompt sent to LLM (with timestamp suffix)
 ```
 
-### Document RAG Flow
+### Prompt Preprocessor Flow (v1.9.8+)
 
 ```
-User Message + Attached Files
+User Message Arrives → Step 0: Attachments + Checkpoint Suffix
     │
     ▼
-promptPreprocessor()
+Step 0.5: ContextGuard Token Counting & Auto-Tracker Threshold Check
     │
-    ├── Detect directory paths ─────────► Inject confirmation prompt
+    ├── Count tokens via History Text Length × 0.25 (+10% buffer)
+    ├── autoTracker.checkAndGeneratePrompt() → threshold warning if ≥75% used
+    └── Inject checkpointSuffix into all return paths (unified injection)
     │
-    └── Document RAG enabled?
+    ▼
+Step 0.6: Auto-Tracker Checkpoint Reply Handling + Message Analysis
+    │
+    ├── Detect "YES"/"NO" reply to pending checkpoint prompt → flush/save memory
+    ├── Analyze message for tracking triggers (decisions, completions, errors)
+    └── Buffer actions for later flush at next threshold checkpoint
+    │
+    ▼
+Step 0.7: Project Keyword Detection ← NEW (v1.9.8+)
+    │
+    ├── Read project_registry.json from disk
+    ├── Extract candidate words from user message (filter stop-words)
+    ├── Match against registered projects with fuzzy normalization (hyphen↔underscore)
+    └── If matched → Inject "REGISTERED PROJECT DETECTED" confirmation prompt
+    │   (Ask user to switch working directory — prevents clarification loop)
+    │
+    ▼
+Step 1: Directory Path Detection ← Unchanged
+    │
+    ├── Detect Windows/Unix/Relative paths in message
+    └── If found → Inject "WORKING DIRECTORY DETECTED" confirmation prompt
+    │
+    ▼
+Step 2: Document RAG (if enabled)
             │
             ├── Yes: Load embedding model
             │         │
@@ -1097,8 +1122,8 @@ tests/                          # Jest test suite (25 suites)
 ├── fileSearch.test.ts          # Recursive file search with exclusion patterns tests
 ├── grep_files.test.ts          # Regex/Literal matching, ReDoS protection, performance tests
 ├── refactorCodeTools.test.ts   # AST-based refactoring & dry-run diff tests (v1.5.30+)
-├── hubExclusionClustering.test.ts # Hub-exclusion clustering algorithm verification (83 tests) — NEW v1.9.6
-└── projectAutoDetect.test.ts   # Project auto-detection & registration workflow tests — NEW v1.9.6
+├── hubExclusionClustering.test.ts # Hub-exclusion clustering algorithm verification (83 tests) — NEW v1.9.8
+└── projectAutoDetect.test.ts   # Project auto-detection & registration workflow tests — NEW v1.9.8
 ```
 
 ---
@@ -1134,12 +1159,12 @@ The following rule files are defined in the proposal but NOT yet created:
 - ⏳ `rules/securityHardener.ts` — Security pattern hardening
 - ⏳ `rules/duplicateCodeExtraction.ts` — Duplicate code detection & extraction
 
-### Implemented Rule Files (v1.9.6+)
+### Implemented Rule Files (v1.9.8+)
 
 The following rule files have been implemented and integrated into the Recode Engine:
 - ✅ `rules/asyncModernizer.ts` — Callback → async/await conversion (Tier 2)
 - ✅ `rules/typeInference.ts` — Type inference and annotation fixes (Tier 1)
-- ✅ `rules/modulePathNormalization.ts` — Module path normalization & validation (New v1.9.6)
+- ✅ `rules/modulePathNormalization.ts` — Module path normalization & validation (New v1.9.8)
 
 ---
 
@@ -1175,7 +1200,7 @@ All tool categories are now fully registered in `toolsProvider.ts` using the dec
 
 ---
 
-## 🧠 Graphify-Inspired Architectural Intelligence (v1.9.6)
+## 🧠 Graphify-Inspired Architectural Intelligence (v1.9.8)
 
 Five major architectural improvements inspired by graphify repository analysis — confidence-tagged results, hub-exclusion clustering, project auto-detection, context tier provenance, and cluster-aware tool priority ranking.
 
@@ -1294,13 +1319,13 @@ function normalizeProjectName(name: string): string;  // "ai-toolbox" → "ai_to
 function generateNameVariants(name: string): string[];  // "aitoolbox" → ["aitoolbox", "ai-tool-box"]
 ```
 
-#### Auto-Registration Flow
+#### ⚠️ Deprecated: `searchWithAutoRegister()` & `initializeProjectDetection()` (v1.9.8+)
 ```typescript
 async function searchWithAutoRegister(query, cwd, maxResults = 10): Promise<Array<{ name: string; path: string }>> {
   let results = await enhancedSearchProjects(query, maxResults);
   
   if (results.length === 0) {
-    const autoDetected = autoDetectAndRegister(cwd, query);
+    const autoDetected = autoDetectAndRegister(cwd, query, true /* explicitConfirmation */);
     
     if (autoDetected.registered) {
       results = await enhancedSearchProjects(query, maxResults);
@@ -1310,8 +1335,58 @@ async function searchWithAutoRegister(query, cwd, maxResults = 10): Promise<Arra
   return results;
 }
 
-function initializeProjectDetection(cwd: string): void;  // Called once during plugin load in index.ts
+function initializeProjectDetection(cwd: string): void;  // ⚠️ DEPRECATED (v1.9.8+): No longer called from index.ts at startup. Registration requires explicitConfirmation=true via register_project tool. See src/index.ts comment: "NO AUTO-REGISTRATION ON STARTUP"
 ```
+
+Both functions are **deprecated** as of v1.9.8+:
+- `searchWithAutoRegister()`: No longer called from any code path. Registration now requires explicit user confirmation via the `register_project` tool with confirmed path.
+- `initializeProjectDetection()`: Removed from startup flow in `index.ts`. Added explanatory comment: "NO AUTO-REGISTRATION ON STARTUP". Projects must be registered explicitly.
+
+#### ✅ New Flow: Project Keyword Detection (`promptPreprocessor.ts`) + Registry Sync (`_syncFromSessionMemory()`)
+```typescript
+// Step 0.7 in promptPreprocessor.ts (v1.9.8+) — NEW
+async function detectProjectKeywords(message: string): Promise<string | null> {
+  // 1. Read project_registry.json from disk
+  const registry = await readProjectRegistry();
+  
+  // 2. Extract candidate words from user message
+  const words = extractCandidateWords(message); // Filter stop-words, lowercase
+  
+  // 3. Fuzzy-match against registered projects (hyphen↔underscore normalization)
+  for (const word of words) {
+    for (const project of registry.projects) {
+      if (normalizeProjectName(word) === normalizeProjectName(project.name)) {
+        return `REGISTERED PROJECT DETECTED: ${project.name} at ${project.path}`;
+      }
+    }
+  }
+  
+  return null; // No match → fall through to directory detection (Step 1)
+}
+
+// _syncFromSessionMemory() in registry manager — NEW (v1.9.8+)
+async function _syncFromSessionMemory(): Promise<void> {
+  // Read .ai_toolbox_memory.msgpack from working dir and plugin root
+  const entries = await loadContextEntries();
+  
+  for (const entry of entries) {
+    if ('decision' in entry.data && typeof entry.data.decision === 'string') {
+      const decision = entry.data.decision as string;
+      
+      // Match project names from past decisions (e.g., "switched to ai-toolbox")
+      const match = extractProjectNameFromDecision(decision);
+      
+      if (match) {
+        await registerProject(match.name, match.path);
+      }
+    }
+  }
+}
+```
+
+This two-layer approach eliminates the clarification loop:
+1. **Step 0.7**: Immediate keyword detection on every message — no registry lookup needed at tool execution time
+2. **`_syncFromSessionMemory()`**: Lazy auto-sync from session memory when `search_projects` or `get_project_info` is called — ensures registered projects are always up-to-date without explicit user confirmation
 
 **Root Cause Addressed**: Prior to this fix, the "ai-toolbox not found" issue occurred when cross-project registry searches returned empty results — no auto-discovery mechanism existed. User-mentioned project names were not used as registration signals, causing failed lookups even when the project was clearly present in CWD.
 
@@ -1396,9 +1471,63 @@ The tool priority system integrates with existing schema minification pipeline (
 3. Falls back to standard alphabetical sorting within tier if no clustering data available (no runtime dependency on hub-exclusion module)
 
 ---
+
+### 6. Cross-Project Registry Sync (`src/tools/projectAutoDetect.ts` + `registryManager`) — NEW (v1.9.8+)
+
+**Automatic synchronization of project registry entries from session memory decisions.**
+
+#### Design
+```typescript
+// _syncFromSessionMemory() — Called lazily when search_projects or get_project_info is invoked
+async function _syncFromSessionMemory(): Promise<void> {
+  // Load context entries from working dir + plugin root
+  const entries = await loadContextEntries();
+  
+  for (const entry of entries) {
+    if ('decision' in entry.data && typeof entry.data.decision === 'string') {
+      const decisionText = entry.data.decision as string;
+      
+      // Extract project names from past decisions
+      // e.g., "switched to ai-toolbox at C:\Source Code\..." 
+      const match = extractProjectNameFromDecision(decisionText);
+      
+      if (match) {
+        await registerProject(match.name, match.path);
+      }
+    }
+  }
+}
+
+// Called from search_projects tool — ensures registry is up-to-date before querying
+async function searchProjects(query: string): Promise<ProjectInfo[]> {
+  await _syncFromSessionMemory(); // Lazy sync ← NEW
+  return enhancedSearchProjects(query, 10);
+}
+```
+
+#### Trigger Points (v1.9.8+)
+| Tool | Sync Trigger | Purpose |
+|------|-------------|---------|
+| `search_projects` | `_syncFromSessionMemory()` before query | Ensures registry includes projects from past decisions |
+| `get_project_info` | `_syncFromSessionMemory()` before lookup | Same — prevents stale registry entries |
+
+#### Integration with Step 0.7 (Prompt Preprocessor)
+```
+promptPreprocessor() → detectProjectKeywords(message)
+    │
+    ├── If match found → Inject confirmation prompt
+    │   ("REGISTERED PROJECT DETECTED: ai-toolbox at C:\...")
+    │
+    └── User replies "YES" → AI calls register_project(workingDir, confirmed=true)
+        │
+        ▼
+        registryManager._syncFromSessionMemory() ← Ensures future searches find it
+```
+
+**Root Cause Addressed**: Prior to this fix, projects detected via keyword matching in Step 0.7 were registered only once (via `register_project` tool). If the user's session memory contained references to a project but the registry was empty, the AI would still fail to find it. The `_syncFromSessionMemory()` lazy sync ensures that any project mentioned in past decisions is automatically added to the registry when needed — eliminating false negatives from stale registries.
 ---
 
-## 📦 v1.9.6 New Files & Modules Added
+## 📦 v1.9.8 New Files & Modules Added
 
 ### Core Source Files (`src/`)
 - `projectAutoDetect.ts` — Project Auto-Detection & Registration module (automatic CWD detection, name normalization, fuzzy matching)
@@ -1414,19 +1543,151 @@ The tool priority system integrates with existing schema minification pipeline (
 - `hubExclusionClustering.ts` — Hub-Exclusion Clustering algorithm (Louvain community detection, hub identification, majority-vote reattachment)
 - `simulation.ts` — Feature simulation script for demonstrating Graphify-inspired capabilities (83 tests)
 
-### Updated Module Dependencies (v1.9.6)
+### Updated Module Dependencies (v1.9.8)
 ```typescript
 // New cross-module relationships:
 toolPriority.ts → hubExclusionClustering.js (centrality scoring integration)
 contextTiers.ts → (standalone — used by ContextStorageManager for tier-provenance)
-projectAutoDetect.ts → index.ts (startup initialization via initializeProjectDetection())
+projectAutoDetect.ts — DEPRECATED: No longer called from index.ts at startup. Registration requires explicitConfirmation=true via register_project tool. See src/index.ts comment: "NO AUTO-REGISTRATION ON STARTUP"
 confidenceTypes.ts → all tool modules (via createToolResult<T>() helper functions)
 hubExclusionClustering.ts → analysis utility (analyzeAiToolboxDependencies() pre-populated graph)
 ```
 
-### New Test Suites Added (v1.9.6)
+### New Test Suites Added (v1.9.8)
 - `tests/confidenceTypes.test.ts` — Confidence-tagged results validation (determineConfidence, createToolResult, createErrorResult)
 - `tests/hubExclusionClustering.test.ts` — Hub-exclusion clustering algorithm verification (83 tests covering graph construction, hub identification, Louvain convergence, majority-vote reattachment, density/modularity calculations)
 - `tests/projectAutoDetect.test.ts` — Project auto-detection and registration workflow (name normalization, confidence scoring, fuzzy matching, auto-registration flow)
+
+---
+---
+
+## 🛡️ Crash-Resilient Atomic Writes (v1.9.8+)
+
+**All file-modifying tools now use the shared `atomicWrite` utility (`src/utils/atomicWrite.ts`) for crash-resilient, async file operations.**
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                   Atomic Write Utility                      │
+│                  (src/utils/atomicWrite.ts)                 │
+│                                                             │
+│  ┌──────────────────┐    ┌──────────────────┐              │
+│  │ atomicWrite()    │    │ atomicWriteBinary│              │
+│  │ (text files)     │    │ File()           │              │
+│  │                  │    │ (binary files)   │              │
+│  └────────┬─────────┘    └────────┬─────────┘              │
+│           │                       │                        │
+│           ▼                       ▼                        │
+│  ┌─────────────────────────────────────────────┐            │
+│  │ 1. Generate random temp filename            │            │
+│  │    crypto.randomBytes(9) → 72-bit entropy   │            │
+│  │    Format: {original}.{hex}.tmp              │            │
+│  └────────────────────┬────────────────────────┘            │
+│                       │                                     │
+│                       ▼                                     │
+│  ┌─────────────────────────────────────────────┐            │
+│  │ 2. Write content to temp file               │            │
+│  │    fs.promises.writeFile(tempPath, data)   │            │
+│  │    (text: UTF-8 | binary: raw buffer)       │            │
+│  └────────────────────┬────────────────────────┘            │
+│                       │                                     │
+│                       ▼                                     │
+│  ┌─────────────────────────────────────────────┐            │
+│  │ 3. Atomic rename (survives crashes)         │            │
+│  │    fs.promises.rename(tempPath, original)  │            │
+│  │    OS-level atomic operation                │            │
+│  └────────────────────┬────────────────────────┘            │
+│                       │                                     │
+│                       ▼                                     │
+│  ┌─────────────────────────────────────────────┐            │
+│  │ 4. Cleanup on failure (if rename fails)     │            │
+│  │    fs.promises.unlink(tempPath)             │            │
+│  └─────────────────────────────────────────────┘            │
+└─────────────────────────────────────────────────────────────┘
+
+         Original file remains intact even if process crashes
+         between steps 2 and 3 — temp file orphaned but safe.
+```
+
+### Implementation Details
+
+#### Text Files (`atomicWrite`)
+```typescript
+import * as crypto from 'crypto';
+import { writeFile, rename, unlink } from 'fs/promises';
+
+export async function atomicWrite(filePath: string, content: string): Promise<void> {
+  // Generate randomized temp filename (72-bit entropy)
+  const tempFile = `${filePath}.${crypto.randomBytes(9).toString('hex')}.tmp`;
+  
+  try {
+    await writeFile(tempFile, content, 'utf-8');      // Step 1: Write to temp
+    await rename(tempFile, filePath);                  // Step 2: Atomic rename
+  } catch (err) {
+    await unlink(tempFile).catch(() => {});            // Step 3: Cleanup on failure
+    throw err;                                         // Re-throw original error
+  }
+}
+```
+
+#### Binary Files (`atomicWriteBinaryFile`)
+```typescript
+export async function atomicWriteBinaryFile(
+  filePath: string, 
+  buffer: Buffer
+): Promise<void> {
+  const tempFile = `${filePath}.${crypto.randomBytes(9).toString('hex')}.tmp`;
+  
+  try {
+    await writeFile(tempFile, buffer);                 // Raw buffer write (no encoding)
+    await rename(tempFile, filePath);                  // Atomic rename
+  } catch (err) {
+    await unlink(tempFile).catch(() => {});            // Cleanup on failure
+    throw err;                                         // Re-throw original error
+  }
+}
+```
+
+### Rollback-on-Failure Pattern (refactorCodeTools & recodeEngine)
+
+For source code safety, `refactorCodeTools` and `recodeEngine` implement rollback-on-failure:
+
+```typescript
+// BEFORE atomic write attempt — create .bak backup
+await fs.copyFile(originalPath, `${originalPath}.bak`);
+
+try {
+  await atomicWrite(originalPath, newContent);         // Attempt async atomic write
+} catch (err) {
+  // Rollback: restore from .bak backup
+  await fs.copyFile(`${originalPath}.bak`, originalPath);
+  throw new Error(`Atomic write failed — restored from backup: ${err.message}`);
+}
+```
+
+### Module Conversion Summary (v1.9.8)
+
+All previously synchronous file-write tools converted to async with shared `atomicWrite`:
+
+| Module | Tools Affected | Write Pattern | Rollback? |
+|--------|---------------|---------------|-----------|
+| `lineOperations.ts` | delete_lines, line_operations | async → atomicWrite | No |
+| `refactorCodeTools.ts` | rename_identifier, move_function, extract_function, unused_import_cleanup | async → atomicWrite + .bak backup | ✅ Yes |
+| `utilityTools.ts` | ~25 tools (backup, chart, etc.) | All async → atomicWrite | No |
+| `dataVisualizationTools.ts` | generate_chart | async → atomicWriteBinaryFile | No |
+| `imageProcessingTools.ts` | describe_image, compare_images saves | async → atomicWriteBinaryFile | No |
+| `markdownPreviewTools.ts` | markdown_preview HTML save | async → atomicWrite | No |
+| `browserAutomationTools.ts` | screenshot_desktop PNG save | async → atomicWriteBinaryFile | No |
+| `uiGenerationTools.ts` | UI component saves | async → atomicWrite | No |
+| `recodeEngine.ts` (recodeTool/) | AST transformation output | async → atomicWrite + .bak backup | ✅ Yes |
+
+### Verification
+
+- ✅ **Zero `writeFileSync` remaining** in `src/tools/` directory
+- ✅ **Zero `renameSync` remaining** in `src/tools/` directory  
+- ✅ All 491 Jest tests passing across 25 suites (6s runtime) with mocked `fs.promises`
+- ✅ TypeScript compilation clean, ESLint: 0 warnings
+- ✅ Build verified: CJS ~12.6MB, ESM ~12.0MB (same as v1.9.6 — no size regression from async conversion)
 
 ---

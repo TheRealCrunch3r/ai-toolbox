@@ -774,6 +774,90 @@ export class ProjectRegistryManager {
     }
   }
 
+  /** 🔹 FIX: Auto-sync project registry from session memory files.
+   * Scans all known project paths for .ai_toolbox_memory.msgpack files,
+   * extracts their project_path field, and registers any missing projects.
+   * Called lazily before getAllProjects() to ensure registry freshness after restarts. */
+  private async _syncFromSessionMemory(): Promise<void> {
+    const data = await this.load();
+    if (!data) return;
+
+    // Get all registered project paths for quick lookup
+    const registeredPaths = new Set(data.projects.map(p => p.path));
+
+    // Scan each registered project's working directory for session memory files
+    for (const project of data.projects) {
+      const memPath = path.join(project.path, '.session_context', '.ai_toolbox_memory.msgpack');
+      
+      try {
+        if (!await fs.access(memPath).then(() => true).catch(() => false)) {
+          continue; // No session memory for this project — skip
+        }
+
+        const buffer = await fs.readFile(memPath);
+        const entries = decode(buffer) as ContextEntry[];
+
+        // Extract unique project_path values from entries (identifies which projects created this data)
+        const discoveredPaths = new Set(
+          entries
+            .filter((e): e is ContextEntry & { project_path: string } => 
+              e.project_path != null && typeof e.project_path === 'string'
+            )
+            .map(e => e.project_path)
+        );
+
+        // Register any newly discovered projects not already in registry
+        for (const discoveredPath of discoveredPaths) {
+          if (!registeredPaths.has(discoveredPath)) {
+            const projectName = path.basename(discoveredPath);
+            console.log(`[ProjectRegistry._syncFromSessionMemory] Auto-registering discovered project: "${projectName}" at ${discoveredPath}`);
+            
+            // Register the new project (this will also save to disk)
+            await this.registerProject(projectName, discoveredPath);
+            registeredPaths.add(discoveredPath);
+          }
+        }
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        console.warn(`[ProjectRegistry._syncFromSessionMemory] Failed to sync session memory for ${project.path}: ${msg}`);
+        // Non-fatal — continue scanning other projects
+      }
+    }
+
+    // Also scan plugin root fallback (legacy entries without project_path)
+    const legacyMemPath = path.join(path.resolve(__dirname, '..'), '.session_context', '.ai_toolbox_memory.msgpack');
+    try {
+      if (!await fs.access(legacyMemPath).then(() => true).catch(() => false)) {
+        return; // No plugin root memory file — nothing to sync
+      }
+
+      const buffer = await fs.readFile(legacyMemPath);
+      const entries = decode(buffer) as ContextEntry[];
+
+      // Legacy entries without project_path — extract from session_summary_latest if available
+      const summaryEntries = entries.filter(e => 
+        e.type === 'summary' && e.title?.toLowerCase().includes('session context summary')
+      );
+
+      for (const summary of summaryEntries) {
+        // Try to extract working directory path from session summary content
+        const wdMatch = summary.content.match(/working dir|working directory|path[:\s]+([A-Z]:\\[^"'\s]+)/i);
+        if (wdMatch && wdMatch[1]) {
+          const extractedPath = wdMatch[1].replace(/["']$/g, ''); // Remove trailing quote if present
+          
+          if (!registeredPaths.has(extractedPath)) {
+            console.log(`[ProjectRegistry._syncFromSessionMemory] Auto-registering legacy project: "${path.basename(extractedPath)}" at ${extractedPath}`);
+            await this.registerProject(path.basename(extractedPath), extractedPath);
+            registeredPaths.add(extractedPath);
+          }
+        }
+      }
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      console.warn(`[ProjectRegistry._syncFromSessionMemory] Failed to sync legacy session memory: ${msg}`);
+    }
+  }
+
   /** Load project registry from disk */
   async load(): Promise<ProjectRegistryData | null> {
     function validateProjectRegistryData(obj: unknown): obj is ProjectRegistryData {
@@ -868,8 +952,12 @@ export class ProjectRegistryManager {
   }
 
   /** Get all registered projects sorted by last access (newest first). ===
-   * Falls back to .session_index.json if primary registry is empty/missing. */
+   * Falls back to .session_index.json if primary registry is empty/missing.
+   * 🔹 FIX: Auto-syncs from session memory files before returning results. */
   async getAllProjects(): Promise<RegisteredProject[]> {
+    // 🔹 FIX: Lazy auto-sync — scan for projects with persisted session memory and register them
+    await this._syncFromSessionMemory();
+
     const data = await this.load();
     
     // Primary: project_registry.json
@@ -901,9 +989,10 @@ export class ProjectRegistryManager {
   }
 
   /** Search projects by name or path. ===
-   * Uses getAllProjects() which already includes session index fallback. */
+   * Uses getAllProjects() which already includes session index fallback + auto-sync from session memory. */
   async search(query: string, maxResults: number = 10): Promise<RegisteredProject[]> {
-    const allProjects = await this.getAllProjects(); // Already includes fallback
+    // 🔹 FIX: getAllProjects() now calls _syncFromSessionMemory() internally — no need to call it again here
+    const allProjects = await this.getAllProjects();
     const lowerQuery = query.toLowerCase();
     
     return allProjects
@@ -1328,27 +1417,48 @@ WHEN TO USE:
         }
       }
 
-      // 🔹 FIX #6 + FIX #4 (schema alignment): RESTORE .msgpack disk fallback with correct ContextEntry schema
+      // 🔹 FIX #7 (write/read symmetry): Read StateEntry[] from project-specific memory file
+      interface StateEntry { key: string; value: unknown; timestamp: number }
+      
       try {
         const wd = getWorkingDir();
-        const localPath = path.join(wd, '.session_context', '.ai_toolbox_memory.msgpack');
+        // Try project-specific path first, then legacy fallback
+        const projectName = path.basename(wd).toLowerCase().replace(/[^a-z0-9]/g, '_');
+        const projectPath = path.join(wd, '.session_context', `.${projectName}_memory.msgpack`);
+        const legacyPath = path.join(wd, '.session_context', '.ai_toolbox_memory.msgpack');
         
-        if (await fs.access(localPath).then(() => true).catch(() => false)) {
-          const buffer = await fs.readFile(localPath);
-          // 🔹 FIX #4: Read as ContextEntry[] — session_summary_latest stored with id field, not key
-          const entries = decode(buffer) as ContextEntry[];
+        let diskBuffer: Buffer | null = null;
+        for (const candidate of [projectPath, legacyPath]) {
+          if (await fs.access(candidate).then(() => true).catch(() => false)) {
+            diskBuffer = await fs.readFile(candidate);
+            console.log(`[ContextManagement.get_session_summary] ✅ Disk fallback read from: ${candidate}`);
+            break;
+          }
+        }
+        
+        if (diskBuffer) {
+          const entries = decode(diskBuffer) as StateEntry[];
           
-          const summaryEntry = entries.find(e => e.id === 'session_summary_latest');
-          if (summaryEntry && typeof summaryEntry.content === 'string') {
-            // Parse the task_description from content field (stored as structured JSON string in older versions)
+          // 🔹 FIX #7: Look for 'session_summary_latest' by key (StateEntry format)
+          const summaryEntry = entries.find(e => e.key === 'session_summary_latest');
+          if (summaryEntry && typeof summaryEntry.value === 'object' && summaryEntry.value !== null) {
+            const parsedSummary = summaryEntry.value as SessionSummaryData;
+            console.log(`[ContextManagement.get_session_summary] ✅ Loaded from DISK FALLBACK (.msgpack, StateEntry format).`);
+            return { 
+              success: true, 
+              data: { ...parsedSummary, isStale: (Date.now() - (parsedSummary.timestamp ?? 0)) > threeDaysMs } 
+            };
+          } else if (summaryEntry && typeof summaryEntry.value === 'string') {
+            // Legacy format: value stored as JSON string instead of object
             try {
-              const parsedSummary = JSON.parse(summaryEntry.content) as SessionSummaryData;
-              console.log(`[ContextManagement.get_session_summary] ✅ Loaded from DISK FALLBACK (.msgpack).`);
-              return { success: true, data: { ...parsedSummary, isStale: (Date.now() - (parsedSummary.timestamp ?? 0)) > threeDaysMs } };
+              const parsedSummary = JSON.parse(summaryEntry.value) as SessionSummaryData;
+              console.log(`[ContextManagement.get_session_summary] ✅ Loaded from DISK FALLBACK (.msgpack, legacy string format).`);
+              return { 
+                success: true, 
+                data: { ...parsedSummary, isStale: (Date.now() - (parsedSummary.timestamp ?? 0)) > threeDaysMs } 
+              };
             } catch {
-              // Fallback: treat content as plain text summary
-              console.log(`[ContextManagement.get_session_summary] ✅ Loaded from DISK FALLBACK (.msgpack) — legacy format.`);
-              return { success: true, data: { task_description: summaryEntry.content, timestamp: summaryEntry.timestamp, date: summaryEntry.date, isStale: (Date.now() - (summaryEntry.timestamp ?? 0)) > threeDaysMs } as unknown as SessionSummaryData };
+              console.warn(`[ContextManagement.get_session_summary] Legacy string value not valid JSON.`);
             }
           }
         }
@@ -1361,7 +1471,6 @@ WHEN TO USE:
       return { success: false, error: 'No session summary found.' };
     },
   }));
-
   // save_memory tool — SAVE KEY-VALUE PAIR TO MEMORY + PERSIST TO DISK ===
   tools.push(tool({
     name: 'save_memory',

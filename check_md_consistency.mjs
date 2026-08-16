@@ -8,11 +8,14 @@ const mdFiles = [
   'CHANGELOG.md',
   'CONTRIBUTING.md',
   'DOCUMENTATION.md',
+  'PRE_FLIGHT_VERIFICATION_GUIDE.md',
+  'documentation_audit_report.md',
   'graphify_integration_analysis.md',
   'QUICK_START.md',
   'README.md',
   'SECURITY.md',
   'TOOLS_REFERENCE.md',
+  'docs/toolsProvider_registry_pattern.md',
 ];
 
 console.log('═══════════════════════════════════════════');
@@ -116,24 +119,32 @@ if (missingInCode.length > 0) {
 // --- Step 4: Check for stale references ---
 console.log(`\n[4/4] Checking for stale version references:\n`);
 
-const staleVersions = ['v1.9.4', 'v1.9.3', 'v1.9.2', 'v1.9.1'];
+// Versions that must NOT appear as a CURRENT-version claim (v1.9.8 is current).
+// Only lines that look like version claims ("Version:", "Current State", ...) are checked —
+// historical annotations such as "(v1.9.1+)" or release-history entries are legitimate.
+const staleVersions = ['v1.9.7', 'v1.9.6', 'v1.9.5', 'v1.9.4'];
 let foundStale = false;
 
 for (const mdFile of mdFiles) {
   const filePath = path.join(projectRoot, mdFile);
   if (!fs.existsSync(filePath)) continue;
+  // Exempt: full release history + point-in-time snapshots that describe state AT audit time
+  if (mdFile.includes('CHANGELOG.md') || mdFile === 'documentation_audit_report.md' || mdFile === 'graphify_integration_analysis.md') continue;
   
-  const content = fs.readFileSync(filePath, 'utf-8');
-  for (const version of staleVersions) {
-    if (content.includes(version) && !mdFile.includes('CHANGELOG.md')) {
-      console.log(`   ⚠️ ${mdFile} contains reference to ${version}`);
-      foundStale = true;
+  const lines = fs.readFileSync(filePath, 'utf-8').split(/\r?\n/);
+  for (const line of lines) {
+    if (!/version|current state/i.test(line)) continue;
+    for (const version of staleVersions) {
+      if (line.includes(version)) {
+        console.log(`   ⚠️ ${mdFile}: stale current-version claim "${version}" → ${line.trim().slice(0, 80)}`);
+        foundStale = true;
+      }
     }
   }
 }
 
 if (!foundStale) {
-  console.log(`   ✅ No stale version references found (all MD files are at v1.9.6).`);
+  console.log(`   ✅ No stale version references found (all MD files are at v1.9.8).`);
 }
 
 // --- Summary ---

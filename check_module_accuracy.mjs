@@ -6,7 +6,7 @@ const srcDir = path.join(projectRoot, 'src');
 const toolsDir = path.join(srcDir, 'tools');
 
 console.log('═══════════════════════════════════════════');
-console.log('  ACCURATE MODULE COMPARISON (v1.9.6)');
+console.log('  ACCURATE MODULE COMPARISON (v1.9.8)');
 console.log('═══════════════════════════════════════════\n');
 
 // --- Step 1: Get actual tool files ---

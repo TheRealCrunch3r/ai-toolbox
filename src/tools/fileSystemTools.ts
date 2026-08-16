@@ -1934,8 +1934,9 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
       max_results: z.number().int().min(1).max(500).default(20).describe('Maximum number of results to return (default: 20, max: 500)'),
       max_file_size: z.number().int().min(1024).default(100_000).describe('Maximum file size in bytes to search (default: 100KB, skip larger files)'),
       max_concurrent_files: z.number().int().min(1).max(32).optional().default(8).describe('Maximum files to process concurrently for performance tuning'),
+      max_depth: z.number().int().min(1).max(50).optional().default(10).describe('Maximum directory depth to search (default: 10, prevents infinite recursion)'),
     },
-    implementation: async ({ pattern, path: searchPath = '.', mode = 'regex', include, exclude, max_results, max_file_size, max_content_length, include_context = false, max_concurrent_files }: {
+    implementation: async ({ pattern, path: searchPath = '.', mode = 'regex', include, exclude, max_results, max_file_size, max_content_length, include_context = false, max_concurrent_files, max_depth }: {
       pattern: string;
       path?: string;
       mode?: 'regex' | 'ast';
@@ -1946,6 +1947,7 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
       max_content_length?: number;
       max_concurrent_files?: number;
       include_context?: boolean;
+      max_depth?: number;
     }) => {
       try {
         const targetDir = resolvePath(searchPath);
@@ -1954,10 +1956,11 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
           return { success: false, error: 'Invalid path: directory traversal detected' };
         }
 
-        // Configuration with defaults - TOKEN LIMITING
+        // Configuration with defaults - TOKEN LIMITING + DEPTH LIMIT
         const MAX_RESULTS = max_results ?? 20;
         const MAX_FILE_SIZE = max_file_size ?? 100_000; // 100KB default
         const MAX_CONTENT_LENGTH = max_content_length ?? 150;
+        const MAX_DEPTH = max_depth ?? 10; // Prevent infinite recursion
         let resultsCount = 0;
         const matches: Array<{ file: string; line_number: number; content: string; node_type?: string; context?: { function_signature?: string; class_context?: string; docblock?: string } }> = [];
 
@@ -2085,7 +2088,15 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
         async function processWithRegex(content: string, relativePath: string, compiledRegexes: RegExp[]): Promise<void> {
           const lines = content.split('\n');
 
-          for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
+          // CRITICAL FIX: Limit per-file processing to prevent catastrophic backtracking on large files
+          // JavaScript has no mechanism to abort sync .test() calls — we must limit input size.
+          const MAX_LINES_PER_FILE = 5000;
+          if (lines.length > MAX_LINES_PER_FILE) {
+            console.warn(`[grep_files] Skipping file ${relativePath} (${lines.length} lines, exceeds ${MAX_LINES_PER_FILE} line limit)`);
+            return;
+          }
+
+          for (let lineIdx = 0; lineIdx < Math.min(lines.length, MAX_LINES_PER_FILE); lineIdx++) {
             // STRICT LIMIT CHECK before processing each line
             if (resultsCount >= MAX_RESULTS) return;
 
@@ -2185,7 +2196,10 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
           return docLines.length > 0 ? docLines.join('\n') : undefined;
         }
 
-        async function walkDirectory(dirPath: string, concurrencyLimit: number): Promise<void> {
+        async function walkDirectory(dirPath: string, concurrencyLimit: number, currentDepth: number = 0): Promise<void> {
+          // DEPTH LIMIT ENFORCEMENT — prevent infinite recursion
+          if (currentDepth > MAX_DEPTH) return;
+
           // OPTIMIZATION: Early exit if we have enough results
           if (resultsCount >= MAX_RESULTS) return;
 
@@ -2215,7 +2229,7 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
             const fullPath = path.join(dirPath, entry.name);
 
             if (entry.isDirectory()) {
-              batchPromises.push(walkDirectory(fullPath, concurrencyLimit));
+              batchPromises.push(walkDirectory(fullPath, concurrencyLimit, currentDepth + 1));
             } else if (entry.isFile()) {
               // OPTIMIZATION: Early exit check inside loop too
               if (resultsCount >= MAX_RESULTS) break;
@@ -2644,8 +2658,9 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
       file_extensions: z.array(z.string()).optional().describe('Optional file extensions to filter (e.g., ["ts", "js", "md"])'),
       max_files: z.number().int().min(1).max(1000).optional().default(100).describe('Maximum number of files to process'),
       max_file_size: z.number().int().min(1024).default(100_000).describe('Maximum file size in bytes to process (default: 100KB)'),
+      max_depth: z.number().int().min(1).max(50).optional().default(10).describe('Maximum directory depth to search (default: 10, prevents infinite recursion)'),
     },
-    implementation: async ({ directory, pattern, replacement, dry_run = true, confirm = false, backup = true, file_extensions, max_files = 100, max_file_size = 100_000 }) => {
+    implementation: async ({ directory, pattern, replacement, dry_run = true, confirm = false, backup = true, file_extensions, max_files = 100, max_file_size = 100_000, max_depth = 10 }) => {
       try {
         // Safety: dry_run defaults to true. Modifications require explicit confirm: true.
         if (!dry_run && !confirm) {
@@ -2673,7 +2688,10 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
         const filesSkipped: Array<{ file: string; reason: string }> = [];
         let totalMatches = 0;
 
-        async function walkDir(dirPath: string): Promise<void> {
+        async function walkDir(dirPath: string, currentDepth: number = 0): Promise<void> {
+          // DEPTH LIMIT ENFORCEMENT — prevent infinite recursion
+          if (currentDepth > max_depth) return;
+
           if (filesProcessed.length >= max_files) return;
           
           let entries: _fs.Dirent[];
@@ -2689,7 +2707,7 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
             const fullPath = path.join(dirPath, entry.name);
             
             if (entry.isDirectory()) {
-              await walkDir(fullPath);
+              await walkDir(fullPath, currentDepth + 1);
             } else if (entry.isFile()) {
               // Extension filter
               const ext = path.extname(entry.name).replace('.', '').toLowerCase();
@@ -2718,7 +2736,15 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
               }
 
               const content = buffer.toString('utf-8');
-              
+
+              // CRITICAL FIX: Limit per-file processing to prevent catastrophic backtracking
+              const MAX_LINES_FR = 5000;
+              const fileLines = content.split('\n');
+              if (fileLines.length > MAX_LINES_FR) {
+                filesSkipped.push({ file: path.relative(targetDir, fullPath), reason: `exceeds ${MAX_LINES_FR} line limit` });
+                continue;
+              }
+
               // Count matches
               const matches = content.match(regex);
               const matchCount = matches ? matches.length : 0;

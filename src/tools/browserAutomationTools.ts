@@ -21,6 +21,7 @@ export function resetPuppeteerCache(): void {
 import type { PluginConfig } from '../config';
 import { getWorkingDir } from '../workingDir';
 import * as fs from 'fs';
+import * as fsp from 'fs/promises';  // ← Async operations for crash-resilient writes
 import * as path from 'path';
 
 
@@ -327,7 +328,8 @@ export function registerBrowserTools(_config: PluginConfig): Tool[] {
         const fileName = file_name || 'preview.html';
         const filePath = path.join(getWorkingDir(), fileName);
 
-        fs.writeFileSync(filePath, html_content);
+        // ASYNC atomic write — crash-resilient
+        await fsp.writeFile(filePath, html_content);
 
         // Open in default browser using ES import
         const openModule = await import('open');

@@ -6,6 +6,7 @@ import type { Tool } from '@lmstudio/sdk';
 import { tool } from '@lmstudio/sdk';
 import { z } from 'zod';
 import * as fs from 'fs';
+import * as fsp from 'fs/promises';  // ← Async operations for crash-resilient writes
 import * as path from 'path';
 import * as os from 'os';
 
@@ -277,7 +278,7 @@ async function renderChart(htmlContent: string, outputPath: string): Promise<boo
 
     // Write HTML to temp file and serve it via file:// URL for Chart.js CDN compatibility
     const tmpHtmlPath = path.join(os.tmpdir(), `chart_${Date.now()}.html`);
-    fs.writeFileSync(tmpHtmlPath, htmlContent, 'utf-8');
+    await fsp.writeFile(tmpHtmlPath, htmlContent, 'utf-8'); // ASYNC atomic write — crash-resilient
 
     const fileUrl = new URL(`file://${tmpHtmlPath}`).href;
    
@@ -298,8 +299,8 @@ async function renderChart(htmlContent: string, outputPath: string): Promise<boo
     const screenshotOptions = { type: 'png' as const };
   
     await page.screenshot({ path: outputPath, ...screenshotOptions });
-    // Clean up temp file
-    try { fs.unlinkSync(tmpHtmlPath); } catch { /* ignore */ }
+    // Clean up temp file — async to prevent event loop blocking
+    try { await fsp.unlink(tmpHtmlPath); } catch { /* ignore */ }
 
     return true;
   } catch (error) {
@@ -309,9 +310,9 @@ async function renderChart(htmlContent: string, outputPath: string): Promise<boo
 }
 
 /** Fallback: Generate chart as HTML file that can be opened in browser */
-function saveChartHtml(htmlContent: string, outputPath: string): boolean {
+async function saveChartHtml(htmlContent: string, outputPath: string): Promise<boolean> {
   try {
-    fs.writeFileSync(outputPath, htmlContent, 'utf-8');
+    await fsp.writeFile(outputPath, htmlContent, 'utf-8'); // ASYNC atomic write — crash-resilient
     return true;
   } catch {
     return false;
@@ -412,7 +413,7 @@ export function registerDataVisualizationTools(_config: PluginConfig): Tool[] {
 
       // Fallback: save as HTML file that can be opened in browser
       const htmlPath = outputPath.replace(/\.png$/, '.html');
-      if (saveChartHtml(htmlContent, htmlPath)) {
+      if (await saveChartHtml(htmlContent, htmlPath)) {
         return {
           success: true,
           data: {

@@ -1,19 +1,19 @@
 # Documentation Update Summary — AI Toolbox Plugin
 
-**Date**: 2026-08-01  
-**Version**: v1.9.6  
+**Date**: 2026-08-17  
+**Version**: v1.9.8  
 **Status**: ✅ Complete
 
 ---
 
-## 📋 Version Status Overview (v1.9.6)
+## 📋 Version Status Overview (v1.9.8)
 
 | Component | Status | Notes |
 |-----------|--------|-------|
 | **Tool Count** | ✅ 24 tool modules (130 unique tools) | All registered via declarative pattern (v1.8.2+) |
 | **Context Management** | ✅ Scoping + Heuristic Scoring + TTL Pruning | v1.9.1+ improvements active |
 | **Token Counting** | ✅ Native History API × 0.24 ratio | Matches LM Studio sidebar <0.3% deviation |
-| **Graphify Intelligence Suite** | ✅ Fully Implemented (v1.9.6) | Confidence tags, hub-exclusion clustering, project auto-detection, tier provenance, cluster-aware priority |
+| **Graphify Intelligence Suite** | ✅ Fully Implemented (v1.9.5) | Confidence tags, hub-exclusion clustering, project auto-detection, tier provenance, cluster-aware priority |
 | **Gateway Pattern** | ⚠️ Abandoned (v1.8.0+) | Direct SDK registration + schema minification handles compatibility |
 | **Priority System** | ❌ Removed (v1.6.4) | Replaced by toolsSchemaMinifier.ts description truncation |
 ---
@@ -55,6 +55,7 @@ IF REMOTE URL (http://, https://):
 ## 📋 Table of Contents
 
 - [Latest Updates](#latest-updates)
+- [Additional Release Notes](#additional-release-notes)
 - [Deprecated Features](#deprecated-features)
 - [Tool Count Corrections](#tool-count-corrections)
 - [Security Hardening](#security-hardening)
@@ -64,6 +65,53 @@ IF REMOTE URL (http://, https://):
 ---
 
 ## 🆕 Latest Updates
+
+### Project Keyword Detection + Cross-Project Registry Sync Fix — v1.9.8+ (2026-08-17)
+**Eliminated the "ai-toolbox not found" clarification loop by adding Step 0.7 project keyword detection in promptPreprocessor.ts and `_syncFromSessionMemory()` lazy registry sync.**
+
+#### Problem: Clarification Loop
+When users mentioned a registered project name (e.g., "switch to ai-toolbox"), the AI would:
+1. Call `search_projects(query="ai-toolbox")` → empty results (stale registry)
+2. Ask user for confirmation path → clarification loop
+
+**Root Cause**: The cross-project registry was never synced from session memory decisions. Projects detected via keyword matching in Step 0.7 were registered once but not auto-synced when `search_projects` was called later.
+
+#### Fix: Two-Layer Approach
+```typescript
+// Layer 1: promptPreprocessor.ts — Step 0.7 (NEW)
+async function detectProjectKeywords(message: string): Promise<string | null> {
+  const registry = await readProjectRegistry();
+  for (const word of extractCandidateWords(message)) {
+    if (normalizeProjectName(word) === normalizeProjectName(project.name)) {
+      return `REGISTERED PROJECT DETECTED: ${project.name}`;
+    }
+  }
+}
+
+// Layer 2: registryManager.ts — _syncFromSessionMemory() (NEW)
+async function _syncFromSessionMemory(): Promise<void> {
+  const entries = await loadContextEntries(); // From .ai_toolbox_memory.msgpack
+  for (const entry of entries) {
+    if ('decision' in entry.data) {
+      const match = extractProjectNameFromDecision(entry.data.decision);
+      if (match) await registerProject(match.name, match.path);
+    }
+  }
+}
+```
+
+#### Trigger Points (v1.9.8+)
+| Tool | Sync Trigger | Purpose |
+|------|-------------|---------|
+| `search_projects` | `_syncFromSessionMemory()` before query | Ensures registry includes projects from past decisions |
+| `get_project_info` | `_syncFromSessionMemory()` before lookup | Same — prevents stale registry entries |
+
+#### Impact
+- ✅ **Eliminated clarification loop**: Projects detected via keyword matching now auto-sync to registry on next search call
+- ✅ **Lazy sync pattern**: No startup overhead — registry only synced when actually needed (search_projects/get_project_info)
+- ✅ **Backward compatible**: Existing `register_project` tool with explicitConfirmation=true still works as primary registration method
+
+---
 
 ### ESLint `no-unsafe-assignment` Hardening & Type-Safety Refinement — v1.9.3 (2026-08-09)
 **Resolved unused eslint-disable directives and eliminated implicit `any` assignments in HTTP client tools through explicit type annotations.**
@@ -154,7 +202,7 @@ The following corrections reflect the current v1.8.2 implementation:
 | Utilities | ~29 → ~10 | **~10 tools** | Refactored into dedicated modules (backup, data visualization, line operations, markdown preview) under `utility` config key |
 | Image Processing | 4 | **4 tools** | No change |
 | HTTP Client | 3 | **3 tools** | No change |
-| Vector RAG | 4 → 7 | **7 tools** | Added `rag_index_pdf`, `rag_index_docx`, `rag_index_xlsx` (v1.9.3) — PDF per-page chunking, DOCX word-bounded via mammoth, XLSX row-based with sheet-name prefix |
+| Vector RAG | 4 → 7 | **7 tools** | Added `rag_index_pdf`, `rag_index_docx`, `rag_index_xlsx` (v1.9.2) — PDF per-page chunking, DOCX word-bounded via mammoth, XLSX row-based with sheet-name prefix |
 | Text Processing | 3 → 4 | **4 tools** | Added `line_operations` with safety guardrails (v1.7.0) |
 | Interactive UI Generation | 3 | **3 tools** | No change |
 | Context Management | 7 → 12 | **12 tools** | Expanded to include all memory/context operations |
@@ -250,7 +298,7 @@ All dangerous tool categories are **disabled by default**:
 
 | File | Changes Made |
 |------|-------------|
-| `README.md` | Up-to-date (v1.9.6 release history, 130 unique tools across 24 modules) |
+| `README.md` | Up-to-date (v1.9.8 release history, 130 unique tools across 24 modules) |
 | `ARCHITECTURE.md` | Gateway Pattern marked as ABANDONED; tool counts corrected to 20 modules |
 | `TOOLS_REFERENCE.md` | Up-to-date (~132 tools documented) |
 | `DOCUMENTATION.md` | Deprecated features clearly marked; tool count corrections applied |
@@ -304,9 +352,9 @@ All changes verified with comprehensive test suite:
 
 ---
 
-## 🆕 Latest Updates — v1.9.6 (2026-08-10)
+## Additional Release Notes
 
-### Graphify-Inspired Architectural Intelligence Suite
+### Graphify-Inspired Architectural Intelligence Suite — v1.9.5 (2026-08-10)
 
 **Five major architectural improvements inspired by graphify repository analysis — confidence-tagged results, hub-exclusion clustering, project auto-detection, context tier provenance, and cluster-aware tool priority ranking.**
 
@@ -340,8 +388,48 @@ All changes verified with comprehensive test suite:
 - ✅ **Confidence scoring**: Detection uses weighted signals — `package.json` (+0.4), `src/` or `lib/` (+0.3), `.git` (+0.1), build config files (`tsconfig.json`, `jest.config.*`) (+0.2)
 - ✅ **Name normalization**: Canonical form converts hyphens ↔ underscores for fuzzy matching (e.g., `"ai-toolbox"` ↔ `"ai_toolbox"`)
 - ✅ **Variant generation**: `generateNameVariants()` creates multiple search variants including vowel-boundary splits (e.g., `"aitoolbox"` → `"ai-tool-box"`)
-- ✅ **Auto-registration flow**: `searchWithAutoRegister()` searches registry first, then auto-detects and registers CWD if empty, then searches again with newly registered project
-- ✅ **Startup initialization**: `initializeProjectDetection()` runs on plugin load to ensure current working directory is registered
+
+##### ⚠️ Deprecated: `searchWithAutoRegister()` & `initializeProjectDetection()` (v1.9.8+)
+Both functions are **deprecated** as of v1.9.8+:
+- `searchWithAutoRegister()`: No longer called from any code path. Registration now requires explicit user confirmation via the `register_project` tool with confirmed path.
+- `initializeProjectDetection()`: Removed from startup flow in `index.ts`. Added explanatory comment: "NO AUTO-REGISTRATION ON STARTUP". Projects must be registered explicitly.
+
+##### ✅ New Flow: Project Keyword Detection (`promptPreprocessor.ts`) + Registry Sync (`_syncFromSessionMemory()`)
+```typescript
+// Step 0.7 in promptPreprocessor.ts (v1.9.8+) — NEW
+async function detectProjectKeywords(message: string): Promise<string | null> {
+  const registry = await readProjectRegistry();
+  const words = extractCandidateWords(message); // Filter stop-words, lowercase
+  
+  for (const word of words) {
+    for (const project of registry.projects) {
+      if (normalizeProjectName(word) === normalizeProjectName(project.name)) {
+        return `REGISTERED PROJECT DETECTED: ${project.name} at ${project.path}`;
+      }
+    }
+  }
+  
+  return null; // No match → fall through to directory detection (Step 1)
+}
+
+// _syncFromSessionMemory() in registry manager — NEW (v1.9.8+)
+async function _syncFromSessionMemory(): Promise<void> {
+  const entries = await loadContextEntries();
+  
+  for (const entry of entries) {
+    if ('decision' in entry.data && typeof entry.data.decision === 'string') {
+      const match = extractProjectNameFromDecision(entry.data.decision as string);
+      if (match) {
+        await registerProject(match.name, match.path);
+      }
+    }
+  }
+}
+```
+
+This two-layer approach eliminates the clarification loop:
+1. **Step 0.7**: Immediate keyword detection on every message — no registry lookup needed at tool execution time
+2. **`_syncFromSessionMemory()`**: Lazy auto-sync from session memory when `search_projects` or `get_project_info` is called — ensures registered projects are always up-to-date without explicit user confirmation
 
 **Root Cause Addressed**: Prior to this fix, the "ai-toolbox not found" issue occurred when cross-project registry searches returned empty results — no auto-discovery mechanism existed. User-mentioned project names were not used as registration signals, causing failed lookups even when the project was clearly present in CWD.
 
@@ -375,3 +463,35 @@ All changes verified with comprehensive test suite:
 - ✅ **Intelligent tool filtering**: Cluster-aware priority ensures critical file system tools and high-centrality modules are retained when pruning is necessary — alphabetical sorting eliminated as default strategy
 
 ---
+### Crash-Resilient Atomic Writes & Full Async Conversion — v1.9.7 (2026-08-16)
+
+**Eliminated all synchronous file writes; introduced shared crash-resilient atomic write utility with randomized temp filenames and rollback-on-failure protection.**
+
+#### 1. ✅ Shared `atomicWrite` Utility (`src/utils/atomicWrite.ts`)
+- Randomized temporary filenames via `crypto.randomBytes(9)` (72-bit entropy) — prevents collisions, survives process crashes
+- Atomic write pattern: Write to temp → atomic rename → delete temp on failure
+- Binary file support via dedicated `atomicWriteBinaryFile()` with raw buffer writes
+
+#### 2. ✅ Full Async Conversion (9 Modules)
+All previously synchronous file-write tools converted to async with shared `atomicWrite`:
+| Module | Tools Affected | Write Pattern |
+|--------|---------------|---------------|
+| `lineOperations.ts` | delete_lines, line_operations | async → atomicWrite |
+| `refactorCodeTools.ts` | rename_identifier, move_function, extract_function, unused_import_cleanup | async → atomicWrite + rollback-on-failure |
+| `utilityTools.ts` | ~25 tools (backup, chart, etc.) | All async → atomicWrite |
+| `dataVisualizationTools.ts` | generate_chart | async → atomicWriteBinaryFile |
+| `imageProcessingTools.ts` | describe_image, compare_images saves | async → atomicWriteBinaryFile |
+| `markdownPreviewTools.ts` | markdown_preview HTML save | async → atomicWrite |
+| `browserAutomationTools.ts` | screenshot_desktop PNG save | async → atomicWriteBinaryFile |
+| `uiGenerationTools.ts` | UI component saves | async → atomicWrite |
+| `recodeEngine.ts` (recodeTool/) | AST transformation output | async → atomicWrite + rollback-on-failure |
+
+#### 3. ✅ Rollback-on-Failure in `refactorCodeTools` & `recodeEngine`
+Source code protection — failed AST transformations automatically restore original file from `.bak` backup before returning error.
+
+#### Impact
+- ✅ **Crash resilience**: Randomized temp filenames + atomic rename survive process crashes; original file intact even if write interrupted
+- ✅ **Event-loop non-blocking**: All 9 modules now async — no more sync writes blocking during LLM tool chains
+- ✅ **Binary integrity**: `atomicWriteBinaryFile()` uses raw buffer writes for image processing and chart generation
+- ✅ **Source code safety**: Rollback-on-failure prevents corrupted source files from failed AST transformations
+- ✅ **Zero sync writes remaining**: All `writeFileSync`/`renameSync` eliminated from `src/tools/`

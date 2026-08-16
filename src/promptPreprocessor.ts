@@ -2,6 +2,9 @@
  * Document RAG Prompt Preprocessor + Working Directory Detection + Temporal Awareness
  */
 
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+
 import { type ChatMessage, type FileHandle, type PromptPreprocessorController } from '@lmstudio/sdk';
 import { configSchematics } from './config';
 import pdfParse from 'pdf-parse';
@@ -97,6 +100,71 @@ function getTemporalSuffix(ctl: PromptPreprocessorController): string {
     return `\n\nHEUTE IST ${full}`;
   }
   return `\n\n[Zeit: ${compact}]`;
+}
+
+/** Normalizes a project name for fuzzy matching (hyphens ↔ underscores, lowercase) */
+function normalizeProjectName(name: string): string {
+  return name.toLowerCase().replace(/[-_\s]+/g, '_');
+}
+
+/** Generates variants of a project name for fuzzy matching */
+function generateNameVariants(name: string): string[] {
+  const normalized = normalizeProjectName(name);
+  const variants = new Set<string>();
+  variants.add(normalized);
+  variants.add(normalized.replace(/-/g, '_'));
+  variants.add(normalized.replace(/_/g, '-'));
+  variants.add(normalized.replace(/[-_\s]/g, ''));
+  return Array.from(variants);
+}
+
+/** Detect if a user message contains a registered project keyword */
+function detectProjectKeyword(text: string): { name: string; path: string } | null {
+  // Extract candidate words/phrases from the message (ignore common verbs/prepositions)
+  const stopWords = new Set([
+    'let', 'us', 'work', 'on', 'the', 'a', 'an', 'in', 'at', 'to', 'for', 'with',
+    'about', 'start', 'begin', 'open', 'switch', 'go', 'back', 'continue', 'resume'
+  ]);
+
+  const words = text.toLowerCase().split(/\s+/).filter(w => w.length > 2 && !stopWords.has(w));
+  
+  if (words.length === 0) return null;
+
+  // Try matching combinations of 1-3 consecutive words as project name candidates
+  for (let len = Math.min(3, words.length); len >= 1; len--) {
+    for (let i = 0; i <= words.length - len; i++) {
+      const candidate = words.slice(i, i + len).join('_');
+      
+      // Check against registered projects
+      const registryPath = path.join(path.resolve(__dirname, '..'), '.session_context', 'project_registry.json');
+      try {
+        if (!fs.existsSync(registryPath)) return null;
+        
+        const raw = fs.readFileSync(registryPath, 'utf-8');
+        const parsed: unknown = JSON.parse(raw);
+        if (!parsed || typeof parsed !== 'object') return null;
+        
+        const o = parsed as Record<string, unknown>;
+        const projectsArr = Array.isArray(o.projects) ? o.projects : [];
+        
+        for (const proj of projectsArr) {
+          if (typeof proj !== 'object' || !proj) continue;
+          const p = proj as { name?: string; path?: string };
+          if (!p.name || !p.path) continue;
+          
+          const variants = generateNameVariants(p.name);
+          if (variants.includes(candidate)) {
+            return { name: p.name, path: p.path };
+          }
+        }
+      } catch {
+        // Registry file invalid or unreadable — skip silently
+        return null;
+      }
+    }
+  }
+
+  return null;
 }
 
 function detectDirectoryPath(text: string): string | null {
@@ -615,6 +683,13 @@ export async function preprocess(
     attachmentNotice = `\n\n📎 ATTACHED FILES AVAILABLE:\nYou have access to the following attached files. You can read them using the read_document tool by filename:\n${fileNames.map(name => `- ${name}`).join('\n')}`;
   }
   
+  // Step 0.7: Project keyword detection — check registered projects before path detection
+  const projectMatch = detectProjectKeyword(userPrompt);
+  if (projectMatch) {
+    const projectInjectPrompt = `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n⚠️ REGISTERED PROJECT DETECTED\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\nI found a registered project matching your message:\n\nProject: "${projectMatch.name}"\nPath: ${projectMatch.path}\n\nWould you like me to switch your working directory to this project?\nReply 'yes' or 'ja' to confirm, or 'no'/'nein' to decline.\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\nUser's original message:\n${userPrompt}${attachmentNotice}\n`;
+    return projectInjectPrompt.trim() + checkpointSuffix + getTemporalSuffix(ctl);
+  }
+
   // Step 1: Directory detection (highest priority)
   const detectedPath = detectDirectoryPath(userPrompt);
   if (detectedPath) {
