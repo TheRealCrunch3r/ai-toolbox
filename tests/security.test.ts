@@ -1,0 +1,154 @@
+/**
+ * Tests for security utilities (path validation, binary detection, ReDoS protection)
+ */
+
+import { validatePath, isBinaryFile, isSafeRegex, applySecurityChecks, sanitizeCommand, validateSQLQuery } from '../src/security';
+import { DEFAULT_CONFIG } from '../src/config';
+
+describe('validatePath', () => {
+  test('should allow valid paths', () => {
+    expect(validatePath('file.txt', '.')).toBe(true);
+    expect(validatePath('subdir/file.txt', '.')).toBe(true);
+  });
+
+  test('should reject traversal paths', () => {
+    expect(validatePath('../secret.txt', '.')).toBe(false);
+    expect(validatePath('../../etc/passwd', '.')).toBe(false);
+  });
+
+  test('should handle empty inputs', () => {
+    expect(validatePath('', '.')).toBe(false);
+    expect(validatePath('file.txt', '')).toBe(false);
+  });
+});
+
+describe('isBinaryFile', () => {
+  test('should detect binary content with null byte', () => {
+    expect(isBinaryFile('text\0binary')).toBe(true);
+  });
+
+  test('should allow pure text', () => {
+    expect(isBinaryFile('pure text content')).toBe(false);
+  });
+
+  test('should check only first 8KB', () => {
+    // Null byte within first 8KB → should detect binary
+    const textWithNullInFirst8KB = 'a'.repeat(5000) + '\0' + 'b'.repeat(5000);
+    expect(isBinaryFile(textWithNullInFirst8KB)).toBe(true);
+
+    // Null byte beyond first 8KB → should NOT detect binary (only checks first 8KB)
+    const longText = 'a'.repeat(10000) + '\0';
+    expect(isBinaryFile(longText)).toBe(false);
+  });
+});
+
+describe('isSafeRegex', () => {
+  test('should reject ReDoS patterns', () => {
+    expect(isSafeRegex('(.*)(.*)')).toBe(false);
+    expect(isSafeRegex('(.+)+')).toBe(false);
+    expect(isSafeRegex('([a-z]+)+')).toBe(false);
+  });
+
+  test('should allow safe regex', () => {
+    expect(isSafeRegex('[a-z]')).toBe(true);
+    expect(isSafeRegex('^hello$')).toBe(true);
+  });
+
+  test('should reject overly long patterns', () => {
+    const longPattern = 'a'.repeat(600);
+    expect(isSafeRegex(longPattern)).toBe(false);
+  });
+});
+
+describe('applySecurityChecks', () => {
+  test('should apply all checks when enabled', () => {
+    const result = applySecurityChecks('../evil.txt', 'text\0binary', '(.*)(.*)');
+    expect(result.validPath).toBe(false);
+    expect(result.isBinary).toBe(true);
+    expect(result.safeRegex).toBe(false);
+  });
+
+  test('should skip checks when disabled', () => {
+    const result = applySecurityChecks('../evil.txt', 'text\0binary', '(.*)(.*)', {
+      ...DEFAULT_CONFIG,
+      pathValidationEnabled: false,
+      binaryFileDetection: false,
+      regexReDoSProtection: false,
+    });
+    expect(result.validPath).toBe(true);
+    expect(result.isBinary).toBe(false);
+    expect(result.safeRegex).toBe(true);
+  });
+});
+
+describe('sanitizeCommand', () => {
+  test('should allow safe commands', () => {
+    expect(sanitizeCommand('ls -la').safe).toBe(true);
+    expect(sanitizeCommand('npm install').safe).toBe(true);
+    expect(sanitizeCommand('git status').safe).toBe(true);
+  });
+
+  test('should reject rm -rf', () => {
+    expect(sanitizeCommand('rm -rf /').safe).toBe(false);
+    expect(sanitizeCommand('rm -rf node_modules').safe).toBe(false);
+  });
+
+  test('should reject sudo commands', () => {
+    expect(sanitizeCommand('sudo apt update').safe).toBe(false);
+    expect(sanitizeCommand('su root').safe).toBe(false);
+  });
+
+  test('should reject command substitution', () => {
+    expect(sanitizeCommand('echo $(whoami)').safe).toBe(false);
+    expect(sanitizeCommand('echo `id`').safe).toBe(false);
+  });
+
+  test('should reject too many pipes', () => {
+    expect(sanitizeCommand('cmd1 | cmd2 | cmd3 | cmd4').safe).toBe(false);
+  });
+
+  test('should reject multiple semicolons', () => {
+    expect(sanitizeCommand('cmd1; cmd2; cmd3').safe).toBe(false);
+  });
+
+  test('should handle empty/invalid input', () => {
+    expect(sanitizeCommand('').safe).toBe(false);
+    expect(sanitizeCommand(null as any).safe).toBe(false);
+  });
+});
+
+describe('validateSQLQuery', () => {
+  test('should allow SELECT queries', () => {
+    expect(validateSQLQuery('SELECT * FROM users').valid).toBe(true);
+    expect(validateSQLQuery('SELECT id, name FROM users WHERE active = 1').valid).toBe(true);
+  });
+
+  test('should allow PRAGMA queries', () => {
+    expect(validateSQLQuery('PRAGMA table_info(users)').valid).toBe(true);
+  });
+
+  test('should reject DROP', () => {
+    expect(validateSQLQuery('DROP TABLE users').valid).toBe(false);
+  });
+
+  test('should reject DELETE', () => {
+    expect(validateSQLQuery('DELETE FROM users WHERE id = 1').valid).toBe(false);
+  });
+
+  test('should reject UPDATE', () => {
+    expect(validateSQLQuery('UPDATE users SET name = "John"').valid).toBe(false);
+  });
+
+  test('should reject INSERT', () => {
+    expect(validateSQLQuery('INSERT INTO users (name) VALUES ("John")').valid).toBe(false);
+  });
+
+  test('should reject multiple statements', () => {
+    expect(validateSQLQuery('SELECT * FROM users; DROP TABLE users').valid).toBe(false);
+  });
+
+  test('should handle empty/invalid input', () => {
+    expect(validateSQLQuery('').valid).toBe(false);
+    expect(validateSQLQuery(null as any).valid).toBe(false);
+  });
+});
