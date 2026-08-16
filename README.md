@@ -167,6 +167,147 @@ npm test
 
 ## 📜 Release History
 
+### [1.5.37] - 2026-07-10 — 🔧 Grammar Parser Hardening & ContextGuard SDK Defensive Fixes
+**Resolved critical grammar parser failure and added defensive error handling for SDK token counting.**
+
+### [1.5.39] - 2026-07-10 — 🔧 Grammar Parser Fix: Production Deployment & Debug Cleanup
+**Resolved critical grammar parser failure in production — tool count capping now enforced at 25 tools (was 50), minifier properly wired up.**
+
+### [1.6.2] - 2026-07-14 — 🛠️ Utility Tools Registration & Cleanup
+**Registered utility tools and cleaned up orphaned gateway pattern code.**
+- ✅ Registered `backupTools` (create_backup, list_backups, restore_backup, delete_backup)
+- ✅ Registered `cleanupBackupsTool` (cleanup_backups)
+- ✅ Registered `dataVisualizationTools` (generate_chart)
+- ✅ Registered `lineOperations` (delete_lines)
+- ✅ Registered `markdownPreviewTools` (markdown_preview)
+- ✅ Added `utility` config toggle to enable/disable all utility tools
+
+### [1.6.4] - 2026-07-14 — 🔒 Strict Typing & Config Resolution Hardening
+**Eliminated all `any` type usage and fixed config resolution for ParsedConfig wrapper.**
+- ✅ **Strict typing policy enforced**: Replaced all `z.any()` with `z.unknown()` in Zod schemas
+- ✅ **Removed non-null assertions**: Replaced `latest.timestamp!` with `latest.timestamp ?? 0`
+- ✅ **Fixed config resolution**: Constructed proper `PluginConfig` object from `.get()` calls instead of direct property access on `ParsedConfig` wrapper
+- ✅ **Eliminated AST parser type mismatch**: Applied safe `as unknown as` double-cast for `@typescript-eslint/parser` return type
+- ✅ **Lint & typecheck clean**: Zero ESLint errors, zero TypeScript errors, 371/371 tests passing
+
+### [1.7.0] - 2026-07-25 — 🧠 Dynamic Context Window Detection & line_operations Safety Guardrails
+**Resolved critical token limit hardcoding, fixed JSON serialization crashes, and added comprehensive safety guardrails to `line_operations` tool.**
+
+#### Dynamic Context Window Detection
+- ✅ **Dynamic token limits**: Replaced hardcoded 30k/16k fallbacks with dynamic SDK `getContextLength()` API (accurately detects up to 224k+ tokens)
+- ✅ **JSON crash fix**: Resolved plugin crashes from non-JSON-safe properties in model objects; reverted to stable `summaryModel` configuration approach
+- ✅ **ContextGuard hardening**: Added defensive checks around SDK token counting and model metadata fetching
+
+#### 🛡️ line_operations Safety Guardrails (NEW)
+**Resolved recurring issues where LLMs inserted content at wrong lines due to stale line numbers.**
+
+Three-layer defense-in-depth strategy:
+
+| Layer | Parameter | Purpose |
+|-------|-----------|---------|
+| **Content-Aware Insertion** | `insert_after_pattern` / `insert_before_pattern` | Find insertion point by searching file content instead of trusting line numbers |
+| **Line Fingerprinting** | `verify_before_insert` | Content expected at target_line — blocks operation if mismatch and shows actual context |
+| **Bounds Validation** | Auto-detection + limits | Rejects out-of-range lines, multi-line content splitting, large insert blocking (>5 lines) |
+
+**Example usage:**
+```typescript
+// Pattern-based (line-number-agnostic):
+line_operations(file_name, operation: "insert", 
+  insert_after_pattern: "if (width <= 0 || height <= 0)",
+  content: "// fix"
+)
+
+// Verification-based (prevents drift errors):
+line_operations(file_name, operation: "insert", target_line: 84, 
+  content: "// fix",
+  verify_before_insert: "return;" // Content expected at line 84
+)
+```
+
+**Impact**: All guardrails tested and verified — 9/9 test scenarios passed with zero regressions.
+
+### [1.8.0] - 2026-07-26 — 🔥 SDK v1.x Content Block Extraction & Token Counting Fix
+**Resolved critical token undercounting bug caused by incomplete message content extraction when LM Studio SDK v1.x returns array-based content blocks or ChatMessage objects.**
+
+#### What Changed
+- ✅ **SDK v1.x compatibility**: `ContextGuard.countTokens()` now properly extracts text from arrays of content blocks `[{"type": "text", "text": "..."}]` instead of stringifying entire arrays
+- ✅ **ChatMessage support**: Falls back to `.getText()` method or `.text` property before JSON serialization for structured message objects
+- ✅ **ESLint hardening**: Resolved `@typescript-eslint/no-base-to-string` error with explicit type checks and scoped suppression
+
+### [1.8.1] - 2026-07-27 — 🔧 grep_files Performance Fix: Default Directory Exclusions
+**Fixed critical performance issue where `grep_files` searched ALL directories including node_modules, .git, and build artifacts.**
+
+#### What Changed
+- ✅ Added `DEFAULT_EXCLUDED_DIRS` Set in `walkDirectory()` function within `src/tools/fileSystemTools.ts`
+- ✅ Automatically excludes by default: `node_modules`, `.git`, `dist`, `build`, `.next`, `.nuxt`, `__pycache__`, `.cache`, `vendor`, `.vscode`, `.idea`, `.vs`
+- ✅ Exclusions are bypassed when user specifies explicit `include` pattern (backward compatible)
+
+### [1.8.2] - 2026-07-27 — 🏗️ `toolsProvider.ts` Refactoring: Declarative Registry Pattern
+**Architectural overhaul of tool registration system — replaced repetitive gating logic with a clean, maintainable registry pattern using closures.**
+- ✅ **Replaced ~80 lines of repetitive if/else blocks** with a single declarative registry array (`TOOL_REGISTRIES`) containing 20 entries
+- ✅ **Closure-based dependency injection**: Each registry entry captures `config`, `stateManager`, and `backgroundCommandManager` at definition time via arrow functions, eliminating parameter-passing complexity
+- ✅ **Strict TypeScript compliance**: Eliminated all `any[]` types, replaced with typed closures (`() => Tool[]`) that satisfy strict ESLint rules
+- ✅ **Simplified registry loop**: Single `for...of` iteration replaces scattered conditional blocks — adds tools based on config keys or GOD MODE bypass
+
+### [1.8.3] - 2026-07-30 — 🧹 Final Cleanup & ContextGuard Calibration
+**Resolved critical token undercounting bug caused by incomplete message content extraction when LM Studio SDK v1.x returns array-based content blocks.**
+- ✅ **SDK v1.x compatibility overhaul**: `ContextGuard.countTokens()` now properly extracts text from arrays of content blocks, ChatMessage objects.
+
+### [1.8.4] - 2026-07-31 — 🐛 ContextGuard Crash Fix: Safe History Text Length Calculation
+**Resolved critical `TypeError: Cannot read properties of undefined (reading 'length')` crash in `promptPreprocessor.ts`.**
+- ✅ **Fixed history text length calculation**: Added safe type checking and try/catch around the loop calculating `historyTextLength`.
+
+### [1.8.5] - 2026-07-31 — 🧠 Accurate Token Counting via Native History API & Checkpoint Injection Fix
+**Resolved critical token counting inaccuracy and missing checkpoint prompt injection issues.**
+- ✅ **History Text Length calculation overhaul**: Replaced broken `.content` casting with LM Studio's native history API (`getLength()`, `at(i)`, `getText()`).
+- ✅ **Token counting method change**: Switched from SDK-native `countTokens() × 65` to History Text Length `× 0.24` ratio — matches sidebar exactly.
+
+### [1.8.6] - 2026-07-31 — 📋 Task Planning Tools: Structured Multi-Step Workflow Management
+**Added three new tools for creating, tracking, and updating execution plans with persistent storage.**
+- ✅ `create_plan` — Create execution plans with goal + ordered steps (1–30 steps). Returns `planId`, `goal`, `stepCount`.
+- ✅ `get_plan` — Return active plan details including step statuses, completion %, elapsed time.
+- ✅ `update_plan_step` — Update step status per state machine rules (`pending→in_progress→done`, any→blocked).
+
+### [1.8.7] - 2026-08-01 — 🔧 Token Counting Calibration, Config Exports, Drift Detection & Version Bump
+**Applied five critical fixes: token ratio calibration, missing config exports, test console suppression, insert_at_line read-back drift detection.**
+- ✅ **Token counting ratio ×0.24 → ×0.25**: Updated in `contextGuard.ts` and `promptPreprocessor.ts`. Effective ratio ~0.275 with +10% buffer — matches LM Studio sidebar within <0.3% deviation.
+- ✅ **Missing config exports**: Added `validateConfig()` and `isToolEnabled()` to `src/config.ts` public API.
+- ✅ **Read-back drift detection on insert_at_line**: After inserting content, tool re-reads file and searches ±3 lines for inserted content. Returns structured warning instead of silently corrupting files.
+
+### [1.8.8] - 2026-08-02 — 🛡️ .bak Backup Discovery & Restoration Tools + LLM Awareness
+**Added explicit LLM-accessible tools for discovering and restoring from `.bak` backup files created by file-modifying operations.**
+- ✅ **NEW `restore_from_bak(file_name)`** — Restores any file from its `.bak` backup; scans working directory, copies back original, deletes `.bak`. Returns list of available backups if none found.
+- ✅ **NEW `list_available_bak_backups()`** — Scans for all `.bak` files and returns structured data: `{file, backupFile, sizeBytes}` array.
+- ✅ **Backup announcements in tool responses**: All file-modifying tools now include explicit `backupMessage` field announcing the `.bak` location to LLM.
+
+### [1.9.0] - 2026-08-06 — 🛠️ Jest Mock Compatibility Fix & Documentation Version Updates
+**Resolved Jest `moduleNameMapper` catch-all regex conflict with tool imports and synchronized version references across all documentation files.**
+- ✅ **Jest mock compatibility**: Resolved configuration error where the catch-all regex matched barrel file imports (`./tools/index.js`) and attempted to resolve them to non-existent mock files. Reverted to individual tool imports for Jest compatibility.
+- ✅ **Documentation synchronization**: Updated v1.8.9 → v1.9.0 across all MD files
+
+### [1.9.1] - 2026-08-06 — 🧠 Context Management Architecture: Scoping, Heuristic Scoring & TTL Pruning
+**Three architectural improvements to the memory system with context isolation and intelligent retrieval.**
+- ✅ **Context scoping**: Added `MemoryScope` type (`global`/`project`/`session`) to prevent cross-project memory bleed
+- ✅ **Heuristic scoring**: Deterministic composite score (Recency 70% + Frequency 30%) replaces raw insertion order for smarter retrieval
+- ✅ **TTL pruning**: 24-hour expiration for session-scoped entries; pruned automatically before every read operation
+
+### [1.9.2] - 2026-08-07 — 🔥 grep_files ReDoS Fix & RAG System Overhaul: PDF/DOCX/XLSX Indexing Tools
+**Resolved critical Regex Denial of Service (ReDoS) vulnerability in `grep_files` AND completed comprehensive RAG system overhaul with new indexing tools for PDF, DOCX, and XLSX formats.**
+
+#### grep_files ReDoS Fix
+- ✅ **Top-level alternation detection**: Added `hasTopLevelAlternation()` scanner tracking parenthesis depth to catch `\|` at root level
+- ✅ **Split-regex processing**: Pattern split into independent `RegExp[]` branches — each tested separately with early-exit, eliminating cross-branch backtracking in V8's NFA engine
+
+#### RAG System Overhaul (NEW)
+- ✅ **Added 3 new indexing tools** (`rag_index_pdf`, `rag_index_docx`, `rag_index_xlsx`) expanding Vector RAG from 4 → 7 total tools
+- ✅ **PDF indexing**: Extracts PDF text via `pdf-parse`, chunks by page boundary with ~300 words/chunk — traceable results per page number; verified against 25MB/1690-page programming guide without OOM/crash
+- ✅ **DOCX indexing**: Uses existing `mammoth` dependency for DOCX extraction — word-bounded chunks (default 300 words, 50 overlap); semantic search working correctly
+- ✅ **XLSX indexing**: Added `xlsx ^0.18.5` dependency; extracts all sheets as row arrays with configurable sheet-name prefix; verified programmatic smoke test showing correct ranking of API vs Test Data sheets
+- ✅ **ESLint fixes in `vectorRagTools.ts`**: Resolved 4 issues (unused catch param, unsafe return cast, dead eslint-disable directives) — zero errors/warnings after fix
+
+#### Other Fixes
+- ✅ **371 tests pass** across 23 suites including 11 `grep_files`-specific tests — zero regressions
+
 ### [v1.9.3] - 2026-08-09 — 🔧 ESLint `no-unsafe-assignment` Hardening & Type-Safety Refinement
 **Resolved unused eslint-disable directives and eliminated implicit `any` assignments in HTTP client tools through explicit type annotations.**
 
@@ -259,153 +400,6 @@ Prior to this fix, ESLint's `@typescript-eslint/no-unsafe-assignment` rule flagg
 - ✅ **Clarification loop eliminated**: Projects detected via keyword matching now surface in `search_projects`/`get_project_info` without manual re-registration.
 - ✅ **No startup overhead**: Lazy sync pattern — registry only synced when a search or lookup actually happens.
 - ✅ **Backward compatible**: Explicit `register_project` (confirmed path) remains the primary registration method; auto-sync is additive.
-
-### [1.9.2] - 2026-08-07 — 🔥 grep_files ReDoS Fix & RAG System Overhaul: PDF/DOCX/XLSX Indexing Tools
-**Resolved critical Regex Denial of Service (ReDoS) vulnerability in `grep_files` AND completed comprehensive RAG system overhaul with new indexing tools for PDF, DOCX, and XLSX formats.**
-
-#### grep_files ReDoS Fix
-- ✅ **Top-level alternation detection**: Added `hasTopLevelAlternation()` scanner tracking parenthesis depth to catch `\|` at root level
-- ✅ **Split-regex processing**: Pattern split into independent `RegExp[]` branches — each tested separately with early-exit, eliminating cross-branch backtracking in V8's NFA engine
-
-#### RAG System Overhaul (NEW)
-- ✅ **Added 3 new indexing tools** (`rag_index_pdf`, `rag_index_docx`, `rag_index_xlsx`) expanding Vector RAG from 4 → 7 total tools
-- ✅ **PDF indexing**: Extracts PDF text via `pdf-parse`, chunks by page boundary with ~300 words/chunk — traceable results per page number; verified against 25MB/1690-page programming guide without OOM/crash
-- ✅ **DOCX indexing**: Uses existing `mammoth` dependency for DOCX extraction — word-bounded chunks (default 300 words, 50 overlap); semantic search working correctly
-- ✅ **XLSX indexing**: Added `xlsx ^0.18.5` dependency; extracts all sheets as row arrays with configurable sheet-name prefix; verified programmatic smoke test showing correct ranking of API vs Test Data sheets
-- ✅ **ESLint fixes in `vectorRagTools.ts`**: Resolved 4 issues (unused catch param, unsafe return cast, dead eslint-disable directives) — zero errors/warnings after fix
-
-#### Other Fixes
-- ✅ **371 tests pass** across 23 suites including 11 `grep_files`-specific tests — zero regressions
-
-### [1.9.1] - 2026-08-06 — 🧠 Context Management Architecture: Scoping, Heuristic Scoring & TTL Pruning
-**Three architectural improvements to the memory system with context isolation and intelligent retrieval.**
-- ✅ **Context scoping**: Added `MemoryScope` type (`global`/`project`/`session`) to prevent cross-project memory bleed
-- ✅ **Heuristic scoring**: Deterministic composite score (Recency 70% + Frequency 30%) replaces raw insertion order for smarter retrieval
-- ✅ **TTL pruning**: 24-hour expiration for session-scoped entries; pruned automatically before every read operation
-
-### [1.9.0] - 2026-08-06 — 🛠️ Jest Mock Compatibility Fix & Documentation Version Updates
-**Resolved Jest `moduleNameMapper` catch-all regex conflict with tool imports and synchronized version references across all documentation files.**
-- ✅ **Jest mock compatibility**: Resolved configuration error where the catch-all regex matched barrel file imports (`./tools/index.js`) and attempted to resolve them to non-existent mock files. Reverted to individual tool imports for Jest compatibility.
-- ✅ **Documentation synchronization**: Updated v1.8.9 → v1.9.0 across all MD files
-
-### [1.8.2] - 2026-07-27 — 🏗️ `toolsProvider.ts` Refactoring: Declarative Registry Pattern
-**Architectural overhaul of tool registration system — replaced repetitive gating logic with a clean, maintainable registry pattern using closures.**
-- ✅ **Replaced ~80 lines of repetitive if/else blocks** with a single declarative registry array (`TOOL_REGISTRIES`) containing 20 entries
-- ✅ **Closure-based dependency injection**: Each registry entry captures `config`, `stateManager`, and `backgroundCommandManager` at definition time via arrow functions, eliminating parameter-passing complexity
-- ✅ **Strict TypeScript compliance**: Eliminated all `any[]` types, replaced with typed closures (`() => Tool[]`) that satisfy strict ESLint rules
-- ✅ **Simplified registry loop**: Single `for...of` iteration replaces scattered conditional blocks — adds tools based on config keys or GOD MODE bypass
-
-
-### [1.8.8] - 2026-08-02 — 🛡️ .bak Backup Discovery & Restoration Tools + LLM Awareness
-**Added explicit LLM-accessible tools for discovering and restoring from `.bak` backup files created by file-modifying operations.**
-- ✅ **NEW `restore_from_bak(file_name)`** — Restores any file from its `.bak` backup; scans working directory, copies back original, deletes `.bak`. Returns list of available backups if none found.
-- ✅ **NEW `list_available_bak_backups()`** — Scans for all `.bak` files and returns structured data: `{file, backupFile, sizeBytes}` array.
-- ✅ **Backup announcements in tool responses**: All file-modifying tools now include explicit `backupMessage` field announcing the `.bak` location to LLM.
-
-### [1.8.7] - 2026-08-01 — 🔧 Token Counting Calibration, Config Exports, Drift Detection & Version Bump
-**Applied five critical fixes: token ratio calibration, missing config exports, test console suppression, insert_at_line read-back drift detection.**
-- ✅ **Token counting ratio ×0.24 → ×0.25**: Updated in `contextGuard.ts` and `promptPreprocessor.ts`. Effective ratio ~0.275 with +10% buffer — matches LM Studio sidebar within <0.3% deviation.
-- ✅ **Missing config exports**: Added `validateConfig()` and `isToolEnabled()` to `src/config.ts` public API.
-- ✅ **Read-back drift detection on insert_at_line**: After inserting content, tool re-reads file and searches ±3 lines for inserted content. Returns structured warning instead of silently corrupting files.
-
-### [1.8.6] - 2026-07-31 — 📋 Task Planning Tools: Structured Multi-Step Workflow Management
-**Added three new tools for creating, tracking, and updating execution plans with persistent storage.**
-- ✅ `create_plan` — Create execution plans with goal + ordered steps (1–30 steps). Returns `planId`, `goal`, `stepCount`.
-- ✅ `get_plan` — Return active plan details including step statuses, completion %, elapsed time.
-- ✅ `update_plan_step` — Update step status per state machine rules (`pending→in_progress→done`, any→blocked).
-
-### [1.8.5] - 2026-07-31 — 🧠 Accurate Token Counting via Native History API & Checkpoint Injection Fix
-**Resolved critical token counting inaccuracy and missing checkpoint prompt injection issues.**
-- ✅ **History Text Length calculation overhaul**: Replaced broken `.content` casting with LM Studio's native history API (`getLength()`, `at(i)`, `getText()`).
-- ✅ **Token counting method change**: Switched from SDK-native `countTokens() × 65` to History Text Length `× 0.24` ratio — matches sidebar exactly.
-
-### [1.8.4] - 2026-07-31 — 🐛 ContextGuard Crash Fix: Safe History Text Length Calculation
-**Resolved critical `TypeError: Cannot read properties of undefined (reading 'length')` crash in `promptPreprocessor.ts`.**
-- ✅ **Fixed history text length calculation**: Added safe type checking and try/catch around the loop calculating `historyTextLength`.
-
-### [1.8.3] - 2026-07-30 — 🧹 Final Cleanup & ContextGuard Calibration
-**Resolved critical token undercounting bug caused by incomplete message content extraction when LM Studio SDK v1.x returns array-based content blocks.**
-- ✅ **SDK v1.x compatibility overhaul**: `ContextGuard.countTokens()` now properly extracts text from arrays of content blocks, ChatMessage objects.
-
-### [1.8.1] - 2026-07-27 — 🔧 grep_files Performance Fix: Default Directory Exclusions
-**Fixed critical performance issue where `grep_files` searched ALL directories including node_modules, .git, and build artifacts.**
-
-#### What Changed
-- ✅ Added `DEFAULT_EXCLUDED_DIRS` Set in `walkDirectory()` function within `src/tools/fileSystemTools.ts`
-- ✅ Automatically excludes by default: `node_modules`, `.git`, `dist`, `build`, `.next`, `.nuxt`, `__pycache__`, `.cache`, `vendor`, `.vscode`, `.idea`, `.vs`
-- ✅ Exclusions are bypassed when user specifies explicit `include` pattern (backward compatible)
-
-### [1.8.0] - 2026-07-26 — 🔥 SDK v1.x Content Block Extraction & Token Counting Fix
-**Resolved critical token undercounting bug caused by incomplete message content extraction when LM Studio SDK v1.x returns array-based content blocks or ChatMessage objects.**
-
-#### What Changed
-- ✅ **SDK v1.x compatibility**: `ContextGuard.countTokens()` now properly extracts text from arrays of content blocks `[{"type": "text", "text": "..."}]` instead of stringifying entire arrays
-- ✅ **ChatMessage support**: Falls back to `.getText()` method or `.text` property before JSON serialization for structured message objects
-- ✅ **ESLint hardening**: Resolved `@typescript-eslint/no-base-to-string` error with explicit type checks and scoped suppression
-
-### [1.7.0] - 2026-07-25 — 🧠 Dynamic Context Window Detection & line_operations Safety Guardrails
-**Resolved critical token limit hardcoding, fixed JSON serialization crashes, and added comprehensive safety guardrails to `line_operations` tool.**
-
-#### Dynamic Context Window Detection
-- ✅ **Dynamic token limits**: Replaced hardcoded 30k/16k fallbacks with dynamic SDK `getContextLength()` API (accurately detects up to 224k+ tokens)
-- ✅ **JSON crash fix**: Resolved plugin crashes from non-JSON-safe properties in model objects; reverted to stable `summaryModel` configuration approach
-- ✅ **ContextGuard hardening**: Added defensive checks around SDK token counting and model metadata fetching
-
-#### 🛡️ line_operations Safety Guardrails (NEW)
-**Resolved recurring issues where LLMs inserted content at wrong lines due to stale line numbers.**
-
-Three-layer defense-in-depth strategy:
-
-| Layer | Parameter | Purpose |
-|-------|-----------|---------|
-| **Content-Aware Insertion** | `insert_after_pattern` / `insert_before_pattern` | Find insertion point by searching file content instead of trusting line numbers |
-| **Line Fingerprinting** | `verify_before_insert` | Content expected at target_line — blocks operation if mismatch and shows actual context |
-| **Bounds Validation** | Auto-detection + limits | Rejects out-of-range lines, multi-line content splitting, large insert blocking (>5 lines) |
-
-**Example usage:**
-```typescript
-// Pattern-based (line-number-agnostic):
-line_operations(file_name, operation: "insert", 
-  insert_after_pattern: "if (width <= 0 || height <= 0)",
-  content: "// fix"
-)
-
-// Verification-based (prevents drift errors):
-line_operations(file_name, operation: "insert", target_line: 84, 
-  content: "// fix",
-  verify_before_insert: "return;" // Content expected at line 84
-)
-```
-
-**Impact**: All guardrails tested and verified — 9/9 test scenarios passed with zero regressions.
-
-### [1.6.4] - 2026-07-14 — 🔒 Strict Typing & Config Resolution Hardening
-**Eliminated all `any` type usage and fixed config resolution for ParsedConfig wrapper.**
-- ✅ **Strict typing policy enforced**: Replaced all `z.any()` with `z.unknown()` in Zod schemas
-- ✅ **Removed non-null assertions**: Replaced `latest.timestamp!` with `latest.timestamp ?? 0`
-- ✅ **Fixed config resolution**: Constructed proper `PluginConfig` object from `.get()` calls instead of direct property access on `ParsedConfig` wrapper
-- ✅ **Eliminated AST parser type mismatch**: Applied safe `as unknown as` double-cast for `@typescript-eslint/parser` return type
-- ✅ **Lint & typecheck clean**: Zero ESLint errors, zero TypeScript errors, 371/371 tests passing
-
-### [1.6.2] - 2026-07-14 — 🛠️ Utility Tools Registration & Cleanup
-**Registered utility tools and cleaned up orphaned gateway pattern code.**
-- ✅ Registered `backupTools` (create_backup, list_backups, restore_backup, delete_backup)
-- ✅ Registered `cleanupBackupsTool` (cleanup_backups)
-- ✅ Registered `dataVisualizationTools` (generate_chart)
-- ✅ Registered `lineOperations` (delete_lines)
-- ✅ Registered `markdownPreviewTools` (markdown_preview)
-- ✅ Added `utility` config toggle to enable/disable all utility tools
-
-### [1.6.0] — 🚀 Gateway Tools: Single Entry Point for Tool Discovery & Execution (2026-07-12)
-**Introduced the Gateway Pattern to prevent LLM tool-bloat crashes and provide controlled access to all registered tools.**
-- ✅ `explore_tools` — Discovers available tool categories without exposing all tools at once (prevents grammar parser crashes)
-- ✅ `execute_gateway_tool` — Delegates execution to any registered tool by name with built-in validation
-
-### [1.5.39] - 2026-07-10 — 🔧 Grammar Parser Fix: Production Deployment & Debug Cleanup
-**Resolved critical grammar parser failure in production — tool count capping now enforced at 25 tools (was 50), minifier properly wired up.**
-
-### [1.5.37] - 2026-07-10 — 🔧 Grammar Parser Hardening & ContextGuard SDK Defensive Fixes
-**Resolved critical grammar parser failure and added defensive error handling for SDK token counting.**
 
 ---
 
