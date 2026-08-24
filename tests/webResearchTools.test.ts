@@ -20,13 +20,34 @@ jest.mock('html-to-text', () => ({
   htmlToText: jest.fn().mockReturnValue('Plain text content'),
 }));
 
-// Mock fetchWithRetry from performanceUtils
+// --- Helpers to build mock Response objects compatible with readBoundedText (streaming reader) ---
+
+function streamFromChunks(chunks: Uint8Array[], hooks?: { onRead?: () => void; onCancel?: () => void }) {
+  let idx = 0;
+  // Both reader-level and body-level cancellation count as "socket released".
+  const fireCancel = async (): Promise<void> => { if (hooks?.onCancel) hooks.onCancel(); };
+  return {
+    getReader: () => ({
+      read: async (): Promise<{ done: boolean; value?: Uint8Array }> => {
+        if (hooks?.onRead) hooks.onRead();
+        return idx < chunks.length ? { done: false, value: chunks[idx++] } : { done: true, value: undefined };
+      },
+      cancel: fireCancel,
+    }),
+    cancel: fireCancel,
+  };
+}
+
+// Mock fetchWithRetry from performanceUtils. The resolved response must expose a streamable `body`
+// because the OOM fix (readBoundedText) no longer calls response.text().
 jest.mock('../src/performanceUtils', () => {
   const actual = jest.requireActual('../src/performanceUtils');
   return {
     ...actual,
     fetchWithRetry: jest.fn().mockResolvedValue({
       ok: true,
+      headers: { get: () => null },
+      body: streamFromChunks([new TextEncoder().encode('<html><body>Test content</body></html>')]),
       text: () => Promise.resolve('<html><body>Test content</body></html>'),
       json: () => Promise.resolve({ query: { search: [{ title: 'Test', snippet: 'Test snippet' }] } }),
     }),
@@ -84,6 +105,55 @@ describe('Web Research Tools', () => {
       const tool = tools?.find(t => t.name === 'fetch_web_content');
       const result = await tool?.implementation({ url: 'https://slow-site.com' });
       expect((result as any).success).toBe(false);
+    });
+
+    // OOM regression tests (LM Studio dev log 2026-08-24): oversized pages must be rejected
+    // DURING transfer, never after buffering the full body into the heap.
+    describe('oversized page protection', () => {
+      test('fast-rejects via Content-Length without reading the stream', async () => {
+        const { fetchWithRetry } = require('../src/performanceUtils');
+        let readCalls = 0;
+        let cancelled = false;
+        (fetchWithRetry as jest.Mock).mockResolvedValueOnce({
+          ok: true,
+          headers: { get: (n: string) => (n.toLowerCase() === 'content-length' ? String(500_000) : null) },
+          body: streamFromChunks([new TextEncoder().encode('x'.repeat(100))], {
+            onRead: () => { readCalls++; },
+            onCancel: () => { cancelled = true; },
+          }),
+        });
+        const tool = tools?.find(t => t.name === 'fetch_web_content');
+        const result = await tool?.implementation({ url: 'https://example.com/huge' }) as any;
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('Page too large');
+        expect(readCalls).toBe(0); // never started streaming the body
+        expect(cancelled).toBe(true); // socket released immediately
+      });
+
+      test('stops chunked stream the moment the 50KB budget is exceeded', async () => {
+        const { fetchWithRetry } = require('../src/performanceUtils');
+        let readCalls = 0;
+        let cancelled = false;
+        // Three 30,000-char chunks, no Content-Length: budget must trip mid-stream (after chunk 2).
+        (fetchWithRetry as jest.Mock).mockResolvedValueOnce({
+          ok: true,
+          headers: { get: () => null },
+          body: streamFromChunks(
+            [
+              new TextEncoder().encode('a'.repeat(30_000)),
+              new TextEncoder().encode('b'.repeat(30_000)),
+              new TextEncoder().encode('c'.repeat(30_000)),
+            ],
+            { onRead: () => { readCalls++; }, onCancel: () => { cancelled = true; } },
+          ),
+        });
+        const tool = tools?.find(t => t.name === 'fetch_web_content');
+        const result = await tool?.implementation({ url: 'https://example.com/streamy' }) as any;
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('Page too large');
+        expect(readCalls).toBe(2); // chunk 3 was never pulled — transfer aborted early
+        expect(cancelled).toBe(true);
+      });
     });
   });
 

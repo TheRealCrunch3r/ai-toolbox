@@ -7,6 +7,28 @@
 
 ---
 
+## [24.08.2026] — OOM guard for web-fetch tools (implemented + live-probed; version bump pending release decision)
+
+**Fixes a class of hard plugin-host crashes: `FATAL ERROR: Ineffective mark-compacts near heap limit` when fetching large page bodies.**
+
+Root causes (proven by code read, session 24.08.2026):
+1. **`fetch_web_content`**: `await response.text()` materialized the ENTIRE body before its 50 KB check ran — oversized pages allocated their full size regardless of the cap.
+2. **`rag_web_content`** (`tools/vectorRagTools.ts`): raw unbounded `fetch()`, no cap at all, plus ~5–10× memory amplification in word-array chunking/embedding, and no timeout.
+3. All `fetchWithRetry` paths had **no per-attempt timeout** — slow/stalled transfers held buffers indefinitely.
+
+Fixes:
+- New shared infrastructure (`src/performanceUtils.ts`): **`readBoundedText(response, maxChars)`** (Content-Length fast-reject with zero reads + streaming chunked read that enforces the budget and cancels the socket early) and **`WEB_FETCH_TIMEOUT_MS = 30_000`**; `fetchWithRetry` now bounds every attempt via AbortController timeout (caller-supplied signals respected).
+- `fetch_web_content`: 50,000-char cap enforced DURING transfer; error contract preserved (`Page too large (…) … Use searxng_search + summary_only`).
+- `rag_web_content`: new 500,000-char budget + shared timeout/backoff helper; error contract preserved (`RAG search failed: …`).
+- Regression tests in `tests/webResearchTools.test.ts` (suite **oversized page protection**): Content-Length fast path asserts zero chunks read + socket cancelled; chunked over-cap stream aborts after exactly 2 of 3 chunks.
+
+Verification status:
+- ✅ Live probe on real network traffic after user rebuild+reinstall: oversized Wikipedia fetch returned `Page too large (> 48.8 KB streamed)` — the bounded reader is active in the installed build and the host stayed alive (pre-fix wording would have been `(177.2 KB)` from full buffering).
+- ⏳ `npm run typecheck` + `npx jest tests/webResearchTools.test.ts --silent` to be run locally (session environment has no shell).
+
+Versioning: **no version bump in this change** — candidate for v1.9.11; bump `package.json` + `manifest.json` revision at release time.
+Out of scope (tracked): the three search-engine fallback functions still use raw `.text()` on known-small result pages; dead file `tools/networkToolsRegistry.ts` removal.
+
 ## [v1.9.10] — 24.08.2026: duplicate tool removal + log-level fix (live-accepted & bundle-verified)
 
 **Fixes:**

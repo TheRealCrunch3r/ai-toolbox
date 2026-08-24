@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { search as ddgSearch } from 'duck-duck-scrape';
 import { htmlToText } from 'html-to-text';
 import type { PluginConfig } from '../config.js';
-import { fetchWithRetry } from '../performanceUtils.js';
+import { fetchWithRetry, readBoundedText } from '../performanceUtils.js';
 
 // ==================== Search Engine Implementations ====================
 
@@ -239,12 +239,16 @@ export function registerWebResearchTools(config: PluginConfig): Tool[] {
           throw new Error(`HTTP error: ${response.status}`);
         }
 
-        const html = await response.text();
-        
-        // Hard cap on fetched content to prevent OOM (50KB max)
+        // OOM guard: hard cap enforced DURING transfer (streaming read + early socket cancel).
+        // Previously response.text() buffered the ENTIRE body before this check could run — an
+        // oversized page then exhausted the plugin host's heap (dev log 2026-08-24, OOM fatal).
         const MAX_HTML_SIZE = 50_000;
-        if (html.length > MAX_HTML_SIZE) {
-          return { success: false, error: `Page too large (${(html.length / 1024).toFixed(1)} KB). Max allowed is ${MAX_HTML_SIZE / 1024} KB. Use searxng_search + summary_only for large pages.` };
+        let html: string;
+        try {
+          html = await readBoundedText(response, MAX_HTML_SIZE);
+        } catch (sizeError) {
+          const sizeMsg = sizeError instanceof Error ? sizeError.message : String(sizeError);
+          return { success: false, error: `${sizeMsg} Use searxng_search + summary_only for large pages.` };
         }
 
         const text = htmlToText(html, {

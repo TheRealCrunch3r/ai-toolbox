@@ -4,6 +4,7 @@ import { z } from 'zod';
 import * as path from 'path';
 import * as fs from 'fs';
 import type { PluginConfig } from '../config.js';
+import { fetchWithRetry, readBoundedText } from '../performanceUtils.js';
 
 // ==================== Typed Params Interfaces ====================
 
@@ -800,8 +801,9 @@ async function ragWebContent({ url, query }: RagWebContentParams): Promise<unkno
       return { success: false, error: `Invalid URL: ${url}` };
     }
 
-    // Fetch the content with proper headers to avoid bot detection
-    const response = await fetch(parsedUrl.toString(), {
+    // Fetch the content with proper headers to avoid bot detection.
+    // fetchWithRetry adds per-attempt timeout + exponential backoff (previously raw, unbounded fetch).
+    const response = await fetchWithRetry(parsedUrl.toString(), {
       method: 'GET',
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
@@ -814,8 +816,12 @@ async function ragWebContent({ url, query }: RagWebContentParams): Promise<unkno
       return { success: false, error: `HTTP ${response.status}: ${response.statusText}` };
     }
 
-    // Read the body ONCE and store it
-    const content = await response.text();
+    // OOM guard: bounded streaming read (previously unbounded response.text() followed by word-array
+    // chunking amplified memory ~5-10x over the raw body size). Size/timeout errors surface through this
+    // function's outer catch as `RAG search failed: ...` — existing error contract preserved.
+    const MAX_RAG_HTML_CHARS = 500_000; // ~75k words — sane input for keyword/vector scoring
+    let content: string;
+    content = await readBoundedText(response, MAX_RAG_HTML_CHARS);
     
     // Chunk the text
     const chunks = chunkText(content);

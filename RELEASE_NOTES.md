@@ -1,3 +1,17 @@
+## Web-Fetch OOM Guard: Size Caps Now Enforced During Transfer
+
+**Eliminated a class of plugin-host crashes (`JavaScript heap out of memory`) caused by unbounded page-body buffering in the web tools.**
+
+### What Changed
+1. **`fetch_web_content`**: previously buffered the full page with `response.text()` and only *then* checked its 50 KB cap — oversized pages exhausted the host's heap first. The cap is now enforced while streaming; the socket is cancelled the moment the budget trips.
+2. **`rag_web_content`** (vectorRAG): previously a raw, uncapped, unbounded fetch plus ~5–10× memory amplification in chunking. Now bounded to 500 KB and routed through the shared timeout/retry helper.
+3. **All `fetchWithRetry` paths**: every attempt is now time-bounded (30 s AbortController timeout), matching the existing `http_*` tools' convention — slow or stalled transfers can no longer hang indefinitely.
+
+### Impact
+- ✅ Oversized pages produce a clean, fast error instead of risking host death (`Page too large (…) … Use searxng_search + summary_only`).
+- ✅ Memory growth for oversized-page handling is bounded to ~the cap size, not the page size.
+- ✅ Tool names, parameters and response shapes unchanged — no LLM-visible behavior change beyond faster/cleaner failure on huge pages.
+
 ## Silent Auto-Registration Bug Fixed: Explicit Confirmation Required for Project Registration
 
 **Eliminated silent auto-registration of wrong/stale project paths without user confirmation.**

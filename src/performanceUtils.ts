@@ -359,6 +359,57 @@ export async function fetchWithCache(
   return response;
 }
 
+// ==================== Bounded Body Reading (OOM Guard) ====================
+
+/** Per-attempt timeout for web fetches — matches the 30 s convention used by http_* tools. */
+export const WEB_FETCH_TIMEOUT_MS = 30_000;
+
+/**
+ * Read a response body as text while enforcing a hard character budget DURING transfer.
+ *
+ * Why: `await response.text()` materializes the ENTIRE body before any size check can run, so an
+ * oversized page allocates its full size into the heap first — the cap would only fire after the
+ * damage (observed as "Ineffective mark-compacts near heap limit" in LM Studio dev log 2026-08-24).
+ * This reader streams instead and cancels the socket the moment the budget is exceeded.
+ *
+ * @param response   The Response to read (body stream must be unconsumed)
+ * @param maxChars   Hard character budget for the decoded text. The Content-Length fast path compares
+ *                   against the compressed wire size, which is always <= expanded size — a safe direction.
+ * @throws Error     When declared or streamed size exceeds the budget, or on stream failure
+ */
+export async function readBoundedText(response: Response, maxChars: number): Promise<string> {
+  const contentLength = Number(response.headers.get('content-length'));
+  if (Number.isFinite(contentLength) && contentLength > 0 && contentLength > maxChars) {
+    await response.body?.cancel().catch(() => {}); // Release the socket without reading anything
+    throw new Error(
+      `Page too large (${(contentLength / 1024).toFixed(1)} KB declared). Max allowed is ${maxChars / 1024} KB.`,
+    );
+  }
+
+  if (!response.body) {
+    return ''; // Edge case: non-streamable body (e.g., some cached/mock responses)
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder('utf-8');
+  let out = '';
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      out += decoder.decode(value, { stream: true });
+      if (out.length > maxChars) {
+        throw new Error(
+          `Page too large (> ${(maxChars / 1024).toFixed(1)} KB streamed). Max allowed is ${maxChars / 1024} KB.`,
+        );
+      }
+    }
+    return out + decoder.decode(); // Flush any final partial UTF-8 sequence
+  } finally {
+    await reader.cancel().catch(() => {}); // Releases the socket early on both success and error paths
+  }
+}
+
 /**
  * Retry logic with exponential backoff for failed requests.
  */
@@ -372,7 +423,22 @@ export async function fetchWithRetry(
   
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      const response = await fetchWithCache(url, options);
+      let response: Response;
+      if (options?.signal) {
+        // Caller manages cancellation — respect their signal as-is.
+        response = await fetchWithCache(url, options);
+      } else {
+        // OOM/latency guard: bound every attempt by WEB_FETCH_TIMEOUT_MS (previously unbounded).
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => {
+          controller.abort(new Error(`Web fetch timed out after ${WEB_FETCH_TIMEOUT_MS} ms`));
+        }, WEB_FETCH_TIMEOUT_MS);
+        try {
+          response = await fetchWithCache(url, { ...options, signal: controller.signal });
+        } finally {
+          clearTimeout(timeoutId);
+        }
+      }
       
       if (!response.ok && response.status >= 500) {
         // Server error - retry
