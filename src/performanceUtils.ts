@@ -339,11 +339,17 @@ export async function fetchWithCache(
   // Cache successful responses (GET only)
   if (response.ok && options?.method !== 'POST') {
     try {
+      // ✅ OOM GUARD: gate on the declared Content-Type BEFORE touching any stream. Previously .json() was
+      // attempted on every ok response — for HTML pages fetch reads the ENTIRE cloned body into memory before
+      // JSON.parse throws (spec-mandated text read), silently allocating a second full-size copy of large pages.
+      const ctype = response.headers.get('content-type') ?? '';
+      if (!/application\/json/.test(ctype)) return response;
+
       // ✅ FIX: Clone before reading to preserve the original stream for the caller
       const clonedResponse = response.clone();
       // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- Response.json() returns Promise<any>, safely cast to unknown for caching
       const data = await clonedResponse.json();
-      
+
       requestCache.set(cacheKey, {
         data,
         timestamp: Date.now(),
@@ -354,6 +360,7 @@ export async function fetchWithCache(
     } catch {
       // Non-JSON responses are not cached (safe to ignore)
     }
+
   }
 
   return response;
@@ -407,6 +414,64 @@ export async function readBoundedText(response: Response, maxChars: number): Pro
     return out + decoder.decode(); // Flush any final partial UTF-8 sequence
   } finally {
     await reader.cancel().catch(() => {}); // Releases the socket early on both success and error paths
+  }
+}
+
+/**
+ * Read a response body as text up to a hard character budget WITHOUT throwing on size.
+ * Stops reading at the budget and cancels the socket — used where PARTIAL content is still
+ * useful (search-engine result pages: the first N characters contain the top results even if
+ * the page is truncated). For "fail loudly" behavior use readBoundedText() instead.
+ *
+ * @param response   The Response to read (body stream must be unconsumed)
+ * @param maxChars   Maximum decoded characters to accumulate
+ */
+export async function readCappedText(response: Response, maxChars: number): Promise<string> {
+  if (!response.body) return ''; // Edge case: non-streamable body (e.g., some cached/mock responses)
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder('utf-8');
+  let out = '';
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      out += decoder.decode(value, { stream: true });
+      if (out.length >= maxChars) break; // Budget reached — stop, discard the rest
+    }
+    return out.slice(0, maxChars);
+  } finally {
+    await reader.cancel().catch(() => {}); // Releases the socket on both success and error paths
+  }
+}
+
+// ==================== Heap Pressure Watchdog (OOM Attribution) ====================
+
+/** Log threshold: when heap usage crosses this before a tool call starts, flag that tool as suspect. */
+const HEAP_WARN_BYTES = 1024 * 1024 * 1024; // 1 GB — crashes were observed at ~4 GB (V8 default old-space limit)
+
+let heapWarnEmitted = false;
+
+/**
+ * Pre-tool-call heap probe. Called from the toolsProvider wrapper BEFORE every tool executes.
+ * If the heap is already near the V8 wall when a call STARTS, that call (or its in-flight
+ * network read) is the prime suspect for the next OOM — this line lands in the log immediately
+ * before any crash, making attribution possible without attaching a debugger.
+ * Best-effort: never throws, never delays tool execution measurably.
+ */
+export function checkHeapPressure(toolName: string): void {
+  try {
+    const mu = process.memoryUsage();
+    if (!heapWarnEmitted && mu.heapUsed > HEAP_WARN_BYTES) {
+      heapWarnEmitted = true;
+      console.error(
+        `[HEAP-GUARD] ⚠️ ${(mu.heapUsed / 1048576).toFixed(0)} MB heap in use BEFORE "${toolName}" started — ` +
+        'this call is now the prime suspect for an OOM window (V8 aborts near ~4 GB). ' +
+        'Check the DELTA lines above for what ran just before.',
+      );
+    }
+  } catch {
+    // Non-fatal by design: measurement must never break a tool call.
   }
 }
 

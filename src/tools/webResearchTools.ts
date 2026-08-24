@@ -4,7 +4,11 @@ import { z } from 'zod';
 import { search as ddgSearch } from 'duck-duck-scrape';
 import { htmlToText } from 'html-to-text';
 import type { PluginConfig } from '../config.js';
-import { fetchWithRetry, readBoundedText } from '../performanceUtils.js';
+import { fetchWithRetry, readBoundedText, readCappedText } from '../performanceUtils.js';
+
+// OOM guard: search-engine result pages are parsed via regex — a hard cap during transfer bounds the
+// worst-case allocation. Partial pages still yield their top results (soft cap by design).
+const MAX_SEARCH_HTML_CHARS = 300_000; // ~45k words — ample for 10 results on DDG/Google/Bing HTML
 
 // ==================== Search Engine Implementations ====================
 
@@ -31,7 +35,9 @@ async function searchDDGFetch(query: string): Promise<SearchResultItem[]> {
   );
   if (!response.ok) throw new Error(`DuckDuckGo Fetch failed: ${response.status}`);
 
-  const html = await response.text();
+  // OOM guard: bounded DURING transfer (was unbounded response.text() — full page buffered first,
+  // the exact pattern that exhausted the plugin host heap on 2026-08-24 during fallback-engine runs).
+  const html = await readCappedText(response, MAX_SEARCH_HTML_CHARS);
   
   // Simple regex-based parsing for Node.js (no DOMParser needed!)
   const results: SearchResultItem[] = [];
@@ -59,7 +65,9 @@ async function searchGoogle(query: string): Promise<SearchResultItem[]> {
   );
   if (!response.ok) throw new Error(`Google search failed: ${response.status}`);
 
-  const html = await response.text();
+  // OOM guard: bounded DURING transfer (was unbounded response.text() — full page buffered first,
+  // the exact pattern that exhausted the plugin host heap on 2026-08-24 during fallback-engine runs).
+  const html = await readCappedText(response, MAX_SEARCH_HTML_CHARS);
   // Simple parsing — extract titles and URLs from Google's HTML structure
   const results: SearchResultItem[] = [];
   const titleRegex = /<h3[^>]*>(.*?)<\/h3>/g;
@@ -84,7 +92,9 @@ async function searchBing(query: string): Promise<SearchResultItem[]> {
   );
   if (!response.ok) throw new Error(`Bing search failed: ${response.status}`);
 
-  const html = await response.text();
+  // OOM guard: bounded DURING transfer (was unbounded response.text() — full page buffered first,
+  // the exact pattern that exhausted the plugin host heap on 2026-08-24 during fallback-engine runs).
+  const html = await readCappedText(response, MAX_SEARCH_HTML_CHARS);
   // Parse Bing results — similar approach to Google
   const results: SearchResultItem[] = [];
   const resultRegex = /<li class="b_algo"[^>]*>(.*?)<\/li>/gs;
@@ -203,7 +213,10 @@ export function registerWebResearchTools(config: PluginConfig): Tool[] {
           throw new Error(`Wikipedia API error: ${response.status}`);
         }
 
-        const data = (await response.json()) as Record<string, unknown>;
+        // OOM guard: bounded read DURING transfer + parse (was unbounded response.json() — last
+        // full-buffering read left in the web-research path; MediaWiki JSON is small but a hostile/
+        // oversized payload must not materialize fully before any check can run).
+        const data = JSON.parse(await readBoundedText(response, 200_000)) as Record<string, unknown>;
         const queryData = data.query as Record<string, unknown> | undefined;
         const searchResults = (queryData?.search as Array<Record<string, unknown>>) || [];
         const pages = searchResults.map((item: Record<string, unknown>) => {

@@ -45,6 +45,8 @@ import { reportToolSchemas } from './toolOverhead.js';
 // FIX #20 (A1+A2): mid-loop context growth — payload bookkeeping + proactive checkpoint guard.
 import { autoTracker } from './autoTracker.js';
 import { TokenStatsManager } from './tokenStatsManager.js';
+// OOM attribution (crashes 2026-08-24 ~20:24/21:10): pre-call heap probe so the next crash names its suspect tool.
+import { checkHeapPressure } from './performanceUtils.js';
 
 let stateManager: StateManager;
 let backgroundCommandManager: BackgroundCommandManager;
@@ -247,6 +249,9 @@ export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[
       params: Record<string, unknown>,
       ctx: unknown,
     ): Promise<unknown> {
+      // OOM attribution: probe heap BEFORE the call runs. If we're already near the V8 wall when a
+      // tool starts, THIS is the suspect for the next crash — the line lands in the log right before it.
+      checkHeapPressure(raw.name ?? 'unknown_tool');
       const result = await original(params, ctx);
       try {
         TokenStatsManager.recordToolResult(raw.name ?? 'unknown_tool', result);

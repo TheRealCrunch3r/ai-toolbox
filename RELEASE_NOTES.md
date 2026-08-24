@@ -1,3 +1,25 @@
+### Chunking Fixed-Point OOM Termination + Test-Isolation Hardening
+
+**Fixed a deterministic multi-day V8 heap OOM (`Ineffective mark-compacts near heap limit`) in the vector-RAG text chunkers — and closed the last failing test (cross-test mock contamination) in `tests/webResearchTools.test.ts`.**
+
+#### What Changed
+- **Chunking termination guarantee** (`src/tools/vectorRagTools.ts`): `chunkText`, `chunkDocxText`, and `chunkPdfText` could loop forever when a partial final chunk was shorter than the overlap word budget — for certain text lengths the window start reached a fixed point (`startIndex === endIndex`). All three now enforce strict forward progress: `startIndex = Math.max(endIndex, startIndex + 1)`.
+- **Regression coverage** (`tests/vectorRagTools.ragWebContent.test.ts`): the oversized-page spec exercises the poison-remainder path end-to-end; heading assertion aligned with `html-to-text`'s default heading uppercasing (case-insensitive).
+- **Test isolation** (`tests/webResearchTools.test.ts`): shared mocks are now reset in `beforeEach` and re-seeded explicitly — no more state leaking between tests.
+
+#### Impact
+- ✅ No API, parameter, or response-shape changes to any tool.
+- ✅ Vector-RAG tools on large/odd-length documents can no longer exhaust the host heap via an unterminated chunking loop.
+- ✅ Deterministic full test suite (no order-dependent failures).
+
+#### Verification
+- ✅ Full Jest suite green — user confirmed 25.08.2026 ~00:13 (`npm test`).
+- ⏳ Rebuild + reinstall before the next live vector-RAG use on large documents (`npm run build`; bundles carry no version strings).
+
+**Versioning:** stays at v1.9.10 (no bump) — maintainer decision 25.08.
+
+---
+
 ## Web-Fetch OOM Guard: Size Caps Now Enforced During Transfer
 
 **Eliminated a class of plugin-host crashes (`JavaScript heap out of memory`) caused by unbounded page-body buffering in the web tools.**

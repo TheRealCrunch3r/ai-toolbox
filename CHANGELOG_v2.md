@@ -3,9 +3,69 @@
 > **This file supersedes `CHANGELOG.md`.** The old changelog is preserved as archived history only.
 > New entries are added at the top of this file. Details below were compiled from verified session records and bundle-level verification (`dist/index.js` + `index.mjs` are unminified, so shipped content was confirmed byte-exact).
 
-**Current release: v1.9.10** (`package.json` + `manifest.json`, revision 20) — maintenance release for the two cosmetic hotfixes below (duplicate tool registration + grep_files log level), on top of v1.9.9 (revision 19, first tagged release after the v1.9.8 era).
+**Current release: v1.9.10** (`package.json` + `manifest.json`, revision 20) — consolidated maintenance release: duplicate-tool-removal + grep_files log-level hotfixes (24.08), then the OOM-hardening suite (web-fetch guards, search-fallback & HTTP-client caps, heap watchdog), the rag_web_content fix suite, and the chunking fixed-point OOM termination (25.08). **Version stays at v1.9.10** per maintainer decision 25.08 — no bump to v1.9.11.
 
 ---
+
+
+## [25.08.2026 ~00:15] — Chunking fixed-point OOM termination + test-suite isolation fixes (full suite green; user-verified)
+
+**Problem:** deterministic multi-day V8 heap OOM (`Ineffective mark-compacts near heap limit`) in the vector-RAG chunkers. Root cause proven by plain-Node repro: `chunkText` / `chunkDocxText` / `chunkPdfText` (`src/tools/vectorRagTools.ts`, ~L212/277/331) advanced with a fixed stride while the partial final chunk was shorter than the overlap budget — for certain word-count remainders the window start reached a **fixed point** (`startIndex === endIndex`) and the loop never terminated (repro: len=34,209 words, size=500/overlap=50 → stalls at start=len−50). Most real documents terminate "by luck"; poison remainders do not.
+
+**Fixes:**
+- **`src/tools/vectorRagTools.ts`**: 3-line termination guarantee in all three chunkers — `startIndex = Math.max(endIndex, startIndex + 1)` — strict forward progress on every iteration. No API/behavior change for well-formed inputs; the stall case now simply emits its final partial chunk and stops.
+- **`tests/vectorRagTools.ragWebContent.test.ts`**: regression spec (oversized page) covers the poison-remainder path end-to-end; heading assertion made case-insensitive (`html-to-text` uppercases `<h*>` headings by default — test expectation aligned with library behavior, no source change).
+- **`tests/webResearchTools.test.ts`** (test infra only): `beforeEach` mock isolation fixed — `mockReset()` + explicit re-application of base values for the duck-duck-scrape search and `performanceUtils.fetchWithRetry` mocks. Closed the last failing test, proven to be cross-test order contamination (single-test run with `-t` passes 1/1; full suite failed without this).
+
+**Verification:**
+- ✅ Full Jest suite green — user confirmed **ALL GREEN** (25.08.2026 ~00:13), including `tests/webResearchTools.test.ts` and the new oversized-page regression spec.
+- ⏳ Rebuild + reinstall before the next live use of vector-RAG tools on large/odd-length documents (`npm run build`; bundles carry no version strings, so a normal rebuild suffices).
+
+**Versioning:** **no version bump — v1.9.10 stays current.** This supersedes the "candidate for v1.9.11" notes in the three 24.08 entries below (maintainer decision 25.08: version number stays at 1.9.10).
+
+## [24.08.2026 ~22:10] — rag_web_content fix suite: dead-code removal + soft cap + markup stripping + wikipedia bound
+
+**Context:** screenshot failure (`Tool call failed … Errors: WebSocket closed by the client` on `rag_web_content()` + `fetch_web_content()`, Weinstein Wikipedia URL). Forensic verdict: that string exists NOWHERE in `src/` (grep-verified) — it is LM Studio's transport-level report for an in-flight tool when the **plugin host process dies** (same-day exit-134 heap-fatals). Both tools failed within ~5 s → common cause = host, not two independent bugs. `rag_web_content` was still the worst transient allocator on web paths and guaranteed-to-fail on real Wikipedia articles (page > hard cap → max allocation consumed, then `success:false`).
+
+**Changes:**
+1. **Dead code removed** — `src/tools/networkToolsRegistry.ts` + its Jest mock `tests/__mocks__/networkToolsRegistry.ts` deleted. Certainty: zero references in `src/`, `tests/`, `scripts/`; tsup bundles from `src/index.ts` only (file never shipped); no jest mapper entry for it; both changelog entries of today already tracked its deletion as backlog. The dead file held an *unbounded* `response.text()` rag_web_content — re-wiring risk eliminated.
+2. **`rag_web_content` (`tools/vectorRagTools.ts`)**:
+   - **Soft cap** via existing `readCappedText`: budget 500_000 → **250_000 chars**; oversized pages now return `success:true` + `truncated:true` with usable partial chunks instead of a hard "Page too large" failure after consuming the full allocation (same pattern as the search engines).
+   - **Markup stripping before chunking/embedding**: new `htmlToText()` pass — previously raw HTML was chunked as "text" (tag soup scored into embeddings; ~40–60% of budget consumed by markup; `bestMatch.text` returned unreadable HTML to the LLM).
+   - **Result payload upgraded**: top-5 chunks ranked by cosine score (`chunks: [{text, score, metadata}]`) + `truncated` flag; `bestMatch` key preserved (now = topChunks[0]) for backward compatibility. Peak transient allocation per call drops from ~5–8 MB to ~2–3 MB.
+3. **`wikipedia_search` (`tools/webResearchTools.ts`)**: last unbounded read in the web-research path bounded — `await response.json()` → `JSON.parse(await readBoundedText(response, 200_000))`.
+
+**Tests:**
+- New suite `tests/vectorRagTools.ragWebContent.test.ts` (4 tests + sanity): markup-stripping contract (`bestMatch.text` contains prose, no `<`), soft-cap contract (oversized stream → `success:true`, `truncated:true`, stripped chunks), error contract preserved (`RAG search failed: …`), real-`html-to-text` guard.
+- `tests/webResearchTools.test.ts`: shared fetch mock's default body switched from HTML to a **JSON stream** (required by change 3; all other assertions unaffected — htmlToText stays mocked, oversized-page regression tests use their own dedicated mocks).
+
+**Verification status:**
+- ⏳ Session environment has no shell and the analyzer's tsc integration is inert (`filesChecked: 0`) → run locally: `npm run typecheck`, then `npx jest tests/vectorRagTools.ragWebContent.test.ts tests/webResearchTools.test.ts --silent` (or full `npm test`). Expect green; the two rag suites are the only behavior changes.
+- ⏳ Then rebuild + reinstall + live retest of the exact Weinstein query: expected `success:true` with readable chunks (page now truncates softly instead of failing), no "WebSocket closed by the client". If a host OOM recurs, the `[HEAP-GUARD]` line names the next suspect.
+
+**Known residuals (tracked, NOT changed):** `LocalVectorStore` in `vectorRagTools.ts` grows unbounded with repeated `rag_index_*` calls (no size cap like the other LRU caches got) — candidate for OOM part 3 if indexing-heavy sessions recur. GitHub-API `.json()` reads (`gitGithubTools.ts`) remain unbounded (small internal payloads, unchanged since part 2).
+
+**Versioning:** no version bump — folds into v1.9.11 together with the OOM parts 1+2; bump `package.json` + `manifest.json` at release time. Bundle check after rebuild: `name:"rag_web_content"` must remain exactly **1×** per dist file (dedup invariant since v1.9.10).
+
+## [24.08.2026 ~21:50] — OOM part 2: bound the search fallbacks + HTTP client, add heap-pressure watchdog (version bump pending release decision)
+
+**Problem:** two more `Ineffective mark-compacts near heap limit` host kills today (~20:24 and ~21:10), both **~40 s after a fresh plugin start while web-search tools were in flight**. The part-1 guard was live and working (both windows show its `Page too large (> 48.8 KB streamed)` size-cap error firing correctly) — but it only covered `fetch_web_content` + `rag_web_content`.
+
+Evidence from server log (`2026-08-24.1.log`) for the ~20:24 crash: `Search engine "ddg-api" failed: DDG detected an anomaly…` → **fallback chain took over** (unbounded `.text()` paths) → death. The same correlation holds for ~21:10 (web_search in flight, no DELTA completion logged).
+
+Fixes (all minimal, error contracts preserved):
+- **`src/performanceUtils.ts`**: new `readCappedText(response, maxChars)` — soft cap, stops reading at budget + cancels socket, returns partial content (a truncated search page still yields its top results), never throws on size. Plus **`checkHeapPressure(toolName)`** watchdog: pre-call heap probe; logs one `[HEAP-GUARD] ⚠️ N MB BEFORE "<tool>" started` line when usage crosses 1 GB — if another OOM happens, this names the suspect call in the log immediately before the crash.
+- **`tools/webResearchTools.ts`**: all three fallback engines (`searchDDGFetch`, `searchGoogle`, `searchBing`) now use `readCappedText(…, MAX_SEARCH_HTML_CHARS = 300_000)` instead of unbounded `.text()`. Worst-case allocation per engine run is now bounded.
+- **`tools/httpClientTools.ts`**: all five response-body reads in `http_request` / `http_get_json` / `http_post_json` now go through `readBoundedText(…, MAX_HTTP_BODY_CHARS = 500_000)` (JSON parsed from the bounded text; oversized bodies fail loudly like `fetch_web_content`).
+- **`toolsProvider.ts`**: wrapper calls `checkHeapPressure()` before every tool execution.
+
+Known residuals (tracked, NOT changed — out of scope for this fix): `gitGithubTools.ts` GitHub-API `.json()` reads, `lmStudioApi.ts` local-API reads (small internal payloads), dead file `tools/networkToolsRegistry.ts` (still zero imports — deletion remains backlog). The exact GB-scale allocator is not yet proven from static analysis alone; the watchdog exists precisely to identify it in one more crash if they recur.
+
+Verification status:
+- ⏳ User-side: `npm run typecheck`, `npx jest tests/webResearchTools.test.ts --silent`, then rebuild + reinstall, then live web-search test (user testing immediately).
+- If another OOM occurs: the `[HEAP-GUARD]` line + the last `[DELTA]` lines in the server log identify the responsible tool without a debugger.
+
+Versioning: **no version bump** — candidate for v1.9.11 alongside the part-1 OOM guard; bump `package.json` + `manifest.json` revision at release time.
 
 ## [24.08.2026] — OOM guard for web-fetch tools (implemented + live-probed; version bump pending release decision)
 

@@ -2,6 +2,12 @@ import type { Tool } from '@lmstudio/sdk';
 import { tool } from '@lmstudio/sdk';
 import { z } from 'zod';
 import type { PluginConfig } from '../config.js';
+import { readBoundedText } from '../performanceUtils.js';
+
+// OOM guard: hard character budget for HTTP response bodies, enforced DURING transfer.
+// JSON payloads are parsed from the bounded text; non-JSON bodies fail loudly if oversized
+// (consistent with fetch_web_content). 500k chars ≈ 75k words — sane API payload ceiling.
+const MAX_HTTP_BODY_CHARS = 500_000;
 
 // ==================== Typed Params Interfaces ====================
 
@@ -115,9 +121,10 @@ async function httpRequest({ method, url, headers = {}, body }: HttpRequestParam
       const contentType = response.headers.get('content-type') || '';
       
       if (contentType.includes('application/json')) {
-        responseData = await response.json();
+        // OOM guard: bounded read DURING transfer, then parse (was unbounded .json()/.text()).
+        responseData = JSON.parse(await readBoundedText(response, MAX_HTTP_BODY_CHARS));
       } else {
-        responseData = await response.text();
+        responseData = await readBoundedText(response, MAX_HTTP_BODY_CHARS);
       }
 
       return {
@@ -175,7 +182,8 @@ async function httpGetJson({ url, headers = {} }: HttpGetJsonParams): Promise<un
         };
       }
 
-      const data: unknown = await response.json();
+      // OOM guard: bounded read DURING transfer (was unbounded .json() — full body buffered first).
+      const data: unknown = JSON.parse(await readBoundedText(response, MAX_HTTP_BODY_CHARS));
 
       return {
         success: true,
@@ -228,9 +236,10 @@ async function httpPostJson({ url, data, headers = {} }: HttpPostJsonParams): Pr
       const contentType = response.headers.get('content-type') || '';
       
       if (contentType.includes('application/json')) {
-        responseData = await response.json();
+        // OOM guard: bounded read DURING transfer, then parse (was unbounded .json()/.text()).
+        responseData = JSON.parse(await readBoundedText(response, MAX_HTTP_BODY_CHARS));
       } else {
-        responseData = await response.text();
+        responseData = await readBoundedText(response, MAX_HTTP_BODY_CHARS);
       }
 
       return {

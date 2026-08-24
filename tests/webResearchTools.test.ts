@@ -47,8 +47,11 @@ jest.mock('../src/performanceUtils', () => {
     fetchWithRetry: jest.fn().mockResolvedValue({
       ok: true,
       headers: { get: () => null },
-      body: streamFromChunks([new TextEncoder().encode('<html><body>Test content</body></html>')]),
-      text: () => Promise.resolve('<html><body>Test content</body></html>'),
+      // 24.08 fix: body must be streamable JSON text — wikipedia_search now parses via
+      // readBoundedText + JSON.parse (last unbounded response.json() in this file was bounded).
+      // The .json() alias is kept for compatibility; htmlToText stays mocked, so the
+      // fetch_web_content tests are unaffected by what bytes the stream carries.
+      body: streamFromChunks([new TextEncoder().encode(JSON.stringify({ query: { search: [{ title: 'Test', snippet: 'Test snippet' }] } }))]),
       json: () => Promise.resolve({ query: { search: [{ title: 'Test', snippet: 'Test snippet' }] } }),
     }),
   };
@@ -60,6 +63,25 @@ describe('Web Research Tools', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    // Test isolation (25.08 fix): clearAllMocks() does NOT reset implementations nor *Once queues, so stale
+    // state queued by earlier tests could poison these shared mocks (proven: wikipedia_search passed alone
+    // but failed in suite order). mockReset() + explicit re-apply of base values gives clean per-test state.
+    const ddgMocked = require('duck-duck-scrape');
+    (ddgMocked.search as jest.Mock).mockReset();
+    (ddgMocked.search as jest.Mock).mockResolvedValue({
+      results: [
+        { title: 'Result 1', url: 'https://result1.com', description: 'Body 1' },
+        { title: 'Result 2', url: 'https://result2.com', description: 'Body 2' },
+      ],
+    });
+    const puMocked = require('../src/performanceUtils');
+    (puMocked.fetchWithRetry as jest.Mock).mockReset();
+    (puMocked.fetchWithRetry as jest.Mock).mockImplementation(async () => ({
+      ok: true,
+      headers: { get: () => null },
+      body: streamFromChunks([new TextEncoder().encode(JSON.stringify({ query: { search: [{ title: 'Test', snippet: 'Test snippet' }] } }))]),
+      json: () => Promise.resolve({ query: { search: [{ title: 'Test', snippet: 'Test snippet' }] } }),
+    }));
     // Suppress search engine fallback warnings in tests (expected behavior)
     consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     tools = registerWebResearchTools(DEFAULT_CONFIG);

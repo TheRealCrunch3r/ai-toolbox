@@ -4,7 +4,8 @@ import { z } from 'zod';
 import * as path from 'path';
 import * as fs from 'fs';
 import type { PluginConfig } from '../config.js';
-import { fetchWithRetry, readBoundedText } from '../performanceUtils.js';
+import { htmlToText } from 'html-to-text';
+import { fetchWithRetry, readCappedText } from '../performanceUtils.js';
 
 // ==================== Typed Params Interfaces ====================
 
@@ -162,6 +163,11 @@ function getSharedStore(): LocalVectorStore {
 
 /** Split text into chunks with overlap */
 function chunkText(text: string, chunkSize: number = 500, overlap: number = 50): DocumentChunk[] {
+  // OOM GUARD: advance step is (chunkSize - overlap); if <= 0 the while-loop below never terminates and
+  // pushes unbounded chunks. Tool schemas currently bound this — this guard makes it structurally impossible.
+  if (!Number.isFinite(chunkSize) || chunkSize < 1 || !Number.isFinite(overlap) || overlap < 0 || overlap >= chunkSize) {
+    throw new Error(`Invalid chunk parameters: require overlap (${overlap}) in [0, ${chunkSize}) for chunkSize ${chunkSize}`);
+  }
   const words = text.split(/\s+/);
   const chunks: DocumentChunk[] = [];
 
@@ -199,7 +205,11 @@ function chunkText(text: string, chunkSize: number = 500, overlap: number = 50):
     });
 
     chunkIndex++;
-    startIndex = endIndex - overlap;
+    // OOM GUARD (24.08 fix): guarantee forward progress of ≥1 word per iteration. The old
+    // 'endIndex - overlap' stalls at a fixed point near end-of-text whenever the final partial
+    // chunk is shorter than 'overlap' words (e.g. len=34209, size=500/ovl=50: start=34159 →
+    // end=len → start=len-50=start forever) — an unbounded loop pushing GB-scale chunk arrays.
+    startIndex = Math.max(endIndex, startIndex + 1);
   }
 
   return chunks;
@@ -212,6 +222,10 @@ function chunkPdfText(
   chunkSize: number = 300,
   overlap: number = 50
 ): DocumentChunk[] {
+  // OOM GUARD (same as chunkText): reject overlap >= chunkSize — the per-page while-loop would never terminate.
+  if (!Number.isFinite(chunkSize) || chunkSize < 1 || !Number.isFinite(overlap) || overlap < 0 || overlap >= chunkSize) {
+    throw new Error(`Invalid chunk parameters: require overlap (${overlap}) in [0, ${chunkSize}) for chunkSize ${chunkSize}`);
+  }
   const pages = pdfText.split(/(?<=^)\s*Page\s*\d+\s*/m);
   // First element is usually empty preamble — skip it
   const pageContents = pages.filter(p => p.trim().length > 0);
@@ -259,7 +273,8 @@ function chunkPdfText(
       });
 
       chunkIndexInPage++;
-      startIndex = endIndex - overlap;
+      // OOM GUARD (24.08 fix, same fixed-point stall as chunkText — per-page variant): always advance ≥1 word.
+      startIndex = Math.max(endIndex, startIndex + 1);
     }
   }
 
@@ -268,6 +283,10 @@ function chunkPdfText(
 
 /** Chunk DOCX text with word-bounded splitting */
 function chunkDocxText(docxText: string, chunkSize: number = 300, overlap: number = 50): DocumentChunk[] {
+  // OOM GUARD (same as chunkText): reject overlap >= chunkSize — the while-loop would never terminate.
+  if (!Number.isFinite(chunkSize) || chunkSize < 1 || !Number.isFinite(overlap) || overlap < 0 || overlap >= chunkSize) {
+    throw new Error(`Invalid chunk parameters: require overlap (${overlap}) in [0, ${chunkSize}) for chunkSize ${chunkSize}`);
+  }
   const words = docxText.split(/\s+/);
 
   if (words.length <= chunkSize) {
@@ -305,7 +324,11 @@ function chunkDocxText(docxText: string, chunkSize: number = 300, overlap: numbe
     });
 
     chunkIndex++;
-    startIndex = endIndex - overlap;
+    // OOM GUARD (24.08 fix): guarantee forward progress of ≥1 word per iteration. The old
+    // 'endIndex - overlap' stalls at a fixed point near end-of-text whenever the final partial
+    // chunk is shorter than 'overlap' words (e.g. len=34209, size=500/ovl=50: start=34159 →
+    // end=len → start=len-50=start forever) — an unbounded loop pushing GB-scale chunk arrays.
+    startIndex = Math.max(endIndex, startIndex + 1);
   }
 
   return chunks;
@@ -816,24 +839,32 @@ async function ragWebContent({ url, query }: RagWebContentParams): Promise<unkno
       return { success: false, error: `HTTP ${response.status}: ${response.statusText}` };
     }
 
-    // OOM guard: bounded streaming read (previously unbounded response.text() followed by word-array
-    // chunking amplified memory ~5-10x over the raw body size). Size/timeout errors surface through this
-    // function's outer catch as `RAG search failed: ...` — existing error contract preserved.
-    const MAX_RAG_HTML_CHARS = 500_000; // ~75k words — sane input for keyword/vector scoring
+    // OOM guard (24.08 fix): SOFT cap via streaming read — stops at budget, cancels the socket, and
+    // returns PARTIAL content instead of throwing. Hard "Page too large" failures made typical
+    // Wikipedia articles (>250k chars of HTML) fail every time AFTER consuming the full allocation;
+    // a truncated page still yields usable chunks (same readCappedText pattern as the search engines).
+    // Budget halved from 500_000: this was the largest per-call allocator in the plugin, and ~40–60%
+    // of Wikipedia HTML is markup that gets stripped below anyway.
+    const MAX_RAG_HTML_CHARS = 250_000;
     let content: string;
-    content = await readBoundedText(response, MAX_RAG_HTML_CHARS);
-    
-    // Chunk the text
-    const chunks = chunkText(content);
+    content = await readCappedText(response, MAX_RAG_HTML_CHARS);
+
+    // Strip markup BEFORE chunking/embedding (previously raw HTML was chunked as "text" — tag soup
+    // consumed the word budget and bestMatch.text returned unreadable markup to the LLM).
+    const text = htmlToText(content, { wordwrap: false });
+    const truncated = content.length >= MAX_RAG_HTML_CHARS;
+
+    // Chunk the (now clean) text
+    const chunks = chunkText(text);
     
     if (chunks.length === 0) {
       return { success: false, error: 'No content could be extracted from URL' };
     }
 
-    // Generate embedding for query and find best matching chunk
+    // Generate embedding for query and rank all chunks by similarity (top 5 returned — a single
+    // chunk is usually too thin for research queries; scores let the LLM weigh relevance).
     const queryEmbedding = generateEmbedding(query);
-    let bestMatch: DocumentChunk | null = null;
-    let bestScore = -Infinity;
+    const scored: Array<{ chunk: DocumentChunk; score: number }> = [];
 
     for (const chunk of chunks) {
       const chunkEmbedding = generateEmbedding(chunk.text);
@@ -853,11 +884,16 @@ async function ragWebContent({ url, query }: RagWebContentParams): Promise<unkno
         ? dotProduct / (Math.sqrt(normA) * Math.sqrt(normB)) 
         : 0;
 
-      if (similarity > bestScore) {
-        bestScore = similarity;
-        bestMatch = chunk;
-      }
+      scored.push({ chunk, score: similarity });
     }
+
+    scored.sort((a, b) => b.score - a.score);
+    const topChunks = scored.slice(0, 5).map(({ chunk, score }) => ({
+      text: chunk.text,
+      score,
+      metadata: chunk.metadata,
+    }));
+    const bestMatch = topChunks[0] ?? null;
 
     return {
       success: true,
@@ -865,11 +901,9 @@ async function ragWebContent({ url, query }: RagWebContentParams): Promise<unkno
         url,
         query,
         totalChunks: chunks.length,
-        bestMatch: bestMatch ? {
-          text: bestMatch.text,
-          score: bestScore,
-          metadata: bestMatch.metadata,
-        } : null,
+        truncated, // true when the source page exceeded MAX_RAG_HTML_CHARS and was cut mid-stream
+        bestMatch, // highest-scoring chunk (topChunks[0]) — key kept for backward compatibility
+        chunks: topChunks, // top 5 by score, each { text, score, metadata }
       },
     };
   } catch (error) {

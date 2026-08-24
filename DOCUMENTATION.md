@@ -1,12 +1,12 @@
 # Documentation Update Summary — AI Toolbox Plugin
 
 **Date**: 2026-08-19  
-**Version**: v1.9.8  
+**Version**: v1.9.10  
 **Status**: ✅ Complete
 
 ---
 
-## 📋 Version Status Overview (v1.9.8)
+## 📋 Version Status Overview (v1.9.10)
 
 | Component | Status | Notes |
 |-----------|--------|-------|
@@ -65,6 +65,20 @@ IF REMOTE URL (http://, https://):
 ---
 
 ## 🆕 Latest Updates
+
+### OOM Hardening Suite, rag_web_content Fix Suite & Chunking Fixed-Point Termination — v1.9.10 (2026-08-24/25)
+**Hardened every web/RAG allocation path against host heap exhaustion and terminated the chunking loop that could spin forever on poison-length documents. Full test suite green (user-verified 25.08.2026 ~00:13); version stays at v1.9.10 — no bump.**
+
+#### Changes
+- **Bounded reads everywhere** (`src/performanceUtils.ts`): `readBoundedText` / `readCappedText` (250K–500K char budgets) now gate `fetch_web_content`, all three search-engine fallbacks, the five HTTP-client body reads, and `wikipedia_search`; every `fetchWithRetry` attempt is bounded by a 30 s AbortController timeout.
+- **Heap-pressure watchdog**: `checkHeapPressure()` pre-call probe logs a `[HEAP-GUARD] ⚠️ N MB BEFORE "<tool>" started` line when heap usage crosses 1 GB — names the suspect call in any future OOM crash log.
+- **rag_web_content fix suite** (`src/tools/vectorRagTools.ts`): soft 250K char cap (oversized pages → `success:true` + `truncated:true` with usable partial chunks), HTML markup stripped via `html-to-text` before chunking/embedding, top-5 cosine-ranked chunks in the result payload; dead duplicate registration removed (tool served exclusively by vectorRAG — dedup invariant: exactly 1× per dist bundle).
+- **Chunking fixed-point termination**: `chunkText` / `chunkDocxText` / `chunkPdfText` now enforce strict forward progress (`startIndex = Math.max(endIndex, startIndex + 1)`) — eliminates the deterministic V8 OOM loop where certain word-count remainders stall the window start at a fixed point near end-of-text.
+- **Test hardening**: oversized-page regression spec in `tests/vectorRagTools.ragWebContent.test.ts` (incl. case-insensitive heading assertion per html-to-text defaults); shared-mock isolation (`mockReset()` + re-seed) in `tests/webResearchTools.test.ts` beforeEach — closed the last order-dependent failure.
+
+#### Verification
+- ✅ Full Jest suite green — user confirmed 2026-08-25 (~00:13); per-suite runs with `node --max-old-space-size=2048 … --maxWorkers=1` clean
+- ⏳ Rebuild + reinstall before the next live vector-RAG use on large documents (`npm run build`; bundles carry no version strings)
 
 ### Mid-Loop Token Counting + DELTA "chat used" Log Enhancement — v1.9.9 (2026-08-23)
 **AutoTracker now evaluates token thresholds against history count + running per-tool deltas *during* a tool loop (FIX #20), and `[AutoTracker] [DELTA]` log lines carry a live `| chat used ≈ N tok` estimate.**

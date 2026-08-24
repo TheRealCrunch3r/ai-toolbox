@@ -416,6 +416,22 @@ Prior to this fix, ESLint's `@typescript-eslint/no-unsafe-assignment` rule flagg
 - ✅ Token-threshold triggers (75% / 90%) now also fire *inside* multi-tool turns, not only between messages.
 - ✅ Better observability: per-turn chat-used estimates directly in the DELTA logs.
 
+### [v1.9.10] - 2026-08-25 — 🔧 OOM Hardening Suite, rag_web_content Fix Suite & Chunking Fixed-Point Termination
+**Bounded every web/RAG allocation path against plugin-host heap exhaustion and terminated the vector-RAG chunking loop that could spin forever on poison-length documents. Version stays at v1.9.10 — no bump.**
+
+#### What Changed
+- ✅ **Duplicate `rag_web_content` registration removed** (`src/tools/webResearchTools.ts`): keyword-based placeholder implementation deleted — tool now served exclusively by the real-RAG version in `vectorRagTools.ts`; LM Studio shows exactly one entry (dedup invariant: 1× per dist bundle).
+- ✅ **grep_files skip log level** (`src/tools/fileSystemTools.ts`): line-cap skip messages downgraded `console.warn` → `console.log` ([INFO], not [ERROR] in dev logs — already reported via `skipped_files`).
+- ✅ **Bounded reads everywhere** (`src/performanceUtils.ts` + web/HTTP tools): 250K–500K char budgets now gate `fetch_web_content`, all three search-engine fallbacks, the five HTTP-client body reads, and `wikipedia_search`; every `fetchWithRetry` attempt is time-bounded (30 s AbortController); new `[HEAP-GUARD]` watchdog logs the suspect tool name if heap usage crosses 1 GB before a crash.
+- ✅ **rag_web_content fix suite** (`src/tools/vectorRagTools.ts`): soft 250K char cap (oversized pages → `success:true` + `truncated:true` with usable partial chunks), HTML markup stripped via `html-to-text` before chunking/embedding, top-5 cosine-ranked chunks in the result payload.
+- ✅ **Chunking fixed-point termination** (`src/tools/vectorRagTools.ts`): `chunkText` / `chunkDocxText` / `chunkPdfText` enforce strict forward progress (`startIndex = Math.max(endIndex, startIndex + 1)`) — eliminates the deterministic V8 OOM loop where certain word-count remainders stalled the window start at a fixed point near end-of-text.
+- ✅ **Test hardening**: oversized-page regression spec in `tests/vectorRagTools.ragWebContent.test.ts`; shared-mock isolation reset in `tests/webResearchTools.test.ts` (`beforeEach`) closed the last order-dependent failure — full Jest suite green (user-verified 2026-08-25).
+
+#### Impact
+- ✅ No more host heap exhaustion from oversized web/RAG payloads or unbounded chunking loops.
+- ✅ Exactly one `rag_web_content` tool entry in LM Studio's UI; deterministic dispatch to the real-RAG implementation.
+- ✅ Deterministic test suite — no order-dependent failures remain.
+
 ---
 
 ## 📦 Dependencies
