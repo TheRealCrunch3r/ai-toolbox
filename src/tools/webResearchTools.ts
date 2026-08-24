@@ -167,7 +167,9 @@ async function searchWithFallbackChain(
 interface WebSearchParams { query: string; }
 interface WikipediaSearchParams { query: string; lang?: string; }
 interface FetchWebContentParams { url: string; }
-interface RagWebContentParams { url: string; query: string; }
+// NOTE (v1.9.x dup-removal): the former local rag_web_content tool and its RagWebContentParams
+// interface were removed here; it is now registered exclusively by vectorRagTools.ts ('vectorRAG' toggle)
+// to avoid a duplicate entry in LM Studio's tool list.
 
 export function registerWebResearchTools(config: PluginConfig): Tool[] {
   const tools: Tool[] = [];
@@ -257,44 +259,9 @@ export function registerWebResearchTools(config: PluginConfig): Tool[] {
     },
   }));
 
-  // rag_web_content tool
-  tools.push(tool({
-    name: 'rag_web_content',
-    description: 'Fetch content from a URL, and then use RAG to find and return only the text chunks most relevant to a specific query.',
-    parameters: {
-      url: z.string().url().describe('The URL to fetch'),
-      query: z.string().describe('The search query for relevance matching'),
-    },
-    implementation: async ({ url, query }: RagWebContentParams) => { // C5 FIX: typed params
-      try {
-        const response = await fetchWithRetry(url);
-        if (!response.ok) throw new Error(`HTTP error: ${response.status}`);
-
-        const html = await response.text();
-        
-        // Hard cap on fetched content to prevent OOM (50KB max)
-        const MAX_HTML_SIZE = 50_000;
-        if (html.length > MAX_HTML_SIZE) {
-          return { success: false, error: `Page too large (${(html.length / 1024).toFixed(1)} KB). Max allowed is ${MAX_HTML_SIZE / 1024} KB. Use searxng_search + summary_only for large pages.` };
-        }
-
-        const text = htmlToText(html);
-
-        // Simple keyword-based relevance scoring (placeholder for real RAG)
-        const queryTerms = query.toLowerCase().split(/\s+/).filter((t: string) => t.length > 2);
-        const sentences = text.split(/[.!?]+/).map((s: string) => s.trim()).filter(Boolean);
-
-        const relevantChunks = sentences.filter((sentence: string) => {
-          return queryTerms.some((term: string) => sentence.toLowerCase().includes(term));
-        }).slice(0, 5); // Return top 5 hits
-
-        return { success: true, data: { url, query, chunks: relevantChunks } };
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        return { success: false, error: `RAG search failed: ${message}` };
-      }
-    },
-  }));
+  // FIX (v1.9.x dup-removal): rag_web_content intentionally NOT registered here.
+  // It is provided by vectorRagTools.ts under the 'vectorRAG' toggle — registering it in BOTH
+  // registries produced a duplicate entry in LM Studio's tool list and non-deterministic dispatch.
 
   return tools;
 }

@@ -1,6 +1,6 @@
 # 🛠️ AI Toolbox — Complete Tool Reference
 
-*Updated to reflect current state: **130 unique tools** dynamically registered across 24 modules (v1.9.9). Includes the Graphify-Inspired Suite (v1.9.5) — Confidence-Tagged Results, Hub-Exclusion Clustering, Project Auto-Detection, Context Tier Provenance, Cluster-Aware Tool Priority — plus v1.9.7 crash-resilient atomic writes, v1.9.8 hang prevention & registry sync, and v1.9.9 grep_files hard limits + mid-loop token deltas.*
+*Updated to reflect current state: **130 unique tools** dynamically registered across 24 modules (v1.9.10). Includes the Graphify-Inspired Suite (v1.9.5) — Confidence-Tagged Results, Hub-Exclusion Clustering, Project Auto-Detection, Context Tier Provenance, Cluster-Aware Tool Priority — plus v1.9.7 crash-resilient atomic writes, v1.9.8 hang prevention & registry sync, and v1.9.9 grep_files hard limits + mid-loop token deltas.*
 
 ---
 
@@ -195,14 +195,13 @@ The `src/tools/recodeTool/` module implements a pluggable rule engine for advanc
 
 ---
 
-## 🌐 Web Research (4)
+## 🌐 Web Research (3)
 
 | Tool | Description |
 |------|-------------|
 | `web_search` | Multi-engine search (DDG, Google, Bing) with automatic fallback chain configuration |
 | `wikipedia_search` | Search Wikipedia summaries supporting multiple languages; returns concise overviews |
 | `fetch_web_content` | Clean text extraction from URLs removing ads/navigation; supports custom headers and timeouts |
-| `rag_web_content` | Fetch URL content via RAG pipeline returning only semantically relevant text chunks to query |
 
 ---
 
@@ -620,7 +619,7 @@ All tools implement multiple security layers:
 
 ---
 
-*Reference updated from actual source code analysis on 2026-08-24 (v1.9.9); v1.9.9 sync added grep_files hard limits & DELTA `chat used` log field documentation. Prior baseline: 2026-08-17 (v1.9.8). All tool counts verified against `toolsProvider.ts` registry entries and `src/tools/*.ts`. insert_at_line read-back drift detection documented with v1.8.8 hard fix. Graphify-Inspired Suite features (v1.9.5): Confidence-Tagged Results, Hub-Exclusion Clustering (83 tests), Project Auto-Detection, Context Tier Provenance, Cluster-Aware Tool Priority.*
+*Reference updated from actual source code analysis on 2026-08-24 (v1.9.10); v1.9.10 sync: Web Research count 4→3 after duplicate rag_web_content removal (tool served by Vector RAG module since v1.9.10). Prior baseline: 2026-08-17 (v1.9.8). All tool counts verified against `toolsProvider.ts` registry entries and `src/tools/*.ts`. insert_at_line read-back drift detection documented with v1.8.8 hard fix. Graphify-Inspired Suite features (v1.9.5): Confidence-Tagged Results, Hub-Exclusion Clustering (83 tests), Project Auto-Detection, Context Tier Provenance, Cluster-Aware Tool Priority.*
 
 ---
 

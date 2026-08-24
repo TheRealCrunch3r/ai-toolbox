@@ -3,9 +3,20 @@
 > **This file supersedes `CHANGELOG.md`.** The old changelog is preserved as archived history only.
 > New entries are added at the top of this file. Details below were compiled from verified session records and bundle-level verification (`dist/index.js` + `index.mjs` are unminified, so shipped content was confirmed byte-exact).
 
-**Current release: v1.9.9** (`package.json` + `manifest.json`, revision 19) — first tagged release after the v1.9.8 era; it covers all 23.08.2026 milestones below (note: the version strings themselves were bumped to v1.9.9 on 24.08, i.e. *after* the individual builds of those fixes were already installed).
+**Current release: v1.9.10** (`package.json` + `manifest.json`, revision 20) — maintenance release for the two cosmetic hotfixes below (duplicate tool registration + grep_files log level), on top of v1.9.9 (revision 19, first tagged release after the v1.9.8 era).
 
 ---
+
+## [v1.9.10] — 24.08.2026: duplicate tool removal + log-level fix (live-accepted & bundle-verified)
+
+**Fixes:**
+
+1. **Duplicate `rag_web_content` registration in LM Studio's tool list.** Root cause: the `vectorRAG` registry (`tools/vectorRagTools.ts`) and the `webSearch` registry (`tools/webResearchTools.ts`) both registered a tool with that name, and `toolsProvider.ts` pushes all registry output without any name-dedup → duplicate UI entry + non-deterministic dispatch between two different implementations. The keyword "placeholder" implementation (50 KB cap, top-5 sentence filter) was removed from `webResearchTools.ts` (tool block + now-unused `RagWebContentParams` interface); the tool is now provided exclusively by the real-RAG version in `vectorRagTools.ts`.
+   **Verification:** user rebuild + reinstall → UI shows exactly one entry; bundle grep = exactly 1× `name:"rag_web_content"` each (`dist/index.js` L290769, `dist/index.mjs` L288744); size deltas −823 B / −804 B vs. the accepted v1.9.9 build. No tests touched (suite has no assertion on the removed block; count check stays true).
+   *Note:* a third definition exists in dead code `tools/networkToolsRegistry.ts` (orphan file, zero imports — verified) — its removal is tracked as backlog, not part of this fix.
+2. **grep_files skip log level** (`fileSystemTools.ts`, sync-regex path): the per-file line-cap skip message used `console.warn` → stderr → displayed as `[ERROR]` in LM Studio dev logs despite being an expected, informational event (it is already reported to the caller via `skipped_files`). Changed to `console.log` ([INFO]). Genuine anomaly warnings elsewhere were intentionally left untouched.
+
+**Versioning:** `package.json` v1.9.10 + `manifest.json` revision 20. Bundles do not embed version strings (proven in the v1.9.9 release), so a normal rebuild suffices.
 
 ## [23.08.2026] — evening: grep_files hang fix (shipped & bundle-verified)
 

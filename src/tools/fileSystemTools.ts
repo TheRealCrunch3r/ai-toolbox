@@ -2151,7 +2151,9 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
           // JavaScript has no mechanism to abort sync .test() calls — we must limit input size.
           if (lines.length > effectiveMaxLines) {
             skippedFiles.push({ file: relativePath, reason: `exceeds ${effectiveMaxLines} line limit (${lines.length} lines — per-file safety cap to prevent catastrophic regex backtracking; raise max_lines to include this file)` });
-            console.warn(`[grep_files] Skipping file ${relativePath} (${lines.length} lines, exceeds ${effectiveMaxLines} line limit)`);
+            // FIX (v1.9.10): was console.warn — this is an expected, informational skip event
+            // (already reported to the caller via skippedFiles). warn→stderr showed it as [ERROR] in LM Studio logs.
+            console.log(`[grep_files] Skipping file ${relativePath} (${lines.length} lines, exceeds ${effectiveMaxLines} line limit)`);
             return;
           }
 

@@ -142,7 +142,7 @@ createToolsProvider(config, stateManager, bgCommandManager)
             │   └── Config key gating + GOD MODE bypass
             │
             ├── registerFileSystemTools()      ──► 22 tools (enabled by default)
-            ├── registerWebResearchTools()     ──► 4 tools (enabled by default)
+            ├── registerWebResearchTools()     ──► 3 tools (enabled by default)
             ├── registerGitTools()             ──► 15 tools (disabled by default)
             ├── registerBrowserTools()         ──► 5 tools (disabled by default)
             ├── registerDatabaseTools()        ──► 1 tool (disabled by default)
@@ -1079,7 +1079,7 @@ src/
 │   └── zh-TW.ts
 ├── tools/                      # Tool category modules (30 source files)
 │   ├── fileSystemTools.ts      # File system operations (22 tools — REGISTERED)
-│   ├── webResearchTools.ts     # Web research & search (4 tools — REGISTERED)
+│   ├── webResearchTools.ts     # Web research & search (3 tools — REGISTERED; rag_web_content served by vectorRagTools.ts since v1.9.10)
 │   ├── browserAutomationTools.ts # Browser automation (5 tools — REGISTERED)
 │   ├── gitGithubTools.ts       # Git local ops + GitHub API (15 tools — REGISTERED)
 │   ├── databaseTools.ts        # Database queries (1 tool — REGISTERED)
@@ -1103,7 +1103,7 @@ src/
 │   ├── backupUtils.ts          # Backup utility helpers (REGISTERED)
 │   ├── executionRegistry.ts    # Execution registry & state tracking (REGISTERED)
 │   ├── fileModTracker.ts       # File modification tracker (REGISTERED)
-│   ├── networkToolsRegistry.ts # Network tools registration & management (REGISTERED)
+│   ├── networkToolsRegistry.ts # Network tools registration (NOT imported by toolsProvider — orphan file, backlog for removal)
 │   ├── toolPriority.ts         # Cluster-aware tool priority ranking (REGISTERED)
 │   ├── toolProtocolWarnings.ts # Tool protocol warning system (REGISTERED)
 │   ├── utilityRegistry.ts      # Utility registry manager (REGISTERED)
@@ -1195,7 +1195,7 @@ All tool categories are now fully registered in `toolsProvider.ts` using the dec
 | Category | File(s) | Tool Count | Registered? | Default State |
 |----------|---------|------------|-------------|---------------|
 | File System | fileSystemTools.ts | 22 | ✅ Yes | Enabled |
-| Web Research | webResearchTools.ts | 4 | ✅ Yes | Enabled |
+| Web Research | webResearchTools.ts | 3 | ✅ Yes | Enabled (rag_web_content under Vector RAG since v1.9.10) |
 | Browser Automation | browserAutomationTools.ts | 5 | ✅ Yes | Disabled |
 | Git & GitHub | gitGithubTools.ts | 14 | ✅ Yes | Disabled |
 | Database | databaseTools.ts | 1 | ✅ Yes | Disabled |
