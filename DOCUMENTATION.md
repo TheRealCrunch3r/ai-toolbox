@@ -1,6 +1,6 @@
 # Documentation Update Summary — AI Toolbox Plugin
 
-**Date**: 2026-08-17  
+**Date**: 2026-08-19  
 **Version**: v1.9.8  
 **Status**: ✅ Complete
 
@@ -65,6 +65,33 @@ IF REMOTE URL (http://, https://):
 ---
 
 ## 🆕 Latest Updates
+
+### Mid-Loop Token Counting + DELTA "chat used" Log Enhancement — v1.9.9 (2026-08-23)
+**AutoTracker now evaluates token thresholds against history count + running per-tool deltas *during* a tool loop (FIX #20), and `[AutoTracker] [DELTA]` log lines carry a live `| chat used ≈ N tok` estimate.**
+
+#### Changes
+- **FIX #20 — mid-loop delta bookkeeping:** every tool result is measured by `tokenStatsManager.recordToolResult()` into a running per-turn delta; threshold/compression decisions no longer wait for the next full history count, so 75%/90% triggers fire inside long multi-tool turns.
+- **DELTA log enhancement** (`src/tokenStatsManager.ts`): `[AutoTracker] [DELTA]` lines append `| chat used ≈ N tok`, where **N = turnBaselineTokens (TokenCheck baseline captured at turn start) + midLoopEstTokens**. Nested-count semantics: tool `+delta` ⊆ turn total ⊆ `chat used`.
+- **Gating:** the field is emitted only when the turn-start baseline > 0 and is omitted if the ContextGuard recount fails.
+
+#### Verification
+- ✅ Live-verified in production (user confirmation 23.08.2026, 11:49); final gaps closed with 2 false-positive-boundary test expectation fixes + 2 jest mapper entries
+- ✅ Same-day follow-ups shipped & bundle-verified: `[TokenCheck]` log `Math.round` fix (build#3) and en-US locale pins for model-facing strings (build#4, known-good install)
+
+### Auto-Tracker Chat-Warning Regression Fix + Confirm-First Project Switching — v1.9.8+ (2026-08-18)
+**Fixed the checkpoint warning that was generated but never surfaced in chat, and restored confirm-first working-directory switching with German JA/NEIN reply support.**
+
+#### Root Cause
+Step 0.7 had been refactored to silently switch the working directory on project-keyword match — because every message mentions a registered-project keyword, it took an early-return path that buried the pending checkpoint warning (logs: "THRESHOLD PROMPT GENERATED", chat: nothing) and bypassed Step 0.6 reply handling. Reply detection accepted English YES/NO only; transitionTo() cleared pending warnings on any state change.
+
+#### Fixes
+- **Fix A** (`promptPreprocessor.ts`): Step 0.7 injects a confirm-first "⚠️ REGISTERED PROJECT DETECTED" banner without changing CWD; the one-shot switch executes only after an explicit YES/JA reply in a later message, then resets.
+- **Fix B** (`promptPreprocessor.ts`): checkpoint reply detection accepts German JA/NEIN (normalized onto canonical YES/NO FSM inputs).
+- **Fix C** (`autoTracker.ts`): transitionTo() no longer clears pendingCheckpointWarning on unrelated state changes; the warning is injected into all preprocessor return paths while pending.
+
+#### Verification
+- ✅ 536 Jest tests passing across 26 suites — zero regressions from today's fixes
+- ✅ dist/ rebuilt post-fix with zero dynamic-import patterns (manifest v1.9.8 rev 18 unchanged)
 
 ### Project Keyword Detection + Cross-Project Registry Sync Fix — v1.9.8+ (2026-08-17)
 **Eliminated the "ai-toolbox not found" clarification loop by adding Step 0.7 project keyword detection in promptPreprocessor.ts and `_syncFromSessionMemory()` lazy registry sync.**

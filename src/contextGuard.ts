@@ -64,10 +64,17 @@ const STOP_WORDS = new Set([
 const DEBUG_MODE = !!process.env.AI_TOOLBOX_DEBUG;
 
 /**
- * Calibration factor to match LM Studio's sidebar.
- * Derived from observation: Real Usage (~184k at 81%) / Plugin Count (~2616) ≈ 70x.
+ * Calibration factor — MUST stay 1 (no scaling).
+ *
+ * History: was once set to 65, derived from a single observation
+ * ("Real Usage ~184k at 81% / Plugin Count ~2616 ≈ 70x"). That gap was NOT tokenizer drift:
+ * the sidebar counts the FULL request (chat history + ALL serialized tool definitions
+ * + chat template), while that measurement only counted a small message fragment.
+ * Multiplying real token counts by 65 inflated every SDK/tiktoken-based estimate ~65×
+ * (e.g., a normal conversation read as "412k tokens"), which triggered premature
+ * compression, wrong AutoTracker warnings and misleading logs.
  */
-const TOKEN_SCALING_FACTOR = 65;
+const TOKEN_SCALING_FACTOR = 1;
 
 function debugLog(...args: unknown[]): void {
   if (DEBUG_MODE) console.log('[ContextGuard]', ...args);
@@ -143,10 +150,10 @@ export class ContextGuard {
     // 🔹 P1 #3: Conditional logging
     debugLog('[COUNT]', `Processing ${messages.length} messages.`);
 
-    // ✅ PRIMARY METHOD: If historyTextLength is provided (from native API), use ×0.25 + 5% buffer ratio
+    // ✅ PRIMARY METHOD: If historyTextLength is provided (from native API), use ×0.25 + 10% buffer ratio
     // This matches LM Studio's sidebar exactly and avoids SDK overestimation (~124k vs ~80k)
     if (historyTextLength != null && historyTextLength > 0) {
-      const primaryTokenCount = Math.ceil(historyTextLength * 0.25 * 1.05); // base × +10% buffer
+      const primaryTokenCount = Math.ceil(historyTextLength * 0.25 * 1.10); // base × +10% buffer
       
       // Add image tokens if applicable (SDK doesn't account for multi-modal images automatically)
       let totalTokens = primaryTokenCount;
@@ -156,7 +163,7 @@ export class ContextGuard {
       
       this.cachedTokenCount = totalTokens;
       this._lastMessageHash = this.computeMessageHash(messages);
-      console.log(`[ContextGuard] ✅ Primary count: ${historyTextLength.toLocaleString()} chars → ${primaryTokenCount.toLocaleString()} tokens (×0.25 + 5% buffer)`);
+      console.log(`[ContextGuard] ✅ Primary count: ${historyTextLength.toLocaleString('en-US')} chars → ${primaryTokenCount.toLocaleString('en-US')} tokens (×0.25 + 10% buffer)`);
       return totalTokens;
     }
 
@@ -222,15 +229,14 @@ export class ContextGuard {
           const typedMsg = m as Record<string, unknown>;
           let extras: string[] = [];
 
-          // Tool calls (each call with function name + arguments can be 50-200+ tokens)
-          const toolCalls = typedMsg.tool_calls || typedMsg.toolCalls;
-          if (toolCalls && Array.isArray(toolCalls)) {
-            for (const tc of toolCalls as Record<string, unknown>[]) {
-              const fnName = (tc.name || tc.function_name || 'unknown') as string;
-              const args = cachedJSONStringify(tc.arguments ?? tc.args ?? {});
-              extras.push(`[TOOL_CALL: ${fnName}(${args})]`);
-            }
-          }
+          // ⚠️ Tool calls are DELIBERATELY NOT serialized into the SDK countTokens() prompt.
+          // @lmstudio/sdk (v1.8.x) LLM.countTokens() throws ToolCallRequestError when the input
+          // contains tool-call structures ("Cannot count tokens for messages that contain tool
+          // calls"). The existing try/catch below falls back to tiktoken on that error, but it is
+          // better not to trigger it in the first place. Cost of omitted tool-call text is covered:
+          // the preprocessor's primary heuristic (historyTextLength × 0.25 × 1.10) already includes
+          // full getToolCallRequests()/getToolCallResults() payloads via the native history API, and
+          // this fallback only runs when that primary path was unavailable for this turn.
 
           // Files / attachments
           const files = typedMsg.files || typedMsg.images;
@@ -290,11 +296,12 @@ export class ContextGuard {
 
         this.cachedTokenCount = calibratedTotal;
         this._lastMessageHash = this.computeMessageHash(messages);
-        console.log(`[ContextGuard] ✅ SDK count: ${totalTokens.toLocaleString()} tokens (Calibrated: ${calibratedTotal.toLocaleString()})`);
+        console.log(`[ContextGuard] ✅ SDK count: ${totalTokens.toLocaleString('en-US')} tokens (Calibrated: ${calibratedTotal.toLocaleString('en-US')})`);
         return calibratedTotal;
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);
-        console.log(`[ContextGuard] SDK token counting failed for "${modelId}", falling back to manual encoding. Reason: ${errorMsg}`);
+        console.log(`[ContextGuard] SDK token counting failed for "${modelId}", falling back to manual encoding. Reason: ${errorMsg}` +
+          ` (known causes: model not loaded / countTokens unavailable, or ToolCallRequestError when the prompt contains tool-call structures)`);
         // Fall through to manual tiktoken below
       }
     }
@@ -353,7 +360,7 @@ export class ContextGuard {
     this.cachedTokenCount = calibratedCount;
     this._lastMessageHash = this.computeMessageHash(messages);  // FIX #1: Store hash
     
-    debugLog('[COUNT]', `Tiktoken count: ${count.toLocaleString()} tokens (Calibrated: ${calibratedCount.toLocaleString()})`);
+    debugLog('[COUNT]', `Tiktoken count: ${count.toLocaleString('en-US')} tokens (Calibrated: ${calibratedCount.toLocaleString('en-US')})`);
     return calibratedCount;
   }
 
@@ -395,7 +402,7 @@ export class ContextGuard {
     debugLog('[COMPRESS]', `Compressing history: ${messages.length} messages, ${currentTokens} tokens (threshold: ${threshold})`);
     
     // Notify user in chat via system prompt instead of stderr logging
-    const thresholdWarning = `⚠️ Context window threshold reached (${originalTokenCount.toLocaleString()} tokens). Token counter reset. Please start a completely new session.`;
+    const thresholdWarning = `⚠️ Context window threshold reached (${originalTokenCount.toLocaleString('en-US')} tokens). Token counter reset. Please start a completely new session.`;
     console.log(`[ContextGuard] ${thresholdWarning}`);
 
     const keepLast = 10;
@@ -498,8 +505,8 @@ SUMMARY:`;
                    `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
                    `• Compressed ${toCompress.length} message(s) into summary\n` +
                    `• Tokens before: ~${Math.round(originalTokenCount / 1000)}k → after: ~${Math.round(compressedTokenCount / 1000)}k\n` +
-                   `• **Saved ~${tokensSaved.toLocaleString()} tokens (~${percentageSaved}%)**\n` +
-                   `• Timestamp: ${new Date().toLocaleTimeString()}\n` +
+                   `• **Saved ~${tokensSaved.toLocaleString('en-US')} tokens (~${percentageSaved}%)**\n` +
+                   `• Timestamp: ${new Date().toLocaleTimeString('en-US')}\n` +
                    `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
                    `### CONTEXT SUMMARY (from ${toCompress.length} messages)\n${summary}`
         };
@@ -542,9 +549,9 @@ SUMMARY:`;
       content: `🧠 **ContextGuard Compression Active (Fallback Mode)**\n\n` +
                `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
                `• Compressed ${toCompress.length} message(s)\n` +
-               `• Estimated tokens saved: ~${estimatedTokensSaved.toLocaleString()}\n` +
+               `• Estimated tokens saved: ~${estimatedTokensSaved.toLocaleString('en-US')}\n` +
                `• Note: Full summarization unavailable (model not configured or error occurred)\n` +
-               `• Timestamp: ${new Date().toLocaleTimeString()}\n` +
+               `• Timestamp: ${new Date().toLocaleTimeString('en-US')}\n` +
                `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
                `### CONTEXT SUMMARY\n${fallbackSummary}`
     };
@@ -627,6 +634,14 @@ SUMMARY:`;
    * 
    * Call this after awaiting on model.respond() or model.complete().result()
    * to update the cached token count with authoritative SDK data.
+   *
+   * DORMANT WIRING (FIX #20, 23.08): no caller in src/ — this path is only fed by a registered
+   * prediction-loop handler / model.respond() consumer. LM Studio Core REJECTS plugins that register
+   * BOTH a tools provider and a predictionLoopHandler ("Tools provider cannot be used with a
+   * predictionLoopHandler" — boot crash verified 21.08; SDK v1.5.0 was latest as of 22.08, no upgrade
+   * path). ai_toolbox is a tools plugin, so this hook stays inactive by design until core changes.
+   * The mid-loop gap it would have closed is now covered by TokenStatsManager A1 delta bookkeeping +
+   * AutoTracker.guardMidLoopThreshold (see future_improvements/autoTracker_midloop_fix_plan.md).
    * 
    * @param stats - LLMPredictionStats from PredictionResult.stats
    */
@@ -637,7 +652,7 @@ SUMMARY:`;
     // Also update our cached count if totalTokensCount is available
     if (stats.totalTokensCount != null && stats.totalTokensCount > 0) {
       this.cachedTokenCount = stats.totalTokensCount;
-      console.log(`[ContextGuard] ✅ Updated token count from LM Studio SDK: ${stats.totalTokensCount.toLocaleString()} tokens`);
+      console.log(`[ContextGuard] ✅ Updated token count from LM Studio SDK: ${stats.totalTokensCount.toLocaleString('en-US')} tokens`);
       
       // Log the full summary for debugging
       const summary = TokenStatsManager.getSummary();

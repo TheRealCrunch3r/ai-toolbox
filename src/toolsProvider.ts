@@ -27,7 +27,6 @@ import { registerRestoreFromBakTools } from './tools/restoreFromBak.js';
 import { registerFileSystemTools } from './tools/fileSystemTools.js';
 import { registerGitTools } from './tools/gitGithubTools.js';
 import { registerHttpClientTools } from './tools/httpClientTools.js';
-import { registerImageAnalysisTools } from './tools/imageAnalysisTools.js';
 import { registerImageProcessingTools } from './tools/imageProcessingTools.js';
 import { registerLineOperationsTools } from './tools/lineOperations.js';
 import { registerMarkdownPreviewTools } from './tools/markdownPreviewTools.js';
@@ -37,6 +36,15 @@ import { registerTaskPlanningTools } from './tools/taskPlanningTools.js';
 import { registerTextProcessingTools } from './tools/textProcessingTools.js';
 import { registerUiGenerationTools } from './tools/uiGenerationTools.js';
 import { registerWebResearchTools } from './tools/webResearchTools.js';
+// Static import (NOT dynamic): the CJS Jest transform cannot resolve `await import(...)`
+// without --experimental-vm-modules (throws ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING_FLAG).
+// jest.config.cjs already maps './toolsSchemaMinifier.js' -> src/toolsSchemaMinifier.ts,
+// and the minifier is a pure module (type-only imports), so static loading is safe and cheap.
+import { minifyTools } from './toolsSchemaMinifier.js';
+import { reportToolSchemas } from './toolOverhead.js';
+// FIX #20 (A1+A2): mid-loop context growth — payload bookkeeping + proactive checkpoint guard.
+import { autoTracker } from './autoTracker.js';
+import { TokenStatsManager } from './tokenStatsManager.js';
 
 let stateManager: StateManager;
 let backgroundCommandManager: BackgroundCommandManager;
@@ -63,7 +71,6 @@ export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[
     databaseQueries: pluginConfig.get('databaseQueries'),
     documentParsing: pluginConfig.get('documentParsing'),
     backgroundCommands: pluginConfig.get('backgroundCommands'),
-    imageAnalysis: pluginConfig.get('imageAnalysis'),
     imageProcessing: pluginConfig.get('imageProcessing'),
     httpClient: pluginConfig.get('httpClient'),
     vectorRAG: pluginConfig.get('vectorRAG'),
@@ -152,7 +159,6 @@ export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[
     // Standard Tools
     { key: 'gitOperations', register: () => registerGitTools(config) },
     { key: 'httpClient', register: () => registerHttpClientTools(config) },
-    { key: 'imageAnalysis', register: () => registerImageAnalysisTools(config) },
     { key: 'imageProcessing', register: () => registerImageProcessingTools(config) },
     { key: 'refactorCode', register: () => registerRefactorCodeTools(config) },
     { key: 'textProcessing', register: () => registerTextProcessingTools(config) },
@@ -214,9 +220,53 @@ export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[
 
   // Minify schemas to prevent llama.cpp EBNF grammar parser crashes
   // PR #17381 enforces a hard limit of 2000 on repetition bounds
-  const { minifyTools } = await import('./toolsSchemaMinifier.js');
   const minified = minifyTools(tools);
 
-  console.log(`[AI Toolbox] Exposed ${minified.length} tools to LLM.`);
-  return minified;
+  // Report the final tool set so ContextGuard's token estimate includes the serialized definitions (see toolOverhead.ts)
+  reportToolSchemas(minified);
+
+  // ==================== FIX #20 (A1+A2): mid-loop context growth instrumentation ====================
+  // Wrap each tool's implementation once per registration to record its result payload in
+  // TokenStatsManager (per-turn delta). After every recording the AutoTracker mid-loop guard is
+  // evaluated: if turn-start baseline + cumulative delta crossed the checkpoint threshold, a proactive
+  // session-memory snapshot is saved — because preprocess() (and hence compression + user prompt) only
+  // runs on user messages. The wrapper never mutates or delays tool results; measurement and guarding
+  // are best-effort side effects (any failure is logged, never thrown into the tool call).
+  const instrumented = minified.map((t): Tool => {
+    type ToolImplFn = (params: Record<string, unknown>, ctx: unknown) => unknown;
+    type InstrumentableTool = Tool & { name?: string; implementation?: ToolImplFn };
+
+    const raw = t as InstrumentableTool;
+    if (!raw.implementation || typeof raw.implementation !== 'function') return t;
+    const original = raw.implementation;
+
+    // Tools are constructed fresh by the registration functions on every provider call, so each
+    // implementation is wrapped exactly once here; even if the provider re-runs (config reload),
+    // recordToolResult() still executes exactly once per invocation — bookkeeping never double-counts.
+    const wrapped: ToolImplFn = async function instrumentedImplementation(
+      params: Record<string, unknown>,
+      ctx: unknown,
+    ): Promise<unknown> {
+      const result = await original(params, ctx);
+      try {
+        TokenStatsManager.recordToolResult(raw.name ?? 'unknown_tool', result);
+        void autoTracker
+          .guardMidLoopThreshold(
+            TokenStatsManager.getTurnBaseline(),
+            TokenStatsManager.getMidLoopDeltaTokens(),
+            TokenStatsManager.getMaxContextTokens(),
+          )
+          .catch((err) => console.error('[AutoTracker] [MIDLOOP] Guard evaluation failed (non-fatal):', err));
+      } catch (err) {
+        // Measurement/guard must never break a successful tool call.
+        console.warn('[AutoTracker] [DELTA] Payload recording failed (non-fatal):', err);
+      }
+      return result;
+    };
+
+    return { ...t, implementation: wrapped } as Tool;
+  });
+
+  console.log(`[AI Toolbox] Exposed ${instrumented.length} tools to LLM.`);
+  return instrumented;
 }

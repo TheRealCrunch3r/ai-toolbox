@@ -71,6 +71,21 @@ export class ContextStorageManager {
     this.pluginRootPath = path.join(baseDir, '.session_context', '.ai_toolbox_memory.msgpack');
   }
 
+  /** 🔹 FIX #15 (search_context crash, 2026-08-19): Structural shape guard. The shared
+   * .ai_toolbox_memory.msgpack file holds BOTH context entries ({id,type,title,content,...})
+   * AND StateManager records ({key,value,timestamp}); the blind cast in load() previously let
+   * state records through and crash searchEntries' unguarded field access. */
+  private isContextEntry(e: unknown): e is ContextEntry {
+    if (!e || typeof e !== 'object' || Array.isArray(e)) return false;
+    const o = e as Record<string, unknown>;
+    return (
+      typeof o.id === 'string' &&
+      typeof o.timestamp === 'number' &&
+      typeof o.type === 'string' &&
+      ['decision', 'pattern', 'configuration', 'file_change', 'error', 'summary'].includes(o.type)
+    );
+  }
+
   /** Ensure the .session_context directory exists */
   private async ensureDirectory(filePath: string): Promise<void> {
     const dir = path.dirname(filePath);
@@ -88,15 +103,27 @@ export class ContextStorageManager {
       if (await fs.access(this.workingDirPath).then(() => true).catch(() => false)) {
         const buffer = await fs.readFile(this.workingDirPath);
         const entries = decode(buffer) as ContextEntry[];
-        // Filter to only return entries from this project's working directory
-        const filtered = entries.filter(e => 
-          e.project_path === this.workingDirPath || !e.project_path  // legacy entries without path
+        // Filter to only return context entries belonging to this project's working directory.
+        // 🔹 FIX #16 (misleading warning, 2026-08-20): split rejection reasons so diagnostics are accurate —
+        // StateManager records ({key,value,timestamp} from save_session_summary/save_memory) in this shared
+        // file are EXPECTED and must not emit a scary stderr ERROR; previously ANY rejection (including the
+        // FIX #15 shape-guard dropping state records) was misreported as "filtered out by project_path".
+        const contextEntries = entries.filter(e => this.isContextEntry(e));  // 🔹 FIX #15: shape-check first
+        const filtered = contextEntries.filter(e =>
+          e.project_path === this.workingDirPath || !e.project_path  // legacy entries have no project_path
         );
         if (Array.isArray(filtered)) {
           if (filtered.length === 0 && entries.length > 0) {
-            console.warn(`[ContextStorage.load] ⚠️ Working Dir file exists but all ${entries.length} entries filtered out by project_path. Falling back to Plugin Root.`);
-          } else {
-            console.log(`[ContextStorage.load] Loaded ${filtered.length} entries from Working Dir. (${entries.length - filtered.length} cross-project entries excluded)`);
+            if (contextEntries.length === 0) {
+              console.log(`[ContextStorage.load] Working Dir file holds ${entries.length} state record(s) only — no context entries. Nothing to load.`);
+            } else {
+              console.warn(`[ContextStorage.load] ⚠️ All ${contextEntries.length} context entry(ies) rejected by project_path (current: ${this.workingDirPath}). Falling back to Plugin Root.`);
+            }
+          } else if (filtered.length > 0) {
+            const excluded = entries.length - filtered.length;
+            console.log(excluded > 0
+              ? `[ContextStorage.load] Loaded ${filtered.length} entries from Working Dir. (${excluded} non-context/cross-project records excluded)`
+              : `[ContextStorage.load] Loaded ${filtered.length} entries from Working Dir.`);
           }
           return filtered;
         }
@@ -112,7 +139,8 @@ export class ContextStorageManager {
         const allEntries = decode(buffer) as ContextEntry[];
         // Only return legacy entries that DON'T have project_path set 
         // (entries from projects whose working dir storage was lost/corrupted)
-        const legacyOnly = allEntries.filter(e => !e.project_path || e.project_path === this.workingDirPath);
+        // 🔹 FIX #15 (2026-08-19): state records lack id/type — never treat them as context entries
+        const legacyOnly = allEntries.filter(e => this.isContextEntry(e) && (!e.project_path || e.project_path === this.workingDirPath));
         if (legacyOnly.length > 0) {
           console.log(`[ContextStorage.load] Working Dir empty/missing. Loaded ${legacyOnly.length} legacy entries from Plugin Root fallback.`);
           return legacyOnly;
@@ -297,6 +325,57 @@ export class ContextStorageManager {
     return (recencyFactor * 0.7) + (frequencyFactor * 0.3);
   }
 
+  /** 🔹 FIX #18 (2026-08-22, self-describing empty results): Inspect the raw storage file and report
+   * WHAT it actually contains — total record count, how many pass the context-entry shape guard, and
+   * the keys of StateManager records ({key,value,timestamp}) that share this same file. This makes an
+   * "empty" result distinguishable from "file holds only other record types", which previously could
+   * only be discovered by reading the raw .msgpack manually (e.g. session_summary_latest). */
+  async getStoreDiagnostics(): Promise<{
+    storage_file_exists: boolean;
+    total_records_in_file: number;
+    context_entries_found: number;
+    non_context_record_keys?: string[];
+  }> {
+    const filePath = this.workingDirPath;
+
+    if (!await fs.access(filePath).then(() => true).catch(() => false)) {
+      return { storage_file_exists: false, total_records_in_file: 0, context_entries_found: 0 };
+    }
+
+    try {
+      const buffer = await fs.readFile(filePath);
+      // 🔹 LINT FIX (2026-08-22): @msgpack/msgpack's decode() is typed to return `any` — the previous
+      // "as unknown" assertion was a no-op type-wise and tripped @typescript-eslint/no-unnecessary-type-assertion.
+      const records = decode(buffer);
+      if (!Array.isArray(records)) {
+        return { storage_file_exists: true, total_records_in_file: 1, context_entries_found: 0 };
+      }
+
+      let contextCount = 0;
+      for (const r of records) {
+        if (this.isContextEntry(r)) contextCount++;
+      }
+
+      const stateKeys: string[] = [];
+      for (const r of records) {
+        if (!r || typeof r !== 'object' || Array.isArray(r)) continue;
+        const keyVal = (r as Record<string, unknown>).key;
+        if (typeof keyVal === 'string') stateKeys.push(keyVal);
+      }
+
+      return {
+        storage_file_exists: true,
+        total_records_in_file: records.length,
+        context_entries_found: contextCount,
+        non_context_record_keys: stateKeys.length > 0 ? [...new Set(stateKeys)] : undefined,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`[ContextStorage.getStoreDiagnostics] Failed to inspect storage file: ${message}`);
+      return { storage_file_exists: true, total_records_in_file: 0, context_entries_found: 0 };
+    }
+  }
+
   /** Get recent context entries — ASYNC === */
   async getRecentEntries(limit: number = 20, type?: string): Promise<{ data: ContextEntry[], isStale: boolean; confidence: Confidence }> {  // MADE ASYNC
     let entries = await this.load();  // ASYNC load
@@ -344,9 +423,13 @@ export class ContextStorageManager {
     const lowerQuery = query.toLowerCase();
     
     let results = entries.filter(entry => 
-      entry.title.toLowerCase().includes(lowerQuery) ||
-      entry.content.toLowerCase().includes(lowerQuery) ||
-      (entry.tags && entry.tags.some(tag => tag.toLowerCase().includes(lowerQuery)))
+      // 🔹 FIX #15 (search_context crash, 2026-08-19): type-guard every field access. The shared
+      // .ai_toolbox_memory.msgpack file can contain StateManager records ({key,value,timestamp})
+      // alongside context entries; load()'s blind cast let those reach this filter and the
+      // unguarded .toLowerCase() calls threw "Cannot read properties of undefined".
+      (typeof entry.title === 'string' && entry.title.toLowerCase().includes(lowerQuery)) ||
+      (typeof entry.content === 'string' && entry.content.toLowerCase().includes(lowerQuery)) ||
+      (Array.isArray(entry.tags) && entry.tags.some(tag => typeof tag === 'string' && tag.toLowerCase().includes(lowerQuery)))
     );
 
     // Apply deterministic heuristic scoring and sort by score descending
@@ -1045,6 +1128,36 @@ export function registerContextManagementTools(
   const memoryStore = stateManager || null;
   const sessionIndex = new SessionIndexManager();
 
+  /** 🔹 FIX #18 (2026-08-22): Self-describing session-index metadata. get_session_summary returns only the LATEST
+   * summary by design — but its response previously carried NO signal that N earlier sessions exist in the index,
+   * making "fresh project with 1 session" indistinguishable from a long history (root cause of a real misread on
+   * 2026-08-22: 21 indexed sessions invisible to consumers). Surfaces index size + recent task descriptions so
+   * callers are routed to list_sessions / search_sessions for earlier history. */
+  const getSessionIndexMeta = async (currentTaskDescription?: string): Promise<{
+    total_sessions: number;
+    other_recent_sessions: Array<{ task_description: string; date: string }>;
+    hint: string;
+  } | undefined> => {
+    try {
+      const allSessions = await sessionIndex.getAllSessions();
+      if (!allSessions || allSessions.length === 0) return undefined;
+
+      const others = allSessions
+        .filter(s => s.task_description !== currentTaskDescription)
+        .slice(0, 3);
+
+      return {
+        total_sessions: allSessions.length,
+        other_recent_sessions: others.map(s => ({ task_description: s.task_description.slice(0, 200), date: s.date })),
+        hint: `This tool returns only the LATEST session summary. ${allSessions.length} session(s) are indexed — use list_sessions (paginated browse) or search_sessions (query) to access earlier sessions.`,
+      };
+    } catch (metaErr) {
+      const msg = metaErr instanceof Error ? metaErr.message : String(metaErr);
+      console.warn(`[ContextManagement.get_session_summary] Session-index metadata unavailable: ${msg}`);
+      return undefined;
+    }
+  };
+
   const tools: Tool[] = [];
 
   // auto_summarize_context tool — ANALYZE AND SAVE — ASYNC ===
@@ -1100,7 +1213,22 @@ WHEN TO USE:
     }) => {
       try {
         const result = await storageManager.getRecentEntries(limit || 20, type);  // ASYNC call
-        
+
+        // 🔹 FIX #18 (2026-08-22): Self-describing empty results — report what the store actually holds so an
+        // empty entry list can never be mistaken for "no memory exists" (the file may hold other record types,
+        // e.g. session_summary_latest served by get_session_summary). Previously this information was only logged to stderr.
+        const storeDiagnostics = await storageManager.getStoreDiagnostics();
+
+        let note: string | undefined;
+        if (result.data.length === 0 && storeDiagnostics.storage_file_exists) {
+          if (storeDiagnostics.total_records_in_file > 0 && storeDiagnostics.context_entries_found === 0) {
+            const keys = storeDiagnostics.non_context_record_keys?.join(', ') || 'state records';
+            note = `Storage file exists but holds ${storeDiagnostics.total_records_in_file} record(s) of other type(s): [${keys}]. Those are served by get_session_summary/get_memory — no context entries have been saved yet (use track_important_event to add one).`;
+          } else {
+            note = 'Storage file exists and is readable but currently holds 0 records.';
+          }
+        }
+
         return { 
           success: true, 
           data: { 
@@ -1108,6 +1236,8 @@ WHEN TO USE:
             isStale: result.isStale,
             confidence: result.confidence,
             provenance: 'get_context_memory' as const,
+            store_diagnostics: storeDiagnostics,
+            ...(note ? { note } : {}),
           } 
         };
       } catch (error) {
@@ -1409,7 +1539,9 @@ WHEN TO USE:
           if (latest && typeof latest === 'object') {
             const isStale = (Date.now() - (latest.timestamp ?? 0)) > threeDaysMs;
             console.log(`[ContextManagement.get_session_summary] ✅ Loaded from IN-MEMORY STATE (RAM).`);
-            return { success: true, data: { ...latest, isStale } };
+            // 🔹 FIX #18: attach session-index metadata — a single-summary response must not look like "no history"
+            const sessionIndexMeta = await getSessionIndexMeta(latest.task_description);
+            return { success: true, data: { ...latest, isStale, ...(sessionIndexMeta ? { session_index_meta: sessionIndexMeta } : {}) } };
           }
         } catch (memErr) {
           const msg = memErr instanceof Error ? memErr.message : String(memErr);
@@ -1444,18 +1576,22 @@ WHEN TO USE:
           if (summaryEntry && typeof summaryEntry.value === 'object' && summaryEntry.value !== null) {
             const parsedSummary = summaryEntry.value as SessionSummaryData;
             console.log(`[ContextManagement.get_session_summary] ✅ Loaded from DISK FALLBACK (.msgpack, StateEntry format).`);
+            // 🔹 FIX #18: attach session-index metadata (same contract as the RAM path)
+            const sessionIndexMeta = await getSessionIndexMeta(parsedSummary.task_description);
             return { 
               success: true, 
-              data: { ...parsedSummary, isStale: (Date.now() - (parsedSummary.timestamp ?? 0)) > threeDaysMs } 
+              data: { ...parsedSummary, isStale: (Date.now() - (parsedSummary.timestamp ?? 0)) > threeDaysMs, ...(sessionIndexMeta ? { session_index_meta: sessionIndexMeta } : {}) } 
             };
           } else if (summaryEntry && typeof summaryEntry.value === 'string') {
             // Legacy format: value stored as JSON string instead of object
             try {
               const parsedSummary = JSON.parse(summaryEntry.value) as SessionSummaryData;
               console.log(`[ContextManagement.get_session_summary] ✅ Loaded from DISK FALLBACK (.msgpack, legacy string format).`);
+              // 🔹 FIX #18: attach session-index metadata (same contract as the RAM path)
+              const sessionIndexMeta = await getSessionIndexMeta(parsedSummary.task_description);
               return { 
                 success: true, 
-                data: { ...parsedSummary, isStale: (Date.now() - (parsedSummary.timestamp ?? 0)) > threeDaysMs } 
+                data: { ...parsedSummary, isStale: (Date.now() - (parsedSummary.timestamp ?? 0)) > threeDaysMs, ...(sessionIndexMeta ? { session_index_meta: sessionIndexMeta } : {}) } 
               };
             } catch {
               console.warn(`[ContextManagement.get_session_summary] Legacy string value not valid JSON.`);
@@ -1518,11 +1654,27 @@ WHEN TO USE:
               .filter(e => e.key.startsWith('memory_'))
               .map(e => ({ key: e.key, value: e.value }))
               .filter(m => m.value !== undefined);
-            
+
             if (memories.length > 0) {
               console.log(`[ContextManagement.get_memory] ✅ Loaded ${memories.length} entries from LOCAL PROJECT FILE.`);
               return { success: true, data: memories };
             }
+
+            // 🔹 FIX #18 (2026-08-22): Self-describing empty result — the file EXISTS and holds records of other types;
+            // previously this fell through to an ambiguous "No memory entries found" error identical to "no store at all".
+            const presentKeys = [...new Set(
+              (entries as Array<{ key?: unknown }>)
+                .map(e => e && typeof e === 'object' ? e.key : undefined)
+                .filter((k): k is string => typeof k === 'string')
+            )].slice(0, 10);
+            console.log(`[ContextManagement.get_memory] Local file exists but holds 0 memory_* records (present keys: ${presentKeys.join(', ') || 'none'}).`);
+            return {
+              success: true,
+              data: {
+                memories: [] as Array<{ key: string; value: unknown }>,
+                store_diagnostics: { storage_file_exists: true, source: 'local_project_file', total_records_in_file: (entries as unknown[]).length, memory_entries_found: 0, other_record_keys: presentKeys },
+              },
+            };
           } catch (parseErr) {
             console.warn(`[ContextManagement.get_memory] Local file parse failed: ${String(parseErr)}. Falling back.`);
           }
@@ -1786,7 +1938,7 @@ WHEN TO USE:
   // switch_context tool — SWITCH TO A DIFFERENT PROJECT'S CONTEXT STORAGE ===
   tools.push(tool({
     name: 'switch_context',
-    description: `Switch the context storage to a different project's working directory. This allows accessing session memory from another project.\n\nWHEN TO USE:\n• User explicitly asks to switch to another project's context\n• When working on multiple projects in the same LM Studio instance`,
+    description: `Switch the context storage to a different project's working directory. This allows accessing session memory from another project.\n⚠️ The working directory is NOT changed by this tool — file operations still target the current CWD. If you also want file operations to run in that project, call change_directory afterwards with the same path.\n\nWHEN TO USE:\n• User explicitly asks to switch to another project's context\n• When working on multiple projects in the same LM Studio instance`,
     parameters: {
       target_working_dir_path: z.string().describe('Absolute path to the target project\'s working directory'),
     },
@@ -1831,6 +1983,8 @@ WHEN TO USE:
             target_path: target_working_dir_path,
             context_storage_path: contextPath,
             project_name: project?.name || path.basename(target_working_dir_path),
+            working_dir_unchanged: true,
+            hint: 'The working directory was NOT changed. Call change_directory with the same path if file operations should target this project.',
           } 
         };
       } catch (error) {

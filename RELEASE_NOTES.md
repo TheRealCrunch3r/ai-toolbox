@@ -83,6 +83,24 @@ All previously synchronous file-write tools converted to async with shared atomi
 
 ---
 
+### Auto-Tracker Chat-Warning Regression Fix + Confirm-First Project Switching (v1.9.8+)
+
+**Fixed the checkpoint warning that was generated but never surfaced in chat; restored confirm-first working-directory switching and added German JA/NEIN reply support.**
+
+#### Root Cause
+A Step 0.7 refactor silently switched the working directory on project-keyword match — burying the pending checkpoint warning (logs: "THRESHOLD PROMPT GENERATED"; chat: nothing) and bypassed Step 0.6 reply handling. Reply detection accepted only English YES/NO, and transitionTo() cleared pending warnings on any state change.
+
+#### Fixes
+- **Fix A** (`promptPreprocessor.ts`): confirm-first banner — no CWD change on detection; one-shot switch only after an explicit YES/JA reply in a later message, then resets
+- **Fix B** (`promptPreprocessor.ts`): JA/NEIN normalized onto canonical YES/NO FSM inputs for checkpoint replies
+- **Fix C** (`autoTracker.ts`): transitionTo() no longer clears pendingCheckpointWarning on unrelated state changes; warning injected into all preprocessor return paths while pending
+
+#### Verification
+- ✅ 536 Jest tests passing across 26 suites — zero regressions
+- ✅ dist/ rebuilt post-fix with zero dynamic-import patterns; manifest v1.9.8 rev 18 unchanged
+
+---
+
 ### Project Keyword Detection + Cross-Project Registry Sync Fix (v1.9.8+)
 
 **Eliminated the "ai-toolbox not found" clarification loop by adding Step 0.7 project keyword detection in promptPreprocessor.ts and _syncFromSessionMemory() lazy registry sync.**

@@ -1,4 +1,24 @@
-# 📝 CHANGELOG
+# 📝 CHANGELOG (ARCHIVED)
+
+> ⚠️ **Superseded by [`CHANGELOG_v2.md`](CHANGELOG_v2.md).** Entries below are archived history only — no new entries will be added to this file.
+
+### Auto-Tracker Chat-Warning Regression Fix + Confirm-First Project Switching — v1.9.8+ (2026-08-18)
+**Fixed the checkpoint warning that was generated but never surfaced in chat, restored confirm-first working-directory switching, and added German JA/NEIN reply support.**
+
+#### Root Cause
+A Step 0.7 refactor silently switched the working directory on project-keyword match (violating the confirm-first safety rule documented in index.ts). Because every user message mentions a registered-project keyword, that early-return path buried the pending Auto-Tracker checkpoint warning and bypassed Step 0.6 reply handling — logs showed "THRESHOLD PROMPT GENERATED" but the chat showed nothing. Aggravators: reply detection accepted English YES/NO only (German "ja"/"nein" left the FSM stuck in THRESHOLD_REACHED), and transitionTo() cleared pendingCheckpointWarning on any state change.
+
+#### Fixes
+- **Fix A — Confirm-first project switching (`src/promptPreprocessor.ts`, Step 0.7)**: keyword detection now injects only a "⚠️ REGISTERED PROJECT DETECTED" banner; the working directory changes only after an explicit YES/JA reply in a later message (one-shot switch), then resets. NO/NEIN or any other reply leaves the offer pending.
+- **Fix B — Bilingual checkpoint replies (`src/promptPreprocessor.ts`, Step 0.6)**: normalization accepts English "YES"/"NO" and German "JA"/"NEIN", mapped onto canonical FSM inputs; anything else → null (not a confirmation reply).
+- **Fix C — Pending warning persistence (`src/autoTracker.ts`)**: transitionTo() no longer clears pendingCheckpointWarning on unrelated state changes; the warning is cleared only on consume/reply/compress paths and injected into all preprocessor return paths while pending.
+
+#### Verification
+- ✅ Full Jest suite green: 536 tests across 26 suites (jest.fulltest.config.cjs, --runInBand) — zero regressions
+- ✅ dist/ rebuilt after the fixes with zero dynamic-import patterns in the CJS bundle; manifest unchanged at v1.9.8 rev 18
+- ✅ Working-directory reinstall-safety guard re-verified: stale temp-dir state is detected and recovered via registry
+
+---
 
 ### v1.9.8+ Module Additions & Recent Fixes (2026-08-17)
 

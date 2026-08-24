@@ -105,7 +105,7 @@ describe('AutoTracker FSM & Core Functionality', () => {
       
       const prompt = tracker.checkAndGeneratePrompt(8000, 10000);
       expect(prompt.triggered).toBe(true);
-      expect(prompt.warning).toContain("Reply 'YES' to trigger the session memory save");
+      expect(prompt.warning).toContain("Reply 'YES'/'JA' to trigger the session memory save");
       
       // User replies YES
       tracker.consumePendingConfirmation();
@@ -560,5 +560,105 @@ describe('AutoTracker FSM & Core Functionality', () => {
       
       expect(result).toBe(false);
     });
+  });
+});
+
+
+// ==================== Fix C: pendingCheckpointWarning survives unrelated transitions ====================
+
+describe('Fix C — transitionTo() no longer clears pending warnings on any state change', () => {
+  let tracker: AutoTracker;
+
+  beforeEach(() => {
+    const { ContextStorageManager } = require('../src/tools/contextManagementTools');
+    tracker = new AutoTracker({ autoTrackingEnabled: true }, ContextStorageManager);
+  });
+
+  test('threshold warning survives an unrelated reset() to IDLE (blanket clear removed)', () => {
+    tracker.checkTokenThreshold(8000, 10000); // → THRESHOLD_REACHED
+    const prompt = tracker.checkAndGeneratePrompt(8000, 10000);
+    expect(prompt.triggered).toBe(true);
+    expect(tracker.hasPendingWarning()).toBe(true);
+
+    // Unrelated transition to a non-THRESHOLD state must NOT clear the pending warning (Fix C).
+    tracker.resetCounter(); // → IDLE ('explicit_reset')
+    expect(tracker.getState()).toBe(AutoTrackState.IDLE);
+
+    // The field is retained; hasPendingWarning() reads false only because of its state guard.
+    // Re-crossing the threshold re-enters THRESHOLD_REACHED and serves the warning again.
+    const rePrompt = tracker.checkAndGeneratePrompt(8000, 10000);
+    expect(rePrompt.triggered).toBe(true);
+    expect(tracker.hasPendingWarning()).toBe(true);
+  });
+
+  test('onContextCompressed() keeps a LIVE pending confirmation (RC-1 fix — compression no longer kills an awaiting prompt)', () => {
+    tracker.checkTokenThreshold(8000, 10000);
+    const prompt = tracker.checkAndGeneratePrompt(8000, 10000);
+    expect(prompt.triggered).toBe(true);
+    expect(tracker.hasPendingWarning()).toBe(true);
+
+    // Compression fires on the SAME turn as the trigger (usage crossed both 75% and 90%).
+    // The prompt was already injected into model input — the pending confirmation must survive.
+    tracker.onContextCompressed();
+    expect(tracker.getState()).toBe(AutoTrackState.THRESHOLD_REACHED);
+    expect(tracker.hasPendingWarning()).toBe(true);
+
+    // The user's YES reply on the next turn is honored → checkpoint save proceeds.
+    tracker.processUserReply('YES');
+    expect(tracker.getState()).toBe(AutoTrackState.CONFIRMED);
+  });
+
+  test('onContextCompressed() still resets to IDLE when NO pending confirmation exists', () => {
+    // No prompt in flight — plain reset behavior must be unchanged.
+    tracker.onContextCompressed();
+    expect(tracker.getState()).toBe(AutoTrackState.IDLE);
+
+    tracker.checkTokenThreshold(8000, 10000);
+    const prompt = tracker.checkAndGeneratePrompt(8000, 10000);
+    expect(prompt.triggered).toBe(true);
+    tracker.processUserReply('NO'); // user declines → IDLE (Bug #3 path)
+    tracker.onContextCompressed();  // no live warning left → stays/resets IDLE
+    expect(tracker.getState()).toBe(AutoTrackState.IDLE);
+  });
+
+  test('CONFIRMED re-arms to IDLE once usage drops below threshold (RC-2 fix — no FSM latch / re-prompt loop)', () => {
+    tracker.checkAndGeneratePrompt(9000, 10000); // → THRESHOLD_REACHED + pending
+    expect(tracker.hasPendingWarning()).toBe(true);
+    tracker.processUserReply('YES');             // → CONFIRMED (pending cleared)
+    expect(tracker.getState()).toBe(AutoTrackState.CONFIRMED);
+
+    // Next turn: post-compression usage is below threshold — must NOT trigger, and FSM re-arms.
+    const below = tracker.checkAndGeneratePrompt(3000, 10000);
+    expect(below.triggered).toBe(false);
+    expect(tracker.getState()).toBe(AutoTrackState.IDLE);
+
+    // A later crossing triggers cleanly again.
+    const reCross = tracker.checkAndGeneratePrompt(9000, 10000);
+    expect(reCross.triggered).toBe(true);
+    expect(tracker.hasPendingWarning()).toBe(true);
+  });
+
+  test('processUserReply() still clears the warning on both YES and NO paths', () => {
+    tracker.checkTokenThreshold(8000, 10000);
+    const prompt = tracker.checkAndGeneratePrompt(8000, 10000);
+    expect(prompt.triggered).toBe(true);
+
+    tracker.processUserReply('NO'); // NO → DECLINED → IDLE + clear (Bug #3 path)
+    expect(tracker.getState()).toBe(AutoTrackState.IDLE);
+    expect(tracker.hasPendingWarning()).toBe(false);
+  });
+
+  test('German nein normalizes to the canonical NO input and returns the FSM to IDLE', () => {
+    // Composed flow (Fix B + existing Bug #3 path): normalizeConfirmationReply() output feeds processUserReply().
+    const { normalizeConfirmationReply } = require('../src/promptPreprocessor');
+    expect(normalizeConfirmationReply('nein')).toBe('NO');
+
+    tracker.checkTokenThreshold(8000, 10000);
+    const prompt = tracker.checkAndGeneratePrompt(8000, 10000);
+    expect(prompt.triggered).toBe(true);
+
+    tracker.processUserReply(normalizeConfirmationReply('nein') as 'YES' | 'NO');
+    expect(tracker.getState()).toBe(AutoTrackState.IDLE); // DECLINED → IDLE
+    expect(tracker.hasPendingWarning()).toBe(false);
   });
 });

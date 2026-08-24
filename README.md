@@ -401,6 +401,21 @@ Prior to this fix, ESLint's `@typescript-eslint/no-unsafe-assignment` rule flagg
 - ✅ **No startup overhead**: Lazy sync pattern — registry only synced when a search or lookup actually happens.
 - ✅ **Backward compatible**: Explicit `register_project` (confirmed path) remains the primary registration method; auto-sync is additive.
 
+### [v1.9.9] - 2026-08-24 — ⚡ grep_files Hard Limits & Hang Fix + AutoTracker Mid-Loop Token Counting + DELTA "chat used" Log
+
+**Deadline-based hard limits for `grep_files` (escape-aware alternation splitting, partial results with `aborted` flag), mid-loop per-tool token deltas so thresholds fire inside long tool loops, and a live `| chat used ≈ N tok` field in `[AutoTracker] [DELTA]` lines.**
+
+#### What Changed
+- ✅ **grep_files hang fix** (`src/tools/fileSystemTools.ts`): escape-aware top-level alternation splitting + real deadline-based hard stops on the sync regex loop. New limits: `GREP_SCAN_DEADLINE_MS=15000`, `MAX_LINE_CHARS_REGEX_MODE=20000` (long lines skipped in regex mode), `PER_REGEX_TIMEOUT_MS=500` (abandon-and-continue per candidate), single-file backstop via `Promise.race` at deadline+5 s; over-cap files reported in `skipped_files`.
+- ✅ **AutoTracker mid-loop delta bookkeeping** (FIX #20, `src/tokenStatsManager.ts` + 4 further source files): every tool result is measured into a running per-turn delta — threshold/compression decisions now evaluate history count + deltas instead of waiting for the next full count.
+- ✅ **DELTA log enhancement**: `[AutoTracker] [DELTA]` lines append `| chat used ≈ N tok`, where N = turn-start TokenCheck baseline + mid-loop estimate (nested semantics: tool delta ⊆ turn total ⊆ chat used; field omitted when the ContextGuard recount fails).
+- ✅ **Same wind-down, same day**: `[TokenCheck]` log values rounded via `Math.round`; en-US locale pins for model-facing strings.
+
+#### Impact
+- ✅ `grep_files` can no longer block indefinitely — worst case is deadline + 5 s with partial results flagged `aborted: true`.
+- ✅ Token-threshold triggers (75% / 90%) now also fire *inside* multi-tool turns, not only between messages.
+- ✅ Better observability: per-turn chat-used estimates directly in the DELTA logs.
+
 ---
 
 ## 📦 Dependencies

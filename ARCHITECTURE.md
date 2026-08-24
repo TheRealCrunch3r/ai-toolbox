@@ -661,7 +661,7 @@ Step 0.5: ContextGuard Token Counting & Auto-Tracker Threshold Check
     ▼
 Step 0.6: Auto-Tracker Checkpoint Reply Handling + Message Analysis
     │
-    ├── Detect "YES"/"NO" reply to pending checkpoint prompt → flush/save memory
+    ├── Detect "YES"/"NO" (or German "JA"/"NEIN") reply to pending checkpoint prompt → flush/save memory
     ├── Analyze message for tracking triggers (decisions, completions, errors)
     └── Buffer actions for later flush at next threshold checkpoint
     │
@@ -671,8 +671,8 @@ Step 0.7: Project Keyword Detection ← NEW (v1.9.8+)
     ├── Read project_registry.json from disk
     ├── Extract candidate words from user message (filter stop-words)
     ├── Match against registered projects with fuzzy normalization (hyphen↔underscore)
-    └── If matched → Inject "REGISTERED PROJECT DETECTED" confirmation prompt
-    │   (Ask user to switch working directory — prevents clarification loop)
+    └── If matched → Inject "⚠️ REGISTERED PROJECT DETECTED" confirm-first banner
+    │   (Does NOT change CWD this turn; one-shot switch only after an explicit YES/JA reply in a later message)
     │
     ▼
 Step 1: Directory Path Detection ← Unchanged
@@ -801,7 +801,7 @@ User Message Arrives → Step 0.5: ContextGuard Token Counting
 Warning injected into user message prompt:
 ⚠️ SESSION WARNING: You have reached {usage}% of your token limit...
 
-User replies "YES" → Step 0.6: Checkpoint Reply Detection
+User replies "YES" (German "JA" normalized) → Step 0.6: Checkpoint Reply Detection
     │
     ├── autoTracker.hasPendingWarning()? YES ✓
     ├── replyMatch === 'YES'? YES ✓
@@ -810,7 +810,7 @@ User replies "YES" → Step 0.6: Checkpoint Reply Detection
         ├─ flushActionsToMemory() → Save buffered decisions/completions/errors
         └─ autoSaveSessionMemory() → Create checkpoint entry with token stats
 
-User replies "NO" → Step 0.6: Checkpoint Reply Detection
+User replies "NO" (German "NEIN" normalized) → Step 0.6: Checkpoint Reply Detection
     │
     ├── autoTracker.hasPendingWarning()? YES ✓
     ├── replyMatch === 'NO'? YES ✓
@@ -819,7 +819,27 @@ User replies "NO" → Step 0.6: Checkpoint Reply Detection
 
 **FSM States:** `IDLE` → `THRESHOLD_REACHED` (prompt generated) → `CONFIRMED` (saved) or `DECLINED` → `IDLE` (reset).
 
+Pending checkpoint warnings persist across unrelated state transitions — cleared only on consume/reply/compress paths, and injected into **every** preprocessor return path while pending (Fix C).
+
 **Impact:** Users now receive actionable warnings when token usage approaches context window capacity, with confirmation flow to save session memory before potential overflow. Auto-tracked decisions, completions, and error fixes are flushed to persistent storage during checkpoint saves.
+
+#### Mid-Loop Delta Accounting & `chat used` Log Field (FIX #20, v1.9.9+)
+
+Per-turn tool loops accumulate token deltas without waiting for the next full history count:
+
+```
+tool result → tokenStatsManager.recordToolResult()
+    ├── measures payload size → running mid-loop delta for this turn
+    └── logs [AutoTracker] [DELTA] … | chat used ≈ N tok
+        where N = turnBaselineTokens (TokenCheck baseline at turn start) + midLoopEstTokens
+
+next preprocess()/threshold evaluation
+    └── compares against historyCount + running deltas (FIX #20),
+        so 75% / 90% triggers fire inside long multi-tool turns, not only between messages
+```
+
+- **Nested-count semantics:** tool `+delta` ⊆ turn total ⊆ `chat used`.
+- **Gating:** the `| chat used ≈ N tok` field is emitted only when the turn-start baseline > 0; it is omitted if the ContextGuard recount fails.
 
 ### ContextGuard Compression Flow (v1.4.2)
 

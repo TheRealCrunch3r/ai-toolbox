@@ -7,6 +7,7 @@ module.exports = {
   testEnvironment: 'node',
   roots: ['<rootDir>/tests'],
   testMatch: ['**/*.test.ts'],
+  // grep_files_size_limit.test.ts has been converted to Jest-compatible format (19.08.2026)
   maxWorkers: 1, // Prevent OOM — lazy loading 13+ tool modules (up to 76KB) across parallel workers exhausts V8 heap during ts-jest compilation
 
   transformIgnorePatterns: ['node_modules/'],
@@ -40,6 +41,21 @@ module.exports = {
     '^\\.\\/backgroundCommands\\.js$': '<rootDir>/src/backgroundCommands.ts',
     '^\\.\\/toolsSchemaMinifier\\.js$': '<rootDir>/src/toolsSchemaMinifier.ts',
 
+    // ── Tool-definition overhead accounting (token-consolidation 21.08.2026; same RC#4 class as FIX #19 contextTiers:
+    // new .js-suffixed import without mapper entry -> "Cannot find module" in 3 suites) ──
+    '^\\.\\/toolOverhead\\.js$': '<rootDir>/src/toolOverhead.ts',
+
+    // ── FIX #20 (23.08.2026): tokenStatsManager imports './lmStudioApi.js' — first test suite to load this chain
+    // (fix20_midloop_token_counting.test.ts); same RC#4 class as the entries above ──
+    '^\\.\\/lmStudioApi\\.js$': '<rootDir>/src/lmStudioApi.ts',
+
+    // ── FIX #20 (23.08.2026, 2nd wave): toolsProvider.ts now STATICALLY imports './autoTracker.js' +
+    // './tokenStatsManager.js' for the mid-loop wrapper — first suite to load them is toolsProvider.test.ts;
+    // same RC#4 class (new .js-suffixed static import without mapper entry → "Cannot find module") ──
+    '^\\.\\/autoTracker\\.js$': '<rootDir>/src/autoTracker.ts',
+    '^\\.\\/tokenStatsManager\\.js$': '<rootDir>/src/tokenStatsManager.ts',
+
+
     // ── Tool modules dynamically imported by toolsProvider.ts via import('./tools/xxx.js') ──
     // These are resolved relative to <rootDir>/src/, so the path is './tools/xxx.js'
     // We redirect each one to a manual mock in __mocks__/ that returns empty tool arrays.
@@ -70,8 +86,11 @@ module.exports = {
     '^\\.\\/fileModTracker\\.js$': '<rootDir>/tests/__mocks__/fileModTracker.ts',
     '^\\.\\/restoreFromBak\\.js$': '<rootDir>/tests/__mocks__/restoreFromBak.ts',
 
-    // ── Context tier system (v1.9.5) ──
-    '^\\.\\/contextTiers\\.js$': '<rootDir>/src/contextTiers.ts',
+    // ── Context tier system (v1.9.5; FIX #18 19.08.2026: regex matched "./x.js" but the importer is src/tools/*, whose specifier is "../contextTiers.js" — off-by-one dot made the mapping dead code → "Cannot find module '../contextTiers.js'" crashed contextSearch suite (RC#3)) ──
+    '^\\.\\./contextTiers\\.js$': '<rootDir>/src/contextTiers.ts',
+
+    // ── FIX #19 (19.08.2026): single-dot same-dir form — src/stateManager.ts imports './contextTiers.js'; no mapper entry existed → "Cannot find module './contextTiers.js'" crashed 4 suites (RC#4) ──
+    '^\\./contextTiers\\.js$': '<rootDir>/src/contextTiers.ts',
 
     // ── Source file .js rewrites for utils/ directory ──
     '^\\.\\./utils/hubExclusionClustering\\.js$': '<rootDir>/src/utils/hubExclusionClustering.ts',

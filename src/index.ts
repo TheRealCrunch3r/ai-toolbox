@@ -55,6 +55,7 @@ import { ContextGuard } from './contextGuard';
 import { TokenStatsManager } from './tokenStatsManager';
 import { cleanupBrowserSession } from './tools/browserAutomationTools';
 import { autoTracker } from './autoTracker';
+import { restoreLastActiveProjectCwd } from './workingDir.js';
 
 // Export for external use (e.g., in generators or other plugins)
 export { TokenStatsManager };
@@ -74,7 +75,16 @@ export function main(context: PluginContext) {
   
   // ⚠️ NO AUTO-REGISTRATION ON STARTUP — projects must be registered explicitly via register_project tool
   // This prevents silent registration of wrong/stale paths without user confirmation.
-  
+
+  // Restore last-active project CWD if persisted state is missing/invalid (e.g., after a plugin reinstall).
+  // NOT auto-registration — only re-applies projects already known from the registry/session index.
+  try {
+    const restore = restoreLastActiveProjectCwd();
+    if (restore.restored) logger.info(`Restored last-active project CWD: ${restore.project}`);
+  } catch (e) {
+    logger.warn(`CWD restore failed (non-fatal): ${e instanceof Error ? e.message : String(e)}`);
+  }
+
   // Register the configuration schematics (makes toggles appear in UI)
   context.withConfigSchematics(configSchematics);
   

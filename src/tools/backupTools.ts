@@ -14,6 +14,10 @@ const getUnzipper = async () => { const m = await import('unzipper'); return m.d
 import type { PluginConfig } from '../config';
 import { getWorkingDir, resetWorkingDir } from '../workingDir';
 
+/** 🔹 FIX #17: Single source of truth for the backup storage folder name — used by resolveBackupDirectory(),
+ * create_backup's own-path exclusion and restore_backup's nested-copy guard. No other hardcoded occurrences. */
+const BACKUP_DIR_NAME = '.ai_toolbox_backups';
+
 /** Resolve backup directory — with intelligent fallback to plugin root */
 async function resolveBackupDirectory(): Promise<string> {
   const workingDir = getWorkingDir();
@@ -21,32 +25,47 @@ async function resolveBackupDirectory(): Promise<string> {
     await fsp.stat(workingDir);
     const entries = await fsp.readdir(workingDir, { withFileTypes: true });
     if (entries.some(e => e.isFile() || e.isDirectory())) {
-      return path.join(workingDir, '.ai_toolbox_backups');
+      return path.join(workingDir, BACKUP_DIR_NAME);
     }
   } catch {}
   
   console.log(`[Backup] Working directory "${workingDir}" is invalid. Falling back to plugin root.`);
   resetWorkingDir();
-  return path.join(getWorkingDir(), '.ai_toolbox_backups');
+  return path.join(getWorkingDir(), BACKUP_DIR_NAME);
 }
 
 /**
  * Recursively collect all files, respecting .gitignore patterns.
  * Excludes node_modules/, dist/, coverage/, etc. ===
+ * 🔹 FIX #17 (20.08.2026): `skipPaths` excludes EXACT absolute directory paths (e.g. the backup tool's own
+ * storage dir for this run). Path-based on purpose — NOT name-pattern based: a generic ".*_backups" match
+ * could silently drop a user project's own data folder from every archive (silent data loss).
  */
-async function collectAllFiles(dir: string, basePath: string = dir): Promise<string[]> {  // MADE ASYNC
+async function collectAllFiles(dir: string, skipPaths?: Set<string>, basePath: string = dir): Promise<string[]> {  // MADE ASYNC
   const files: string[] = [];
-  
+
+  // 🔹 FIX #17: normalize ONCE at the top so skipPaths matching is separator-proof on every recursion level.
+  // (basePath keeps its relative-path semantics: default still equals the walk root.)
+  dir = path.resolve(dir);
+  basePath = path.resolve(basePath || dir);
+
+  // 🔹 FIX #17: skip EXACT absolute paths BEFORE reading anything — this run's own backup storage dir must
+  // never be archived (nested-backup bloat) or restored over the live folder. Path-based, NOT name-pattern:
+  // a user project's own ".*_backups" data folder is therefore always preserved in archives.
+  if (skipPaths && skipPaths.has(dir)) {
+    return [];
+  }
+
   try {
     const entries = await fsp.readdir(dir, { withFileTypes: true });  // ASYNC read
     
     for (const entry of entries) {
       if (entry.isDirectory()) {
-        // Skip common non-essential directories early (before recursing)
+        // Skip common non-essential directories early (before recursing).
         if (['node_modules', 'dist', '.git', '__pycache__', '.next', '.nuxt'].includes(entry.name)) {
           continue;
         }
-        files.push(...await collectAllFiles(path.join(dir, entry.name), basePath));  // ASYNC recursive
+        files.push(...await collectAllFiles(path.join(dir, entry.name), skipPaths, basePath));  // ASYNC recursive
       } else {
         files.push(path.join(dir, entry.name));
       }
@@ -147,7 +166,7 @@ create_backup({ targetDirectory: "/path/to/custom/dir" })
             isCustomPath: isCustomPath,
             filesFound: fileCount,
             directoryExists: dirExists,
-            backupDestination: path.join(backupTarget, '.ai_toolbox_backups', backupName),
+            backupDestination: path.join(backupTarget, BACKUP_DIR_NAME, backupName),
             instructions: [
               `1. Verify the working directory above is correct`,
               `2. If correct, call create_backup() again with { confirm: true }`,
@@ -159,7 +178,7 @@ create_backup({ targetDirectory: "/path/to/custom/dir" })
         }
 
         // User confirmed — proceed with backup
-        const BACKUP_DIR = path.join(backupTarget, '.ai_toolbox_backups');
+        const BACKUP_DIR = path.join(backupTarget, BACKUP_DIR_NAME);
 
         // Validate target directory exists
         try {
@@ -183,7 +202,8 @@ create_backup({ targetDirectory: "/path/to/custom/dir" })
         const tempBackupPath = backupPath + '.tmp';  // Write to temp file first — atomic pattern ===
 
         // Collect ALL files from target working directory — ASYNC ===
-        const allFiles = await collectAllFiles(backupTarget);  // ASYNC call
+        // 🔹 FIX #17: exclude THIS run's own storage dir by exact resolved path (nested-backup bloat guard).
+        const allFiles = await collectAllFiles(backupTarget, new Set([path.resolve(BACKUP_DIR)]));  // ASYNC call
 
         if (allFiles.length === 0) {
           return {
@@ -424,7 +444,9 @@ EXAMPLE USAGE:
             .promise();
 
           // 5. Clear working directory and restore from backup — ASYNC ===
-          const extractedFiles = await collectAllFiles(tempDir);  // ASYNC call
+          // 🔹 FIX #17: legacy archives may contain a nested .ai_toolbox_backups/ subtree (pre-FIX bloat) —
+          // never let stale copies in it overwrite the LIVE backup folder during restore.
+          const extractedFiles = await collectAllFiles(tempDir, new Set([path.resolve(path.join(tempDir, BACKUP_DIR_NAME))]));  // ASYNC call
           
           for (const sourceFile of extractedFiles) {
             try {

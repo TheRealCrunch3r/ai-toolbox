@@ -196,9 +196,10 @@ describe('fileSearch.ts — Workaround for grep_files', () => {
     it('should auto-detect file and search within it', async () => {
       const singleFile = path.join(tempDir, 'single.txt');
       
-      // Debug: verify file exists and is readable via direct stat check
-      const fsMod = await import('fs/promises');
-      const stat = await fsMod.stat(singleFile);
+      // Debug: verify file exists and is readable via direct stat check.
+      // Uses the static top-level `fs` import (NOT dynamic): under Jest's CJS transform,
+      // `await import(...)` throws ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING_FLAG.
+      const stat = await fs.stat(singleFile);
       console.log('[DEBUG] grepSearch test - file stats:', {
         isFile: stat.isFile(),
         isDirectory: stat.isDirectory(),

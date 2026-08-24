@@ -142,6 +142,10 @@ export class AutoTracker {
   // 🔹 Prevent repeated near-threshold console spam — only warn once per IDLE→THRESHOLD cycle
   private _nearThresholdWarned = false;
 
+  // 🔹 FIX #20 (A2): cumulative tokens at which this turn's mid-loop guard already fired.
+  // Re-fires only if usage grows beyond that point again (e.g., one more huge tool payload).
+  private _midLoopGuardedAt = 0;
+
   constructor(config?: Partial<AutoTrackConfig>, testStorageManager?: unknown) {
     this.config = {
       autoTrackingEnabled: true, // ← Matches schema & DEFAULT_CONFIG default (true)
@@ -156,12 +160,21 @@ export class AutoTracker {
     
     debugLog('[INIT] Initialized with config:', this.config);
 
-    // 🔹 P1 #4: Pre-resolve module on construction (cached by V8/module system)
-    import('./tools/contextManagementTools.js').then(m => {
-      this.contextStorageModule = m;
-    }).catch(err => {
-      console.error('[AutoTracker] Failed to pre-load ContextStorageManager:', err);
-    });
+    // 🔹 P1 #4: Pre-resolve module on construction (cached by V8/module system).
+    // SKIPPED under Jest (NODE_ENV=test): tsconfig uses module=NodeNext, so tsc keeps native import()
+    // in the CJS output — valid in real Node, but throws ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING_FLAG
+    // inside Jest's vm sandbox without --experimental-vm-modules. Tests inject a mock storage manager
+    // via the constructor, so the pre-load is not needed there. In production (LM Studio plugin),
+    // NODE_ENV is not 'test' → behavior unchanged.
+    if (process.env.NODE_ENV !== 'test') {
+      import('./tools/contextManagementTools.js').then(m => {
+        this.contextStorageModule = m;
+      }).catch(err => {
+        console.error('[AutoTracker] Failed to pre-load ContextStorageManager:', err);
+      });
+    } else {
+      debugLog('[INIT] Skipping ContextStorageManager pre-load (test environment — mock storage injected)');
+    }
   }
 
   /** Update configuration dynamically */
@@ -187,10 +200,11 @@ export class AutoTracker {
         this.transitionHistory.shift();
       }
 
-      // Reset pending warning on any state change (safety net)
-      if (newState !== AutoTrackState.THRESHOLD_REACHED && this.pendingCheckpointWarning) {
-        this.pendingCheckpointWarning = undefined;
-      }
+      // 🔹 Fix C (removed regression): the blanket "clear pending warning on ANY state change" safety net
+      // killed legitimate pending confirmations whenever an unrelated transition fired between the threshold
+      // trigger and the user's reply. Warnings are now cleared only at explicit consume sites:
+      // consumePendingConfirmation(), processUserReply(), and onContextCompressed(). A stale field in a
+      // non-THRESHOLD state is inert because hasPendingWarning() requires currentState === THRESHOLD_REACHED.
 
       // Reset near-threshold warning flag when leaving IDLE or cycling back to it
       if (this.currentState === AutoTrackState.IDLE || newState === AutoTrackState.IDLE) {
@@ -279,6 +293,13 @@ export class AutoTracker {
     const threshold = this.config.autoTrackTokenThreshold ?? 75;
 
     if (!this.config.autoTrackingEnabled || !maxTokens || maxTokens <= 0 || usagePercentage < threshold) {
+      // 🔹 FIX RC-2: A CONFIRMED state with no live prompt is not a pending warning. If usage dropped
+      // below the threshold, the user's previous YES was served — re-arm FSM for the next cycle instead
+      // of latching in CONFIRMED until compression/new chat (re-prompt loop / dead trigger).
+      if (this.currentState === AutoTrackState.CONFIRMED) {
+        debugLog('[PROMPT]', 'CONFIRMED with usage below threshold — resetting to IDLE for next cycle');
+        this.transitionTo(AutoTrackState.IDLE, 'confirmed_below_threshold');
+      }
       return { triggered: false };
     }
 
@@ -293,7 +314,7 @@ export class AutoTracker {
     this.transitionTo(AutoTrackState.THRESHOLD_REACHED, `first_trigger=${usagePercentage.toFixed(1)}%`);
     
     const bufferedCount = this.actionBuffer.length;
-    const warning = `⚠️ SESSION WARNING: You have reached ${usagePercentage.toFixed(0)}% of your token limit. It is highly recommended to save session memory before continuing.\n\nAuto-tracked events in buffer (will be saved with checkpoint): ${bufferedCount}\n\nDo you want to proceed with a context save? Reply 'YES' to trigger the session memory save, or 'NO' to continue.`;
+    const warning = `⚠️ SESSION WARNING: You have reached ${usagePercentage.toFixed(0)}% of your token limit. It is highly recommended to save session memory before continuing.\n\nAuto-tracked events in buffer (will be saved with checkpoint): ${bufferedCount}\n\nDo you want to proceed with a context save? Reply 'YES'/'JA' to trigger the session memory save, or 'NO'/'NEIN' to continue.`;
     
     this.pendingCheckpointWarning = warning;
     debugLog('[PROMPT]', 'Generated checkpoint prompt for user confirmation');
@@ -346,6 +367,73 @@ export class AutoTracker {
 
     // Clear warning regardless of reply
     this.pendingCheckpointWarning = undefined;
+  }
+
+  /**
+   * FIX #20 (A2) — Mid-loop overflow guard.
+   *
+   * preprocess() only runs on user messages, so during an agentic tool loop nothing re-evaluates the
+   * token threshold while tools keep returning large payloads. This method is called from the tool
+   * wrapper after every tool result: when `baselineTokens` (count at turn start) + `deltaEstTokens`
+   * (cumulative mid-loop tool payload, A1 bookkeeping in TokenStatsManager) crosses the configured
+   * threshold, a proactive session-memory checkpoint is saved — WITHOUT any user prompt (nobody can
+   * answer mid-turn). This closes the overflow window that pre-compression checkpoints alone cannot:
+   * compression itself still only runs at the next preprocess(), but by then a clean snapshot exists.
+   *
+   * Deliberately does NOT touch the FSM: the next turn's checkAndGeneratePrompt() evaluates usage on
+   * the natively-recalculated count and drives the normal YES/NO prompt flow as if this never happened.
+   * Re-fires within the same loop only if usage grows beyond the level already guarded at.
+   */
+  async guardMidLoopThreshold(
+    baselineTokens: number,
+    deltaEstTokens: number,
+    maxTokens: number,
+  ): Promise<{ fired: boolean; saved?: boolean; sessionId?: string }> {
+    if (!this.config.autoTrackingEnabled || !maxTokens || maxTokens <= 0) {
+      return { fired: false };
+    }
+
+    const cumulative = Math.max(0, baselineTokens + deltaEstTokens);
+
+    // No new growth this call → nothing to evaluate (also covers the very first tool result when
+    // the turn started below threshold and only a tiny payload was added).
+    if (deltaEstTokens <= 0) {
+      return { fired: false };
+    }
+
+    const effectiveTokens = Math.max(0, cumulative - CONTEXT_GUARD_OVERHEAD);
+    const usagePercentage = (effectiveTokens / maxTokens) * 100;
+    const threshold = this.config.autoTrackTokenThreshold ?? 75;
+
+    if (usagePercentage < threshold) {
+      return { fired: false };
+    }
+
+    // De-dupe within the turn: only re-fire if usage climbed beyond a previous mid-loop save.
+    if (cumulative <= this._midLoopGuardedAt) {
+      debugLog('[MIDLOOP]', `Already guarded at ${this._midLoopGuardedAt} tok ≥ current ${cumulative} — skipping`);
+      return { fired: false };
+    }
+
+    console.log(`[AutoTracker] [CHECKPOINT] Mid-loop threshold crossed: ~${usagePercentage.toFixed(1)}% (${baselineTokens} + ${deltaEstTokens} delta / ${maxTokens}) — saving proactive checkpoint (no prompt possible mid-turn)`);
+    this._midLoopGuardedAt = cumulative;
+
+    // Flush buffered tracked actions together with the snapshot (same pairing as checkAndSaveTokenThreshold).
+    const flushedCount = await this.flushActionsToMemory();
+    if (flushedCount > 0) {
+      debugLog('[MIDLOOP]', `Flushed ${flushedCount} buffered action(s)`);
+    }
+
+    const saveResult = await this.autoSaveSessionMemory(cumulative, maxTokens, this.messageCount);
+    if (saveResult.saved) {
+      console.log(`[AutoTracker] [CHECKPOINT] Mid-loop snapshot saved: ${saveResult.sessionId}`);
+      return { fired: true, saved: true, sessionId: saveResult.sessionId };
+    }
+
+    // Save failed — roll back the guard so a later (larger) payload retry can still fire this turn.
+    console.error('[AutoTracker] [CHECKPOINT] Mid-loop snapshot FAILED — will retry on further growth');
+    this._midLoopGuardedAt = Math.max(0, baselineTokens - 1);
+    return { fired: true, saved: false };
   }
 
   /**
@@ -621,6 +709,7 @@ export class AutoTracker {
    */
   resetCounter(): void {
     this.messageCount = 0;
+    this._midLoopGuardedAt = 0; // FIX #20 A2 — new session, guard re-arms from zero
     debugLog('[RESET]', 'Message counter reset');
     // Also reset FSM to IDLE on new session
     if (this.currentState !== AutoTrackState.IDLE) {
@@ -666,7 +755,16 @@ export class AutoTracker {
     // Clear buffer since old actions are now invalid (context was compressed)
     this.actionBuffer = [];
     this._nearThresholdWarned = false;
+    this._midLoopGuardedAt = 0; // FIX #20 A2 — fresh context, guard may re-arm on the new baseline
     
+    // 🔹 FIX RC-1/RC-3: A live pending confirmation survives compression. The user was already asked
+    // YES/NO (prompt injected into model input) — clearing it here made their reply be silently ignored
+    // on the next turn, because Step 9 never re-triggers below threshold after a compress.
+    if (this.pendingCheckpointWarning && this.currentState === AutoTrackState.THRESHOLD_REACHED) {
+      debugLog('[COMPRESS]', 'Pending confirmation kept across compression — buffer wiped, near-threshold flag reset');
+      return;
+    }
+
     // Reset FSM to IDLE so threshold can be re-evaluated on the fresh context
     if (this.currentState !== AutoTrackState.IDLE) {
       debugLog('[RESET]', `Explicit reset from ${this.currentState} → IDLE after compression`);
@@ -674,8 +772,8 @@ export class AutoTracker {
     } else {
       debugLog('[RESET]', 'Already in IDLE state — no action needed');
     }
-    
-    // Clear pending warning so it doesn't trigger again on the fresh context
+
+    // Clear pending warning so it doesn't trigger again on the fresh context (only when not live)
     this.pendingCheckpointWarning = undefined;
   }
 }

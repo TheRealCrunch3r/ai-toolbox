@@ -23,6 +23,53 @@ let cumulativeTotalTokens: number = 0;
 type StatsChangeListener = (stats: LLMPredictionStats) => void;
 const listeners: Set<StatsChangeListener> = new Set();
 
+// ==================== FIX #20 (A1): Mid-loop tool payload delta bookkeeping ====================
+//
+// LM Studio calls promptPreprocessor.preprocess() exclusively on USER messages — never during the
+// agentic tool loop of a turn. Tool results generated mid-turn therefore stay invisible to the token
+// threshold until the NEXT user message, when they are counted natively again (the history iteration
+// in preprocess() sums getToolCallRequests()/getToolCallResults() over ALL messages). Hence this delta
+// is strictly per-TURN: it must be reset at every preprocess() start or the next turn's native count
+// would double-count last turn's tool payloads.
+
+/** Raw character sum of all tool results returned since the last preprocess() call */
+let midLoopDeltaChars = 0;
+
+/** Estimated token sum (same ratio as ContextGuard primary method: chars × 0.25 + 10% buffer) */
+let midLoopEstTokens = 0;
+
+// FIX #20 A2 — turn-start baseline for the mid-loop guard, plus the model context limit it is
+// evaluated against. Set from promptPreprocessor.preprocess() right after ContextGuard computed
+// the authoritative count for this turn.
+let turnBaselineTokens = 0;
+let maxContextTokens = 0;
+
+/** Shared estimation ratio — MUST stay in sync with the ContextGuard.countTokens() primary path */
+const CHARS_PER_TOKEN = 0.25;
+const TOKEN_BUFFER_FACTOR = 1.10;
+
+export function estimateTokensFromChars(chars: number): number {
+  return Math.ceil(Math.max(0, chars) * CHARS_PER_TOKEN * TOKEN_BUFFER_FACTOR);
+}
+
+/** Measure the character size of an arbitrary tool result payload (string | string[] | object → JSON). */
+function measurePayloadChars(payload: unknown): number {
+  if (typeof payload === 'string') return payload.length;
+  if (Array.isArray(payload)) {
+    let sum = 0;
+    for (const item of payload) {
+      sum += typeof item === 'string' ? item.length : JSON.stringify(item)?.length ?? 0;
+    }
+    return sum;
+  }
+  try {
+    return JSON.stringify(payload)?.length ?? 0;
+  } catch {
+    // Non-serializable (e.g., circular refs) — fall back to a rough size estimate
+    return String(payload).length;
+  }
+}
+
 export class TokenStatsManager {
   /**
    * Get the most recent prediction stats from LM Studio's inference engine.
@@ -131,12 +178,84 @@ export class TokenStatsManager {
   }
 
   /**
+   * Record the payload size of a tool result returned mid-turn (FIX #20 A1).
+   * Call this for every tool invocation so the AutoTracker's mid-loop guard can see how much
+   * context each tool call is consuming BEFORE the next user message triggers a recount.
+   * @returns estimated tokens added to the current turn's delta
+   */
+  static recordToolResult(toolName: string, payload: unknown): number {
+    const chars = measurePayloadChars(payload);
+    midLoopDeltaChars += chars;
+    const estTokens = estimateTokensFromChars(chars);
+    midLoopEstTokens += estTokens;
+    const deltaLogBase = `[AutoTracker] [DELTA] +${estTokens} tok from ${toolName} (${chars.toLocaleString('en-US')} chars, turn total ≈ ${midLoopEstTokens.toLocaleString('en-US')} tok`;
+    if (turnBaselineTokens > 0) {
+      // Live whole-chat estimate: authoritative TokenCheck baseline for this turn + estimated tool payloads since.
+      console.log(`${deltaLogBase} | chat used ≈ ${(turnBaselineTokens + midLoopEstTokens).toLocaleString('en-US')} tok)`);
+    } else {
+      // No baseline published (ContextGuard recount failed -> safe no-op guard): omit combined value to avoid misleading numbers.
+      console.log(`${deltaLogBase})`);
+    }
+    return estTokens;
+  }
+
+  /** Estimated tokens accumulated by tool results since the last preprocess() call. */
+  static getMidLoopDeltaTokens(): number {
+    return midLoopEstTokens;
+  }
+
+  /** Raw character sum of tool results this turn (diagnostics / tests). */
+  static getMidLoopDeltaChars(): number {
+    return midLoopDeltaChars;
+  }
+
+  /**
+   * Reset per-turn evaluation state. MUST be called at the start of every preprocess() run: by that point
+   * the previous turn's tool results are part of pullHistory() and counted natively — keeping the old
+   * delta would double-count them (FIX #20 A1 invariant). Also zeroes baseline/limit so a turn in which
+   * ContextGuard fails to recount gets a SAFE no-op mid-loop guard (maxTokens = 0) instead of one that
+   * evaluates growth against stale numbers from the previous turn.
+   */
+  static resetMidLoopDelta(): void {
+    if (midLoopEstTokens > 0) {
+      console.log(`[AutoTracker] [DELTA] Resetting turn delta (~${midLoopEstTokens.toLocaleString()} tok now counted natively via history)`);
+    }
+    midLoopDeltaChars = 0;
+    midLoopEstTokens = 0;
+    turnBaselineTokens = 0;
+    maxContextTokens = 0;
+  }
+
+  /**
+   * FIX #20 A2 — publish the turn's evaluation baseline + model context limit for the mid-loop guard.
+   * Called from promptPreprocessor.preprocess() right after ContextGuard computed both values.
+   */
+  static setTurnEvaluation(baselineTokens: number, maxTokens: number): void {
+    turnBaselineTokens = Math.max(0, baselineTokens);
+    maxContextTokens = Math.max(0, maxTokens);
+  }
+
+  /** FIX #20 A2 — token count at the start of the current turn (before any tool calls). */
+  static getTurnBaseline(): number {
+    return turnBaselineTokens;
+  }
+
+  /** FIX #20 A2 — model context limit used by the mid-loop guard percentage math. */
+  static getMaxContextTokens(): number {
+    return maxContextTokens;
+  }
+
+  /**
    * Reset stats cache and REST API session state (e.g., on chat reset).
    */
   static clear(): void {
     lastPredictionStats = null;
     lmStudioApi.resetSessionState();
     cumulativeTotalTokens = 0; // 🔥 Reset cumulative tracker on new session
+    midLoopDeltaChars = 0; // FIX #20 A1 — fresh session, no in-flight tool loop
+    midLoopEstTokens = 0;
+    turnBaselineTokens = 0; // FIX #20 A2 — baseline/limit republished at next preprocess()
+    maxContextTokens = 0;
   }
 
   /**

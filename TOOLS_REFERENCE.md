@@ -1,6 +1,6 @@
 # 🛠️ AI Toolbox — Complete Tool Reference
 
-*Updated to reflect current state: **130 unique tools** dynamically registered across 24 modules (v1.9.8). Includes the Graphify-Inspired Suite (v1.9.5) — Confidence-Tagged Results, Hub-Exclusion Clustering, Project Auto-Detection, Context Tier Provenance, Cluster-Aware Tool Priority — plus v1.9.7 crash-resilient atomic writes and v1.9.8 hang prevention & registry sync.*
+*Updated to reflect current state: **130 unique tools** dynamically registered across 24 modules (v1.9.9). Includes the Graphify-Inspired Suite (v1.9.5) — Confidence-Tagged Results, Hub-Exclusion Clustering, Project Auto-Detection, Context Tier Provenance, Cluster-Aware Tool Priority — plus v1.9.7 crash-resilient atomic writes, v1.9.8 hang prevention & registry sync, and v1.9.9 grep_files hard limits + mid-loop token deltas.*
 
 ---
 
@@ -108,7 +108,7 @@ All 9 modules converted from sync writes to async atomic pattern:
 | `analyze_project` | Project-wide analysis: TypeScript diagnostics, circular dependency detection, ESLint, config optimization, import structure (configurable max-imports warning) |
 | `file_diff` | Compare two files and return a unified diff with +/− markers and line numbers |
 | `directory_tree` | Visualize directory structure in tree format; supports max depth, optional file sizes, automatic exclusion of large directories |
-| `grep_files` | Regex or AST pattern search across files; ReDoS-validated patterns (top-level alternation split processing), include/exclude globs, context lines; **`max_depth`** parameter (default 10, range 1–50) + `MAX_LINES_PER_FILE=5000` hang prevention (v1.9.8+) |
+| `grep_files` | Regex or AST pattern search across files; ReDoS-validated patterns with **escape-aware** top-level alternation splitting, include/exclude globs, context lines; hard limits: 15 s total scan deadline (`GREP_SCAN_DEADLINE_MS`) → partial results + `aborted` flag, regex mode skips lines >20k chars (`MAX_LINE_CHARS_REGEX_MODE`), per-regex budget 500 ms with abandon-and-continue (`PER_REGEX_TIMEOUT_MS`), single-file backstop via `Promise.race` at deadline+5 s (v1.9.9); **`max_depth`** parameter (default 10, range 1–50) + per-file line cap configurable via `max_lines` (default `MAX_LINES_PER_FILE=5000`, over-cap files reported in `skipped_files`) (v1.9.8+) |
 | `find_replace_all` | Regex search & replace across multiple files with dry-run preview, `.bak` backups, file-extension filter; **`max_depth`** enforcement (default 10, range 1–50) + `MAX_LINES_PER_FILE=5000` hang prevention (v1.9.8+) |
 
 ---
@@ -407,7 +407,7 @@ The `src/tools/recodeTool/` module implements a pluggable rule engine for advanc
 
 **Cross-Project Registry (v1.9.8+):**
 - `search_projects` / `get_project_info` now call `_syncFromSessionMemory()` before lookup — auto-registers projects discovered from session memory decisions (`.ai_toolbox_memory.msgpack`) so the registry never returns stale empty results. Lazy pattern: no startup overhead.
-- `register_project` remains the primary explicit registration method (requires confirmed path). Silent auto-registration was removed in v1.9.8; Step 0.7 keyword detection in `promptPreprocessor.ts` surfaces registered projects on mention.
+- `register_project` remains the primary explicit registration method (requires confirmed path). Silent auto-registration was removed in v1.9.8; Step 0.7 keyword detection in `promptPreprocessor.ts` surfaces registered projects on mention (confirm-first: banner only — the one-shot CWD switch happens exclusively after an explicit YES/JA reply).
 
 ---
 
@@ -620,7 +620,7 @@ All tools implement multiple security layers:
 
 ---
 
-*Reference updated from actual source code analysis on 2026-08-17 (v1.9.8). All tool counts verified against `toolsProvider.ts` registry entries and `src/tools/*.ts`. insert_at_line read-back drift detection documented with v1.8.8 hard fix. Graphify-Inspired Suite features (v1.9.5): Confidence-Tagged Results, Hub-Exclusion Clustering (83 tests), Project Auto-Detection, Context Tier Provenance, Cluster-Aware Tool Priority.*
+*Reference updated from actual source code analysis on 2026-08-24 (v1.9.9); v1.9.9 sync added grep_files hard limits & DELTA `chat used` log field documentation. Prior baseline: 2026-08-17 (v1.9.8). All tool counts verified against `toolsProvider.ts` registry entries and `src/tools/*.ts`. insert_at_line read-back drift detection documented with v1.8.8 hard fix. Graphify-Inspired Suite features (v1.9.5): Confidence-Tagged Results, Hub-Exclusion Clustering (83 tests), Project Auto-Detection, Context Tier Provenance, Cluster-Aware Tool Priority.*
 
 ---
 

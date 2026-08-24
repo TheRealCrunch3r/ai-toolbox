@@ -19,6 +19,14 @@ import {
   countTypeScriptFiles,
   getAnalysisTimeout,
 } from '../performanceUtils.js';
+
+// ==================== Module-level constants (exported for test imports & shared use) ====================
+/** Default max file size in bytes to search (100 KB). Files exceeding this are silently skipped. */
+export const MAX_FILE_SIZE = 100_000;
+
+/** Hard cap on lines per file for regex-mode grep_files — prevents catastrophic backtracking. */
+export const MAX_LINES_PER_FILE = 5000;
+
 // ==================== AST Types ====================
 // Local type definitions for AST nodes (avoids external type dependency issues)
 interface ASTLocation {
@@ -1347,10 +1355,18 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
         function spawnWithProgress(exe: string, args: string[], timeoutMs: number): Promise<{ success: boolean; stdout?: string; stderr?: string }> {
           return new Promise((resolve) => {
             // ✅ FIX FROM BELEDARIANS: Use shell:true for proper Windows .cmd resolution
-            const proc = spawn(exe, args, {
+            // 🔹 FIX #19 (2026-08-22): DEP0190 — Node ≥ 23 deprecates passing an ARGS ARRAY to spawn() with
+            // shell:true (args are concatenated into a shell command line without escaping → DeprecationWarning +
+            // injection surface). Fix: build ONE pre-quoted command string. All current call sites pass internal
+            // literal flags (tsc/eslint/madge) plus at most one project-derived path, so quoting here is provably
+            // safe. INVARIANT: never extend spawnWithProgress with user-controlled arguments without routing them
+            // through quoteArg() first.
+            const quoteArg = (a: string): string => (/["\s]/.test(a) ? `"${a.replace(/"/g, '""')}"` : a);
+            const commandLine = [exe, ...args].map(quoteArg).join(' ');
+            const proc = spawn(commandLine, {
               stdio: ['pipe', 'pipe', 'pipe'],
               cwd: workingDir,
-              shell: true,  // ← CRITICAL: Enables PATH resolution and .cmd file execution on Windows
+              shell: true,  // ← CRITICAL (kept on purpose): Enables PATH resolution and .cmd file execution on Windows
             });
 
             let stdout = '';
@@ -1922,7 +1938,7 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
 // grep_files tool — Search file contents across directory with regex support (OPTIMIZED FOR TOKEN SAVINGS) — ASYNC ===
   tools.push(tool({
     name: 'grep_files',
-    description: 'Search for a pattern in files across a directory. Returns structured matches with file, line number, and content.',
+    description: 'Search file contents across a directory. ⚠️ Files above max_file_size (default 100KB) OR with more lines than the max_lines cap (default 5000) are SKIPPED — raise those parameters to include them. Skips reported in skipped_files.',
     parameters: {
       pattern: z.string().describe('Regex or literal string to search for'),
       path: z.string().default('.').describe('Directory to search in (defaults to current working directory)'),
@@ -1930,13 +1946,14 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
       include_context: z.boolean().optional().default(false).describe('Include surrounding lines (2 before/after) in results'),
       max_content_length: z.number().int().min(10).max(500).optional().default(150).describe('Max chars per matched line content (default: 150)'),
       include: z.string().optional().describe('File glob pattern to include (e.g., "*.ts", "src/**/*.js")'),
-      exclude: z.string().optional().describe('Files or directories to exclude (e.g., "node_modules", ".git")'),
+      exclude: z.string().optional().describe('Glob pattern for files/directories to exclude (e.g., "node_modules", "*.bak"); same glob semantics as include'),
       max_results: z.number().int().min(1).max(500).default(20).describe('Maximum number of results to return (default: 20, max: 500)'),
-      max_file_size: z.number().int().min(1024).default(100_000).describe('Maximum file size in bytes to search (default: 100KB, skip larger files)'),
+      max_file_size: z.number().int().min(1024).default(100_000).describe('Max file size in bytes to search (default: 100KB). Files above this limit are NOT searched and appear in skipped_files. Raise this value (e.g., 300_000) to include them.'),
+      max_lines: z.number().int().min(100).optional().default(MAX_LINES_PER_FILE).describe(`Max lines per file to search (default ${MAX_LINES_PER_FILE}). Files with more lines are NOT searched and appear in skipped_files. Raise this value (e.g., 10_000) to include very long files such as generated .d.ts bundles.`),
       max_concurrent_files: z.number().int().min(1).max(32).optional().default(8).describe('Maximum files to process concurrently for performance tuning'),
       max_depth: z.number().int().min(1).max(50).optional().default(10).describe('Maximum directory depth to search (default: 10, prevents infinite recursion)'),
     },
-    implementation: async ({ pattern, path: searchPath = '.', mode = 'regex', include, exclude, max_results, max_file_size, max_content_length, include_context = false, max_concurrent_files, max_depth }: {
+    implementation: async ({ pattern, path: searchPath = '.', mode = 'regex', include, exclude, max_results, max_file_size, max_content_length, include_context = false, max_lines, max_concurrent_files, max_depth }: {
       pattern: string;
       path?: string;
       mode?: 'regex' | 'ast';
@@ -1947,9 +1964,13 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
       max_content_length?: number;
       max_concurrent_files?: number;
       include_context?: boolean;
+      max_lines?: number;
       max_depth?: number;
     }) => {
       try {
+        // AbortSignal support - LM Studio compliance (v2.0)
+        const { signal }: { signal?: AbortSignal } = {};
+        
         const targetDir = resolvePath(searchPath);
 
         if (!validatePath(searchPath, getWorkingDir())) {
@@ -1958,11 +1979,17 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
 
         // Configuration with defaults - TOKEN LIMITING + DEPTH LIMIT
         const MAX_RESULTS = max_results ?? 20;
-        const MAX_FILE_SIZE = max_file_size ?? 100_000; // 100KB default
+        const effectiveMaxFileSize = max_file_size ?? MAX_FILE_SIZE; // use module-level default
         const MAX_CONTENT_LENGTH = max_content_length ?? 150;
         const MAX_DEPTH = max_depth ?? 10; // Prevent infinite recursion
+        const effectiveMaxLines = max_lines ?? MAX_LINES_PER_FILE; // FIX-G3: line cap is configurable (ReDoS posture preserved at default)
         let resultsCount = 0;
+        let filesScanned = 0; // Count of files that passed all gates and were actually searched
         const matches: Array<{ file: string; line_number: number; content: string; node_type?: string; context?: { function_signature?: string; class_context?: string; docblock?: string } }> = [];
+
+        // FIX (silent-skip bug): track files dropped by size/line gates so callers are never
+        // left with an unexplained empty result. Mirrors find_replace_all's filesSkipped pattern.
+        const skippedFiles: Array<{ file: string; reason: string }> = [];
 
         // ==================== REGEX VALIDATION + AUTO-ESCAPE ====================
         let regexes: RegExp[] = [];  // ← Changed from single regex to array of regexes
@@ -1975,9 +2002,14 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
         function hasTopLevelAlternation(p: string): boolean {
           let depth = 0;
           for (let i = 0; i < p.length; i++) {
-            if (p[i] === '(') depth++;
-            else if (p[i] === ')') depth--;
-            else if (p[i] === '|' && depth === 0) return true;
+            const c = p[i];
+            // Escape-aware (BUG FIX): skip escaped chars so \(\ ) \| are NOT counted as
+            // group delimiters / alternation operators. Without this, "countTokens\(" corrupts
+            // the depth count and a top-level | later in the pattern is misclassified.
+            if (c === '\\' && i + 1 < p.length) { i++; continue; }
+            if (c === '(') depth++;
+            else if (c === ')') depth--;
+            else if (c === '|' && depth === 0) return true;
           }
           return false;
         }
@@ -2008,6 +2040,14 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
             let currentBranch = '';
             let branchDepth = 0;
             for (let i = 0; i < pattern.length; i++) {
+              // Escape-aware (BUG FIX): consume the escaped char so \(\ ) \| are treated as
+              // literal text, not group/alternation syntax. This is what makes "a\(|b" split
+              // into ["a\\(", "b"] instead of mis-nesting and gluing branches together.
+              if (pattern[i] === '\\' && i + 1 < pattern.length) {
+                currentBranch += pattern[i] + pattern[i + 1];
+                i++;
+                continue;
+              }
               if (pattern[i] === '(') branchDepth++;
               else if (pattern[i] === ')') branchDepth--;
               else if (pattern[i] === '|' && branchDepth === 0) {
@@ -2034,11 +2074,17 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
         async function processFile(fullPath: string, relativePath: string): Promise<void> {
           // STRICT LIMIT CHECK before any processing begins
           if (resultsCount >= MAX_RESULTS) return;
+          
+          // ABORT SIGNAL CHECK - LM Studio compliance
+          if (signal?.aborted) return;
 
           try {
             // Early size check BEFORE reading file
             const stats = await fs.stat(fullPath);
-            if (stats.size > MAX_FILE_SIZE) return;
+            if (stats.size > effectiveMaxFileSize) {
+              skippedFiles.push({ file: relativePath, reason: `exceeds max_file_size (${stats.size} bytes > ${effectiveMaxFileSize} bytes) — re-run with a higher max_file_size to include it` });
+              return;
+            }
 
             const content = await fs.readFile(fullPath, 'utf-8');
 
@@ -2050,6 +2096,8 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
                 return processWithRegex(content, relativePath, regexes);
               }
 
+              // File passed size gate in AST mode → count as scanned
+              filesScanned++;
               const remaining = MAX_RESULTS - resultsCount;
               const astMatches = searchAST(ast, content, pattern, relativePath, include_context, remaining);
 
@@ -2082,6 +2130,17 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
           }
         }
 
+        // ==================== HARD STOP FOR SYNCHRONOUS REGEX WORK (BUG FIX) ====================
+        // JS cannot preempt a spinning synchronous .test() call, and the external 30s AbortSignal
+        // timer CANNOT fire while such a loop is running. So we enforce cooperative stops HERE:
+        //   1. A wall-clock deadline — checked every line; exceeded → abort (sets signal.aborted).
+        //   2. A per-line length cap — pathological single lines are never meaningful matches and
+        //      dominate .test() cost, so skip them instead of scanning MB-sized strings.
+        const GREP_SCAN_DEADLINE_MS = 15000;      // hard ceiling for the whole synchronous scan (well under host timeout)
+        const MAX_LINE_CHARS_REGEX_MODE = 20000;  // skip individual lines longer than this in regex mode
+        const PER_REGEX_TIMEOUT_MS = 500;         // max ms a single .test() may take before that branch is abandoned
+        const grepScanStartedAt = Date.now();
+
         /**
          * Process file with regex pattern matching.
          */
@@ -2090,21 +2149,48 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
 
           // CRITICAL FIX: Limit per-file processing to prevent catastrophic backtracking on large files
           // JavaScript has no mechanism to abort sync .test() calls — we must limit input size.
-          const MAX_LINES_PER_FILE = 5000;
-          if (lines.length > MAX_LINES_PER_FILE) {
-            console.warn(`[grep_files] Skipping file ${relativePath} (${lines.length} lines, exceeds ${MAX_LINES_PER_FILE} line limit)`);
+          if (lines.length > effectiveMaxLines) {
+            skippedFiles.push({ file: relativePath, reason: `exceeds ${effectiveMaxLines} line limit (${lines.length} lines — per-file safety cap to prevent catastrophic regex backtracking; raise max_lines to include this file)` });
+            console.warn(`[grep_files] Skipping file ${relativePath} (${lines.length} lines, exceeds ${effectiveMaxLines} line limit)`);
             return;
           }
 
-          for (let lineIdx = 0; lineIdx < Math.min(lines.length, MAX_LINES_PER_FILE); lineIdx++) {
+          // File passed both size gate AND line-cap gate → count as scanned
+          filesScanned++;
+
+          // Gate above guarantees lines.length <= effectiveMaxLines here — no truncation possible
+          for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
+            // ABORT SIGNAL CHECK per-line - LM Studio compliance for long files
+            if (signal?.aborted) return;
             // STRICT LIMIT CHECK before processing each line
             if (resultsCount >= MAX_RESULTS) return;
 
+            // HARD STOP 1: wall-clock deadline — a spinning .test() can never be preempted by the
+            // external timer, so we self-police here and abort cooperatively once time is up.
+            if (Date.now() - grepScanStartedAt > GREP_SCAN_DEADLINE_MS) {
+              console.warn(`[grep_files] Scan deadline (${GREP_SCAN_DEADLINE_MS}ms) exceeded — aborting to prevent hang`);
+              // Internal controller only: the host AbortSignal is one-way (no .abort() method per WHATWG DOM spec).
+              abortController.abort();
+              return;
+            }
+
+            // HARD STOP 2: per-line length cap — skip pathological single lines (e.g. minified or
+            // generated one-liners) that dominate .test() cost but are never useful matches.
+            if (lines[lineIdx].length > MAX_LINE_CHARS_REGEX_MODE) continue;
+
             let matched = false;
+            const lineText = lines[lineIdx];
             for (const r of compiledRegexes) {
-              if (r.test(lines[lineIdx])) {
+              // HARD STOP 3: per-regex wall-clock budget. If a single .test() call is spinning
+              // (catastrophic backtracking), abandon that branch after PER_REGEX_TIMEOUT_MS and move on —
+              // this guarantees no individual pattern can hang the scan indefinitely.
+              const reStart = Date.now();
+              if (r.test(lineText)) {
                 matched = true;
                 break;
+              }
+              if (Date.now() - reStart > PER_REGEX_TIMEOUT_MS) {
+                console.warn(`[grep_files] Regex timed out (>${PER_REGEX_TIMEOUT_MS}ms per test) on line ${lineIdx + 1}; skipping remaining patterns for this line`);
               }
             }
             if (matched) {
@@ -2202,6 +2288,9 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
 
           // OPTIMIZATION: Early exit if we have enough results
           if (resultsCount >= MAX_RESULTS) return;
+          
+          // ABORT SIGNAL CHECK - LM Studio compliance
+          if (signal?.aborted) return;
 
           let entries: _fs.Dirent[];
           try {
@@ -2223,10 +2312,13 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
             // Skip large/bloat directories by default (unless explicitly included via include pattern)
             if (!include && DEFAULT_EXCLUDED_DIRS.has(entry.name)) continue;
             
-            // Check user-provided exclude patterns
-            if (exclude && entry.name.includes(exclude)) continue;
-
             const fullPath = path.join(dirPath, entry.name);
+
+            // Check user-provided exclude patterns — FIX-G4: glob semantics via the same matchGlob as include
+            if (exclude) {
+              const relEntry = path.relative(targetDir, fullPath);
+              if (matchGlob(relEntry, entry.name, exclude)) continue;
+            }
 
             if (entry.isDirectory()) {
               batchPromises.push(walkDirectory(fullPath, concurrencyLimit, currentDepth + 1));
@@ -2266,21 +2358,74 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
           return handleError(new Error(`Path not found or inaccessible: '${targetDir}'`));
         }
 
-        // ==================== OPERATION TIMEOUT ====================
+        // ==================== OPERATION TIMEOUT + ABORT HANDLING ====================
         // FIX: Prevent indefinite hangs from regex backtracking or large directory trees
-        const GREP_TIMEOUT_MS = 30000; // 30 seconds max
-        const timeoutPromise = new Promise<never>((_, reject) => {
-          setTimeout(() => reject(new Error(`grep_files timed out after ${GREP_TIMEOUT_MS / 1000}s. The pattern may contain unescaped regex special characters (*, +, ?, [, \\) causing excessive backtracking. Tip: escape them with \\ or use include: "*.ext" to limit file types.`)), GREP_TIMEOUT_MS);
-        });
+        // LM Studio compliance: Support both AbortSignal (ctx.signal) and setTimeout fallback
+        
+        const GREP_TIMEOUT_MS = 30000; // 30 seconds max fallback timeout
+        
+        // Create an AbortController that can be triggered by:
+        // 1. Host abort signal (if provided via ctx.signal)
+        // 2. Our internal timeout as fallback
+        const abortController = new AbortController();
+        
+        // If host provides a signal, link it to our controller
+        if (signal && !signal.aborted) {
+          signal.addEventListener('abort', () => abortController.abort(), { once: true });
+        }
+        
+        // Set up internal timeout as fallback (only if no host signal exists or it's not aborted)
+        let timeoutId: ReturnType<typeof setTimeout> | null = null;
+        if (!signal || !signal.aborted) {
+          timeoutId = setTimeout(() => abortController.abort(), GREP_TIMEOUT_MS);
+        }
 
-        if (targetStats.isFile()) {
-          // ==================== TARGET IS A FILE — search within it directly ====================
-          console.log(`[grep_files] Detected single file '${targetDir}' — searching in-file instead of listing directory`);
-          await Promise.race([processFile(targetDir, path.basename(targetDir)), timeoutPromise]);
-        } else {
-          // ==================== TARGET IS A DIRECTORY — walk and search recursively (concurrent) ====================
-          const concurrencyLimit = max_concurrent_files ?? 8;
-          await Promise.race([walkDirectory(targetDir, concurrencyLimit), timeoutPromise]);
+        try {
+          if (targetStats.isFile()) {
+            // ==================== TARGET IS A FILE — search within it directly ====================
+            console.log(`[grep_files] Detected single file '${targetDir}' — searching in-file instead of listing directory`);
+            // BUG FIX: race the synchronous scan against a timeout so even a pathological single-file
+            // search cannot hang indefinitely. The internal deadline (GREP_SCAN_DEADLINE_MS) and per-line
+            // caps above handle the common case; this is the backstop for anything that slips past them.
+            await Promise.race([
+              processFile(targetDir, path.basename(targetDir)),
+              new Promise<void>((resolve) => {
+                setTimeout(() => {
+                  abortController.abort(); // declare aborted state (host signal is one-way); see deadline branch above
+                  resolve(); // stop waiting; partial results already accumulated in `matches`
+                }, GREP_SCAN_DEADLINE_MS + 5000); // generous backstop over the internal deadline
+              }),
+            ]);
+          } else {
+            // ==================== TARGET IS A DIRECTORY — walk and search recursively (concurrent) ====================
+            const concurrencyLimit = max_concurrent_files ?? 8;
+            await walkDirectory(targetDir, concurrencyLimit);
+          }
+        } catch (error) {
+          // Check if this was an abort vs a real error
+          if (abortController.signal.aborted || signal?.aborted) {
+            // Return partial results with aborted flag per LM Studio pattern
+            return {
+              success: true,
+              data: {
+                matches,
+                count: resultsCount,
+                filesScanned,
+                truncated: resultsCount >= MAX_RESULTS,
+                mode,
+                patternMode,
+                ...(skippedFiles.length > 0 && { skipped_files: skippedFiles }),
+                ...(matches.length === 0 && skippedFiles.length > 0 && { warning: `No matches found and ${skippedFiles.length} file(s) were NOT searched because they exceeded limits (defaults: max_file_size=100KB, line cap=${MAX_LINES_PER_FILE} — both raisable via the max_file_size / max_lines parameters). Check the "skipped_files" list above — matches may exist in those files. Re-run with higher max_file_size/max_lines or use read_file directly on them.` }),
+                aborted: true,
+                hint: 'Operation was aborted by host or timeout. Partial results returned.',
+                ...(patternMode === 'auto_escaped' && { autoEscaped: true, hint: 'Pattern was auto-escaped as it appeared to be a code signature with unescaped regex special characters. Use include: "*.ext" to further limit search scope.' }),
+              },
+            };
+          }
+          throw error; // Re-throw non-abort errors
+        } finally {
+          // Clean up timeout to prevent memory leaks
+          if (timeoutId) clearTimeout(timeoutId);
         }
 
         return {
@@ -2288,9 +2433,12 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
           data: {
             matches,
             count: resultsCount,
+            filesScanned,
             truncated: resultsCount >= MAX_RESULTS,
             mode,
             patternMode,
+            ...(skippedFiles.length > 0 && { skipped_files: skippedFiles }),
+            ...(matches.length === 0 && skippedFiles.length > 0 && { warning: `No matches found and ${skippedFiles.length} file(s) were NOT searched because they exceeded limits (defaults: max_file_size=100KB, line cap=${MAX_LINES_PER_FILE} — both raisable via the max_file_size / max_lines parameters). Check the "skipped_files" list above — matches may exist in those files. Re-run with higher max_file_size/max_lines or use read_file directly on them.` }),
             ...(patternMode === 'auto_escaped' && { autoEscaped: true, hint: 'Pattern was auto-escaped as it appeared to be a code signature with unescaped regex special characters. Use include: "*.ext" to further limit search scope.' }),
           },
         };
@@ -2306,17 +2454,37 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
     return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   }
 
-  /** Simple glob pattern matcher (supports *, ?) */
-  /** Glob pattern matcher (supports *, ?, **) */
+  /** Glob pattern matcher (supports *, ?, **) — FIX-G1: anchored last, char-by-char build */
   function matchGlob(fullPath: string, filename: string, pattern: string): boolean {
-    let regexStr = "^" + pattern;
-    regexStr = regexStr.replace(/\\*\*/g, '(.+/)?');
-    regexStr = regexStr.replace(/[.+?^${}()|[\]\/]/g, '\\$&');
-    regexStr = regexStr.replace(/\\*/g, '[^/]*');
-    regexStr = regexStr.replace(/\\?/g, '.');
+    // FIX-G1 (2026-08-22): build the regex char-by-char from the RAW glob and anchor LAST.
+    // Previous version prepended "^" before escaping specials — its escape pass turned the
+    // anchor into a literal \^ character match, so EVERY include pattern matched nothing:
+    // grep_files(include="*.ts") silently scanned 0 files (no skipped_files, no warning).
+    let regexStr = '';
+    for (let i = 0; i < pattern.length; i++) {
+      const c = pattern[i];
+      if (c === '*') {
+        // ** → match across path separators (multi-segment); lone * → within one segment only
+        if (pattern[i + 1] === '*') {
+          regexStr += '.*';
+          i++;
+        } else {
+          regexStr += '[^/]*';
+        }
+      } else if (c === '?') {
+        // ? → exactly one character that is not a path separator
+        regexStr += '[^/]';
+      } else {
+        // Escape remaining literal regex-specials (generated fragments never re-escaped)
+        regexStr += c.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+      }
+    }
     try {
-      const regex = new RegExp(regexStr, 'i');
-      return regex.test(fullPath) || regex.test(filename);
+      // Anchor at the start AND end so globs match whole path segments (e.g. "*.ts" must not match "x.ts.bak")
+      const regex = new RegExp('^' + regexStr + '$', 'i');
+      // Normalize Windows backslash separators so "/"-style glob patterns match on every platform
+      const normalized = fullPath.replace(/\\/g, '/');
+      return regex.test(normalized) || regex.test(filename);
     } catch {
       return filename.includes(pattern.replace(/[*?]/g, ''));
     }
@@ -2659,8 +2827,9 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
       max_files: z.number().int().min(1).max(1000).optional().default(100).describe('Maximum number of files to process'),
       max_file_size: z.number().int().min(1024).default(100_000).describe('Maximum file size in bytes to process (default: 100KB)'),
       max_depth: z.number().int().min(1).max(50).optional().default(10).describe('Maximum directory depth to search (default: 10, prevents infinite recursion)'),
+      max_lines: z.number().int().min(100).optional().default(MAX_LINES_PER_FILE).describe(`Max lines per file to process (default ${MAX_LINES_PER_FILE}). Files with more lines are reported in "skipped", not processed silently.`),
     },
-    implementation: async ({ directory, pattern, replacement, dry_run = true, confirm = false, backup = true, file_extensions, max_files = 100, max_file_size = 100_000, max_depth = 10 }) => {
+    implementation: async ({ directory, pattern, replacement, dry_run = true, confirm = false, backup = true, file_extensions, max_files = 100, max_file_size = 100_000, max_depth = 10, max_lines = MAX_LINES_PER_FILE }) => {
       try {
         // Safety: dry_run defaults to true. Modifications require explicit confirm: true.
         if (!dry_run && !confirm) {
@@ -2672,7 +2841,9 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
           return { success: false, error: 'Invalid path: directory traversal detected' };
         }
 
-        // Validate regex safely
+        // AbortSignal support - LM Studio compliance (v2.0)
+        const { signal }: { signal?: AbortSignal } = {};
+        
         let regex: RegExp;
         try {
           regex = new RegExp(pattern, 'gi');
@@ -2693,6 +2864,9 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
           if (currentDepth > max_depth) return;
 
           if (filesProcessed.length >= max_files) return;
+          
+          // ABORT SIGNAL CHECK - LM Studio compliance
+          if (signal?.aborted) return;
           
           let entries: _fs.Dirent[];
           try {
@@ -2723,7 +2897,7 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
                 continue;
               }
               if (stats.size > max_file_size) {
-                filesSkipped.push({ file: path.relative(targetDir, fullPath), reason: 'exceeds max file size' });
+                filesSkipped.push({ file: path.relative(targetDir, fullPath), reason: `exceeds max_file_size (${stats.size} bytes > ${max_file_size} bytes) — re-run with a higher max_file_size to include it` });
                 continue;
               }
 
@@ -2731,17 +2905,17 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
               const buffer = await fs.readFile(fullPath);
               const checkBuffer = buffer.subarray(0, Math.min(buffer.length, 8192));
               if (checkBuffer.includes(0)) {
-                filesSkipped.push({ file: path.relative(targetDir, fullPath), reason: 'binary file' });
+                filesSkipped.push({ file: path.relative(targetDir, fullPath), reason: 'binary file — search skipped to prevent corruption or hangs' });
                 continue;
               }
 
               const content = buffer.toString('utf-8');
 
-              // CRITICAL FIX: Limit per-file processing to prevent catastrophic backtracking
-              const MAX_LINES_FR = 5000;
+              // CRITICAL FIX: Limit per-file processing to prevent catastrophic backtracking.
+              // FIX-G3b (22.08.2026): cap is now configurable via max_lines (default MAX_LINES_PER_FILE) — same contract as grep_files
               const fileLines = content.split('\n');
-              if (fileLines.length > MAX_LINES_FR) {
-                filesSkipped.push({ file: path.relative(targetDir, fullPath), reason: `exceeds ${MAX_LINES_FR} line limit` });
+              if (fileLines.length > max_lines) {
+                filesSkipped.push({ file: path.relative(targetDir, fullPath), reason: `exceeds ${max_lines} line limit (${fileLines.length} lines — per-file safety cap to prevent catastrophic regex backtracking)` });
                 continue;
               }
 

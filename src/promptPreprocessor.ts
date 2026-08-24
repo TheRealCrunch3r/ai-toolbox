@@ -11,6 +11,9 @@ import pdfParse from 'pdf-parse';
 import type { ContextGuard } from './contextGuard';
 import { setAttachments, listAttachments } from './attachmentManager';
 import { autoTracker } from './autoTracker';
+import { TokenStatsManager } from './tokenStatsManager';
+import { getToolOverheadChars } from './toolOverhead.js';
+import { getWorkingDir, setWorkingDir, listRegisteredProjects } from './workingDir.js';
 
 interface ExtendedMessage {
   role?: string;
@@ -118,48 +121,44 @@ function generateNameVariants(name: string): string[] {
   return Array.from(variants);
 }
 
-/** Detect if a user message contains a registered project keyword */
-function detectProjectKeyword(text: string): { name: string; path: string } | null {
+/** Detect if a user message contains a registered project keyword.
+ * Registry resolution chain: <pluginRoot>/.session_context/project_registry.json (primary)
+ * → <pluginRoot>/.session_index.json (legacy fallback).
+ * The registry is loaded ONCE per invocation and reused across all candidate words
+ * (previously re-read from disk for every candidate word, and the fallback was never consulted — dead in installed envs). */
+export function detectProjectKeyword(
+  text: string,
+  options?: { pluginRoot?: string },
+): { name: string; path: string } | null {
   // Extract candidate words/phrases from the message (ignore common verbs/prepositions)
   const stopWords = new Set([
     'let', 'us', 'work', 'on', 'the', 'a', 'an', 'in', 'at', 'to', 'for', 'with',
     'about', 'start', 'begin', 'open', 'switch', 'go', 'back', 'continue', 'resume'
   ]);
 
-  const words = text.toLowerCase().split(/\s+/).filter(w => w.length > 2 && !stopWords.has(w));
-  
+  // FIX: length >= 2 (was > 2) — short name components like 'my' in "my cool project" were dropped,
+// so multi-word names containing 2-letter parts could never match. Digits excluded to avoid
+// matching version numbers / years against numeric name variants; stopword list still filters the rest.
+const words = text.toLowerCase().split(/\s+/).filter(w => w.length >= 2 && !stopWords.has(w) && !/^\d+$/.test(w));
+
   if (words.length === 0) return null;
+
+  // Load the registry once per invocation (primary → legacy fallback), then match in memory.
+  const projects = listRegisteredProjects(options?.pluginRoot);
+  if (projects.length === 0) return null;
+
+  // Precompute fuzzy name variants per project to avoid re-computing them for every candidate word
+  const indexed = projects.map(p => ({ variants: new Set(generateNameVariants(p.name)), project: p }));
 
   // Try matching combinations of 1-3 consecutive words as project name candidates
   for (let len = Math.min(3, words.length); len >= 1; len--) {
     for (let i = 0; i <= words.length - len; i++) {
       const candidate = words.slice(i, i + len).join('_');
-      
-      // Check against registered projects
-      const registryPath = path.join(path.resolve(__dirname, '..'), '.session_context', 'project_registry.json');
-      try {
-        if (!fs.existsSync(registryPath)) return null;
-        
-        const raw = fs.readFileSync(registryPath, 'utf-8');
-        const parsed: unknown = JSON.parse(raw);
-        if (!parsed || typeof parsed !== 'object') return null;
-        
-        const o = parsed as Record<string, unknown>;
-        const projectsArr = Array.isArray(o.projects) ? o.projects : [];
-        
-        for (const proj of projectsArr) {
-          if (typeof proj !== 'object' || !proj) continue;
-          const p = proj as { name?: string; path?: string };
-          if (!p.name || !p.path) continue;
-          
-          const variants = generateNameVariants(p.name);
-          if (variants.includes(candidate)) {
-            return { name: p.name, path: p.path };
-          }
+
+      for (const entry of indexed) {
+        if (entry.variants.has(candidate)) {
+          return { name: entry.project.name, path: entry.project.path };
         }
-      } catch {
-        // Registry file invalid or unreadable — skip silently
-        return null;
       }
     }
   }
@@ -406,6 +405,195 @@ async function retrieveFromPdfs(
 
 
 
+// ==================== Step 0.7 Confirm-First Project Switching (Fix A) ====================
+
+/**
+ * Pending project-switch confirmation state (Fix A). Set when a registered project is detected in
+ * a user message; consumed one-shot only when the user explicitly replies YES/JA on a subsequent
+ * message. Cleared on decline, expiry, or successful switch.
+ */
+let pendingProjectSwitch: { name: string; path: string } | null = null;
+
+/**
+ * Normalize a bilingual confirmation reply to the canonical FSM input (Fix B).
+ * Accepts English 'YES'/'NO' and German 'JA'/'NEIN'; anything else → null (not a confirmation reply).
+ */
+export function normalizeConfirmationReply(raw: string): 'YES' | 'NO' | null {
+  const u = raw.trim().toUpperCase();
+  if (u === 'YES' || u === 'JA') return 'YES';
+  if (u === 'NO' || u === 'NEIN') return 'NO';
+  return null;
+}
+
+/** Outcome of Step 0.7's confirm-first project-switch gate (Fix A). */
+export type ProjectSwitchDecision =
+  | { kind: 'skip' }
+  | { kind: 'banner'; match: { name: string; path: string } }
+  | { kind: 'execute'; match: { name: string; path: string } }
+  | { kind: 'declined' };
+
+/**
+ * Pure decision logic for Step 0.7 (Fix A — v1.9.8+ safety rule in the index.ts docblock):
+ * NEVER switch the working directory on detection alone. The banner asks for confirmation;
+ * only an explicit YES/JA reply executes the one-shot switch. NO/NEIN or any other reply
+ * expires the offer (the "next message" contract).
+ */
+export function decideProjectSwitch(
+  match: { name: string; path: string } | null,
+  reply: string,
+  currentCwd: string,
+  pending: { name: string; path: string } | null,
+): ProjectSwitchDecision {
+  if (!match) return { kind: 'skip' };
+
+  // Already in the detected project's directory → a switch would be a no-op.
+  if (path.resolve(currentCwd) === path.resolve(match.path)) return { kind: 'skip' };
+
+  const normalized = normalizeConfirmationReply(reply);
+  if (pending && pending.name === match.name && path.resolve(pending.path) === path.resolve(match.path)) {
+    if (normalized === 'YES') return { kind: 'execute', match }; // one-shot switch on explicit confirmation
+    return { kind: 'declined' }; // NO/NEIN or any non-confirmation reply → expire the offer
+  }
+
+  // New detection, or a different project than the pending offer → confirm-first banner.
+  return { kind: 'banner', match };
+}
+
+/**
+ * Execute a confirmed project CWD switch (Step 0.7, Fix A): canonical persistent state change via
+ * setWorkingDir() plus best-effort process.chdir(), then load and inject the target project's
+ * session memory (msgpack with plain-JSON fallback). Returns the fully composed prompt for this turn.
+ */
+async function executeProjectSwitch(
+  newCwd: string,
+  userPrompt: string,
+  attachmentNotice: string,
+  checkpointSuffix: string,
+  ctl: PromptPreprocessorController,
+): Promise<string> {
+  console.log(`[ProjectAutoDetect] Switching working directory to: ${newCwd}`);
+
+  try {
+    // Canonical CWD change — persistent working-dir state (authoritative for all getWorkingDir() consumers)
+    // plus best-effort process.chdir. Previously only process.chdir was called, so tool-level CWD never changed.
+    if (!applyProjectCwdSwitch(newCwd)) {
+      console.warn(`[ProjectAutoDetect] CWD switch rejected for '${newCwd}' — proceeding without switch`);
+      return `${userPrompt}${attachmentNotice}${checkpointSuffix}`.trim() + getTemporalSuffix(ctl);
+    }
+
+          // Read session memory from the new working directory (if exists)
+          try {
+            const msgpackPath = path.join(newCwd, '.session_context', '.ai_toolbox_memory.msgpack');
+            
+            if (fs.existsSync(msgpackPath)) {
+              console.log(`[ProjectAutoDetect] Found session memory at ${msgpackPath}`);
+              
+              // Load and decode the .ai_toolbox_memory.msgpack file using msgpack library
+              try {
+                const msgpack = await import('@msgpack/msgpack');
+                const rawBytes = fs.readFileSync(msgpackPath);
+                
+                if (rawBytes.length > 0) {
+                  const decoded: unknown = msgpack.decode(rawBytes);
+                  
+                  // Check for session summary in the decoded data
+                  if (decoded && typeof decoded === 'object') {
+                    const d = decoded as Record<string, unknown>;
+                    
+                    // Cast to typed interface for safe property access
+                    type SessionSummaryKeys = { latest_session_summary?: string; session_summary_latest?: string };
+                    const typedD = d as SessionSummaryKeys;
+                    
+                    let latestSummary: string | undefined;
+                    
+                    if ('latest_session_summary' in typedD && typeof typedD.latest_session_summary === 'string') {
+                      latestSummary = typedD.latest_session_summary;
+                    } else if ('session_summary_latest' in typedD && typeof typedD.session_summary_latest === 'string') {
+                      latestSummary = typedD.session_summary_latest;
+                    } else if ('latestSummary' in d && typeof d.latestSummary === 'string') {
+                      latestSummary = d.latestSummary;
+                    }
+                    
+                    // If found, inject session summary context into the prompt
+                    if (latestSummary && latestSummary.length > 0) {
+                      console.log(`[ProjectAutoDetect] Loaded session memory from ${newCwd}`);
+                      
+                      const sessionContext = `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 SESSION MEMORY LOADED\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\nPrevious session summary:\n${latestSummary}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
+                      
+                      return `${userPrompt}${sessionContext}${attachmentNotice}${checkpointSuffix}`.trim() + getTemporalSuffix(ctl);
+                    } else {
+                      console.log(`[ProjectAutoDetect] Session memory exists but no summary found`);
+                    }
+                  }
+                }
+              } catch (decodeError) {
+                console.warn(`[ProjectAutoDetect] Failed to decode msgpack from ${msgpackPath}:`, decodeError instanceof Error ? decodeError.message : String(decodeError));
+                
+                // Fallback: try reading as plain JSON if msgpack fails
+                try {
+                  const rawJson = fs.readFileSync(msgpackPath, 'utf-8');
+                  const parsedJson = JSON.parse(rawJson) as Record<string, unknown>;
+                  
+                  let summaryText: string | undefined;
+                  
+                  // Cast to typed interface for safe property access (no eslint-disable needed)
+                  type SessionSummaryKeys = { latest_session_summary?: string; session_summary_latest?: string };
+                  const typedParsed = parsedJson as SessionSummaryKeys;
+                  
+                  if ('latest_session_summary' in typedParsed && typeof typedParsed.latest_session_summary === 'string') {
+                    summaryText = typedParsed.latest_session_summary;
+                  } else if ('session_summary_latest' in typedParsed && typeof typedParsed.session_summary_latest === 'string') {
+                    summaryText = typedParsed.session_summary_latest;
+                  }
+                  
+                  if (summaryText && summaryText.length > 0) {
+                    console.log(`[ProjectAutoDetect] Loaded session memory from ${newCwd} (JSON fallback)`);
+                    
+                    const sessionContext = `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 SESSION MEMORY LOADED\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\nPrevious session summary:\n${summaryText}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
+                    
+                    return `${userPrompt}${sessionContext}${attachmentNotice}${checkpointSuffix}`.trim() + getTemporalSuffix(ctl);
+                  }
+                } catch (jsonError) {
+                  console.warn(`[ProjectAutoDetect] JSON fallback also failed:`, jsonError instanceof Error ? jsonError.message : String(jsonError));
+                }
+              }
+            } else {
+              console.log(`[ProjectAutoDetect] No session memory found at ${msgpackPath}`);
+            }
+          } catch (e) {
+            console.warn(`[ProjectAutoDetect] Failed to load session memory from ${newCwd}:`, e instanceof Error ? e.message : String(e));
+          }
+  } catch (e) {
+    console.error(`[ProjectAutoDetect] Error detecting/switching project:`, e);
+  }
+
+    // If automatic switch failed or no session memory found, return original message with context
+    return `${userPrompt}${attachmentNotice}${checkpointSuffix}`.trim() + getTemporalSuffix(ctl);
+}
+
+
+/** Apply the project CWD switch (Step 0.7).
+ * Canonical change = persistent working-dir state via setWorkingDir() — authoritative for all getWorkingDir() consumers;
+ * plus a best-effort process.chdir so raw process.cwd() consumers (git/image tools) follow along too.
+ * Previously only process.chdir was called, so the tool-level CWD (state file) never actually changed.
+ * Returns false if the switch was rejected (path invalid). */
+export function applyProjectCwdSwitch(newCwd: string): boolean {
+  if (!setWorkingDir(newCwd)) return false;
+
+  try {
+    const oldCwd = process.cwd();
+    if (oldCwd !== newCwd && typeof process.chdir === 'function') {
+      process.chdir(newCwd);
+      console.log(`[ProjectAutoDetect] Working directory changed: ${oldCwd} → ${newCwd}`);
+    }
+  } catch (chdirError) {
+    // Non-fatal — persistent state is already set; only raw process.cwd() consumers stay behind.
+    console.warn(`[ProjectAutoDetect] process.chdir failed (non-fatal): ${chdirError instanceof Error ? chdirError.message : String(chdirError)}`);
+  }
+
+  return true;
+}
+
 export async function preprocess(
   ctl: PromptPreprocessorController,
   userMessage: ChatMessage
@@ -420,8 +608,19 @@ export async function preprocess(
   console.log(`✅ [Preprocessor] Called. Message length: ${userPrompt.length}`);
   if (!contextGuard) { console.warn('[ContextGuard] contextGuard is NULL!'); }
 
+  // 🔹 FIX #20 (A1): reset the per-turn tool-payload delta. By the time this runs, last turn's tool
+  // results are part of pullHistory() and get counted natively below — keeping them in the delta
+  // would double-count them on the next mid-loop guard evaluation.
+  TokenStatsManager.resetMidLoopDelta();
+
   // 🔹 Declare variables at top scope so they're accessible across all steps
   let pendingWarning: string | undefined;
+  // 🔹 PART B (re-applied 21.08 after restore lost it): set when the pre-compression checkpoint did
+  // NOT save but a YES/NO prompt was still pending — a last-chance note is appended to this turn's output.
+  let lastChanceNote = false;
+  // 🔹 Fix A/B coordination: set when Step 0.6 consumes a checkpoint reply this turn —
+  // prevents the same reply from being re-interpreted as a project-switch confirmation in Step 0.7.
+  let checkpointConsumedThisTurn = false;
   let messageCount = 0;
   let tokenCount = 0;
   let historyTextLength = 0; // ✅ Moved outside if-block to fix scoping
@@ -472,6 +671,14 @@ export async function preprocess(
         } catch (e) {
           console.warn('[TokenDebug] Failed to iterate native history:', e);
         }
+        // ✅ v2.x: Include serialized tool definitions in the counted span — LM Studio's sidebar counts them too;
+        // previously only message history was counted here (root cause of "sidebar ~265k vs plugin count much lower").
+        const toolOverheadChars = getToolOverheadChars();
+        if (toolOverheadChars > 0) {
+          console.log(`[TokenDebug] Tool-definition overhead: +${toolOverheadChars} chars added to counted span`);
+          historyTextLength += toolOverheadChars;
+        }
+
         const estimatedHistoryTokens = Math.ceil(historyTextLength * 0.25 * 1.10); // base × +10% buffer
         console.log(`[TokenDebug] History Text Length: ${historyTextLength} chars | Est. Tokens (x0.25 + 10%): ${estimatedHistoryTokens}`);
       }
@@ -554,7 +761,7 @@ export async function preprocess(
       const threshold = contextGuard.getThreshold();
       
       // ✅ DIAGNOSTIC: Log accurate token counts against real model limits
-      console.log(`✅ [TokenCheck] Model limit: ${maxTokens} | Tokens used: ${tokenCount} | Threshold: ${threshold}`);
+      console.log(`✅ [TokenCheck] Model limit: ${maxTokens} | Tokens used: ${tokenCount} | Threshold: ${Math.round(threshold)}`);
 
       console.log('[ContextGuard DEBUG] Step 8: checking auto-tracker config...');
       
@@ -579,6 +786,32 @@ export async function preprocess(
 
       if (tokenCount > threshold) {
         console.log(`[ContextGuard] Token count ${tokenCount} exceeds compression threshold ${threshold}, compressing...`);
+
+        // 🔹 PART B — PRE-COMPRESSION CHECKPOINT (awaited BEFORE history is destroyed). Non-fatal by design:
+        // any failure only logs; compression must still run (parity with the Part A / YES-reply save paths).
+        let snapshotSaved = false;
+        try {
+          const saveResult = await autoTracker.autoSaveSessionMemory(tokenCount, maxTokens, messageCount);
+          snapshotSaved = !!saveResult?.saved;
+          if (snapshotSaved) {
+            console.log(`[AutoTracker] ✅ Pre-compression checkpoint saved: ${saveResult.sessionId}`);
+          } else {
+            console.warn('[AutoTracker] ⚠️ Pre-compression checkpoint NOT saved — compressing without a clean checkpoint');
+          }
+        } catch (e) {
+          console.warn(`[AutoTracker] ⚠️ Pre-compression snapshot failed (non-fatal): ${e instanceof Error ? e.message : String(e)}`);
+        }
+
+        // 🔹 PART B-2: settle any pending YES/NO prompt — the context it referred to is about to be replaced, so a
+        // re-injected <SYSTEM_INSTRUCTION> would demand a reply (and a second save) for history that no longer exists.
+        if (!snapshotSaved && autoTracker.hasPendingWarning()) {
+          lastChanceNote = true;
+        }
+        if (autoTracker.hasPendingWarning()) {
+          autoTracker.consumePendingConfirmation(); // clear the tracker-side prompt; FSM no longer reports it pending
+          pendingWarning = undefined; // drop this turn's locally-captured copy too — the suffix builder must NOT re-inject a YES/NO request about history that is being replaced now
+        }
+
         const compressedMessages = await contextGuard.compressHistory(safeMessages) as unknown as ChatMessage[];
         // Clear history by popping all messages
         while ((history?.getLength() ?? 0) > 0) {
@@ -586,17 +819,55 @@ export async function preprocess(
         }
         compressedMessages.forEach((msg: ChatMessage) => history.append(msg));
         contextGuard.resetTokenCache();
+
+        // 🔹 FIX #20 A2: compression ran this turn — recount the NEW (post-compression) history so the
+        // published baseline reflects reality. Without this, the mid-loop guard would evaluate tool-payload
+        // growth against a stale pre-compression count and fire on context that no longer exists.
+        try {
+          const postCompressCount = await contextGuard.countTokens(
+            compressedMessages as unknown as typeof safeMessages,
+            imageCount,
+            activeModelId || undefined,
+            extractedSystemPrompt,
+          );
+          tokenCount = postCompressCount; // also makes the Step 0.6 YES-reply checkpoint report accurate numbers
+          console.log(`[ContextGuard] Post-compression count: ${postCompressCount} tokens (baseline updated for FIX #20)`);
+        } catch (countErr) {
+          // Non-fatal — worst case the guard keeps a stale-HIGH baseline (conservative direction: may snapshot early).
+          console.warn('[FIX #20 A2] Post-compression recount failed; keeping pre-compression baseline:', countErr);
+        }
       }
+
+      // 🔹 FIX #20 (A2): single publish point — AFTER any same-turn compression. The tool wrapper's mid-loop
+      // guard measures growth against this turn-start baseline + model limit until the next preprocess().
+      TokenStatsManager.setTurnEvaluation(tokenCount, maxTokens);
     } catch (e) {
       console.error('[ContextGuard] Auto-compression failed:', e);
     }
   }
 
   // 🔹 UNIFIED CHECKPOINT WARNING INJECTION (Fixes missing prompt when RAG disabled or no files found)
+  // CRITICAL FIX: Previous approach appended plain text trailing content — LLMs reliably ignored it.
+  // New format uses explicit <SYSTEM_INSTRUCTION> XML-style markers + imperative directives that LLMs process as role-level instructions.
   let checkpointSuffix = '';
   if (pendingWarning) {
-    checkpointSuffix = `\n\n--- SYSTEM INSTRUCTION ---\n${pendingWarning}\n--------------------------`;
+    checkpointSuffix = `\n\n<SYSTEM_INSTRUCTION>\n` +
+      `TOKEN LIMIT WARNING — ACKNOWLEDGE BEFORE RESPONDING:\n` +
+      `${pendingWarning}\n` +
+      `---\n` +
+      `ACTION REQUIRED: Before responding to the user's message, explicitly acknowledge this token limit warning.\n` +
+      `If the user replied 'YES'/'JA' to save session memory → trigger the context management save tool now.\n` +
+      `If the user did NOT reply YES/JA or NO/NEIN → ask them if they want to proceed with a context save.\n` +
+      `Do not proceed with normal conversation until this warning has been addressed.\n` +
+      `</SYSTEM_INSTRUCTION>`;
     pendingWarning = undefined; // Clear to prevent duplication in Step 1/2
+  }
+
+  // 🔹 PART B-2 (last chance): the pre-compression snapshot did NOT save, but a YES/NO prompt was still live —
+  // tell the user this turn is the last clean opportunity before history is compressed. (One-shot: consumed now.)
+  if (lastChanceNote) {
+    checkpointSuffix += '\n\n⚠️ LAST chance before history is compressed — no session-memory checkpoint could be saved automatically this turn.';
+    lastChanceNote = false;
   }
 
   // Step 0.6: Auto-tracking analysis + checkpoint reply handling
@@ -615,12 +886,15 @@ export async function preprocess(
         autoTrackTokenThreshold: (pluginConfig.get('autoTrackTokenThreshold')) ?? 75,
       });
 
-      // 🔹 CHECK FOR YES/NO REPLY TO PENDING CHECKPOINT PROMPT
+      // 🔹 CHECK FOR YES/NO (or German JA/NEIN) REPLY TO PENDING CHECKPOINT PROMPT — Fix B
       if (autoTracker.hasPendingWarning()) {
-        const replyMatch = userPrompt.trim().toUpperCase();
+        const replyRaw = userPrompt.trim().toUpperCase();
+        // Normalize JA/NEIN onto the canonical 'YES' | 'NO' FSM inputs; null = not a confirmation reply.
+        const replyMatch = normalizeConfirmationReply(userPrompt);
         if (replyMatch === 'YES' || replyMatch === 'NO') {
-          console.log(`[AutoTracker] ✅ User replied '${replyMatch}' to checkpoint prompt — processing...`);
-          autoTracker.processUserReply(replyMatch); // Type already narrowed to 'YES' | 'NO' by if condition above
+          checkpointConsumedThisTurn = true; // One reply serves one prompt — Step 0.7 must not reuse it as a switch confirmation.
+          console.log(`[AutoTracker] ✅ User replied '${replyRaw}' to checkpoint prompt — processing...`);
+          autoTracker.processUserReply(replyMatch); // Canonical 'YES' | 'NO' (JA/NEIN normalized above)
           
           // If YES → flush buffered actions + save session memory now
           if (replyMatch === 'YES') {
@@ -686,9 +960,69 @@ export async function preprocess(
   // Step 0.7: Project keyword detection — check registered projects before path detection
   const projectMatch = detectProjectKeyword(userPrompt);
   if (projectMatch) {
-    const projectInjectPrompt = `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n⚠️ REGISTERED PROJECT DETECTED\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\nI found a registered project matching your message:\n\nProject: "${projectMatch.name}"\nPath: ${projectMatch.path}\n\nWould you like me to switch your working directory to this project?\nReply 'yes' or 'ja' to confirm, or 'no'/'nein' to decline.\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\nUser's original message:\n${userPrompt}${attachmentNotice}\n`;
-    return projectInjectPrompt.trim() + checkpointSuffix + getTemporalSuffix(ctl);
+    console.log(`[ProjectAutoDetect] Found registered project "${projectMatch.name}" at ${projectMatch.path}`);
+
+    // 🔹 Fix A (v1.9.8+ safety rule in index.ts): NEVER auto-switch on detection alone —
+    // confirm-first banner; the CWD changes only after an explicit YES/JA reply in a later message.
+    const decision = decideProjectSwitch(projectMatch, userPrompt, getWorkingDir(), pendingProjectSwitch);
+
+    if (decision.kind === 'skip') {
+      // Already in the detected project's directory — switching would be a no-op.
+      if (pendingProjectSwitch && pendingProjectSwitch.name === projectMatch.name) {
+        console.log(`[ProjectAutoDetect] Already in "${projectMatch.name}" — dropping stale switch offer`);
+        pendingProjectSwitch = null;
+      } else {
+        console.log('[ProjectAutoDetect] Already in target working directory — no switch needed');
+      }
+    } else if (decision.kind === 'banner') {
+      // New detection → inject the confirm-first banner; do NOT change the working directory this turn.
+      pendingProjectSwitch = { name: projectMatch.name, path: projectMatch.path };
+      console.log(`[ProjectAutoDetect] Confirmation requested — switch will run only on an explicit YES/JA reply`);
+
+      // Include the checkpoint warning only if it is still live after Step 0.6 ran this turn (avoids re-asking a consumed prompt).
+      const activeSuffix = autoTracker.hasPendingWarning() ? checkpointSuffix : '';
+      const projectInjectPrompt = `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n⚠️ REGISTERED PROJECT DETECTED\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\nI found a registered project matching your message:\n\nProject: "${projectMatch.name}"\nPath: ${projectMatch.path}\n\nWould you like me to switch your working directory to this project?\nReply 'yes' or 'ja' to confirm, or 'no'/'nein' to decline.\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\nUser's original message:\n${userPrompt}${attachmentNotice}\n`;
+      return `${projectInjectPrompt.trim()}${activeSuffix}`.trim() + getTemporalSuffix(ctl);
+    } else if (decision.kind === 'declined') {
+      console.log(`[ProjectAutoDetect] Switch to "${projectMatch.name}" declined — keeping current working directory`);
+      pendingProjectSwitch = null;
+      // No early return — continue with the normal flow below (Step 1/2).
+    } else {
+      // decision.kind === 'execute' → explicit YES/JA confirmation: run the one-shot switch now.
+      if (checkpointConsumedThisTurn) {
+        console.log(`[ProjectAutoDetect] Reply already consumed as checkpoint confirmation — keeping pending offer for "${projectMatch.name}"`);
+        // Continue with the normal flow below; re-offer on a later message.
+      } else {
+        const activeSuffix = autoTracker.hasPendingWarning() ? checkpointSuffix : '';
+        pendingProjectSwitch = null;
+        console.log(`[ProjectAutoDetect] User confirmed — executing one-shot switch to: ${projectMatch.path}`);
+        return await executeProjectSwitch(projectMatch.path, userPrompt, attachmentNotice, activeSuffix, ctl);
+      }
+    }
+  } else if (pendingProjectSwitch) {
+    // No fresh keyword match this turn — a pending offer can only be answered by an explicit reply.
+    const normalized = normalizeConfirmationReply(userPrompt);
+
+    if (checkpointConsumedThisTurn && (normalized === 'YES' || normalized === 'NO')) {
+      console.log(`[ProjectAutoDetect] Reply already consumed as checkpoint confirmation — keeping pending offer for "${pendingProjectSwitch.name}"`);
+      // Continue with the normal flow below; re-offer on a later message.
+    } else if (normalized === 'YES') {
+      const activeSuffix = autoTracker.hasPendingWarning() ? checkpointSuffix : '';
+      const target = pendingProjectSwitch;
+      pendingProjectSwitch = null;
+      console.log(`[ProjectAutoDetect] User confirmed — executing one-shot switch to: ${target.path}`);
+      return await executeProjectSwitch(target.path, userPrompt, attachmentNotice, activeSuffix, ctl);
+    } else if (normalized === 'NO' || normalized === 'NEIN') {
+      console.log(`[ProjectAutoDetect] Switch to "${pendingProjectSwitch.name}" declined — keeping current working directory`);
+      pendingProjectSwitch = null;
+      // Continue with the normal flow below.
+    } else {
+      // Non-confirmation reply while an offer is pending → expire it (the "next message" contract).
+      console.log(`[ProjectAutoDetect] Non-confirmation reply — expiring switch offer for "${pendingProjectSwitch.name}"`);
+      pendingProjectSwitch = null;
+    }
   }
+
 
   // Step 1: Directory detection (highest priority)
   const detectedPath = detectDirectoryPath(userPrompt);

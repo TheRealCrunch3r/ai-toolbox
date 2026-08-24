@@ -1,5 +1,9 @@
 import type { Program } from '@babel/types';
 import generator from '@babel/generator';
+// Static import (NOT dynamic): the CJS Jest transform cannot resolve `await import(...)`
+// without --experimental-vm-modules (throws ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING_FLAG).
+// No circular-dependency risk: this module only imports @babel/* packages and node builtins.
+import * as babelParser from '@babel/parser';
 import * as fs from 'node:fs';
 import * as fsp from 'node:fs/promises';  // ← Async operations for crash-resilient writes
 import * as path from 'node:path';
@@ -13,9 +17,9 @@ let babelParserCache: ParseFunction | null = null;
 async function getBabelParser(): Promise<ParseFunction> {
   if (babelParserCache) return babelParserCache;
   
-  // Reuse the import from the local file scope to avoid circular dependency issues with dynamic imports in tests
-  const babelParserModule = await import('@babel/parser');
-  const parseFn = typeof babelParserModule === 'function' ? babelParserModule : (babelParserModule.parse as ParseFunction);
+  // Static import (NOT dynamic): the CJS Jest transform cannot resolve `await import(...)`
+  // without --experimental-vm-modules. See the comment at the top of this file.
+  const parseFn = typeof babelParser === 'function' ? babelParser : (babelParser.parse as ParseFunction);
   
   if (!parseFn) throw new Error('Could not locate .parse function in @babel/parser');
   babelParserCache = parseFn;

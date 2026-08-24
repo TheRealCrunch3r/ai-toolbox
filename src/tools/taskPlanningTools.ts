@@ -62,15 +62,17 @@ const ActivePlanSchema = z.object({
  * Uses the same pattern as contextManagementTools (temp file + rename).
  */
 class PlanStorageManager {
-  private workingDirPath: string;
   private pluginRootPath: string;
 
   constructor() {
-    const wd = getWorkingDir();
-    this.workingDirPath = path.join(wd, '.session_context', '.ai_toolbox_plans.json');
-    
     const baseDir = path.resolve(__dirname, '..');
     this.pluginRootPath = path.join(baseDir, '.session_context', '.ai_toolbox_plans.json');
+  }
+
+  /** Resolve the plan file for the CURRENT working directory.
+   * Re-resolved on every call so mid-session change_directory() is honored (FIX: previously captured once at construction). */
+  private getWorkingDirPlanPath(): string {
+    return path.join(getWorkingDir(), '.session_context', '.ai_toolbox_plans.json');
   }
 
   /** Ensure the .session_context directory exists */
@@ -85,7 +87,10 @@ class PlanStorageManager {
 
   /** Load all plans from disk */
   async load(): Promise<Record<string, ActivePlan>> {
-    let plans = await this.loadPlansFromFile(this.workingDirPath);
+    // Re-resolve per call — mid-session change_directory() must be honored (FIX: stale construction-time capture)
+    const workingDirPlanPath = this.getWorkingDirPlanPath();
+
+    let plans = await this.loadPlansFromFile(workingDirPlanPath);
     
     // Fallback: Plugin Root if no plans found in Working Directory
     if (Object.keys(plans).length === 0) {
@@ -131,16 +136,20 @@ class PlanStorageManager {
   /** Save all plans to disk with atomic write */
   async save(plans: Record<string, ActivePlan>): Promise<void> {
     const data = { version: 1, plans };
+
+    // Re-resolve per call — mid-session change_directory() must be honored (FIX: stale construction-time capture)
+    const workingDirPlanPath = this.getWorkingDirPlanPath();
+
     
     // Write to working dir first (primary)
     try {
-      await this.ensureDirectory(this.workingDirPath);
-      const tempPath = this.workingDirPath + '.tmp';
+      await this.ensureDirectory(workingDirPlanPath);
+      const tempPath = workingDirPlanPath + '.tmp';
       await fs.writeFile(tempPath, JSON.stringify(data), 'utf-8');
-      await fs.rename(tempPath, this.workingDirPath);
+      await fs.rename(tempPath, workingDirPlanPath);
       
       // Sync to plugin root (secondary)
-      if (this.pluginRootPath !== this.workingDirPath) {
+      if (this.pluginRootPath !== workingDirPlanPath) {
         try {
           await this.ensureDirectory(this.pluginRootPath);
           const pluginTemp = this.pluginRootPath + '.tmp';
@@ -152,7 +161,7 @@ class PlanStorageManager {
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      console.error(`[PlanStorage.save] FAILED for ${this.workingDirPath}: ${message}`);
+      console.error(`[PlanStorage.save] FAILED for ${workingDirPlanPath}: ${message}`);
     }
   }
 
@@ -341,10 +350,16 @@ EXAMPLE: get_plan()`,
           return { success: true, data: null };
         }
 
-        // Use the most recently created plan
-        const [planId, plan] = planEntries.reduce((latest, [id, p]) => 
-          (p.createdAt > latest[1].createdAt ? [id, p] : latest)
-        , ['', {} as ActivePlan]);
+        // Use the most recently created plan.
+        // FIX: reduce's seed was a placeholder ('', {}) — when no plan carried createdAt (e.g., every
+        // entry failed validation), the placeholder survived as "latest" and the `!plan.goal` guard
+        // silently swallowed it, so get_plan returned data:null although valid plans existed on disk.
+        const [planId, plan] = planEntries.reduce<[string, ActivePlan | null]>((acc, entry) => {
+          const candidateCreatedAt = entry[1].createdAt;
+          if (!candidateCreatedAt) return acc; // unvalidated/malformed entry — never a candidate
+          const incumbentCreatedAt = acc[1]?.createdAt ?? 0;
+          return candidateCreatedAt > incumbentCreatedAt ? entry : acc;
+        }, ['', null]);
 
         if (!plan || !plan.goal) {
           return { success: true, data: null };

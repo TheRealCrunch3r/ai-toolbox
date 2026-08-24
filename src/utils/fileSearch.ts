@@ -5,6 +5,12 @@
  * FIX: This module provides reliable search across both directories and individual files.
  */
 
+// Static imports (NOT dynamic): the CJS Jest transform cannot resolve `await import(...)`
+// without --experimental-vm-modules (throws ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING_FLAG).
+// Node builtins are always resolvable, and this module is not imported by production code.
+import * as fsp from 'node:fs/promises';
+import * as pathModule from 'node:path';
+
 interface SearchResult {
   file: string;
   line_number: number;
@@ -17,8 +23,7 @@ export async function grepFile(filePath: string, pattern: string): Promise<Searc
   
   try {
     // Read the entire file and search line by line
-    const fs = await import('fs/promises');
-    const content = await fs.readFile(filePath, 'utf-8');
+    const content = await fsp.readFile(filePath, 'utf-8');
     const lines = content.split('\n');
     
     let regex;
@@ -51,11 +56,8 @@ export async function grepDir(dirPath: string, pattern: string, includePattern?:
   const results: SearchResult[] = [];
   
   try {
-    const fs = await import('fs/promises');
-    const pathModule = await import('path');
-    
     // Get all files in directory (non-recursive)
-    const entries = await fs.readdir(dirPath, { withFileTypes: true });
+    const entries = await fsp.readdir(dirPath, { withFileTypes: true });
     
     for (const entry of entries) {
       if (!entry.isFile()) continue;
@@ -80,9 +82,6 @@ export async function grepDir(dirPath: string, pattern: string, includePattern?:
 
 /** Unified search — works with both files and directories */
 export async function grepSearch(target: string, pattern: string, includePattern?: string): Promise<SearchResult[]> {
-  const fs = await import('fs/promises');
-  const pathModule = await import('path');
-
   // Resolve to absolute path relative to current working directory
   const fullPath = pathModule.resolve(target);
 
@@ -91,7 +90,7 @@ export async function grepSearch(target: string, pattern: string, includePattern
     let content: string;
     
     try {
-      content = await fs.readFile(fullPath, 'utf-8');
+      content = await fsp.readFile(fullPath, 'utf-8');
       
       // Search it directly (same logic as grepFile)
       const lines = content.split('\n');
@@ -118,7 +117,7 @@ export async function grepSearch(target: string, pattern: string, includePattern
     } catch (readErr) {
       // File read failed — check if it's a directory instead
       try {
-        const entries = await fs.readdir(fullPath, { withFileTypes: true });
+        const entries = await fsp.readdir(fullPath, { withFileTypes: true });
         
         // It's a directory — search inside it
         const results: SearchResult[] = [];

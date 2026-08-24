@@ -148,3 +148,112 @@ export function getAllowedBases(): string[] {
 export function getPluginRoot(): string {
   return BASE_DIR;
 }
+
+
+// ==================== Registered Project Discovery (CWD level) ====================
+
+/** Minimal project entry used for CWD resolution and keyword matching */
+export interface KnownProject {
+  name: string;
+  path: string;
+  /** Last accessed/saved timestamp in ms, if known by any source */
+  lastSeen?: number;
+}
+
+/**
+ * List registered projects from the plugin root's state files (lightweight, side-effect free).
+ * Primary source: <baseDir>/.session_context/project_registry.json — { projects: [{ name, path, lastAccessed }] }
+ * Fallback source: <baseDir>/.session_index.json (legacy StateManager format) — { projects: { name: { path, last_session_saved } } }
+ * Entries are merged and deduplicated by resolved path; when both sources know a project, the most recent timestamp wins.
+ * Safe to call on the prompt hot path (plain JSON reads, no registration side effects).
+ */
+export function listRegisteredProjects(baseDir: string = BASE_DIR): KnownProject[] {
+  const seen = new Map<string, KnownProject>();
+
+  const addEntry = (name: string, rawPath: string, lastSeen?: number): void => {
+    if (!rawPath) return;
+    const key = path.resolve(rawPath);
+    const existing = seen.get(key);
+    if (existing) {
+      // Keep first-seen identity, upgrade timestamp to the most recent across sources
+      if ((lastSeen ?? 0) > (existing.lastSeen ?? 0)) existing.lastSeen = lastSeen;
+      return;
+    }
+    seen.set(key, { name, path: key, lastSeen });
+  };
+
+  // Primary: project_registry.json (ProjectRegistryManager format)
+  try {
+    const registryPath = path.join(baseDir, '.session_context', 'project_registry.json');
+    if (fs.existsSync(registryPath)) {
+      const parsed: unknown = JSON.parse(fs.readFileSync(registryPath, 'utf-8'));
+      const o = (parsed && typeof parsed === 'object' ? parsed : {}) as Record<string, unknown>;
+      if (Array.isArray(o.projects)) {
+        for (const p of o.projects) {
+          if (!p || typeof p !== 'object') continue;
+          const e = p as { name?: string; path?: string; lastAccessed?: number };
+          if (typeof e.name === 'string' && typeof e.path === 'string') {
+            addEntry(e.name, e.path, typeof e.lastAccessed === 'number' ? e.lastAccessed : undefined);
+          }
+        }
+      }
+    }
+  } catch {
+    // Invalid/unreadable registry — fall through to legacy source
+  }
+
+  // Fallback: .session_index.json (legacy StateManager format)
+  try {
+    const indexPath = path.join(baseDir, '.session_index.json');
+    if (fs.existsSync(indexPath)) {
+      const parsed: unknown = JSON.parse(fs.readFileSync(indexPath, 'utf-8'));
+      const o = (parsed && typeof parsed === 'object' ? parsed : {}) as Record<string, unknown>;
+      if (o.projects && typeof o.projects === 'object' && !Array.isArray(o.projects)) {
+        for (const [name, rawEntry] of Object.entries(o.projects as Record<string, unknown>)) {
+          if (!rawEntry || typeof rawEntry !== 'object') continue;
+          const e = rawEntry as { path?: string; last_session_saved?: number | null };
+          if (typeof e.path === 'string') {
+            addEntry(name, e.path, typeof e.last_session_saved === 'number' ? e.last_session_saved : undefined);
+          }
+        }
+      }
+    }
+  } catch {
+    // Invalid/unreadable session index — ignore
+  }
+
+  return Array.from(seen.values());
+}
+
+/**
+ * Restore the last-active project as working directory at session start.
+ * Only acts when there is NO valid persisted workingDir state (i.e., resolution would otherwise
+ * fall back to process.cwd() — e.g., stale/missing state file after a plugin reinstall).
+ * Picks the most recently seen registered project whose path still exists.
+ */
+export function restoreLastActiveProjectCwd(baseDir: string = BASE_DIR): { restored: boolean; project?: string } {
+  // Idempotent guard: valid persisted state already present → nothing to do
+  try {
+    const st = loadState();
+    if (st.workingDir && fs.existsSync(st.workingDir)) return { restored: false };
+  } catch {}
+
+  const candidates = listRegisteredProjects(baseDir)
+    .filter((p): boolean => {
+      try {
+        return fs.statSync(p.path).isDirectory();
+      } catch {
+        return false; // Path no longer exists — skip
+      }
+    })
+    .sort((a, b) => (b.lastSeen ?? 0) - (a.lastSeen ?? 0));
+
+  for (const candidate of candidates) {
+    if (setWorkingDir(candidate.path)) {
+      console.log(`[WorkingDir] Restored last-active project CWD: "${candidate.name}" → ${candidate.path}`);
+      return { restored: true, project: candidate.path };
+    }
+  }
+
+  return { restored: false };
+}
