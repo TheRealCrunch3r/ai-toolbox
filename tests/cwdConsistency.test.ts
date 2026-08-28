@@ -342,10 +342,7 @@ describe('restoreLastActiveProjectCwd', () => {
 describe('PlanStorageManager per-call working-dir resolution', () => {
   let dirA: string;
   let dirB: string;
-  /** Tracks whether the plugin-root plan file pre-existed, so afterAll can restore that state. */
-  const pluginRootPlanPreExisted = fs.existsSync(PLUGIN_ROOT_PLAN_FILE);
-
-  beforeAll(() => {
+    beforeAll(() => {
     dirA = path.join(tempRoot, 'plan-dir-a');
     dirB = path.join(tempRoot, 'plan-dir-b');
     fs.mkdirSync(dirA, { recursive: true });
@@ -353,11 +350,14 @@ describe('PlanStorageManager per-call working-dir resolution', () => {
   });
 
   afterAll(() => {
-    // save() syncs every plan to the plugin root — remove test residue if we created it
-    if (!pluginRootPlanPreExisted && fs.existsSync(PLUGIN_ROOT_PLAN_FILE)) {
+    // save() syncs every plan to the plugin root. In jest runs that file is test residue by
+    // definition — even if an EARLIER suite created it (the old pre-existed guard let such
+    // residue survive full-suite runs → "stray src/.session_context" defect). Outside tests
+    // (e.g. running this suite via ts-node in dev) the file may be a live dev-session plan, so leave it.
+    if (process.env.NODE_ENV === 'test' && fs.existsSync(PLUGIN_ROOT_PLAN_FILE)) {
       fs.rmSync(PLUGIN_ROOT_PLAN_FILE);
       const dir = path.dirname(PLUGIN_ROOT_PLAN_FILE);
-      // Only rmdir if empty (don't destroy pre-existing .session_context contents)
+      // Only rmdir if empty — never destroy a .session_context that holds other content.
       try { fs.rmdirSync(dir); } catch { /* not empty — leave it */ }
     }
   });

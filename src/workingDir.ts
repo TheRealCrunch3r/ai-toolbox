@@ -14,6 +14,13 @@ const BASE_DIR = path.join(__dirname, '..');
 // Persistent storage file for working directory
 const STATE_FILE = path.join(BASE_DIR, '.ai_toolbox_state.json');
 
+// Verbose [WorkingDir] traces follow the project convention (contextGuard.ts DEBUG_MODE).
+// Enable with AI_TOOLBOX_DEBUG=1. Rare/anomalous logs (rejections, stale-state warning) stay visible always.
+const DEBUG_MODE = !!process.env.AI_TOOLBOX_DEBUG;
+function debugLog(message: string): void {
+  if (DEBUG_MODE) console.log(message);
+}
+
 /** Load persisted state from disk */
 function loadState(): { workingDir?: string } {
   try {
@@ -49,7 +56,7 @@ function resolveWorkingDir(): string {
     const persistedState = loadState();
     if (persistedState.workingDir && fs.existsSync(persistedState.workingDir)) {
       cachedWorkingDir = path.resolve(persistedState.workingDir);
-      console.log(`[WorkingDir] Resolved from state file: ${cachedWorkingDir}`);
+      debugLog(`[WorkingDir] Resolved from state file: ${cachedWorkingDir}`);
       return cachedWorkingDir;
     } else if (persistedState.workingDir && !fs.existsSync(persistedState.workingDir)) {
       // FIX: Persisted path no longer exists — clear stale state and fall through
@@ -61,13 +68,13 @@ function resolveWorkingDir(): string {
   // Priority 2: Actual process working directory (handles LM Studio sandbox changes)
   const cwd = path.resolve(process.cwd());
   if (fs.existsSync(cwd)) {
-    console.log(`[WorkingDir] Resolved from process.cwd(): ${cwd}`);
+    debugLog(`[WorkingDir] Resolved from process.cwd(): ${cwd}`);
     cachedWorkingDir = cwd;
     return cwd;
   }
   
   // Priority 3: Plugin root as absolute fallback
-  console.log(`[WorkingDir] Resolved to plugin root (fallback): ${BASE_DIR}`);
+  debugLog(`[WorkingDir] Resolved to plugin root (fallback): ${BASE_DIR}`);
   cachedWorkingDir = BASE_DIR;
   return BASE_DIR;
 }
@@ -117,7 +124,7 @@ export function setWorkingDir(newDir: string): boolean {
   
   // PERSIST the change to disk (FIX for sandbox reset issue)
   saveState({ workingDir: resolved });
-  console.log(`[WorkingDir] Persisted new working directory: ${resolved}`);
+  debugLog(`[WorkingDir] Persisted new working directory: ${resolved}`);
   
   return true;
 }
@@ -129,7 +136,7 @@ export function setWorkingDir(newDir: string): boolean {
 export function resetWorkingDir(): void {
   cachedWorkingDir = BASE_DIR;
   saveState({ workingDir: undefined }); // Clear persisted state
-  console.log(`[WorkingDir] Reset to plugin root: ${BASE_DIR}`);
+  debugLog(`[WorkingDir] Reset to plugin root: ${BASE_DIR}`);
 }
 
 /** Resolve a user-provided path against the current working directory */

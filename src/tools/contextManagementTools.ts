@@ -1602,8 +1602,25 @@ WHEN TO USE:
         console.warn(`[ContextManagement.get_session_summary] Disk fallback failed: ${String(diskErr)}`);
       }
 
-      // 🔹 FINAL: No data found anywhere
+      // 🔹 FINAL: No data found anywhere — FIX #21 (2026-08-28): self-describing failure.
+      // Previously returned a bare "No session summary found." identical to a genuinely fresh project,
+      // making it impossible for callers to distinguish "summary lost/corrupted" from "never saved".
       console.log(`[ContextManagement.get_session_summary] ❌ No session summary found.`);
+
+      // Surface what IS in the lightweight index so the caller (LLM/user) can still recover history.
+      const fallback = await getSessionIndexMeta();
+      if (fallback && fallback.total_sessions > 0) {
+        console.log(`[ContextManagement.get_session_summary] ⚠️ But ${fallback.total_sessions} session(s) exist in index — reporting metadata.`);
+        return {
+          success: false,
+          error: 'No detailed session summary found in storage (possibly lost to a fresh-start overwrite).',
+          data: {
+            note: `The latest-summary record is missing from .msgpack storage, but ${fallback.total_sessions} past sessions ARE indexed in sessions.json. Use list_sessions() or read .session_context/sessions.json directly to review full history.`,
+            ...fallback,
+          },
+        };
+      }
+
       return { success: false, error: 'No session summary found.' };
     },
   }));
@@ -1619,6 +1636,14 @@ WHEN TO USE:
         const key = `memory_${Date.now()}`;
         
         if (memoryStore) {
+          // 🔹 FIX #21 Part B (2026-08-28): Guard against fresh-start data loss.
+          const preSaveKeys = await memoryStore.getAllKeys();
+          if (preSaveKeys.length === 0) {
+            console.warn('[ContextManagement.save_memory] ⚠️ StateManager has ZERO prior entries in RAM. ' +
+              'This forceSave() will create a FRESH .msgpack file containing only this entry — any previously ' +
+              'persisted session summaries or context records WILL BE LOST.');
+          }
+
           memoryStore.set(key, { fact, timestamp: Date.now(), date: new Date().toLocaleString() });
           await memoryStore.forceSave(); // Immediate disk persistence
         } else {

@@ -303,6 +303,17 @@ export class AutoTracker {
       return { triggered: false };
     }
 
+    // 🔹 FIX #21 (re-prompt loop): the checkpoint was ALREADY saved this cycle (user said YES), but
+    // context usage is still above threshold — a save does not shrink the context. Re-generating a
+    // fresh warning here asked "Save?" again on EVERY subsequent user message until compression ran.
+    // While CONFIRMED we stay silent; the one-shot new-session handoff notice (injected by the
+    // YES-save path in promptPreprocessor) steers the user to start a fresh session, and the FSM
+    // re-arms via onContextCompressed()/resetCounter()/usage-drop below threshold for the next cycle.
+    if (this.currentState === AutoTrackState.CONFIRMED) {
+      debugLog('[PROMPT]', `CONFIRMED with usage still >= threshold (${usagePercentage.toFixed(1)}%) — NOT re-prompting this cycle`);
+      return { triggered: false };
+    }
+
     // FSM transition handled by checkTokenThreshold (called before or in parallel)
     // If we're already in THRESHOLD_REACHED, just return the existing warning
     if (this.currentState === AutoTrackState.THRESHOLD_REACHED && this.pendingCheckpointWarning) {

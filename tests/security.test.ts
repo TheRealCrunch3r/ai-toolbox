@@ -58,6 +58,33 @@ describe('isSafeRegex', () => {
     const longPattern = 'a'.repeat(600);
     expect(isSafeRegex(longPattern)).toBe(false);
   });
+
+  // ===== REV-24: bare-& false-positive fix (grep_files "Git & GitHub" mega-alternation incident) =====
+  test('REV-24: should treat prose with bare & as SAFE regex (no forced literal mode)', () => {
+    // "& word" is ordinary markdown section-name prose; & has no metacharacter/backtracking risk.
+    expect(isSafeRegex('Git & GitHub')).toBe(true);
+    expect(isSafeRegex('Backup & Restore|Database & Storage')).toBe(true);
+    expect(
+      isSafeRegex(
+        'Backup & Restore|Database & Storage|Git & GitHub|Image Analysis|Memory Tools|Project Registry|RAG / Vector Search|Security Utilities'
+      )
+    ).toBe(true);
+    // Escaped form must also stay safe (lookbehind: \& never flagged)
+    expect(isSafeRegex('Git \\& GitHub')).toBe(true);
+  });
+
+  test('REV-24: should STILL reject code-signature patterns with unescaped *', () => {
+    // The original intent of the heuristic must survive the & removal.
+    expect(isSafeRegex('List*|const& x')).toBe(false);
+    expect(isSafeRegex('std::vector<int>*')).toBe(false);
+  });
+
+  test('REV-24: true ReDoS gates remain intact after the & change', () => {
+    expect(isSafeRegex('(a|b)+')).toBe(false); // alternation × quantifier (dangerousPatterns list)
+    expect(
+      isSafeRegex('[a-z]+[0-9]+[a-z]+[0-9]+[a-z]+[0-9]+')
+    ).toBe(false); // consecutive quantified character classes
+  });
 });
 
 describe('applySecurityChecks', () => {

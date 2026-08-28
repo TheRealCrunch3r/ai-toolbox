@@ -1,12 +1,12 @@
 # Documentation Update Summary — AI Toolbox Plugin
 
 **Date**: 2026-08-19  
-**Version**: v1.9.10  
+**Version**: v1.9.11  
 **Status**: ✅ Complete
 
 ---
 
-## 📋 Version Status Overview (v1.9.10)
+## 📋 Version Status Overview (v1.9.11 — released 28.08; contents = v1.9.10 maintenance window + REV-24 grep_files fix, see CHANGELOG_v2.md)
 
 | Component | Status | Notes |
 |-----------|--------|-------|
@@ -218,8 +218,8 @@ The priority system (`maxToolsInSchema`, tier-based filtering, `toolPriorityOver
 
 **Replacement**: `toolsSchemaMinifier.ts` handles grammar parser compatibility via description truncation (~150 chars) and constraint capping. No manual limits needed.
 
-### Gateway Pattern — ABANDONED
-The gateway pattern (`src/tools/gatewayTools.ts`) was introduced in v1.6.0 but **abandoned in favor of direct SDK registration** (v1.8.0+).
+### Gateway Pattern — ABANDONED & REMOVED
+The gateway pattern (`src/tools/gatewayTools.ts`) was introduced in v1.6.0, **abandoned in favor of direct SDK registration** (v1.8.0+), and the file itself has since been removed from the codebase (v1.9.10 session, 24.08 — no gateway definitions remain under `src/`).
 - Direct registration proved more effective — LLMs handle 130 tools fine when schemas are properly minified
 - Grammar parser crashes resolved via schema minification rather than tool count gating
 - Gateway indirection added unnecessary complexity without solving the underlying issue
@@ -262,7 +262,7 @@ The `isSafeRegex()` function in `src/security.ts` performs precise pattern analy
 - Targets genuinely dangerous structures: nested repetition (`(.+)+`, `(a*)*`), alternating groups with quantifiers (`((a|b)+)+`)
 - Safe patterns like `(a|b)+`, `[a-z]+`, `^import\s+` are correctly accepted
 - Unsafe patterns are converted to literal matching (not silently dropped)
-- Transparency: `grep_files` returns `patternMode: 'regex' | 'literal'` field indicating match mode
+- Transparency: `grep_files` returns a `patternMode` field — `'regex'`, `'literal'` or `'auto_escaped'` (forced-literal decisions include an explanatory hint string, REV-24)
 
 ### Secure Defaults
 All dangerous tool categories are **disabled by default**:

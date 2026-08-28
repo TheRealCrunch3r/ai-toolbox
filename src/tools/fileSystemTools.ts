@@ -1935,6 +1935,13 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
   }));
 
 
+  // ==================== HANG-GUARD LIVE INDICATOR (28.08.2026) ====================
+  // Emitted ONCE per plugin load so the LM Studio console proves which build is actually running in memory:
+  // if a hung session's logs lack this line, the process is executing a STALE pre-fix bundle — i.e., the
+  // FIX-HANG-1/2/4 hard stops (real AbortController, 15s deadline gates, 20s wall-clock backstop) were NOT
+  // loaded. This converts "is the fix live?" from inference to a log fact.
+  console.log('[ai_toolbox] HANG-GUARD v2 ACTIVE — grep_files + find_replace_all: real abort controller | 15s scan deadline gates | 20s wall-clock backstop (FIX-HANG-1/2/4, FIX-HANG-F1/F2/F3)');
+
 // grep_files tool — Search file contents across directory with regex support (OPTIMIZED FOR TOKEN SAVINGS) — ASYNC ===
   tools.push(tool({
     name: 'grep_files',
@@ -1966,11 +1973,27 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
       include_context?: boolean;
       max_lines?: number;
       max_depth?: number;
-    }) => {
+    }, ctx?: { signal?: AbortSignal }) => {
       try {
-        // AbortSignal support - LM Studio compliance (v2.0)
-        const { signal }: { signal?: AbortSignal } = {};
-        
+        // FIX-HANG-4 (SDK compliance, 27.08): @lmstudio/sdk calls implementations as (args, toolCallContext) where
+        // ToolCallContext.signal is "a signal that should be listened to in order to know when to abort the tool call"
+        // (verified: node_modules/@lmstudio/sdk/dist/index.d.ts + index.cjs passes ongoingToolCall.abortController.signal).
+        // Forward host aborts into the single internal controller so EVERY existing cooperative check reacts.
+        const abortController = new AbortController();
+
+        // FIX-HANG-1 (silent 2-min hang, root-caused 26.08): ONE authoritative abort state for the whole scan.
+        // Previously `signal` was destructured from an empty object — every "abort check" below tested a value
+        // that was ALWAYS undefined, and no loop ever read the internal controller's flag. So when the deadline
+        // fired, all in-flight work kept running to completion (the observed silent hang; host had to kill it).
+
+        // FIX-HANG-4: forward host aborts into the single internal controller. Host signals are one-way per
+        // WHATWG DOM spec (no reverse .abort()), so we LISTEN — every existing cooperative check then reacts.
+        const hostSignal = ctx?.signal;
+        if (hostSignal) {
+          if (hostSignal.aborted) abortController.abort();
+          else hostSignal.addEventListener('abort', () => abortController.abort(), { once: true });
+        }
+
         const targetDir = resolvePath(searchPath);
 
         if (!validatePath(searchPath, getWorkingDir())) {
@@ -2021,7 +2044,10 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
         const hasCodeIndicator = codeSignatureIndicators.some(ind => pattern.includes(ind));
         // NOTE: Even if the user escaped SOME chars (like \( \)), unescaped * + ? still cause hangs.
         const hasUnescapedBacktrackingChar = /(?<!\\)[*+?]/.test(pattern);
-        const hasUnescapedCodeChar = /(?<!\\)[*&]/.test(pattern);
+        // REV-24: bare & REMOVED (same false-positive as security.ts isSafeRegex — "& word" is ordinary
+        // prose, e.g. section names like "Git & GitHub"; zero backtracking risk since & has no metachar).
+        // Real code-signature cases still caught via the -> / :: / <T> indicators + unescaped [*+?].
+        const hasUnescapedCodeChar = /(?<!\\)[*]/.test(pattern);
         const looksLikeCodeSignature = hasCodeIndicator && (hasUnescapedBacktrackingChar || hasUnescapedCodeChar);
 
         try {
@@ -2075,8 +2101,8 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
           // STRICT LIMIT CHECK before any processing begins
           if (resultsCount >= MAX_RESULTS) return;
           
-          // ABORT SIGNAL CHECK - LM Studio compliance
-          if (signal?.aborted) return;
+          // ABORT SIGNAL CHECK - LM Studio compliance (FIX-HANG-1: real controller, was dead code)
+          if (abortController.signal.aborted) return;
 
           try {
             // Early size check BEFORE reading file
@@ -2162,8 +2188,8 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
 
           // Gate above guarantees lines.length <= effectiveMaxLines here — no truncation possible
           for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
-            // ABORT SIGNAL CHECK per-line - LM Studio compliance for long files
-            if (signal?.aborted) return;
+            // ABORT SIGNAL CHECK per-line - LM Studio compliance for long files (FIX-HANG-1: real controller)
+            if (abortController.signal.aborted) return;
             // STRICT LIMIT CHECK before processing each line
             if (resultsCount >= MAX_RESULTS) return;
 
@@ -2183,14 +2209,24 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
             let matched = false;
             const lineText = lines[lineIdx];
             for (const r of compiledRegexes) {
-              // HARD STOP 3: per-regex wall-clock budget. If a single .test() call is spinning
-              // (catastrophic backtracking), abandon that branch after PER_REGEX_TIMEOUT_MS and move on —
-              // this guarantees no individual pattern can hang the scan indefinitely.
+              // HARD STOP 3 (FIXED, 26.08): a spinning .test() CANNOT be preempted — JS has no way to
+              // interrupt it mid-execution. The only real defense is to never START new regex work once the
+              // budget is exhausted. The previous check ran AFTER test() returned (i.e., never during the
+              // spin), so a single pathological call could block the event loop — and with it ALL timers,
+              // including the deadline and the 30s abort timer — for minutes. Gate BEFORE each test:
+              if (abortController.signal.aborted) return;
+              if (Date.now() - grepScanStartedAt > GREP_SCAN_DEADLINE_MS) {
+                console.warn(`[grep_files] Scan deadline (${GREP_SCAN_DEADLINE_MS}ms) exceeded mid-regex — aborting to prevent hang`);
+                abortController.abort();
+                return;
+              }
               const reStart = Date.now();
               if (r.test(lineText)) {
                 matched = true;
                 break;
               }
+              // Post-test observation only (informational): a single test() that took longer than budget is
+              // reported, but the binding guarantee is the pre-test gate above + the outer backstop race.
               if (Date.now() - reStart > PER_REGEX_TIMEOUT_MS) {
                 console.warn(`[grep_files] Regex timed out (>${PER_REGEX_TIMEOUT_MS}ms per test) on line ${lineIdx + 1}; skipping remaining patterns for this line`);
               }
@@ -2291,8 +2327,8 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
           // OPTIMIZATION: Early exit if we have enough results
           if (resultsCount >= MAX_RESULTS) return;
           
-          // ABORT SIGNAL CHECK - LM Studio compliance
-          if (signal?.aborted) return;
+          // ABORT SIGNAL CHECK - LM Studio compliance (FIX-HANG-1: real controller, was dead code)
+          if (abortController.signal.aborted) return;
 
           let entries: _fs.Dirent[];
           try {
@@ -2366,46 +2402,49 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
         
         const GREP_TIMEOUT_MS = 30000; // 30 seconds max fallback timeout
         
-        // Create an AbortController that can be triggered by:
-        // 1. Host abort signal (if provided via ctx.signal)
-        // 2. Our internal timeout as fallback
-        const abortController = new AbortController();
+        // FIX-HANG-1: `abortController` is created ONCE at the top of this implementation (single source of
+        // truth for all loop checks). The old code declared a SECOND controller here that only this timer
+        // referenced, while every loop check read an always-undefined `signal` — so the 30s abort was never observed.
         
-        // If host provides a signal, link it to our controller
-        if (signal && !signal.aborted) {
-          signal.addEventListener('abort', () => abortController.abort(), { once: true });
-        }
-        
-        // Set up internal timeout as fallback (only if no host signal exists or it's not aborted)
+        // Fallback timeout: sets the authoritative aborted flag after GREP_TIMEOUT_MS. (If synchronous work is
+        // starving the event loop, even THIS timer cannot fire until it yields — that residual window is closed by
+        // the wall-clock backstop race below, which settles the tool call regardless.)
         let timeoutId: ReturnType<typeof setTimeout> | null = null;
-        if (!signal || !signal.aborted) {
-          timeoutId = setTimeout(() => abortController.abort(), GREP_TIMEOUT_MS);
-        }
+        // FIX-HANG-3: declared OUTSIDE the try — a finally block cannot see variables scoped to the try body.
+        let backstopId: ReturnType<typeof setTimeout> | undefined;
+        timeoutId = setTimeout(() => abortController.abort(), GREP_TIMEOUT_MS);
 
         try {
+          // ==================== WALL-CLOCK BACKSTOP FOR BOTH TARGET TYPES (FIX-HANG-2, 26.08) ====================
+          // A spinning synchronous segment (.test(), AST parse) starves every timer — including the one above.
+          // This race therefore settles the TOOL CALL itself at deadline+5s with whatever partial results exist,
+          // instead of letting the caller wait on a black hole (observed failure: silent 2-minute hang, host had
+          // to abort the call without any result). The scan keeps running in the background if it slips past;
+          // its writes go into arrays nobody reads after this function returns.
+          const backstopMs = GREP_SCAN_DEADLINE_MS + 5000; // generous backstop over the internal deadline
+          let scanPromise: Promise<void>;
           if (targetStats.isFile()) {
             // ==================== TARGET IS A FILE — search within it directly ====================
             console.log(`[grep_files] Detected single file '${targetDir}' — searching in-file instead of listing directory`);
-            // BUG FIX: race the synchronous scan against a timeout so even a pathological single-file
-            // search cannot hang indefinitely. The internal deadline (GREP_SCAN_DEADLINE_MS) and per-line
-            // caps above handle the common case; this is the backstop for anything that slips past them.
-            await Promise.race([
-              processFile(targetDir, path.basename(targetDir)),
-              new Promise<void>((resolve) => {
-                setTimeout(() => {
-                  abortController.abort(); // declare aborted state (host signal is one-way); see deadline branch above
-                  resolve(); // stop waiting; partial results already accumulated in `matches`
-                }, GREP_SCAN_DEADLINE_MS + 5000); // generous backstop over the internal deadline
-              }),
-            ]);
+            scanPromise = processFile(targetDir, path.basename(targetDir));
           } else {
             // ==================== TARGET IS A DIRECTORY — walk and search recursively (concurrent) ====================
             const concurrencyLimit = max_concurrent_files ?? 8;
-            await walkDirectory(targetDir, concurrencyLimit);
+            scanPromise = walkDirectory(targetDir, concurrencyLimit);
           }
+          await Promise.race([
+            scanPromise,
+            new Promise<'backstop'>((resolve) => {
+              backstopId = setTimeout(() => {
+                abortController.abort(); // declare aborted state; partial results already accumulated in `matches`
+                console.warn(`[grep_files] Wall-clock backstop (${backstopMs}ms) reached — returning partial results to prevent hang`);
+                resolve('backstop');
+              }, backstopMs);
+            }),
+          ]);
         } catch (error) {
           // Check if this was an abort vs a real error
-          if (abortController.signal.aborted || signal?.aborted) {
+          if (abortController.signal.aborted) { // FIX-HANG-1: single controller; old `|| signal?.aborted` referred to a variable that no longer exists
             // Return partial results with aborted flag per LM Studio pattern
             return {
               success: true,
@@ -2420,14 +2459,19 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
                 ...(matches.length === 0 && skippedFiles.length > 0 && { warning: `No matches found and ${skippedFiles.length} file(s) were NOT searched because they exceeded limits (defaults: max_file_size=100KB, line cap=${MAX_LINES_PER_FILE} — both raisable via the max_file_size / max_lines parameters). Check the "skipped_files" list above — matches may exist in those files. Re-run with higher max_file_size/max_lines or use read_file directly on them.` }),
                 aborted: true,
                 hint: 'Operation was aborted by host or timeout. Partial results returned.',
-                ...(patternMode === 'auto_escaped' && { autoEscaped: true, hint: 'Pattern was auto-escaped as it appeared to be a code signature with unescaped regex special characters. Use include: "*.ext" to further limit search scope.' }),
+                ...(patternMode === 'auto_escaped' && { autoEscaped: true, hint: "Pattern fell back to LITERAL mode (auto-escaped): the ENTIRE pattern is treated as one exact string, so alternation (|) cannot match branch-by-branch — 0 matches here is expected behavior of literal mode, not absence of content. To fix: escape special characters per branch (e.g. 'Git \\& GitHub') or split the search into 2–4 smaller grep_files calls; note patterns >500 chars are also forced to literal mode." }),
               },
             };
           }
           throw error; // Re-throw non-abort errors
         } finally {
-          // Clean up timeout to prevent memory leaks
+          // Clean up timeouts to prevent memory leaks.
+          // FIX-HANG-3: the backstop timer MUST be disarmed on normal completion too — it was previously orphaned,
+          // so 20s after EVERY healthy grep (scan already returned its full result) it fired a spurious
+          // "[grep_files] Wall-clock backstop ... reached" [ERROR]. Root cause of the "recurring >20s hang":
+          // log forensics 27.08 show 8/8 pairings of RESULT-DELTA → BACKSTOP-ERROR at exactly Δ=+20.0s with no scan in flight.
           if (timeoutId) clearTimeout(timeoutId);
+          if (backstopId !== undefined) clearTimeout(backstopId);
         }
 
         return {
@@ -2439,9 +2483,12 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
             truncated: resultsCount >= MAX_RESULTS,
             mode,
             patternMode,
+            // FIX-HANG-1: surface cooperative aborts on the SUCCESS path too — otherwise a deadline-trimmed scan is
+            // indistinguishable from a normal completion (the catch-path `aborted` flag only fires when the walk throws).
+            ...(abortController.signal.aborted && { aborted: true, hint: 'Scan was cut short by an internal deadline/timeout. Results are partial; re-run with narrower scope or higher limits if you need full coverage.' }),
             ...(skippedFiles.length > 0 && { skipped_files: skippedFiles }),
             ...(matches.length === 0 && skippedFiles.length > 0 && { warning: `No matches found and ${skippedFiles.length} file(s) were NOT searched because they exceeded limits (defaults: max_file_size=100KB, line cap=${MAX_LINES_PER_FILE} — both raisable via the max_file_size / max_lines parameters). Check the "skipped_files" list above — matches may exist in those files. Re-run with higher max_file_size/max_lines or use read_file directly on them.` }),
-            ...(patternMode === 'auto_escaped' && { autoEscaped: true, hint: 'Pattern was auto-escaped as it appeared to be a code signature with unescaped regex special characters. Use include: "*.ext" to further limit search scope.' }),
+            ...(patternMode === 'auto_escaped' && { autoEscaped: true, hint: "Pattern fell back to LITERAL mode (auto-escaped): the ENTIRE pattern is treated as one exact string, so alternation (|) cannot match branch-by-branch — 0 matches here is expected behavior of literal mode, not absence of content. To fix: escape special characters per branch (e.g. 'Git \\& GitHub') or split the search into 2–4 smaller grep_files calls; note patterns >500 chars are also forced to literal mode." }),
           },
         };
       } catch (error) {
@@ -2449,7 +2496,7 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
       }
     },
   }));
-  
+
   // Helper Functions for grep_files
   /** Escape special regex characters for literal string matching */
   function escapeRegExp(str: string): string {
@@ -2843,9 +2890,11 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
           return { success: false, error: 'Invalid path: directory traversal detected' };
         }
 
-        // AbortSignal support - LM Studio compliance (v2.0)
-        const { signal }: { signal?: AbortSignal } = {};
-        
+        // FIX-HANG-F1 (port of grep_files FIX-HANG-1, 27.08): ONE authoritative abort state for the whole scan.
+        // The old code destructured `signal` from an EMPTY object literal — every "abort check" below tested a
+        // value that was ALWAYS undefined, so no loop ever observed any abort (host had to kill the process).
+        const abortController = new AbortController();
+
         let regex: RegExp;
         try {
           regex = new RegExp(pattern, 'gi');
@@ -2861,15 +2910,35 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
         const filesSkipped: Array<{ file: string; reason: string }> = [];
         let totalMatches = 0;
 
+        // ==================== FIX-HANG-F2/F3 (port of grep_files hard stops, 27.08) ====================
+        // A single content.match(regex)/content.replace(...) over a whole file is ONE unpreemptible synchronous
+        // segment: JS cannot interrupt it mid-execution and NO timer (abort, deadline, host fallback) can fire
+        // while it spins — measured 210ms for a .test() on a 23-char near-miss with ~x4 growth per char.
+        // Defense in depth (same posture as grep_files): pattern analysis is NOT the binding guarantee;
+        //   1. pre-call wall-clock gate before every synchronous regex op,
+        //   2. backstop race that settles this tool call at deadline+5s regardless of what is still spinning.
+        const FRA_SCAN_DEADLINE_MS = 15000;     // hard ceiling for the whole scan (well under host kill time)
+        const fraScanStartedAt = Date.now();
+
+        /** Cooperative deadline check — call BEFORE starting any synchronous regex work on file content. */
+        function abortIfDeadlineExceeded(where: string): boolean {
+          if (abortController.signal.aborted || Date.now() - fraScanStartedAt > FRA_SCAN_DEADLINE_MS) {
+            console.warn(`[find_replace_all] Scan deadline (${FRA_SCAN_DEADLINE_MS}ms) exceeded ${where} — aborting to prevent hang`);
+            abortController.abort();
+            return true;
+          }
+          return false;
+        }
+
         async function walkDir(dirPath: string, currentDepth: number = 0): Promise<void> {
           // DEPTH LIMIT ENFORCEMENT — prevent infinite recursion
           if (currentDepth > max_depth) return;
 
           if (filesProcessed.length >= max_files) return;
-          
-          // ABORT SIGNAL CHECK - LM Studio compliance
-          if (signal?.aborted) return;
-          
+
+          // ABORT SIGNAL CHECK - LM Studio compliance (FIX-HANG-F1: real controller flag — was a dead check on an always-undefined `signal`)
+          if (abortController.signal.aborted) return;
+
           let entries: _fs.Dirent[];
           try {
             entries = await fs.readdir(dirPath, { withFileTypes: true });
@@ -2921,6 +2990,10 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
                 continue;
               }
 
+              // FIX-HANG-F2: gate BEFORE the whole-file .match() — a single spinning call can block the event
+              // loop (and with it every timer) for minutes. The pre-call wall-clock check is the binding defense.
+              if (abortIfDeadlineExceeded(`before .match() on ${path.relative(targetDir, fullPath)}`)) return;
+
               // Count matches
               const matches = content.match(regex);
               const matchCount = matches ? matches.length : 0;
@@ -2931,6 +3004,8 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
                 
                 // If not dry run, perform replacement
                 if (!dry_run) {
+                  // FIX-HANG-F2: gate BEFORE the whole-file .replace() (same unpreemptible-segment hazard as .match()).
+                  if (abortIfDeadlineExceeded(`before .replace() on ${path.relative(targetDir, fullPath)}`)) return;
                   const newContent = content.replace(regex, replacement);
                   
                   // Backup
@@ -2957,11 +3032,32 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
           }
         }
 
+        // ==================== FIX-HANG-F3 (port of grep_files FIX-HANG-2): WALL-CLOCK BACKSTOP RACE ====================
+        // A spinning .match()/.replace() segment starves EVERY timer — without this race the only way out is a host
+        // kill (~120s, observed failure class). The backstop settles THIS tool call at deadline+5s with whatever partial
+        // results exist; when it fires we return below with aborted:true. Any still-spinning background work writes into
+        // arrays nobody reads after the return, and its next file-boundary check sees the abort flag and stops there.
+        let backstopId: ReturnType<typeof setTimeout> | undefined; // cleared on normal completion — otherwise the timer would fire a stray warn 20s after every healthy scan
         try {
-          await walkDir(targetDir);
+          await Promise.race([
+            walkDir(targetDir),
+            new Promise<'backstop'>((resolve) => {
+              backstopId = setTimeout(() => {
+                abortController.abort(); // declare aborted state; partial results already accumulated in filesProcessed/totalMatches
+                console.warn(`[find_replace_all] Wall-clock backstop (${FRA_SCAN_DEADLINE_MS + 5000}ms) reached — returning partial results to prevent hang`);
+                resolve('backstop');
+              }, FRA_SCAN_DEADLINE_MS + 5000);
+            }),
+          ]);
         } catch (err) {
-          return handleError(err);
+          if (!abortController.signal.aborted) return handleError(err); // genuine error → previous behavior preserved
+          // Aborted mid-apply: NOT a hard failure — report the partial state below so the caller knows exactly what was modified.
+        } finally {
+          // Always disarm the backstop once settled (either outcome) to prevent a stray warn firing later.
+          if (backstopId) clearTimeout(backstopId);
         }
+
+        const aborted = abortController.signal.aborted;
 
         if (dry_run) {
           return {
@@ -2972,7 +3068,11 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
               filesAffected: filesProcessed.length,
               files: filesProcessed,
               skipped: filesSkipped,
-              message: 'Dry run complete. Set dry_run: false and confirm: true to apply changes.',
+              // FIX-HANG-F1 (port): surface cooperative aborts on the SUCCESS path too — otherwise a deadline-trimmed scan is indistinguishable from a normal completion.
+              ...(aborted && { aborted: true }),
+              ...(aborted
+                ? { message: `Dry run cut short at ${FRA_SCAN_DEADLINE_MS}ms deadline (partial results). Re-run with narrower scope or higher limits for full coverage.` }
+                : { message: 'Dry run complete. Set dry_run: false and confirm: true to apply changes.' }),
             },
           };
         }
@@ -2985,7 +3085,12 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
             filesModified: filesProcessed.length,
             files: filesProcessed,
             skipped: filesSkipped,
-            message: 'Changes applied successfully.',
+            // FIX-HANG-F1 (port): surface cooperative aborts on the SUCCESS path too. In apply mode this doubles as a
+            // mid-batch safety report — files listed above were modified; files after the cut point were NOT touched.
+            ...(aborted && { aborted: true }),
+            ...(aborted
+              ? { message: `Changes applied to ${filesProcessed.length} file(s) BEFORE the scan was cut short by the ${FRA_SCAN_DEADLINE_MS}ms deadline (partial results). Remaining files in scope were NOT modified — re-run with narrower scope or higher limits for full coverage.` }
+              : { message: 'Changes applied successfully.' }),
           },
         };
       } catch (error) {

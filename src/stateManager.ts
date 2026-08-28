@@ -190,11 +190,13 @@ async function loadMemoryFile(filePath: string, state: Map<string, StateEntry>, 
  */
 async function saveMemoryFile(filePath: string, state: Map<string, StateEntry>): Promise<void> {
   try {
-    const data = Array.from(state.entries()).map(([_key, entry]) => ({
-      key: entry.key,
-      value: entry.value,
-      timestamp: entry.timestamp,
-    }));
+    // 🔹 FIX B3: Preserve tier provenance (_origin) on save — previously dropped silently
+    const data = Array.from(state.entries()).map(([_key, entry]) => {
+      const result: { key: string; value: unknown; timestamp: number; _origin?: ContextOrigin } =
+        { key: entry.key, value: entry.value, timestamp: entry.timestamp };
+      if (entry._origin !== undefined) result._origin = entry._origin;
+      return result;
+    });
 
     const dir = path.dirname(filePath);
     try {
@@ -341,8 +343,9 @@ export class StateManager {
 
     this.saveTimer = setTimeout(async () => {
       this.saveTimer = null;
-      
+
       try {
+        await this.ensureReady(); // 🔹 FIX B1: Wait for initial load to settle before serializing (prevents flush-with-incomplete-state)
         await this.saveToFile(); // Single save call — no queuing of multiple saves
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
@@ -438,13 +441,22 @@ export class StateManager {
     
     if (!projectMemoryFile) return Array.from(this.state.keys());
 
-    // Clear and reload fresh from project file only (syncs in-memory state with disk)
-    this.state.clear();
-    await loadMemoryFile(projectMemoryFile, this.state, 0);
-    
-    // Recalculate running size after cold read to keep memory tracking accurate
-    this.recalculateSize(); 
-    this._keysCacheInvalidated = true; 
+    // 🔹 FIX B2: Merge instead of clear+reload — preserves unflushed in-RAM entries.
+    // Load disk into a temp map, then overlay onto existing RAM state (newer timestamp wins).
+    const tempState = new Map<string, StateEntry>();
+    await loadMemoryFile(projectMemoryFile, tempState, 0);
+
+    for (const [key, diskEntry] of tempState.entries()) {
+      const ramEntry = this.state.get(key);
+      // Keep RAM entry if it's newer (unflushed write), otherwise use disk version
+      if (!ramEntry || diskEntry.timestamp > ramEntry.timestamp) {
+        this.state.set(key, diskEntry);
+      }
+    }
+
+    // Recalculate running size after merge to keep memory tracking accurate
+    this.recalculateSize();
+    this._keysCacheInvalidated = true;
     this._lastKeysCacheTime = Date.now();
 
     return Array.from(this.state.keys()); 

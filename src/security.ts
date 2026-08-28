@@ -89,10 +89,13 @@ export function isSafeRegex(pattern: string): boolean {
   const consecutiveQuantified = /\[[^\]]+\][+*]\s*\[[^\]]+\][+*]/.test(pattern);
   if (consecutiveQuantified) return false;
 
-  // FIX: Detect unescaped special chars in code-like patterns (e.g., C++ signatures with *, &, ->)
+  // FIX (REV-24): Detect unescaped special chars in code-like patterns (e.g., C++ signatures with *, ->)
   // Patterns like "List*", "ptr->", "const&" are almost certainly literal code searches, not regex.
   // If the pattern contains code-signature indicators, treat as unsafe to force auto-escape.
-  const hasUnescapedCodeChar = /(?<!\\)[*+?&]/.test(pattern);
+  // NOTE: bare & was REMOVED from this char class — '&' is NOT a JS regex metachar (zero backtracking
+  // risk), and keeping it false-positive'd on prose like "Git & GitHub" (markdown section names).
+  // Code-signature searches with & are STILL caught via clause 2 ([\w][*&] / [\*&]\s+\w) below.
+  const hasUnescapedCodeChar = /(?<!\\)[*+?]/.test(pattern);
   const looksLikeCodeSignature = /::|->|[\w][*&]|[\*&]\s+\w/.test(pattern);
   if (hasUnescapedCodeChar && looksLikeCodeSignature) {
     return false;  // Force literal/auto-escape mode in grep_files

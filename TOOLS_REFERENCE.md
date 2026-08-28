@@ -1,6 +1,6 @@
 # 🛠️ AI Toolbox — Complete Tool Reference
 
-*Updated to reflect current state: **130 unique tools** dynamically registered across 24 modules (v1.9.10). Includes the Graphify-Inspired Suite (v1.9.5) — Confidence-Tagged Results, Hub-Exclusion Clustering, Project Auto-Detection, Context Tier Provenance, Cluster-Aware Tool Priority — plus v1.9.7 crash-resilient atomic writes, v1.9.8 hang prevention & registry sync, and v1.9.9 grep_files hard limits + mid-loop token deltas.*
+*Updated to reflect current state: **~135 registered tools (~130 unique)** dynamically registered across 24 tool modules (v1.9.11, released 28.08; per-module counts audited against `src/tools/*.ts` definitions + `toolsProvider.ts` registry on 28.08 — 5 memory/session names are shared between the utility and context-management registrations). Includes the Graphify-Inspired Suite (v1.9.5) — Confidence-Tagged Results, Hub-Exclusion Clustering, Project Auto-Detection, Context Tier Provenance, Cluster-Aware Tool Priority — plus v1.9.7 crash-resilient atomic writes, v1.9.8 hang prevention & registry sync, and v1.9.9 grep_files hard limits + mid-loop token deltas.*
 
 ---
 
@@ -9,18 +9,18 @@
 | Category | Count | Default State | Status |
 |----------|-------|---------------|--------|
 | File System | 22 | ✅ Enabled | Active |
-| Code Refactoring | 2 | ✅ Enabled | Active |
-| Web Research | 4 | ✅ Enabled | Active |
+| Code Refactoring | 1 | ✅ Enabled | Active |
+| Web Research | 3 | ✅ Enabled | Active | (+ `rag_web_content` served by Vector RAG)
 | Browser Automation | 5 | ❌ Disabled | Active |
-| Git & GitHub | 16 | ❌ Disabled | Active |
+| Git & GitHub | 15 | ❌ Disabled | Active |
 | Database | 1 | ❌ Disabled | Active |
 | Background Commands | 3 | ❌ Disabled | Active |
 | Execution | 5 | ❌ Mixed (JS/Python: enabled) | Active |
-| Utilities | ~8 | ✅ Utility toggle | Active |
+| Utilities | ~25 (+6 context-management duplicates; +`detect_os_environment`) | ✅ Utility toggle | Active | (also carries backup/restore, chart, line-ops & markdown-preview modules under the same key)
 | Image Processing | 4 | ✅ Enabled | Active |
 | Vector RAG | 7 | ✅ Enabled | Active |
 | UI Generation | 3 | ❌ Disabled | Active |
-| Context Management | 12 | ✅ Enabled | Active |
+| Context Management | 20 (12 core + 8 session-index/project-registry tools) | ✅ Enabled | Active |
 | Text Processing | 4 | ✅ Enabled | Active |
 | Backup & Restore | 5 | ✅ Utility toggle | Active |
 | Data Visualization | 1 | ✅ Utility toggle | Active |
@@ -28,7 +28,7 @@
 | HTTP Client | 3 | ❌ Disabled | Active |
 | Task Planning | 3 | ✅ Enabled | Active |
 
-> **Note**: All tool categories are fully registered in `toolsProvider.ts` using the declarative registry pattern (v1.8.2+). Gateway tools exist in code but are not imported/registered — direct SDK registration handles grammar parser compatibility via schema minification.
+> **Note**: All tool categories are fully registered in `toolsProvider.ts` using the declarative registry pattern (v1.8.2+). The former gateway-tools file has been removed from the codebase (v1.9.10 session, 24.08) — direct SDK registration is the sole pattern and handles grammar parser compatibility via schema minification.
 
 ---
 
@@ -110,6 +110,8 @@ All 9 modules converted from sync writes to async atomic pattern:
 | `directory_tree` | Visualize directory structure in tree format; supports max depth, optional file sizes, automatic exclusion of large directories |
 | `grep_files` | Regex or AST pattern search across files; ReDoS-validated patterns with **escape-aware** top-level alternation splitting, include/exclude globs, context lines; hard limits: 15 s total scan deadline (`GREP_SCAN_DEADLINE_MS`) → partial results + `aborted` flag, regex mode skips lines >20k chars (`MAX_LINE_CHARS_REGEX_MODE`), per-regex budget 500 ms with abandon-and-continue (`PER_REGEX_TIMEOUT_MS`), single-file backstop via `Promise.race` at deadline+5 s (v1.9.9); **`max_depth`** parameter (default 10, range 1–50) + per-file line cap configurable via `max_lines` (default `MAX_LINES_PER_FILE=5000`, over-cap files reported in `skipped_files`) (v1.9.8+) |
 | `find_replace_all` | Regex search & replace across multiple files with dry-run preview, `.bak` backups, file-extension filter; **`max_depth`** enforcement (default 10, range 1–50) + `MAX_LINES_PER_FILE=5000` hang prevention (v1.9.8+) |
+
+> **REV-24 (28.08, v1.9.10):** Prose alternations with a bare `&` (e.g. `"Backup & Restore|Git & GitHub"`) now correctly stay in **regex mode** — `&` is not a JS regex metacharacter and no longer false-positives the code-signature heuristic. Genuine code-signature patterns are still auto-escaped to literal only when an unescaped `*`, `+` or `?` pairs with a signature indicator; the response then carries `patternMode:"auto_escaped"` **with a hint string** explaining why (no more silent 0-match fallback).
 
 ---
 
@@ -217,7 +219,7 @@ The `src/tools/recodeTool/` module implements a pluggable rule engine for advanc
 
 ---
 
-## 🐙 Git & GitHub (16)
+## 🐙 Git & GitHub (15)
 
 ### Git Operations
 
@@ -241,7 +243,6 @@ The `src/tools/recodeTool/` module implements a pluggable rule engine for advanc
 
 | Tool | Description |
 |------|-------------|
-| `gh_auth` | Verify gh CLI authentication status with GitHub.com before using other GitHub tools |
 | `gh_create_issue` | Create repository issues supporting title, body, labels, assignees, milestones |
 | `gh_list_issues` | List issues filtered by state (open/closed), labels, assignees with pagination support |
 | `gh_view_comments` | Retrieve issue/PR comment threads with author, timestamp, body, and reaction data |
@@ -380,7 +381,7 @@ The `src/tools/recodeTool/` module implements a pluggable rule engine for advanc
 
 ---
 
-## 🧠 Context Management (12)
+## 🧠 Context Management (20)
 
 **Note**: 5 additional context management tools (`save_session_summary`, `get_session_summary`, `save_memory`, `get_memory`, `delete_memory`) are also available under the Utilities category for backward compatibility.
 
@@ -398,6 +399,21 @@ The `src/tools/recodeTool/` module implements a pluggable rule engine for advanc
 | `save_memory` | Persist facts to `.ai_toolbox_memory.msgpack` MessagePack binary for cross-session continuity |
 | `get_memory` | Retrieve all saved memory entries with optional type filtering and result limits |
 | `delete_memory` | Remove specific memory entry by unique ID returned during save operations |
+
+### Session Index & Project Registry (added in v1.9.8+)
+
+*Documented 28.08 — present in `contextManagementTools.ts` since before the last doc sync.*
+
+| Tool | Description |
+|------|-------------|
+| `list_sessions` | Browse all saved session summaries with pagination and limit controls |
+| `search_sessions` | Keyword search across stored session summaries (newest first) |
+| `clear_session_index` | Remove all session index entries (lightweight index only — summaries untouched; requires confirm=true) |
+| `register_project` | Register or update a project in the cross-project registry by name + working-dir path |
+| `get_project_info` | Retrieve details of one registered project by its working directory path |
+| `list_projects` | List all registered projects with paths, last-accessed time and session counts |
+| `search_projects` | Search registered projects by name or path substring |
+| `switch_context` | Switch context storage to another project's working directory (memory/session lookup target) |
 
 **Memory System Enhancements (v1.9.1):**
 - 🔒 **Context Scoping**: Entries tagged with `global`/`project`/`session` scope for future isolation filtering
@@ -418,7 +434,7 @@ The `src/tools/recodeTool/` module implements a pluggable rule engine for advanc
 | `line_operations` | Insert/delete/reorder lines using awk-like operations without shell dependencies; atomic writes safety + **NEW v1.7.0: Three-layer guardrail system** (pattern matching, verification, bounds validation) |
 | `text_extract` | Structured data extraction from delimited text (CSV/TSV/custom) with configurable zero-based field indices |
 | `markdown_table_gen` | Generate Markdown tables from object arrays with headers, alignment, truncation, and customizable ellipsis |
-| `refactor_code` | AST-driven code refactoring: rename identifiers, move functions (including Arrow Functions & Class Methods), extract code blocks into new functions via Babel AST parsing — no more line-based string splitting errors |
+<!-- Audit 28.08: `refactor_code` removed here — it belongs to the Code Refactoring section (sole tool of refactorCodeTools.ts) -->
 
 ### 🛡️ line_operations Safety Guardrails (v1.7.0+)
 **Resolved recurring issues where LLMs inserted content at wrong lines due to stale line numbers.** Three-layer defense-in-depth:
@@ -478,7 +494,7 @@ line_operations(
 
 ---
 
-## 💾 Backup & Restore (4)
+## 💾 Backup & Restore (5)
 
 | Tool | Description |
 |------|-------------|
@@ -486,12 +502,13 @@ line_operations(
 | `list_backups` | List backups sorted by date newest-first with filename, path, size bytes, and creation timestamp |
 | `restore_backup` | Restore full working directory from archive (⚠️ overwrites all files; requires confirm=true) |
 | `delete_backup` | Remove specific backup file (⚠️ irreversible; validates existence before deletion) |
+| `cleanup_backups` | List and optionally delete `.bak` edit backups (dry-run by default; confirm required to delete) — registered under the `utility` toggle key (`cleanupBackupsTool.ts`) |
 
 ---
 
 ## 🔑 Historical Note: Gateway Pattern (v1.6.0+)
 
-**Status**: `src/tools/gatewayTools.ts` exists with tool definitions (`explore_tools`, `execute_gateway_tool`) but is **NOT imported or registered** in the current `toolsProvider.ts`. 
+**Status**: `src/tools/gatewayTools.ts` has been **removed from the codebase** (v1.9.10 session, 24.08) — no gateway tool definitions remain anywhere under `src/`. Direct SDK registration + schema minification is the active approach; this section documents the historical design only.
 
 The direct SDK registration approach (all tools exposed directly to LLM) has proven more effective for usability. Grammar parser compatibility is now handled via schema minification (`toolsSchemaMinifier.ts`), which compresses descriptions and caps constraints without limiting tool count.
 

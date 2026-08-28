@@ -3,10 +3,50 @@
 > **This file supersedes `CHANGELOG.md`.** The old changelog is preserved as archived history only.
 > New entries are added at the top of this file. Details below were compiled from verified session records and bundle-level verification (`dist/index.js` + `index.mjs` are unminified, so shipped content was confirmed byte-exact).
 
-**Current release: v1.9.10** (`package.json` + `manifest.json`, revision 20) — consolidated maintenance release: duplicate-tool-removal + grep_files log-level hotfixes (24.08), then the OOM-hardening suite (web-fetch guards, search-fallback & HTTP-client caps, heap watchdog), the rag_web_content fix suite, and the chunking fixed-point OOM termination (25.08). **Version stays at v1.9.10** per maintainer decision 25.08 — no bump to v1.9.11.
+**Current release: v1.9.11** (`package.json` + `manifest.json`, revision 22) — contains the consolidated maintenance work of the v1.9.10 window: duplicate-tool-removal + grep_files log-level hotfixes (24.08), the OOM-hardening suite (web-fetch guards, search-fallback & HTTP-client caps, heap watchdog), the rag_web_content fix suite, the chunking fixed-point OOM termination (25.08), the StateManager B1/B2/B3 data-loss fixes (28.08), and REV-24 bare-& false-positive fix for `grep_files` (hotfix deployed via direct src-sync + full restart 28.08; installed copy runs from `src/`). **Version bumped v1.9.10 → v1.9.11 on 28.08 (~20:45)** — user-directed release decision supersedes the "no bump" policy of 25.08.
 
 ---
 
+## [28.08.2026 ~21:15] — Docs sync: README "Standout Tools" highlight + TOOLS_REFERENCE `grep_files` limits (docs-only, no code change)
+
+- **README.md**: new **"🏆 Standout Tools"** table inserted directly under the *"130 unique tools across 24 modules"* hero block — highlights 13 capabilities verified as unique or rare in the LM Studio plugin hub by the Aug 2026 competitive survey (~115 plugins surveyed: beledarian, puppytucker, kyle-chen et al.): `refactor_code`/Recode Engine (only AST-based refactoring in field), **AutoTracker + ContextGuard** session/token management (mid-loop token deltas firing 75%/90% thresholds inside long tool chains, automatic checkpoint summarization & compression — absent from every surveyed plugin beyond basic memory CRUD), hang-safe `grep_files`/`find_replace_all`, guarded `line_operations` (MD5 post-write check), background-command suite, browser automation with persistent sessions, integrated multi-format RAG (PDF/DOCX/XLSX + web extraction), `run_tests` (auto-detects Jest/Mocha/Vitest), planning state machine (`create_plan` family), `secret_scan`, data visualization via `generate_chart` (**zero** data-viz plugins in field), cross-project memory registry, and the backup/restore suite.
+- **TOOLS_REFERENCE.md**: `grep_files` entry corrected to the current contract — added missing params **`max_depth`** (default 10, range 1–50) and **`max_lines`** (default 5000); documented deadline behavior (partial results + `aborted: true`, per v1.9.9 hard limits) and REV-24 prose-alternation handling (`patternMode:"auto_escaped"` hints).
+- **Scope:** documentation only — no source, test, or version change; folds into the already-released **v1.9.11** (no further bump needed). `.bak` backups created for both files before editing (pending post-commit cleanup sweep alongside `README.md.bak`).
+
+## [28.08.2026 ~20:15] — REV-24: bare-& false-positive fix for `grep_files` (code-verified + LIVE VERIFIED same day)
+
+**Problem:** prose alternations containing a bare `&` — e.g. `"Backup & Restore|Git & GitHub"` over `TOOLS_REFERENCE.md`, which contains both phrases — were silently forced into **literal mode → 0 matches**, triggering LLM retry loops. Root cause pinned in `isSafeRegex()` (`src/security.ts`): the code-signature heuristic pair `/([*+?&]/` + `/[\w][*&]|[\*&]\s+\w/` fired on `"& Restore"` / `"& GitHub"` even though **`&` is not a JS regex metacharacter** (zero backtracking risk) — i.e. a pure false positive.
+
+**Fixes:**
+- **`src/security.ts` (`isSafeRegex`, ~L92–100):** bare `&` removed from clause 1's char class → `/([*+?]/`. Clause 2 (code-signature detection) intentionally kept, so C++-style searches containing `&` are still auto-escaped — but only when paired with a genuine unescaped `*`, `+` or `?`. Inline comment documents the rationale (REV-24).
+- **`src/tools/fileSystemTools.ts` (~L2462/2491):** inline heuristic aligned to the same char class; double-quoted hint strings added at the forced-literal sites so a future literal-mode decision is *explained to the caller* instead of failing silently (mid-session string-quoting compile defect on these lines was caught by user's `tsc` and fixed, line-level compile-proven).
+
+**Tests:** 3 new regression specs in `tests/security.test.ts` covering the REV-24 decision boundary; full suite re-run green at **628/628**.
+
+**Verification status:**
+- ✅ Code level (user-executed, 28.08 ~19:49): `tsc --noEmit` OK · tsup build OK · typecheck OK · lint OK · jest **36/36 suites + 628/628 tests**.
+- ⚠️→✅ Live runtime (28.08 ~20:09, after full LM Studio restart): first smoke run returned the pre-fix signature (`patternMode:"literal"`, 0 matches) — forensics proved the active process was executing a **stale installed copy** (its `src/security.ts` mtime 21.08 = pre-fix). Both fixed source files synced into the install (`C:\Users\root.MPITS\.lmstudio\extensions\plugins\crunch3r\ai-toolbox\src\`, marker verified), then: `grep_files("Backup & Restore|Git & GitHub", TOOLS_REFERENCE.md)` → **`patternMode:"regex"` + exactly 4 matches** (L15/L25 overview rows, L220/L495 headings). Incident closed.
+
+**Deployment note:** the live install runs from **source** (`src/` via `entry.ts`, no `dist/` in that folder) — a direct src-file sync + full restart is sufficient; **no rebuild/reinstall required**. Lesson logged: `patternMode:"literal"` on a known-containing fixture → suspect stale runtime first, compare installed-copy mtimes before re-opening the code.
+
+**Versioning (updated 28.08 ~20:45):** shipped as part of **v1.9.11** — `package.json` + `manifest.json` bumped v1.9.10 → v1.9.11 per user decision, superseding the 25.08 "no bump" policy; manifest revision field stands at **22**. (No dist rebuild required for this hotfix itself — installed copy runs from `src/`; baseline backup `ai_toolbox-v1.9.11-release-baseline-2026-08-28.zip` taken pre-cleanup.)
+
+## [28.08.2026] — StateManager B1/B2/B3 data-loss fixes + rev 21 rebuild & live re-deploy (user-verified)
+
+**Problem:** persistent-memory round-trips silently lost — `get_session_summary()` / `get_memory()` returned empty despite all 50 sessions existing in `.session_context/sessions.json`. Root cause: `StateManager` fresh-start overwrote `.ai_toolbox_memory.msgpack` before/during initialization, plus two related races in the cache-rebuild and origin-tracking paths.
+
+**Fixes (`src/stateManager.ts`):**
+- **B1 — init/save race:** `saveToFile()` can run before readiness → added `ensureReady` gating at the save site (~L345) so writes never race initialization.
+- **B2 — cache rebuild dropped keys:** `_rebuildKeysCache()` now **merges** into the existing key set instead of replacing it, preserving entries observed pre-rebuild.
+- **B3 — origin misattribution:** `saveMemoryFile`'s `_origin` handling made conditional so a re-saved file is not falsely flagged as fresh-start data (which triggered the overwrite path).
+
+**Tests:** new deterministic regression suite `tests/stateManagerRace.test.ts` (5 tests) reproducing each race without timing luck; full Jest suite green pre-deploy, lint clean.
+
+**Build & deploy:** rebuilt `dist/` via tsup (worker-thread sandbox workaround for the no-shell session environment); bundle-verified B1/B2/B3 markers present in fresh build (`ensureReady` at save site, `_rebuildKeysCache` merge, conditional `_origin`). `manifest.json` revision **20 → 21** (pre-bump state preserved as `manifest.json.bak`). User re-deployed ~16:34 same day.
+
+**Live verification:** context write/read round-trip proven in the new process — milestone entry persisted across restart, store diagnostic reports 1 record; no further memory-loss events reported.
+
+**Versioning:** **no version bump — v1.9.10 stays current** (maintainer policy); only `manifest.json` revision advanced to 21 so LM Studio reloads the plugin.
 
 ## [25.08.2026 ~00:15] — Chunking fixed-point OOM termination + test-suite isolation fixes (full suite green; user-verified)
 

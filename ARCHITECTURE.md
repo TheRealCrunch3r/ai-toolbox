@@ -150,7 +150,7 @@ createToolsProvider(config, stateManager, bgCommandManager)
             ├── registerBackgroundCommandTools() ─► 3 tools (disabled by default)
             ├── registerImageProcessingTools() ─► 4 tools (enabled by default)
             ├── registerHttpClientTools()      ──► 3 tools (disabled by default)
-            ├── registerRagTools()             ──► 4 tools (enabled by default)
+            ├── registerRagTools()             ──► 7 tools (enabled by default: rag_index_files/pdf/docx/xlsx, rag_query_vector, rag_clear_index, rag_web_content — since v1.9.2/v1.9.10)
             ├── registerUiGenerationTools()    ──► 3 tools (disabled by default)
             ├── registerContextManagementTools() ─► 12 tools (enabled by default)
             ├── registerTextProcessingTools()  ──► 4 tools (enabled by default)
@@ -163,7 +163,7 @@ createToolsProvider(config, stateManager, bgCommandManager)
 
 ### ✅ Gateway Pattern Status (v1.8.2+) — ⚠️ ABANDONED
 
-**Status**: The gateway pattern (`src/tools/gatewayTools.ts`) was introduced in v1.6.0 but **abandoned in favor of direct SDK registration**. It is NOT imported or registered in the current `toolsProvider.ts`.
+**Status**: The gateway pattern (formerly `src/tools/gatewayTools.ts`, introduced in v1.6.0) was **abandoned in favor of direct SDK registration**; the file has been fully removed from the codebase (v1.9.10 session, 24.08). No gateway tool definitions remain anywhere under `src/`.
 
 **Why Abandoned**:
 - Direct registration proved more effective — LLMs handle 130 tools fine when schemas are properly minified
@@ -442,7 +442,7 @@ getAllowedBases(): string[]
 
 ## 🚀 Gateway Pattern Architecture (Documented — v1.6.5) — ⚠️ ABANDONED
 
-> **⚠️ Status**: `src/tools/gatewayTools.ts` exists but is NOT imported/registered in `toolsProvider.ts`. The gateway pattern was abandoned in favor of direct SDK registration + schema minification (v1.8.0+). The following describes the design for historical reference only.
+> **⚠️ Status**: `src/tools/gatewayTools.ts` has been removed from the codebase (v1.9.10 session, 24.08) and no longer exists anywhere in the repository. The gateway pattern was abandoned in favor of direct SDK registration + schema minification (v1.8.0+). The following describes the design for historical reference only.
 
 **Purpose**: Prevent LLM tool-bloat crashes by providing a single entry point for tool discovery and execution, reducing the initial grammar schema payload from ~**132 tools** to just 2.
 
@@ -452,7 +452,7 @@ Sending all 88+ tools directly to llama.cpp's grammar parser caused `failed to p
 ### Solution: Two-Tool Gateway System (Design)
 
 ```typescript
-// src/tools/gatewayTools.ts (EXISTS — NOT YET REGISTERED)
+// former src/tools/gatewayTools.ts (REMOVED from codebase 24.08; shown for historical reference)
 export async function getGatewayTools(
   provider: ToolsProvider, 
   config: PluginConfig
@@ -495,7 +495,7 @@ User Message → AI calls explore_tools(category="fileSystem")
 
 ### Integration Status: Abandoned (v1.8.0+)
 
-The gateway pattern was abandoned because direct SDK registration with schema minification proved more effective. No integration is required — `gatewayTools.ts` remains in the repository for historical reference but is not imported or used.
+The gateway pattern was abandoned because direct SDK registration with schema minification proved more effective. No integration is required — and since 24.08 (v1.9.10 session) `gatewayTools.ts` no longer exists in the repository at all; it was never imported or used, so its removal changes nothing functionally.
 
 ---
 
@@ -1103,7 +1103,7 @@ src/
 │   ├── backupUtils.ts          # Backup utility helpers (REGISTERED)
 │   ├── executionRegistry.ts    # Execution registry & state tracking (REGISTERED)
 │   ├── fileModTracker.ts       # File modification tracker (REGISTERED)
-│   ├── networkToolsRegistry.ts # Network tools registration (NOT imported by toolsProvider — orphan file, backlog for removal)
+│   ├── # networkToolsRegistry.ts — REMOVED 24.08 (was an orphan file with zero imports; deletion was tracked backlog since v1.9.3 and completed in the rag_web_content fix suite)
 │   ├── toolPriority.ts         # Cluster-aware tool priority ranking (REGISTERED)
 │   ├── toolProtocolWarnings.ts # Tool protocol warning system (REGISTERED)
 │   ├── utilityRegistry.ts      # Utility registry manager (REGISTERED)
@@ -1157,8 +1157,11 @@ The modular "Recode" architecture was introduced in v1.5.34 to support AST-based
 ```text
 src/tools/recodeTool/
 ├── rules/
-│   ├── unusedImports.ts      ← Tier 1: Implemented ✅ (extracted from refactorCodeTools.ts)
-│   └── deadCodeDetection.ts  ← Tier 1: **Placeholder** (Single-file analyzer only; cross-directory scanning pending ⚠️)
+│   ├── unusedImports.ts              ← Tier 1: Implemented ✅ (extracted from refactorCodeTools.ts)
+│   ├── deadCodeDetection.ts          ← Tier 1: **Placeholder** (Single-file analyzer only; cross-directory scanning pending ⚠️)
+│   ├── modulePathNormalization.ts    ← Tier 1: Implemented ✅ (New v1.9.8 — import path normalization & validation)
+│   ├── typeInference.ts              ← Tier 1: Implemented ✅ (explicit `any` → inferred types / `unknown` suggestions)
+│   └── asyncModernizer.ts            ← Tier 2: Implemented ✅ (callback-style + `.then()` chains → async/await conversion)
 ├── recodeEngine.ts           ← AST transformation orchestrator with dry-run diff support (LCS-based)
 └── recodeTypes.ts            ← Shared interfaces & schemas (RuleContext, RuleResult, RecodeRule)
 ```
@@ -1216,7 +1219,7 @@ All tool categories are now fully registered in `toolsProvider.ts` using the dec
 | Task Planning | taskPlanningTools.ts | 3 | ✅ Yes | Enabled (default) |
 | **Total Registered** | | **130 unique tools** (24 modules) | | |
 
-> **Note**: All previously "unregistered" utility tool categories (backup, data visualization, line operations, markdown preview) are now properly registered in `toolsProvider.ts` under the `utility` config key. The gateway pattern (`gatewayTools.ts`) exists but is not imported/registered — direct SDK registration with schema minification handles grammar parser compatibility.
+> **Note**: All previously "unregistered" utility tool categories (backup, data visualization, line operations, markdown preview) are now properly registered in `toolsProvider.ts` under the `utility` config key. The former gateway file (`gatewayTools.ts`) has been removed from the codebase (v1.9.10 session, 24.08) — direct SDK registration with schema minification handles grammar parser compatibility.
 
 ---
 

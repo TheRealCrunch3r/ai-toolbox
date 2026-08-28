@@ -147,6 +147,8 @@ Tools are gated by configuration categories in `src/config.ts`:
 
 6. **Consecutive quantified character class detection** (v1.9.8): Detects patterns with multiple consecutive quantified character classes (e.g., `[[^]]+]+[+*]`) that can trigger catastrophic backtracking in V8's NFA engine, even when nested repetition is absent.
 
+7. **Code-signature heuristic** (REV-24 refinement, v1.9.10): Patterns pairing an unescaped `*`, `+` or `?` with C++-style signature indicators (`::`, `->`) are treated as code searches and auto-escaped to literal. Since REV-24 (28.08), a **bare `&` no longer triggers this** — it is not a JS regex metacharacter (zero backtracking risk); prose alternations like `"Backup & Restore|Git & GitHub"` stay in regex mode. Genuine code signatures containing `&` are still caught when paired with an unescaped quantifier char; forced-literal responses now carry an explanatory hint string.
+
 **Transparency:** The `grep_files` tool returns a `patternMode: 'regex' | 'literal' | 'auto_escaped'` field indicating whether the pattern was matched as regex, escaped to literal text, or split into separate regexes for top-level alternation.  
 **Test Case:** `pattern="((a+)+)b"` → Treated as literal string; `pattern="(a|b)+"` → Accepted as valid regex; `pattern="validateImageFile\(|\.resolvedPath!|await validateImageFile"` → Split into 3 separate regexes tested independently
 

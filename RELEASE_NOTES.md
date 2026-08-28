@@ -1,3 +1,34 @@
+### [28.08.2026 ~21:15] — Documentation Sync: README Standout Tools + TOOLS_REFERENCE `grep_files` limits (docs-only, folds into v1.9.11)
+
+**Added a "🏆 Standout Tools" highlight table to `README.md` directly under the 130-tools hero block**, plus corrected `TOOLS_REFERENCE.md` so its `grep_files` entry matches the current tool contract.
+
+- **README.md** — 13-tool comparison table based on the Aug 2026 competitive survey (~115 hub plugins, beledarian/puppytucker/kyle-chen et al.): AST refactoring (`refactor_code`, unique in field), **AutoTracker + ContextGuard pipeline** (mid-loop 75%/90% token thresholds, automatic checkpoint summarization & compression — absent from every surveyed plugin), hang-safe `grep_files`/`find_replace_all`, guarded `line_operations`, background-command suite, browser automation, integrated multi-format RAG (PDF/DOCX/XLSX), `run_tests`, planning state machine, `secret_scan`, data visualization (`generate_chart` — zero in field), cross-project memory registry, backup/restore suite.
+- **TOOLS_REFERENCE.md** — `grep_files`: added missing params `max_depth` (default 10, range 1–50) and `max_lines` (default 5000); documented deadline behavior (`aborted: true` + partial results per v1.9.9) and REV-24 prose-alternation handling.
+- Docs-only change — no code, test, or version impact; `.bak` backups created for both files before edit.
+
+---
+
+## v1.9.11 — Released 2026-08-28: grep_files Bare-& Fix (REV-24)
+
+**Closes the v1.9.10 maintenance window with a version bump to v1.9.11 (user-directed decision, supersedes the 25.08 "no bump" policy).** Headline fix eliminates a class of silent 0-match failures in `grep_files`.
+
+### What Changed
+- **Bare-`&` alternations stay in regex mode (REV-24)** (`src/security.ts`, `isSafeRegex()`): prose patterns like `"Backup & Restore|Git & GitHub"` were silently forced into literal mode → 0 matches → LLM retry loops. Root cause: the code-signature heuristic paired a bare `&` with `*+?` indicators — though `&` is not a JS regex metacharacter (zero ReDoS risk). Clause-1 char class now excludes bare `&`.
+- **Explanatory hints on forced-literal decisions** (`src/tools/fileSystemTools.ts`): forced-literal outcomes now return `patternMode:"auto_escaped"` with a human-readable hint string — no more silent failures.
+
+### Impact
+- ✅ Prose alternations containing `&` match correctly (live-verified: 4/4 expected matches in TOOLS_REFERENCE.md)
+- ✅ Genuine C++-style code-signature patterns are still auto-escaped when paired with an unescaped `*`, `+` or `?`
+- ✅ No API, parameter or response-shape changes to any other tool
+
+### Verification
+- ✅ tsc / tsup build / lint all OK; Jest **36/36 suites + 628/628 tests** green (incl. 3 new REV-24 regression specs)
+- ✅ Live runtime: first smoke run RED → forensics proved a stale installed copy (not a code defect); after src-sync into the LM Studio install + full restart, the exact symptom pattern returned `patternMode:"regex"` + exactly 4 matches
+
+**Versioning:** released as **v1.9.11** — `package.json` + `manifest.json` bumped v1.9.10 → v1.9.11 on 28.08 (~20:45) per user decision; baseline backup taken (`.ai_toolbox_backups/ai_toolbox-v1.9.11-release-baseline-2026-08-28.zip`).
+
+---
+
 ### Chunking Fixed-Point OOM Termination + Test-Isolation Hardening
 
 **Fixed a deterministic multi-day V8 heap OOM (`Ineffective mark-compacts near heap limit`) in the vector-RAG text chunkers — and closed the last failing test (cross-test mock contamination) in `tests/webResearchTools.test.ts`.**
@@ -16,7 +47,7 @@
 - ✅ Full Jest suite green — user confirmed 25.08.2026 ~00:13 (`npm test`).
 - ⏳ Rebuild + reinstall before the next live vector-RAG use on large documents (`npm run build`; bundles carry no version strings).
 
-**Versioning:** stays at v1.9.10 (no bump) — maintainer decision 25.08.
+**Versioning:** stayed at v1.9.10 (no bump) — maintainer decision 25.08 *(superseded by the v1.9.11 release of 28.08)*.
 
 ---
 
