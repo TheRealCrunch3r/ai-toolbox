@@ -9,6 +9,8 @@ import { spawn } from 'child_process';
 import type { PluginConfig } from '../config.js';
 import type { StateManager } from '../stateManager.js';
 import { validatePath, isSafeRegex } from '../security.js';
+// FIX-HANG-5: worker_threads TYPES only (type-only import = zero runtime cost; the value is still lazy-required at call time).
+import type * as workerThreads from 'worker_threads';
 import { recordFileModification } from './fileModTracker.js';
 import { getWorkingDir, setWorkingDir, resolvePath } from '../workingDir.js';
 import {
@@ -26,6 +28,269 @@ export const MAX_FILE_SIZE = 100_000;
 
 /** Hard cap on lines per file for regex-mode grep_files — prevents catastrophic backtracking. */
 export const MAX_LINES_PER_FILE = 5000;
+
+// ==================== FIX-HANG-5: WORKER-ISOLATED REGEX EVALUATION (29.08) ====================
+// Residual hang class that survived FIX-HANG-1..4: a SINGLE catastrophic-backtracking
+// RegExp.prototype.test() call blocks the JS event loop for minutes and starves EVERY timer —
+// including the 15s scan deadline, the 30s fallback AND the 20s wall-clock backstop (timers cannot
+// fire while one synchronous call is spinning). No cooperative gating between calls can preempt an
+// in-flight .test(). The only mechanism that preempts synchronous JS in Node.js is a separate
+// thread: risky patterns are therefore evaluated inside a worker and hard-killed via
+// worker.terminate() when the budget expires (node:worker_threads — terminate() kills unpreemptible
+// work, per Node docs; nothing else can). Safe patterns keep the inline .test() fast path → zero
+// overhead for the common case.
+
+/** Hard-kill budget for one file's worth of regex work in the worker (well under the 15s scan deadline). */
+const WORKER_KILL_MS = 2000;
+
+/**
+ * Inline worker source: receives { lines, patterns }, tests every line against each pattern
+ * (first match per line wins — mirrors the inline loop), posts back matched LINE INDICES. The main
+ * thread keeps all match shaping / context extraction; the worker only does the unpreemptible work.
+ * Plain ES5 on purpose — no imports, runs identically in every Node ≥ 12 runtime (LM Studio host).
+ */
+const REGEX_TEST_WORKER_SOURCE = [
+  // FIX-HANG-5c (30.08): this runs in a node:worker_threads Worker (see `new WorkerCtor(..., { eval: true })`),
+  // NOT a browser Web Worker — so `self.onmessage`/`e.data` are the wrong API and threw "self is not defined" at
+  // boot: every risky pattern crashed at worker start (zero regex work) yet was reported as a 2000ms kill.
+  // Correct contract here: parentPort's 'message' handler receives the payload value DIRECTLY (no MessageEvent).
+  // Verified offline in this runtime (Node v24.15.0): safe pattern returns exact indices; T1b-exact catastrophic
+  // payload is hard-killed by worker.terminate() at 2000ms (see docs/history/GATE_PROBE_EVIDENCE_fixhang5c.md, FIX-HANG-5c).
+  'var pt; try { pt = require("worker_threads").parentPort; } catch (e) { pt = null; }',
+  'if (!pt) throw new Error("no parentPort");',
+  'pt.on("message", function (data) {',
+  '  var out = [];',
+  '  try {',
+  '    for (var i = 0; i < data.lines.length; i++) {',
+  '      var line = data.lines[i];',
+  '      if (!line) continue;',
+  '      for (var p = 0; p < data.patterns.length; p++) {',
+  '        if (data.patterns[p].test(line)) { out.push(i); break; }',
+  '      }',
+  '    }',
+  '  } catch (err) {',
+  '    try { pt.postMessage({ error: String(err && err.message || err) }); } catch (_) {}',
+  '    return;',
+  '  }',
+  '  try { pt.postMessage(out); } catch (_2) {}',
+  '});',
+].join('\n');
+
+/**
+ * FIX-HANG-5 triage — STRICTER than isSafeRegex (which is a deny-list that misses shapes such as
+ * brace-bounded nested quantifiers `(a+){25}`, backreferences and deeply nested groups). Anything the
+ * gate cannot PROVE cheap goes to the killable worker; the false-positive cost is ~one 10–30ms worker
+ * spawn per affected file, hard-capped at WORKER_KILL_MS. Conservative by design: a mis-triaged-safe
+ * pattern can hang the host (the incident we are fixing), a mis-triaged-risky one just costs ms.
+ */
+export function patternNeedsWorkerIsolation(pattern: string): boolean {
+  if (!pattern || pattern.length === 0) return false;
+
+  let i = 0;
+  const n = pattern.length;
+  // Per open group: does the group BODY already contain a quantifier (+ * ? or {...})?
+  // A closing ')' followed by ANY quantifier on such a body is the canonical catastrophic shape.
+  const groupBodyHasQuantifier: boolean[] = [];
+  let sawBackreference = false;
+
+  while (i < n) {
+    const c = pattern[i];
+    if (c === '\\' && i + 1 < n) { // escaped char — not syntax
+      if (/^[1-9]$/.test(pattern[i + 1])) sawBackreference = true; // backrefs: \1, \2…
+      i += 2;
+      continue;
+    }
+    if (c === '[') { // character class — skip to closing ']' (escaped ] inside is literal); a quantified class marks its enclosing group body like any other quantifier
+      i++;
+      while (i < n && pattern[i] !== ']') {
+        if (pattern[i] === '\\' && i + 1 < n) i += 2;
+        else i++;
+      }
+      i++; // consume ']'
+      let j = i;
+      while (j < n && (pattern[j] === ' ' || pattern[j] === '\t')) j++;
+      if ((pattern[j] === '+' || pattern[j] === '*' || pattern[j] === '?') || /^\{[0-9]+(,[0-9]*)?\}/.test(pattern.slice(j))) {
+        const top = groupBodyHasQuantifier.length - 1;
+        if (top >= 0) groupBodyHasQuantifier[top] = true;
+      }
+      continue;
+    }
+    if (c === '(') {
+      groupBodyHasQuantifier.push(false);
+      i++;
+      continue;
+    }
+    if (c === ')') {
+      const bodyHadQuantifier = groupBodyHasQuantifier.pop() ?? false;
+      // What follows the closing paren?
+      let j = i + 1;
+      while (j < n && (pattern[j] === ' ' || pattern[j] === '\t')) j++;
+      if (bodyHadQuantifier) {
+        const q = pattern[j];
+        if (q === '+' || q === '*') return true;            // nested unbounded quantifiers: (a+)+, (.*)* …
+        if (q === '{') return /^\{[0-9]+(,[0-9]*)?\}/.test(pattern.slice(j)); // FIX-HANG-5b (30.08): UNANCHORED prefix test — the $ anchor required the ENTIRE remaining pattern to be just {n[,m]}, so any trailing content ("{4}x") defeated triage: ((a+){3}){4}x was mis-routed INLINE (T1b double-freeze root cause). Any valid brace quantifier on an unbounded (+/*) body is catastrophic at ANY count form, with or without a following operator.
+        // A QUANTIFIED sub-group is itself a repeating unit wherever it sits in an enclosing body — even with
+        // literal text between it and the outer ')': ((a+)b)+ = O(n^2) split ambiguity. Forward to the
+        // enclosing scope unconditionally (top-level stack empty → no-op). Fixes ((a+)b)+c mis-triage.
+        const topQfwd = groupBodyHasQuantifier.length - 1;
+        if (topQfwd >= 0) groupBodyHasQuantifier[topQfwd] = true;
+      } else {
+        const q = pattern[j];
+        // Alternation inside a quantified group where two or more branches share a common prefix can also
+        // explode (ambiguous segmentation → exponential backtracking on non-matching input): (ab|abc)+d.
+        // The inline path has no preemption for that class either, so route it to the killable worker — false
+        // positives cost ~one 10–30ms spawn per affected file only (conservative-by-design posture).
+        if ((q === '+' || q === '*' || (q === '{' && /^\{[0-9]+(,[0-9]*)?\}/.test(pattern.slice(j))))) {
+          const body = pattern.substring(1, i); // between the matched '(' and this ')'
+          // Split on TOP-LEVEL pipes only (depth 0 w.r.t. nested groups / char classes).
+          const branches: string[] = [];
+          let depth2 = 0;
+          let startIdx = 0;
+          for (let k = 0; k < body.length; k++) {
+            if (body[k] === '\\') { k++; continue; }
+            if (body[k] === '[') {
+              let e = k + 1;
+              while (e < body.length && body[e] !== ']') { if (body[e] === '\\') e += 2; else e++; }
+              k = e; continue;
+            }
+            if (body[k] === '(') depth2++;
+            else if (body[k] === ')') depth2--;
+            else if (body[k] === '|' && depth2 === 0) { branches.push(body.substring(startIdx, k)); startIdx = k + 1; }
+          }
+          branches.push(body.substring(startIdx));
+          // If one branch is a proper prefix of another, segmentation becomes ambiguous → isolate.
+          for (let x = 0; x < branches.length; x++) {
+            for (let y = 0; y < branches.length; y++) {
+              if (x === y) continue;
+              const A = branches[x], B = branches[y];
+              if (A && B && (B.startsWith(A) || A.startsWith(B))) return true;
+            }
+          }
+        }
+      }
+      i += 1;
+      // After handling ')', fall through to quantifier detection on the same char for the ENCLOSING scope:
+      const qAfter = j < n ? pattern[j] : '';
+      if (qAfter === '+' || qAfter === '*' || /^{[0-9]+(,[0-9]*)?\}$/.test(qAfter) || qAfter === '?') {
+        // Mark the enclosing group body as containing a quantifier.
+        const top = groupBodyHasQuantifier.length - 1;
+        if (top >= 0) groupBodyHasQuantifier[top] = true;
+      } else if (/^\{[0-9]+(,[0-9]*)?\}/.test(pattern.slice(j))) {
+        const top = groupBodyHasQuantifier.length - 1;
+        if (top >= 0) groupBodyHasQuantifier[top] = true;
+      }
+      continue;
+    }
+    // Bare quantifiers mark the enclosing group body as "contains a quantifier".
+    if (c === '+' || c === '*' || c === '?') {
+      const top = groupBodyHasQuantifier.length - 1;
+      if (top >= 0) groupBodyHasQuantifier[top] = true;
+      i++;
+      continue;
+    }
+    if (c === '{') {
+      // A brace quantifier inside a group body. VARIABLE-length forms ({n,m}, {n,}) are true
+      // split-ambiguity sources when that group is later repeated — treat as body quantifiers like +/*/?;
+      // fixed {n} stays safe (unique partition) and must NOT mark the body.
+      const braceM = pattern.slice(i).match(/^\{[0-9]+(,[0-9]*)?\}/);
+      if (braceM) {
+        if (/^\{[0-9]+,[0-9]*\}/.test(pattern.slice(i))) {
+          const top = groupBodyHasQuantifier.length - 1;
+          if (top >= 0) groupBodyHasQuantifier[top] = true;
+        }
+        i += braceM[0].length;
+      } else {
+        i++;
+      }
+      continue;
+    }
+    i++;
+  }
+
+  // Backreferences can force expensive matching on non-matching inputs (engine re-scans alternatives).
+  if (sawBackreference) return true;
+
+  return false;
+}
+
+/**
+ * FIX-HANG-5 — evaluate lines against risky patterns INSIDE a worker with a hard-kill watchdog.
+ * Resolves to matched line indices on success, or null when the worker was killed (budget overrun)
+ * or failed — callers treat null as "this file's regex work could not complete" and record it in
+ * skipped_files instead of letting anything run unbounded on the main thread.
+ */
+export async function testLinesInWorker(
+  lines: string[],
+  patterns: RegExp[],
+): Promise<number[] | null> {
+  try {
+    // Lazy require at call time (not module top-level) so unit-test environments that don't use this
+    // path — and any runtime where worker_threads is unavailable — never pay for or break on the import.
+    // Intentional: load worker_threads lazily at call time so environments without it never pay for / break on the import.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- lazy require is a deliberate design decision (see comment above)
+    const WorkerCtor = (require('worker_threads') as typeof workerThreads).Worker;
+
+    return await new Promise<number[] | null>((resolve) => {
+      let settled = false;
+      let worker: workerThreads.Worker;
+      try {
+        worker = new WorkerCtor(REGEX_TEST_WORKER_SOURCE, { eval: true });
+      } catch (spawnErr) {
+        // Environment without worker support → caller falls back to inline matching (documented posture).
+        console.warn(`[grep_files] FIX-HANG-5: worker spawn failed (${(spawnErr as Error)?.message}) — falling back to inline regex`);
+        resolve(null);
+        return;
+      }
+
+      const killTimer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        console.warn(`[grep_files] FIX-HANG-5: worker exceeded ${WORKER_KILL_MS}ms budget — terminated (possible ReDoS)`);
+        worker.terminate().catch(() => { /* already dead */ });
+        resolve(null); // killed → report as skipped, NEVER let the spin continue anywhere
+      }, WORKER_KILL_MS);
+
+      const onMessage = (msg: unknown): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(killTimer);
+        worker.removeAllListeners();
+        const arr = msg as number[] | { error?: string };
+        if (Array.isArray(arr)) resolve(arr.filter((v) => typeof v === 'number'));
+        else resolve(null); // worker reported an internal error — treat like a kill for safety
+      };
+      const onError = (err: Error): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(killTimer);
+        console.warn(`[grep_files] FIX-HANG-5: worker error (${err.message}) — treating as skipped`);
+        worker.terminate().catch(() => { /* already dead */ });
+        resolve(null);
+      };
+
+      worker.on('message', onMessage);
+      worker.once('error', onError);
+      // NOTE: 'exit' without a message = killed or crashed → the killTimer (or its settlement) already resolved;
+      // nothing to do here, but we keep a listener so an unhandled exit can't surface as noise.
+      worker.once('exit', () => { /* handled */ });
+
+      try {
+        worker.postMessage({ lines, patterns });
+      } catch (postErr) {
+        if (!settled) {
+          settled = true;
+          clearTimeout(killTimer);
+          console.warn(`[grep_files] FIX-HANG-5: postMessage failed (${(postErr as Error)?.message})`);
+          worker.terminate().catch(() => { /* already dead */ });
+        }
+        resolve(null);
+      }
+    });
+  } catch (e) {
+    console.warn(`[grep_files] FIX-HANG-5: isolation layer failed (${(e as Error)?.message})`);
+    return null; // caller treats as "could not complete" and records the skip — safe default
+  }
+}
 
 // ==================== AST Types ====================
 // Local type definitions for AST nodes (avoids external type dependency issues)
@@ -2186,6 +2451,34 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
           // File passed both size gate AND line-cap gate → count as scanned
           filesScanned++;
 
+          // ==================== FIX-HANG-5: worker isolation for risky patterns (29.08) ====================
+          // A single catastrophic-backtracking .test() on a RISKY pattern (nested quantifiers / backrefs —
+          // see patternNeedsWorkerIsolation) blocks the event loop and starves EVERY timer, so the 15s scan
+          // deadline, 30s fallback and 20s wall-clock backstop all cannot fire while it spins. Such patterns are
+          // therefore evaluated for this whole file INSIDE a worker (single round-trip; hard-terminated after
+          // WORKER_KILL_MS via worker.terminate()). Safe patterns keep the inline .test() fast path — zero overhead.
+          const hasRiskyPatterns = compiledRegexes.some(r => patternNeedsWorkerIsolation(r.source));
+          let riskyMatchedLineSet: Set<number> | null = null;
+          if (hasRiskyPatterns) {
+            // Abort/deadline may have fired between gates — honor before spending the round-trip.
+            if (!abortController.signal.aborted && resultsCount < MAX_RESULTS && Date.now() - grepScanStartedAt <= GREP_SCAN_DEADLINE_MS) {
+              const idx = await testLinesInWorker(lines, compiledRegexes);
+              if (idx === null) {
+                // Worker killed/failed — likely ReDoS: record the skip and stop this file. The host is now SAFE:
+                // nothing unbounded runs on it for this file (the kill budget already burned). Other files continue.
+                skippedFiles.push({ file: relativePath, reason: `regex evaluation terminated in isolated worker after ${WORKER_KILL_MS}ms — likely ReDoS-prone pattern (nested quantifiers / backreference); refine the pattern or narrow the search scope` });
+                console.log(`[grep_files] FIX-HANG-5: skipped ${relativePath} (worker kill — possible ReDoS)`);
+                return;
+              }
+              const s = new Set<number>();
+              for (const i of idx) { if (i >= 0 && i < lines.length) s.add(i); }
+              riskyMatchedLineSet = s;
+            } else {
+              // Deadline/abort already tripped → skip the round-trip entirely; per-line checks below exit.
+              riskyMatchedLineSet = null;
+            }
+          }
+
           // Gate above guarantees lines.length <= effectiveMaxLines here — no truncation possible
           for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
             // ABORT SIGNAL CHECK per-line - LM Studio compliance for long files (FIX-HANG-1: real controller)
@@ -2194,7 +2487,8 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
             if (resultsCount >= MAX_RESULTS) return;
 
             // HARD STOP 1: wall-clock deadline — a spinning .test() can never be preempted by the
-            // external timer, so we self-police here and abort cooperatively once time is up.
+            // external timer, so we self-police here and abort cooperatively once time is up. (For
+            // worker-isolated files this also bounds the NUMBER of killable round-trips.)
             if (Date.now() - grepScanStartedAt > GREP_SCAN_DEADLINE_MS) {
               console.warn(`[grep_files] Scan deadline (${GREP_SCAN_DEADLINE_MS}ms) exceeded — aborting to prevent hang`);
               // Internal controller only: the host AbortSignal is one-way (no .abort() method per WHATWG DOM spec).
@@ -2208,6 +2502,13 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
 
             let matched = false;
             const lineText = lines[lineIdx];
+
+            if (riskyMatchedLineSet !== null) {
+              // FIX-HANG-5: this file carries a risky pattern — the whole-file evaluation already ran in an
+              // isolated, killable worker (see pre-loop block). The result is a pure lookup now; no unpreemptible
+              // regex work executes on the main thread for this line.
+              matched = riskyMatchedLineSet.has(lineIdx);
+            } else {
             for (const r of compiledRegexes) {
               // HARD STOP 3 (FIXED, 26.08): a spinning .test() CANNOT be preempted — JS has no way to
               // interrupt it mid-execution. The only real defense is to never START new regex work once the
@@ -2231,6 +2532,7 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
                 console.warn(`[grep_files] Regex timed out (>${PER_REGEX_TIMEOUT_MS}ms per test) on line ${lineIdx + 1}; skipping remaining patterns for this line`);
               }
             }
+            } // end FIX-HANG-5 inline fast path (safe patterns only)
             if (matched) {
               const rawContent = lines[lineIdx].trim();
 
@@ -2446,6 +2748,7 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
           // Check if this was an abort vs a real error
           if (abortController.signal.aborted) { // FIX-HANG-1: single controller; old `|| signal?.aborted` referred to a variable that no longer exists
             // Return partial results with aborted flag per LM Studio pattern
+            console.warn(`[grep_files] aborted in ${Date.now() - grepScanStartedAt}ms (host/timeout) — ${filesScanned} file(s) scanned, ${resultsCount} match(es), ${skippedFiles.length} skipped [partial results]`);
             return {
               success: true,
               data: {
@@ -2474,6 +2777,9 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
           if (backstopId !== undefined) clearTimeout(backstopId);
         }
 
+        // Completion telemetry (30.08): per-call wall-clock via console.warn → stderr, the ONLY channel LM Studio
+        // persists to logs\main.log (stdout is dropped). Lets log forensics separate scan time from model-generation time.
+        console.warn(`[grep_files] completed in ${Date.now() - grepScanStartedAt}ms — ${filesScanned} file(s) scanned, ${resultsCount} match(es), ${skippedFiles.length} skipped${abortController.signal.aborted ? ' [ABORTED — partial results]' : ''}`);
         return {
           success: true,
           data: {

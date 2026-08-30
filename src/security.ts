@@ -96,7 +96,12 @@ export function isSafeRegex(pattern: string): boolean {
   // risk), and keeping it false-positive'd on prose like "Git & GitHub" (markdown section names).
   // Code-signature searches with & are STILL caught via clause 2 ([\w][*&] / [\*&]\s+\w) below.
   const hasUnescapedCodeChar = /(?<!\\)[*+?]/.test(pattern);
-  const looksLikeCodeSignature = /::|->|[\w][*&]|[\*&]\s+\w/.test(pattern);
+  // D2 (30.08): '*' removed from the [\w][...] alternative — a word char directly before an unescaped
+  // quantifier '*' is normal regex usage ((a*){50}, \w*), not code-signature evidence, and rejecting it here
+  // silently demoted such patterns to LITERAL mode (matches lost) BEFORE FIX-HANG-5 worker triage could route
+  // them (see docs/history/FIXHANG5_REDOS_RESULTS.md, FINDING-1). Code-signature positives stay rejected via the surviving
+  // alternatives: 'std::vector<int>*' (via ::), 'List* ptr' / 'const& x' (via [*&] whitespace-word), word-char+'&'.
+  const looksLikeCodeSignature = /::|->|[\w]&|[*&]\s+\w/.test(pattern);
   if (hasUnescapedCodeChar && looksLikeCodeSignature) {
     return false;  // Force literal/auto-escape mode in grep_files
   }

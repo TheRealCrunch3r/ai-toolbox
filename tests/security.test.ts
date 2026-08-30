@@ -85,6 +85,22 @@ describe('isSafeRegex', () => {
       isSafeRegex('[a-z]+[0-9]+[a-z]+[0-9]+[a-z]+[0-9]+')
     ).toBe(false); // consecutive quantified character classes
   });
+
+  // ===== D2 (30.08): star-adjacent patterns must NOT be literal-demoted before FIX-HANG-5 triage =====
+  // FINDING-1 (docs/history/FIXHANG5_REDOS_RESULTS.md): the code-signature clause rejected any pattern with a word char
+  // directly before an unescaped '*' — e.g. (a*){50} was silently literalized in grep_files BEFORE
+  // FIX-HANG-5 worker triage could route it to the killable worker (matches lost). Loosened: only '&'
+  // adjacency plus :: / -> / [*&]-whitespace-word forms still flag code signatures.
+  test('D2: word char before unescaped * is regex usage — stays SAFE (no literal demotion)', () => {
+    expect(isSafeRegex('(a*){50}')).toBe(true); // the live T2 demotion case (docs/history/FIXHANG5_REDOS_RESULTS.md)
+    expect(isSafeRegex('foo*bar')).toBe(true);
+  });
+
+  test('D2: code-signature rejections survive the loosening', () => {
+    expect(isSafeRegex('List* ptr')).toBe(false);       // [*&] whitespace-word alternative
+    expect(isSafeRegex('std::vector<int>*')).toBe(false); // :: alternative (pre-pinned REV-24)
+    expect(isSafeRegex('ptr->val*')).toBe(false);        // -> alternative
+  });
 });
 
 describe('applySecurityChecks', () => {
