@@ -6,6 +6,25 @@
 - **TOOLS_REFERENCE.md** — `grep_files`: added missing params `max_depth` (default 10, range 1–50) and `max_lines` (default 5000); documented deadline behavior (`aborted: true` + partial results per v1.9.9) and REV-24 prose-alternation handling.
 - Docs-only change — no code, test, or version impact; `.bak` backups created for both files before edit.
 
+### [30.08.2026] — `grep_files` per-call completion telemetry (live-verified; folds into next release)
+
+**Every `grep_files` call now logs a one-line wall-clock summary to the plugin's stderr channel** (`%APPDATA%\LM Studio\logs\main.log`): `completed in <N>ms — <files scanned>, <matches>, <skipped>` (abort path logs `aborted in … [partial results]`).
+
+- **Why:** cleanly separates scan time from model-generation time in log forensics — the "slow grep" reports turned out to be 2–17 ms scans wrapped by LLM generation.
+- **Live-verified same day:** five consecutive production calls logged, all matching their returned JSON exactly (counter audit closed).
+- Same evening's LM Studio app-freeze investigation used these lines to prove the plugin side was healthy end-to-end; issue filed upstream as host-side bug (`Canceling predictions timed out` class, recurring 08-26→08-30).
+
+### [29.08.2026] — FIX-HANG-5: ReDoS-prone regex patterns now run in a killable worker (+ 5b/5c fixes)
+
+**Closes the last hang class of `grep_files`:** catastrophic-backtracking patterns can no longer block the event loop (and with it every timeout guard).
+
+- New triage gate (`patternNeedsWorkerIsolation`) routes only patterns that *cannot be proven cheap* into an isolated `node:worker_threads` Worker — hard-killed after 2 s budget, recorded in `skipped_files`, scan continues. Safe patterns keep the inline fast path (zero overhead).
+- **5b:** triage anchor fix — `((a+){3}){4}x`-style quantified subgroups now route correctly (old `$`-anchored check was defeatable by trailing content; T1b double-freeze root cause).
+- **5c:** Node-worker API contract fixed (`parentPort`; the browser-style shape threw `self is not defined`, misreporting every risky pattern as a 2 s kill with zero work done). Offline repro: catastrophic payload hard-killed at exactly 2000 ms.
+
+---
+
+
 ---
 
 ## v1.9.11 — Released 2026-08-28: grep_files Bare-& Fix (REV-24)

@@ -149,6 +149,10 @@ Tools are gated by configuration categories in `src/config.ts`:
 
 7. **Code-signature heuristic** (REV-24 refinement, v1.9.10): Patterns pairing an unescaped `*`, `+` or `?` with C++-style signature indicators (`::`, `->`) are treated as code searches and auto-escaped to literal. Since REV-24 (28.08), a **bare `&` no longer triggers this** — it is not a JS regex metacharacter (zero backtracking risk); prose alternations like `"Backup & Restore|Git & GitHub"` stay in regex mode. Genuine code signatures containing `&` are still caught when paired with an unescaped quantifier char; forced-literal responses now carry an explanatory hint string.
 
+8. **Hard time limits** (v1.9.9): `GREP_SCAN_DEADLINE_MS = 15000` caps the total scan — overrun returns partial results with an explicit `aborted: true` flag; a per-regex budget of 500 ms (`PER_REGEX_TIMEOUT_MS`) abandons runaway candidates and continues. These gates bound wall time but cannot preempt synchronous JS mid-evaluation — see layer 9.
+
+9. **Worker-isolated evaluation** (FIX-HANG-5, 29.–30.08): patterns the stricter `patternNeedsWorkerIsolation()` triage gate cannot cheaply PROVE safe are evaluated for the whole file inside an isolated `node:worker_threads` Worker — hard-killed via `worker.terminate()` after 2 s (`WORKER_KILL_MS = 2000`) if catastrophic backtracking is suspected; a killed file lands in `skipped_files` (reason "likely ReDoS-prone pattern") and the scan continues. Proven-safe patterns keep the inline fast path with zero overhead. This layer exists because no cooperative timer can preempt synchronous `RegExp.test()` on the main thread — only another thread can.
+
 **Transparency:** The `grep_files` tool returns a `patternMode: 'regex' | 'literal' | 'auto_escaped'` field indicating whether the pattern was matched as regex, escaped to literal text, or split into separate regexes for top-level alternation.  
 **Test Case:** `pattern="((a+)+)b"` → Treated as literal string; `pattern="(a|b)+"` → Accepted as valid regex; `pattern="validateImageFile\(|\.resolvedPath!|await validateImageFile"` → Split into 3 separate regexes tested independently
 

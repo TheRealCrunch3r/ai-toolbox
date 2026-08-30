@@ -6,6 +6,33 @@
 **Current release: v1.9.11** (`package.json` + `manifest.json`, revision 22) — contains the consolidated maintenance work of the v1.9.10 window: duplicate-tool-removal + grep_files log-level hotfixes (24.08), the OOM-hardening suite (web-fetch guards, search-fallback & HTTP-client caps, heap watchdog), the rag_web_content fix suite, the chunking fixed-point OOM termination (25.08), the StateManager B1/B2/B3 data-loss fixes (28.08), and REV-24 bare-& false-positive fix for `grep_files` (hotfix deployed via direct src-sync + full restart 28.08; installed copy runs from `src/`). **Version bumped v1.9.10 → v1.9.11 on 28.08 (~20:45)** — user-directed release decision supersedes the "no bump" policy of 25.08.
 
 ---
+## [30.08.2026 ~17:45] — `grep_files` completion telemetry (live-verified same day; closed counter audit + exonerated plugin in LM Studio freeze incident)
+
+**Change (`src/tools/fileSystemTools.ts`):** two per-call wall-clock lines added to the grep scan, both via `console.warn` → stderr — the ONLY channel LM Studio persists to `%APPDATA%\LM Studio\logs\main.log` (stdout is dropped), accepted cost: one `[error]`-tagged line per grep call.
+
+- Normal completion (~L2782): `[grep_files] completed in <N>ms — <filesScanned> file(s) scanned, <matches> match(es), <skipped> skipped` (appends `[ABORTED — partial results]` when the internal controller is set).
+- Abort catch path (~L2751): `[grep_files] aborted in <N>ms (host/timeout) … [partial results]`.
+
+**Why:** log forensics should be able to separate *scan time* from *model-generation time* per call — the "60 s+ grep waits" class of reports. Telemetry proved the engine fast (2–17 ms observed in production on 30.08) and localized perceived wait to LLM generation around sub-tenth-of-a-second tool calls + LM Studio host-side cancel behavior.
+
+**Verification (same day, post-rebuild/reload):** five consecutive production lines matched their JSON results exactly — `4ms/8 files/20 matches` · `2ms/0 scanned-1 skipped` (correct: size-skipped file never reaches the search gate) · `3ms/1/14` · `17ms/77/0/2 skipped` · `5ms/1/16`. Full counter audit closed: `filesScanned++` only after the size gate (~L2391) and line-cap gate (~L2452); skip-push sites L2376 (size) / L2444 (line cap) / L2469 (worker kill).
+
+**Incident context (same evening):** an LM Studio 0.4.23 app freeze at ~17:49 (prediction-loop stall on tool dispatch; `Canceling predictions timed out` unhandled rejection + engine SIGTERM; recurring 08-26→08-30) was root-caused as **host-side** — the orphaned call left zero trace in the plugin, and every call that reached the plugin logged correctly. Upstream issue draft: `LM_STUDIO_ISSUE_2026-08-30_prediction_loop_stall.md`.
+
+## [29.08.2026] — FIX-HANG-5: worker-isolated regex evaluation for ReDoS-prone patterns (+ 5b triage anchor fix, + 5c Node-worker API fix; offline-verified)
+
+**Problem (residual hang class after FIX-HANG-1..4):** a single catastrophic-backtracking `RegExp.test()` on the main thread blocks the event loop and starves EVERY timer — including the 15 s scan deadline, the 30 s fallback AND the 20 s wall-clock backstop. No cooperative gate can preempt synchronous JS; only another thread can.
+
+**Fixes (`src/tools/fileSystemTools.ts`):**
+- **New `patternNeedsWorkerIsolation()` triage gate:** STRICTER than `isSafeRegex` (which misses brace-bounded nested quantifiers, backreferences, deeply nested groups). Anything the gate cannot PROVE cheap is evaluated for that whole file inside a `node:worker_threads` Worker (single round-trip; hard-killed via `worker.terminate()` after `WORKER_KILL_MS = 2000 ms`). Safe patterns keep the inline fast path → zero overhead on the common case. Kill/failure ⇒ file recorded in `skipped_files`, scan continues.
+- **FIX-HANG-5b:** unanchored prefix test for brace quantifiers — the old `$`-anchored check let `((a+){3}){4}x` defeat triage (T1b double-freeze root cause). Any valid `{n[,m]}` on an unbounded `+/*` group body now routes to the worker at any position.
+- **FIX-HANG-5c:** worker source corrected from browser-Web-Worker API (`self.onmessage`) to Node contract (`parentPort` direct payload) — the old shape threw `self is not defined` at boot, so every risky pattern "crashed" and was misreported as a 2000 ms kill (zero regex work). Verified offline in this runtime: safe pattern returns exact indices; T1b-exact catastrophic payload hard-killed at 2000 ms.
+
+**Evidence:** probe artifacts + results archived to `docs/history/GATE_PROBE_EVIDENCE_fixhang5c.md` and `docs/history/FIXHANG5_REDOS_RESULTS.md` (code comments reference the new locations).
+
+---
+
+
 
 ## [28.08.2026 ~21:15] — Docs sync: README "Standout Tools" highlight + TOOLS_REFERENCE `grep_files` limits (docs-only, no code change)
 
