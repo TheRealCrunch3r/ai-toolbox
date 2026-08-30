@@ -198,6 +198,31 @@ async function saveMemoryFile(filePath: string, state: Map<string, StateEntry>):
       return result;
     });
 
+    // 🔹 FIX #25 (30.08): Preserve foreign (non-State) records on write-back — mirrors FIX #23 in ContextStorageManager.save().
+    // Previously this function encoded ONLY its own state map, so every debounced State save wiped all context-layer
+    // entries ({ id, type, title, content… }) from the shared file until a later CSM write. Proven live 30.08 ~15:30/~15:34
+    // (save_session_summary and save_memory flushes each erased a tracked event within seconds). The inverse of FIX #23's
+    // bug class, same shared file — both writers must now preserve the other writer's record shapes on write-back.
+    const preservedForeign: unknown[] = [];
+    try {
+      if (await fs.access(filePath).then(() => true).catch(() => false)) {
+        let existing: unknown;
+        try {
+          existing = decode(await fs.readFile(filePath));
+        } catch {
+          existing = null; // corrupted → nothing preservable (same drop semantics as loadMemoryFile)
+        }
+        if (Array.isArray(existing)) {
+          for (const r of existing) {
+            const isStateShape = !!r && typeof r === 'object' && !Array.isArray(r)
+              && typeof (r as { key?: unknown }).key === 'string'
+              && typeof (r as { timestamp?: unknown }).timestamp === 'number';
+            if (!isStateShape) preservedForeign.push(r); // context shape (or unknown legacy shape) — keep it
+          }
+        }
+      }
+    } catch { /* best-effort — a read error must never block the save */ }
+
     const dir = path.dirname(filePath);
     try {
       await fs.mkdir(dir, { recursive: true });
@@ -206,7 +231,9 @@ async function saveMemoryFile(filePath: string, state: Map<string, StateEntry>):
       return;
     }
 
-    const encodedData = encode(data);
+    // 🔹 FIX #25: encode state + preserved foreign records so the .backup.json mirror below reflects the real file contents.
+    const finalRecords = [...data, ...preservedForeign];
+    const encodedData = encode(finalRecords);
     
     // Use atomic write pattern: write to temp file, then rename.
     // On Windows, rename may fail due to file locks/antivirus — fall back to direct write.
@@ -217,7 +244,7 @@ async function saveMemoryFile(filePath: string, state: Map<string, StateEntry>):
       
       // Create JSON backup for manual inspection (best-effort)
       try {
-        await fs.writeFile(filePath + '.backup.json', JSON.stringify(data), 'utf-8');
+        await fs.writeFile(filePath + '.backup.json', JSON.stringify(finalRecords), 'utf-8'); // 🔹 FIX #25: mirror the REAL file contents (state + preserved foreign)
       } catch { /* Non-critical — skip if backup fails */ }
     } catch {
       // Fallback: write directly to the final path (non-atomic but reliable on Windows)

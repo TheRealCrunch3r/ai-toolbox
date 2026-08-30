@@ -140,7 +140,7 @@ export const ConfigSchema = z.object({
 
   // ── 🧠 CONTEXT GUARD SETTINGS ───────────────────────────────────
   contextGuardEnabled: z.boolean().default(true).describe('Enable ContextGuard token management and history compression'),
-  contextGuardTokenLimit: z.number().min(1000).max(200000).default(30000).describe('Token limit before history compression triggers (90% threshold)'),
+  contextGuardTokenLimit: z.number().min(1000).max(200000).default(30000).describe('Token limit before history compression triggers (at 90% of this value); if the active model reports a context window, that takes precedence'),
   contextGuardSmartReading: z.boolean().default(true).describe('Enable keyword-based smart file reading'),
   contextGuardSummaryModel: z.string().default('').describe('LM Studio model name for summarization (leave empty to use current chat model)'),
   contextGuardTerminalFilterEnabled: z.boolean().default(true).describe('Enable terminal output filtering'),
@@ -707,7 +707,7 @@ export const configSchematics = createConfigSchematics()
     displayName: '📊 Token Limit Before Compression',
     subtitle: '⚙️ ContextGuard Setting',
     min: 1000, max: 200000, int: true,
-    hint: 'Compression triggers at 90% of this limit. Higher = more context retained but slower responses.',
+    hint: 'Compression triggers at 90% of this limit. If LM Studio reports the active model\'s real context window, that value takes precedence over this setting.',
   }, DEFAULT_CONFIG.contextGuardTokenLimit)
 
   .field('contextGuardSmartReading', 'boolean', {

@@ -691,7 +691,16 @@ export async function preprocess(
       if (ctl.client && contextGuard.setLMClient) {
         contextGuard.setLMClient(ctl.client);
       }
-      
+
+      // Re-seed the user's configured token limit every turn. ContextGuard is constructed in index.ts
+      // WITHOUT config access, so this menu value was never applied — detection failures kept a stale
+      // startup constant (262144). Precedence: setTokenLimitFromModel() below still overrides with the
+      // model's real context window when it can be read from the SDK; otherwise the configured limit wins.
+      const menuTokenLimit = pluginConfig.get('contextGuardTokenLimit');
+      if (typeof menuTokenLimit === 'number' && Number.isFinite(menuTokenLimit) && menuTokenLimit > 0) {
+        contextGuard.updateConfig({ tokenLimit: menuTokenLimit });
+      }
+
       // Auto-detect the currently active model and get its ID for accurate token counting
       let activeModelId = '';
       

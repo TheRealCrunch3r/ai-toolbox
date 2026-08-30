@@ -161,9 +161,36 @@ export class ContextStorageManager {
       
       await this.ensureDirectory(filePath);
       
+      // 🔹 FIX #23 (30.08, shared-memory-file wipe class — 3rd occurrence): the .msgpack file is SHARED with
+      // StateManager records ({key,value,timestamp}: memory_*, session_summary_latest). load() filters to context
+      // entries only; the previous write-back persisted ONLY that filtered list and silently DELETED every foreign
+      // record — one track_important_event() wiped all facts + the latest summary (observed live 30.08 ~11:10, file
+      // reduced from 7 records to the single tracked event). Preserve any existing non-context record on write-back.
+      const preservedForeign: Array<Record<string, unknown>> = [];
+      if (await fs.access(filePath).then(() => true).catch(() => false)) {
+        try {
+          // 🔹 TS FIX (30.08): decode() is typed to return `unknown` in this @msgpack/msgpack version —
+          // validate the array shape explicitly instead of an invalid direct cast (same pattern as getStoreDiagnostics).
+          const records = decode(await fs.readFile(filePath));
+          if (!Array.isArray(records)) {
+            throw new Error('existing store is not a record array; refusing to overwrite uninspected data');
+          }
+          for (const r of records) {
+            if (!this.isContextEntry(r)) {
+              preservedForeign.push(r as Record<string, unknown>); // foreign shape (StateManager / legacy) — keep it
+            }
+          }
+        } catch (readErr) {
+          // Unreadable existing store: refuse to overwrite rather than risk deleting data we cannot inspect.
+          const message = readErr instanceof Error ? readErr.message : String(readErr);
+          console.error(`[ContextStorage.save] Refusing to save — existing file could not be parsed (${message}). Aborting write to prevent data loss.`);
+          return;
+        }
+      }
+
       // Write atomically (temp file + rename) — ASYNC ===
       const tempPath = filePath + '.tmp';
-      const encoded = encode(entries);  // Encode to msgpack Buffer
+      const encoded = encode([...entries, ...preservedForeign]);  // context entries + preserved foreign records
       await fs.writeFile(tempPath, encoded);  // ASYNC write (Buffer format)
       await fs.rename(tempPath, filePath);  // ASYNC rename
       
@@ -672,14 +699,15 @@ export class SessionIndexManager {
       console.warn(`[SessionIndex.load] Failed to load from Working Dir: ${String(error)}`);
     }
 
-    // Fallback to plugin root
+    // Fallback to plugin root — 🔹 FIX #24 (30.08): LEGACY READ-ONLY. save() no longer writes a mirror there,
+    // so this only surfaces pre-existing legacy mirrors from installs predating the fix; never a write target again.
     try {
       if (await fs.access(this.pluginRootPath).then(() => true).catch(() => false)) {
         const raw = await fs.readFile(this.pluginRootPath, 'utf-8');
         const parsed: unknown = JSON.parse(raw);
         if (!validateSessionIndexData(parsed)) throw new Error('Invalid session index format');
         const data: SessionIndexData = parsed;
-        console.log(`[SessionIndex.load] Loaded ${data.sessions.length} sessions from Plugin Root.`);
+        console.log(`[SessionIndex.load] Loaded ${data.sessions.length} sessions from Plugin Root (legacy read-only).`);
         return data;
       }
     } catch (error) {
@@ -690,28 +718,21 @@ export class SessionIndexManager {
     return null;
   }
 
-  /** Save session index to disk */
+  /** Save session index to disk — WORKING DIR ONLY.
+   * 🔹 FIX #24 (30.08, user decision 'b'): the best-effort plugin-root sync was REMOVED on purpose —
+   * sessions.json contains user text (task descriptions) and must NEVER be written into the plugin/install
+   * directory (guarantee requested after the 26./27./30.08 wipe incidents). The index now lives solely at
+   * <wd>/.session_context/sessions.json. Consequence (accepted): after a working-dir wipe, indexed history is
+   * lost — recovery for that case belongs to WD-local snapshots (.backup.json class), not plugin-dir mirrors. */
   async save(data: SessionIndexData): Promise<void> {
-    const filePath = this.workingDirPath; // Primary: working dir
-    
+    const filePath = this.workingDirPath; // Working dir ONLY (no plugin-root sync since FIX #24)
+
     await this.ensureDirectory(filePath);
-    
+
     const json = JSON.stringify(data, null, 2);
     const tempPath = filePath + '.tmp';
     await fs.writeFile(tempPath, json, 'utf-8');
     await fs.rename(tempPath, filePath);
-    
-    // Sync to plugin root as well (best-effort)
-    if (this.pluginRootPath !== this.workingDirPath) {
-      try {
-        await this.ensureDirectory(this.pluginRootPath);
-        const pluginTemp = this.pluginRootPath + '.tmp';
-        await fs.writeFile(pluginTemp, json, 'utf-8');
-        await fs.rename(pluginTemp, this.pluginRootPath);
-      } catch (syncError) {
-        console.error(`[SessionIndex.save] Failed to sync to plugin root: ${String(syncError)}`);
-      }
-    }
   }
 
   /** Add a session entry to the index */
