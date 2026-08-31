@@ -1,3 +1,15 @@
+### [v1.9.12] — 31.08.2026: New `pattern_scan` tool + puppeteer `connected` fix + dead-file removal
+
+**Ships three code changes from the post-v1.9.11 (28.08) window, plus a full MD docs sync against current code.**
+
+- **New `pattern_scan` tool** (`src/tools/fileSystemTools.ts`; clean-room engine `src/tools/patternScan.ts`) — recursive content search `{file, line, content}`; unsafe/invalid regexes auto-demote to literal mode (`demotedToLiteral`); caps: 256 KB / 10k lines per file (skips reported), 50 matches/file, global 200; single-file or directory root. Jest mock + mapper added; full suite green **657/657** (user-verified); live probe on the running plugin passed incl. dist-bundle stress test.
+- **Puppeteer `connected` property-read fix** (`browserAutomationTools.ts` + `types.d.ts`) — puppeteer 24 exposes `Browser.connected` as a getter property, not a method; d.ts now declares `readonly connected: boolean`. Live probe passed (screenshot PNG magic-verified).
+- **Dead file removed**: orphaned root-level `src/browserAutomationTools.ts` deleted behind backup `.ai_toolbox_backups/ai_toolbox-pre-deadfile-delete-20260831.zip`; seven stale `.bak` files cleaned, re-verified zero. Typecheck + jest green post-deletion (user-confirmed).
+- **Docs sync**: `ARCHITECTURE.md`, `TOOLS_REFERENCE.md`, `DOCUMENTATION.md`, `QUICK_START.md` aligned with code — `pattern_scan` documented, File System 22→23 tools, unique totals 130→131, Git & GitHub table corrected to 15 (code-verified), dead-file reference removed, `screenshot_desktop` write lines re-attributed to `imageProcessingTools.ts` (external platform process writes the file — no Node-side atomic write there). `.bak` backups created for every edited MD.
+- **README.md sync (31.08):** File System count 22→23 (+ `pattern_scan`) and test-bench figure updated to 657 tests / 38 suites — completes the MD alignment; version badge + release-highlights row now read v1.9.12
+
+**Versioning:** released as **v1.9.12** — `package.json` + `manifest.json` bumped v1.9.11 → v1.9.12 on 31.08 (user-directed); manifest `revision` advanced 22 → 23 so LM Studio detects the update. *(The "folds into next release" framing in this entry was written pre-decision and is superseded by this line.)*
+
 ### [28.08.2026 ~21:15] — Documentation Sync: README Standout Tools + TOOLS_REFERENCE `grep_files` limits (docs-only, folds into v1.9.11)
 
 **Added a "🏆 Standout Tools" highlight table to `README.md` directly under the 130-tools hero block**, plus corrected `TOOLS_REFERENCE.md` so its `grep_files` entry matches the current tool contract.

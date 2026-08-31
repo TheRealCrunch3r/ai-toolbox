@@ -4,7 +4,7 @@
 
 **120+ ready-made tools — one plugin, zero glue code.**
 
-> `v1.9.11` · `24 modules` · `MIT` · `Node 20+` · `600+ tests green`
+> `v1.9.12` · `24 modules` · `MIT` · `Node 20+` · `600+ tests green`
 
 ---
 
@@ -40,7 +40,7 @@ The closest direct competitor on the Hub: same job (tools for local LLMs), very 
 | ✅ **AST-level refactoring** (rename, move functions, dead-import cleanup) — syntax-safe transforms with auto-rollback, not string edits |
 | ✅ **Real RAG:** vector index over PDF / DOCX / XLSX with page-level provenance — not just keyword search |
 | ✅ **Image & data viz:** OCR, vision-model image analysis, chart generation |
-| ✅ **120+ tools** vs ~49 — backed by 628 tests across 36 suites (~12× the test bench) |
+| ✅ **120+ tools** vs ~49 — backed by 657 tests across 38 suites (~12× the test bench) |
 | ✅ **Crash-resilient writes + rollback on failure:** a botched edit can never corrupt your file |
 
 And one honest note: their i18n covers 4 languages, we cover 2 — that's the gap we're closing first. We'd rather tell you than pretend it doesn't exist.
@@ -136,7 +136,7 @@ One plugin replaces an entire shelf. Here's every family, what it covers, and it
 
 | Family | Count | What it gives your agent | Default |
 |---|---|---|---|
-| 📁 **File System** | 22 | Read/write/edit/search — path-validated, backed up, chunked reads on huge files, diffs, project trees, unbounded-feel (but deadline-capped) search | ✅ |
+| 📁 **File System** | 23 | Read/write/edit/search — path-validated, backed up, chunked reads on huge files, diffs, project trees, unbounded-feel (but deadline-capped) search + structured content scanning (`pattern_scan`) | ✅ |
 | 🧬 **Refactoring & Recode engine** | `refactor_code` + rules | AST rename · move-function · extract · dead-import cleanup — plus a pluggable rule engine (dead-code hints, type inference, async modernizer) with dry-run diffs | ✅ |
 | 🔍 **Text Processing** | 4 | Regex transforms (`sed`-class), structured extraction (`awk`-class), line surgery with fingerprint guards, instant Markdown tables | ✅ |
 | 📋 **Task Planning** | 3 | Goal + step plans through a real state machine with live completion metrics — blocked steps retry cleanly | ✅ |
@@ -166,6 +166,7 @@ One plugin replaces an entire shelf. Here's every family, what it covers, and it
 
 | Version | Headline |
 |---|---|
+| **v1.9.12** | 🆕 `pattern_scan` recursive content search (unsafe regex auto-demotes to literal; 256 KB / 10k-line hard caps) · puppeteer `connected` property-read fix · dead-file removal — full MD docs sync |
 | **v1.9.10** | 🔧 OOM-hardening suite: bounded web/RAG reads, chunking fixed-point termination, `rag_web_content` dedup — plugin-host heap is now safe under poison payloads |
 | **v1.9.9** | ⏱️ Deadline-capped `grep_files` (partial results + `aborted` flag) · AutoTracker token deltas fire thresholds *inside* long tool chains · live `chat used ≈ N tok` DELTA log |
 | **v1.9.8** | 🔒 Explicit project registration only · hang prevention (`max_depth`, line caps) · Step-0.7 keyword detection + lazy registry sync kills the "project not found" loop |

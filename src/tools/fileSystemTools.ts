@@ -12,6 +12,7 @@ import { validatePath, isSafeRegex } from '../security.js';
 // FIX-HANG-5: worker_threads TYPES only (type-only import = zero runtime cost; the value is still lazy-required at call time).
 import type * as workerThreads from 'worker_threads';
 import { recordFileModification } from './fileModTracker.js';
+import { patternScan } from './patternScan.js';
 import { getWorkingDir, setWorkingDir, resolvePath } from '../workingDir.js';
 import {
   levenshteinSimilarity,
@@ -3405,5 +3406,80 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
     },
   }));
 
-  return tools;
+    // pattern_scan tool — standalone recursive content search with ReDoS gate + resource caps
+  tools.push(tool({
+    name: 'pattern_scan',
+    description: `Recursively search file contents under a directory (or within a single file) for a pattern, returning matching lines as {file, line, content}.
+
+Differences vs grep_files: fails fast on unsafe or syntactically invalid regexes by auto-demoting to literal mode (reported via demotedToLiteral), fully async with bounded concurrency, hard per-file and total match caps (stats.truncated when hit), explicit skipped[] reporting for oversized/line-capped/binary files, deterministic ordering (file, then line).
+Directories node_modules/.git/dist/build/out/.next/.nuxt/__pycache__/.venv/coverage are always pruned. Relative roots resolve against the current working directory.`,
+    parameters: {
+      pattern: z.string().min(1).describe('Non-empty search pattern (regex by default; use mode "literal" for plain text)'),
+      root: z.string().optional().describe('Directory or single file to scan (default: current working directory); relative paths resolve against the working directory'),
+      mode: z.enum(['regex', 'literal']).optional().describe('Pattern interpretation. Default "regex"; unsafe/invalid regexes are auto-demoted to literal and reported via demotedToLiteral'),
+      caseSensitive: z.boolean().optional().describe('Case-sensitive matching (default true)'),
+      includeGlobs: z.array(z.string()).optional().describe('Directory mode only — glob patterns of files to scan, e.g. ["*.ts", "src/**/*.md"] (matched against relative path and basename)'),
+      excludeGlobs: z.array(z.string()).optional().describe('Glob patterns for files/dirs to exclude; a matching directory is pruned whole'),
+      maxDepth: z.number().int().min(1).max(50).optional().describe('Max directory depth below root (default 10)'),
+      maxFileSizeBytes: z.number().int().min(1024).optional().describe('Skip files larger than this many bytes, reported in skipped[] (default 262144)'),
+      maxFileLines: z.number().int().min(100).max(50000).optional().describe('Stop scanning a file after this many lines; longer files reported as line-cap skips (default 10000)'),
+      maxMatchesPerFile: z.number().int().min(1).max(2000).optional().describe('Max matches kept per single file (default 50)'),
+      maxTotalMatches: z.number().int().min(1).max(5000).optional().describe('Global cap on returned matches; stats.truncated is true when hit (default 200)'),
+      matchLineLength: z.number().int().min(10).max(2000).optional().describe('Truncate matched line content beyond this many chars with an ellipsis (default 300)'),
+      concurrency: z.number().int().min(1).max(16).optional().describe('Files read in parallel, clamped to 1-16 (default 4)'),
+    },
+    implementation: async ({ pattern, root, mode, caseSensitive, includeGlobs, excludeGlobs, maxDepth, maxFileSizeBytes, maxFileLines, maxMatchesPerFile, maxTotalMatches, matchLineLength, concurrency }: {
+      pattern: string;
+      root?: string;
+      mode?: 'regex' | 'literal';
+      caseSensitive?: boolean;
+      includeGlobs?: string[];
+      excludeGlobs?: string[];
+      maxDepth?: number;
+      maxFileSizeBytes?: number;
+      maxFileLines?: number;
+      maxMatchesPerFile?: number;
+      maxTotalMatches?: number;
+      matchLineLength?: number;
+      concurrency?: number;
+    }) => {
+      // patternScan resolves relative roots against process.cwd() — bridge to the plugin working dir.
+      const effectiveRoot = root ? resolvePath(root) : getWorkingDir();
+      try {
+        const result = await patternScan({
+          pattern,
+          root: effectiveRoot,
+          mode,
+          caseSensitive,
+          includeGlobs,
+          excludeGlobs,
+          maxDepth,
+          maxFileSizeBytes,
+          maxFileLines,
+          maxMatchesPerFile,
+          maxTotalMatches,
+          matchLineLength,
+          concurrency,
+        });
+        if (!result.ok) {
+          return { success: false as const, error: result.error ?? 'pattern_scan failed' };
+        }
+        return {
+          success: true as const,
+          data: {
+            matches: result.matches,
+            skipped: result.skipped,
+            excluded_dirs: result.excludedDirs,
+            stats: result.stats,
+            ...(result.demotedToLiteral ? { demoted_to_literal: result.demotedToLiteral } : {}),
+          },
+        };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return { success: false as const, error: `pattern_scan failed: ${message}` };
+      }
+    },
+  }));
+
+return tools;
 }

@@ -141,7 +141,7 @@ createToolsProvider(config, stateManager, bgCommandManager)
             │   ├── Single for...of loop iterates all entries
             │   └── Config key gating + GOD MODE bypass
             │
-            ├── registerFileSystemTools()      ──► 22 tools (enabled by default)
+            ├── registerFileSystemTools()      ──► 23 tools (enabled by default, incl. pattern_scan)
             ├── registerWebResearchTools()     ──► 3 tools (enabled by default)
             ├── registerGitTools()             ──► 15 tools (disabled by default)
             ├── registerBrowserTools()         ──► 5 tools (disabled by default)
@@ -158,7 +158,7 @@ createToolsProvider(config, stateManager, bgCommandManager)
             ├── registerExecutionTools()       ──► 5 tools (mixed defaults)
             │
             ▼
-        Return Tool[] to SDK ──► **130 unique tools** registered across 24 modules (configurable per user)
+        Return Tool[] to SDK ──► **131 unique tools** registered across 24 modules (configurable per user)
 ```
 
 ### ✅ Gateway Pattern Status (v1.8.2+) — ⚠️ ABANDONED
@@ -1015,9 +1015,8 @@ index.ts
 │       ├── workingDir.ts (shared)
 │       └── performanceUtils.ts (shared)
 ├── config.ts
-├── promptPreprocessor.ts
-│   └── config.ts
-└── browserAutomationTools.ts (for cleanup)
+└── promptPreprocessor.ts
+    └── config.ts
 ```
 
 ### Circular Dependency Prevention
@@ -1078,7 +1077,8 @@ src/
 │   ├── zh-CN.ts
 │   └── zh-TW.ts
 ├── tools/                      # Tool category modules (30 source files)
-│   ├── fileSystemTools.ts      # File system operations (22 tools — REGISTERED)
+│   ├── fileSystemTools.ts      # File system operations (23 tools — REGISTERED, incl. pattern_scan)
+│   ├── patternScan.ts          # pattern_scan search engine (clean-room module, ReDoS-gated; tool registered in fileSystemTools.ts)
 │   ├── webResearchTools.ts     # Web research & search (3 tools — REGISTERED; rag_web_content served by vectorRagTools.ts since v1.9.10)
 │   ├── browserAutomationTools.ts # Browser automation (5 tools — REGISTERED)
 │   ├── gitGithubTools.ts       # Git local ops + GitHub API (15 tools — REGISTERED)
@@ -1123,7 +1123,7 @@ tests/                          # Jest test suite (25 suites)
 ├── security.edge-cases.test.ts # Security boundary & edge case testing
 ├── config.test.ts              # Zod schema + UI schematics validation
 ├── stateManager.test.ts        # Persistence, path resolution, atomic writes
-├── fileSystemTools.test.ts     # File system operation tests (22 tools)
+├── fileSystemTools.test.ts     # File system operation tests (23 tools, incl. pattern_scan)
 ├── webResearchTools.test.ts    # Multi-engine search & fetch tests
 ├── browserAutomationTools.test.ts # Puppeteer session management tests
 ├── gitGithubTools.test.ts      # Git local ops + GitHub API tests
@@ -1197,10 +1197,10 @@ All tool categories are now fully registered in `toolsProvider.ts` using the dec
 
 | Category | File(s) | Tool Count | Registered? | Default State |
 |----------|---------|------------|-------------|---------------|
-| File System | fileSystemTools.ts | 22 | ✅ Yes | Enabled |
+| File System | fileSystemTools.ts (+ patternScan.ts engine) | 23 | ✅ Yes | Enabled |
 | Web Research | webResearchTools.ts | 3 | ✅ Yes | Enabled (rag_web_content under Vector RAG since v1.9.10) |
 | Browser Automation | browserAutomationTools.ts | 5 | ✅ Yes | Disabled |
-| Git & GitHub | gitGithubTools.ts | 14 | ✅ Yes | Disabled |
+| Git & GitHub | gitGithubTools.ts | 15 | ✅ Yes | Disabled |
 | Database | databaseTools.ts | 1 | ✅ Yes | Disabled |
 | Document Parsing | documentTools.ts | 1 | ✅ Yes | Enabled |
 | Background Commands | backgroundCommandTools.ts | 3 | ✅ Yes | Disabled |
@@ -1217,7 +1217,7 @@ All tool categories are now fully registered in `toolsProvider.ts` using the dec
 | Line Operations | lineOperations.ts | 1 | ✅ Yes | Utility toggle |
 | Markdown Preview | markdownPreviewTools.ts | 1 | ✅ Yes | Utility toggle |
 | Task Planning | taskPlanningTools.ts | 3 | ✅ Yes | Enabled (default) |
-| **Total Registered** | | **130 unique tools** (24 modules) | | |
+| **Total Registered** | | **131 unique tools** (24 modules) | | |
 
 > **Note**: All previously "unregistered" utility tool categories (backup, data visualization, line operations, markdown preview) are now properly registered in `toolsProvider.ts` under the `utility` config key. The former gateway file (`gatewayTools.ts`) has been removed from the codebase (v1.9.10 session, 24.08) — direct SDK registration with schema minification handles grammar parser compatibility.
 
@@ -1460,7 +1460,7 @@ function createSemanticNode(id: string, data: unknown, label?: string): ContextN
 export type PriorityTier = 'critical' | 'high' | 'standard' | 'optional' | 'background';
 
 const PRIORITY_TIER_VALUES: Record<PriorityTier, number> = {
-  critical: 1,      // File system tools (22 tools — core workflow)
+  critical: 1,      // File system tools (23 tools — core workflow)
   high: 2,          // Web research, execution, git operations (30+ tools — essential workflows)
   standard: 3,      // Browser automation, image processing, RAG, HTTP client (25+ tools — useful but not essential)
   optional: 4,      // Context management tools (12 tools — specialized or low-usage)
@@ -1699,9 +1699,9 @@ All previously synchronous file-write tools converted to async with shared `atom
 | `refactorCodeTools.ts` | rename_identifier, move_function, extract_function, unused_import_cleanup | async → atomicWrite + .bak backup | ✅ Yes |
 | `utilityTools.ts` | ~25 tools (backup, chart, etc.) | All async → atomicWrite | No |
 | `dataVisualizationTools.ts` | generate_chart | async → atomicWriteBinaryFile | No |
-| `imageProcessingTools.ts` | describe_image, compare_images saves | async → atomicWriteBinaryFile | No |
+| `imageProcessingTools.ts` | attachment temp-file materialization (`resolveAttachmentFile`) | async → atomicWriteBinaryFile | No |
 | `markdownPreviewTools.ts` | markdown_preview HTML save | async → atomicWrite | No |
-| `browserAutomationTools.ts` | screenshot_desktop PNG save | async → atomicWriteBinaryFile | No |
+| `imageProcessingTools.ts` | screenshot_desktop PNG/JPEG save | written directly by the external platform process (PowerShell/screencapture/gnome-screenshot) — no Node-side write | n/a |
 | `uiGenerationTools.ts` | UI component saves | async → atomicWrite | No |
 | `recodeEngine.ts` (recodeTool/) | AST transformation output | async → atomicWrite + .bak backup | ✅ Yes |
 

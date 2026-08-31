@@ -1,20 +1,15 @@
 {
   "index_version": "1.0",
-  "created_at": "2026-08-16T20:27:46.369Z",
-  "last_updated": "2026-08-16T20:27:46.369Z",
+  "created_at": "2026-08-31T20:14:27.071Z",
+  "last_updated": "2026-08-31T20:14:27.071Z",
   "projects": {
     "ai_toolbox": {
       "path": "C:\\Source Code\\LM Studio Plugins\\ai_toolbox",
-      "last_session_saved": 1786912066369,
+      "last_session_saved": 1788207267071,
       "status": "active"
     },
     "troglodyte": {
       "path": "C:\\Source Code\\LM Studio Plugins\\troglodyte",
-      "last_session_saved": null,
-      "status": "registered"
-    },
-    "dir": {
-      "path": "/test/working/dir",
       "last_session_saved": null,
       "status": "registered"
     }

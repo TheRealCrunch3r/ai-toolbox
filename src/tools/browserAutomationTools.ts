@@ -37,7 +37,7 @@ class BrowserSessionManager {
 
   /** Get or create a persistent Puppeteer browser instance with auto-retry */
   async getBrowser(): Promise<Puppeteer.Browser> {
-    if (!this.browserInstance || !this.browserInstance.connected()) {
+    if (!this.browserInstance || !this.browserInstance.connected) {
       this.retryCount = 0;
       while (this.retryCount < this.MAX_RETRIES) {
         try {
@@ -109,7 +109,7 @@ class BrowserSessionManager {
   async dispose(): Promise<void> {
     if (this.cleanupTimer) clearTimeout(this.cleanupTimer);
     try {
-      if (this.browserInstance && this.browserInstance.connected()) {
+      if (this.browserInstance && this.browserInstance.connected) {
         // eslint-disable-next-line @typescript-eslint/await-thenable
         await this.browserInstance.close();
       }
@@ -125,7 +125,7 @@ class BrowserSessionManager {
 
   /** Check if browser is connected */
   isConnected(): boolean {
-    return !!(this.browserInstance && this.browserInstance.connected());
+    return !!(this.browserInstance && this.browserInstance.connected);
   }
 
   /** Get the current page (public accessor) */

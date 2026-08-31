@@ -1,16 +1,16 @@
 # Documentation Update Summary — AI Toolbox Plugin
 
 **Date**: 2026-08-19  
-**Version**: v1.9.11  
+**Version**: v1.9.12  
 **Status**: ✅ Complete
 
 ---
 
-## 📋 Version Status Overview (v1.9.11 — released 28.08; contents = v1.9.10 maintenance window + REV-24 grep_files fix, see CHANGELOG_v2.md)
+## 📋 Version Status Overview (v1.9.12 — released 31.08: `pattern_scan` tool + puppeteer `connected` property-read fix + dead-file removal; previous release v1.9.11 on 28.08, see CHANGELOG_v2.md)
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| **Tool Count** | ✅ 24 tool modules (130 unique tools) | All registered via declarative pattern (v1.8.2+) |
+| **Tool Count** | ✅ 24 tool modules (131 unique tools, incl. v1.9.12 `pattern_scan`) | All registered via declarative pattern (v1.8.2+) |
 | **Context Management** | ✅ Scoping + Heuristic Scoring + TTL Pruning | v1.9.1+ improvements active |
 | **Token Counting** | ✅ Native History API × 0.24 ratio | Matches LM Studio sidebar <0.3% deviation |
 | **Graphify Intelligence Suite** | ✅ Fully Implemented (v1.9.5) | Confidence tags, hub-exclusion clustering, project auto-detection, tier provenance, cluster-aware priority |
@@ -339,7 +339,7 @@ All dangerous tool categories are **disabled by default**:
 
 | File | Changes Made |
 |------|-------------|
-| `README.md` | Up-to-date (v1.9.8 release history, 130 unique tools across 24 modules) |
+| `README.md` | Up-to-date (v1.9.x release history incl. v1.9.12; 131 unique tools across 24 modules) |
 | `ARCHITECTURE.md` | Gateway Pattern marked as ABANDONED; tool counts corrected to 20 modules |
 | `TOOLS_REFERENCE.md` | Up-to-date (~132 tools documented) |
 | `DOCUMENTATION.md` | Deprecated features clearly marked; tool count corrections applied |

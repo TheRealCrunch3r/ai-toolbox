@@ -27,7 +27,7 @@ declare module 'puppeteer' {
   interface Browser {
     newPage(): Promise<Page>;
     close(): void;
-    connected(): boolean;
+    readonly connected: boolean; // v24: getter property, NOT a method — matches installed puppeteer 24.43.1 runtime shape
   }
   
   interface Page {

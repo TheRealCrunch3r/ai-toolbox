@@ -1,6 +1,6 @@
 # 🛠️ AI Toolbox — Complete Tool Reference
 
-*Updated to reflect current state: **~135 registered tools (~130 unique)** dynamically registered across 24 tool modules (v1.9.11, released 28.08; per-module counts audited against `src/tools/*.ts` definitions + `toolsProvider.ts` registry on 28.08 — 5 memory/session names are shared between the utility and context-management registrations). Includes the Graphify-Inspired Suite (v1.9.5) — Confidence-Tagged Results, Hub-Exclusion Clustering, Project Auto-Detection, Context Tier Provenance, Cluster-Aware Tool Priority — plus v1.9.7 crash-resilient atomic writes, v1.9.8 hang prevention & registry sync, and v1.9.9 grep_files hard limits + mid-loop token deltas.*
+*Updated to reflect current state: **~136 registered tools (~131 unique)** dynamically registered across 24 tool modules (v1.9.12, released 31.08; per-module counts audited against `src/tools/*.ts` definitions + `toolsProvider.ts` registry on 28.08 — 5 memory/session names are shared between the utility and context-management registrations). Includes the Graphify-Inspired Suite (v1.9.5) — Confidence-Tagged Results, Hub-Exclusion Clustering, Project Auto-Detection, Context Tier Provenance, Cluster-Aware Tool Priority — plus v1.9.7 crash-resilient atomic writes, v1.9.8 hang prevention & registry sync, and v1.9.9 grep_files hard limits + mid-loop token deltas, plus the `pattern_scan` search tool (v1.9.12, 30.–31.08).*
 
 ---
 
@@ -8,7 +8,7 @@
 
 | Category | Count | Default State | Status |
 |----------|-------|---------------|--------|
-| File System | 22 | ✅ Enabled | Active |
+| File System | 23 | ✅ Enabled | Active | (+ `pattern_scan`)
 | Code Refactoring | 1 | ✅ Enabled | Active |
 | Web Research | 3 | ✅ Enabled | Active | (+ `rag_web_content` served by Vector RAG)
 | Browser Automation | 5 | ❌ Disabled | Active |
@@ -77,7 +77,7 @@ await fs.rename(tempFile, originalPath);          // Atomic rename (survives cra
 #### Key Features
 - ✅ **Randomized temp filenames**: `crypto.randomBytes(9)` (72-bit entropy) — collision probability ~1/2^72 even under rapid concurrent writes
 - ✅ **Crash resilience**: Original file remains intact if process terminates mid-write; orphaned temp files don't corrupt data
-- ✅ **Binary support**: `atomicWriteBinaryFile()` uses raw buffer writes for image processing, chart generation, screenshots — no encoding corruption
+- ✅ **Binary support**: `atomicWriteBinaryFile()` uses raw buffer writes for image attachment temp files and chart generation — no encoding corruption
 - ✅ **Rollback-on-failure**: `refactorCodeTools` and `recodeEngine` automatically restore from `.bak` backup if atomic write fails during AST transformations
 
 #### Converted Modules (v1.9.7)
@@ -88,9 +88,9 @@ All 9 modules converted from sync writes to async atomic pattern:
 | `refactorCodeTools.ts` | rename_identifier, move_function, extract_function, unused_import_cleanup | async → atomicWrite + rollback-on-failure |
 | `utilityTools.ts` | ~25 tools (backup, chart, etc.) | All async → atomicWrite |
 | `dataVisualizationTools.ts` | generate_chart | async → atomicWriteBinaryFile |
-| `imageProcessingTools.ts` | describe_image, compare_images saves | async → atomicWriteBinaryFile |
+| `imageProcessingTools.ts` | attachment temp-file materialization (`resolveAttachmentFile`) | async → atomicWriteBinaryFile |
 | `markdownPreviewTools.ts` | markdown_preview HTML save | async → atomicWrite |
-| `browserAutomationTools.ts` | screenshot_desktop PNG save | async → atomicWriteBinaryFile |
+| `imageProcessingTools.ts` | screenshot_desktop PNG/JPEG save | external platform process writes the file directly — no Node-side write |
 | `uiGenerationTools.ts` | UI component saves | async → atomicWrite |
 | `recodeEngine.ts` (recodeTool/) | AST transformation output | async → atomicWrite + rollback-on-failure |
 
@@ -110,6 +110,7 @@ All 9 modules converted from sync writes to async atomic pattern:
 | `directory_tree` | Visualize directory structure in tree format; supports max depth, optional file sizes, automatic exclusion of large directories |
 | `grep_files` | Regex or AST pattern search across files; ReDoS-validated patterns with **escape-aware** top-level alternation splitting, include/exclude globs, context lines; hard limits: 15 s total scan deadline (`GREP_SCAN_DEADLINE_MS`) → partial results + `aborted` flag, regex mode skips lines >20k chars (`MAX_LINE_CHARS_REGEX_MODE`), per-regex budget 500 ms with abandon-and-continue (`PER_REGEX_TIMEOUT_MS`), single-file backstop via `Promise.race` at deadline+5 s (v1.9.9); **`max_depth`** parameter (default 10, range 1–50) + per-file line cap configurable via `max_lines` (default `MAX_LINES_PER_FILE=5000`, over-cap files reported in `skipped_files`) + per-file size gate via `max_file_size` (default 100 KB — oversize files reported in `skipped_files`, never scanned) (v1.9.8+); **FIX-HANG-5** (29.–30.08, post-v1.9.11): patterns the stricter `patternNeedsWorkerIsolation()` triage gate cannot cheaply PROVE safe are regex-evaluated for the whole file inside an isolated `node:worker_threads` Worker — hard-killed via `worker.terminate()` after 2 s (`WORKER_KILL_MS=2000`) if suspected catastrophic backtracking; a kill lands that file in `skipped_files` (reason "likely ReDoS-prone pattern") and the scan continues, while proven-safe patterns keep the inline fast path with zero overhead |
 | `find_replace_all` | Regex search & replace across multiple files with dry-run preview, `.bak` backups, file-extension filter; **`max_depth`** enforcement (default 10, range 1–50) + `MAX_LINES_PER_FILE=5000` hang prevention (v1.9.8+) |
+| `pattern_scan` | Recursive content search returning matching lines as `{file, line, content}` (post-v1.9.11, 30.–31.08 — engine in clean-room module `src/tools/patternScan.ts`, tool registered in `fileSystemTools.ts`). Regex by default; unsafe or syntactically invalid regexes fail fast and are **auto-demoted to literal mode** (reported via `demoted_to_literal`), unlike grep_files which force-escapes with a hint. Fully async with bounded concurrency (`concurrency` 1–16, default 4). Resource caps: per-file size gate `maxFileSizeBytes` (default **256 KB**), line-cap gate `maxFileLines` (default **10,000**) — oversize/over-line files reported in `skipped[]`, never scanned; per-file match cap `maxMatchesPerFile` (default 50); global cap `maxTotalMatches` (default 200) with `stats.truncated=true` when hit. Options: `root` (directory **or single file**, relative paths resolve against the plugin working directory), `mode` (`regex`/`literal`), `caseSensitive` (default true), `includeGlobs`/`excludeGlobs` (a matching exclude dir is pruned whole), `maxDepth` (1–50, default 10), `matchLineLength` truncation (default 300 chars + ellipsis). Directories `node_modules`, `.git`, `dist`, `build`, `out`, `.next`, `.nuxt`, `__pycache__`, `.venv`, `coverage` are always pruned |
 
 > **REV-24 (28.08, v1.9.10):** Prose alternations with a bare `&` (e.g. `"Backup & Restore|Git & GitHub"`) now correctly stay in **regex mode** — `&` is not a JS regex metacharacter and no longer false-positives the code-signature heuristic. Genuine code-signature patterns are still auto-escaped to literal only when an unescaped `*`, `+` or `?` pairs with a signature indicator; the response then carries `patternMode:"auto_escaped"` **with a hint string** explaining why (no more silent 0-match fallback).
 
