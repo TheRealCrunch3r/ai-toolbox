@@ -3,9 +3,104 @@
 > **This file supersedes `CHANGELOG.md`.** The old changelog is preserved as archived history only.
 > New entries are added at the top of this file. Details below were compiled from verified session records and bundle-level verification (`dist/index.js` + `index.mjs` are unminified, so shipped content was confirmed byte-exact).
 
-**Current release: v1.9.12** (`package.json` + `manifest.json`, revision 23; bumped 31.08): `pattern_scan` tool + puppeteer `connected` fix + dead-file removal (entry below). **Previous release v1.9.11** (revision 22) — contained the consolidated maintenance work of the v1.9.10 window: duplicate-tool-removal + grep_files log-level hotfixes (24.08), the OOM-hardening suite (web-fetch guards, search-fallback & HTTP-client caps, heap watchdog), the rag_web_content fix suite, the chunking fixed-point OOM termination (25.08), the StateManager B1/B2/B3 data-loss fixes (28.08), and REV-24 bare-& false-positive fix for `grep_files` (hotfix deployed via direct src-sync + full restart 28.08; installed copy runs from `src/`). **Version bumped v1.9.10 → v1.9.11 on 28.08 (~20:45)** — user-directed release decision supersedes the "no bump" policy of 25.08.
+**Current release: v1.9.15** (`package.json` + `manifest.json`, revision 26; bumped 02.09): `pattern_scan` ripgrep phase-1 candidate prefilter (B', Option A port from grep_files v1.9.13+) with guaranteed full-JS fallback. **Previous release v1.9.14** (`package.json` + `manifest.json`, revision 25; bumped 02.09): `get_memory` local-file parse guard — mixed-shape memory file no longer aborts the PRIORITY-1 read (top entry). **Previous release v1.9.13** (revision 24, bumped 02.09): `grep_files` ripgrep-backed regex engine with JS fallback. **Previous release v1.9.12** (revision 23, bumped 31.08): `pattern_scan` tool + puppeteer `connected` fix + dead-file removal (entry below). **Previous release v1.9.11** (revision 22) — contained the consolidated maintenance work of the v1.9.10 window: duplicate-tool-removal + grep_files log-level hotfixes (24.08), the OOM-hardening suite (web-fetch guards, search-fallback & HTTP-client caps, heap watchdog), the rag_web_content fix suite, the chunking fixed-point OOM termination (25.08), the StateManager B1/B2/B3 data-loss fixes (28.08), and REV-24 bare-& false-positive fix for `grep_files` (hotfix deployed via direct src-sync + full restart 28.08; installed copy runs from `src/`). **Version bumped v1.9.10 → v1.9.11 on 28.08 (~20:45)** — user-directed release decision supersedes the "no bump" policy of 25.08.
 
 ---
+## [v1.9.15] — 02.09.2026: `pattern_scan` ripgrep phase-1 candidate prefilter (B')
+
+**Context:** plan_1788368034162_2jkd1nvxv. B' ports the grep_files v1.9.13 Option A architecture verbatim to `pattern_scan`: regex-mode directory scans first run an in-process WASM ripgrep prefilter that names the files whose content can match; ALL line shaping and every resource gate stay in the existing JS worker pipeline, so any non-ok engine outcome leaves output byte-identical to the pre-B' behavior. Goal: cut per-line `.test()` CPU cost (and ReDoS exposure) on regex-mode scans **without changing any visible output field, cap, or skip-record contract**.
+
+**Changes:**
+- **`src/tools/patternScan.ts` (RIPGREP-PHASE-1 block)** — `searchCandidates` from the shared module (`../utils/ripgrepEngine.js`, same import identity as fileSystemTools; lazy dynamic import, never breaks boot). Inputs: absolute root, raw trimmed pattern, mode `'literal'` iff explicit literal or demoted (else `'regex'`), `caseInsensitive = !(options.caseSensitive ?? true)` — SENSITIVE default, deliberately NOT mirroring grep_files' hardcoded `-i`; exclude globs = `DEFAULT_EXCLUDE_DIRS` only (user globs keep this module's custom semantics in the JS filter); `maxDepth` for dir roots. Candidate paths are normalized from BOTH rg output formats (absolute and root-relative). On `'ok'`: named targets go to the workers; every non-named target still passes stat + size gate + a Buffer newline-count read, so `'size'`/`'line-cap'` skip records AND `stats.filesScanned` stay byte-identical to the full walk (increment at the worker's exact position). **ANY** non-ok status (`no-matches`, `fallback-required`, throw) → full pre-B' pipeline; no short-circuit even on a clean negative.
+- **Documented divergence (pinned, not a regression):** NO `'binary'` skip record for a file rg proved pattern-absent — binary detection needs content inspection, and such a file is unobservable in every output field except `skipped[]`.
+- **Tests** — new `tests/patternScanBPrime.test.ts` (liveness-gated live battery + unconditional dep-absent reference tests; unique `BPRIME_*` tmpdir fixtures, TARGET_COUNT=7). Existing `tests/patternScan.test.ts` binary test rewritten tolerant-style: accepts `'binary'` record (fallback regime) OR absent record (live regime), still fails on any third outcome — a documented divergence, not a silent weakening.
+- **Docs** — `patternScan.ts` header corrected (the "no dependency on any other tool module" claim is superseded by the ripgrepEngine import) + `TOOLS_REFERENCE.md` `pattern_scan` entry gained the B' section with the divergence note.
+
+**Session triage (02.09, two new-feature defects fixed during verification):**
+- **TS literal-type inference:** `let effectiveMaxDepth = SCAN_DEFAULTS.maxDepth;` carried a narrowed literal type (`10`) from the frozen defaults object → TS2322 at the dir-branch reassignment. Fixed with an explicit `number` annotation (type-level only, zero runtime effect).
+- **Suite compile break:** an unescaped apostrophe in a test title (`pre-B'` inside a single-quoted string) terminated the literal early → 7-cascade TS1005/TS1128. Fixed by escaping to `B\'`, matching the file's own convention.
+
+**Verification (user-run, 02.09):** typecheck / lint / build all PASS; full Jest suite **ALL PASS GREEN**. Both engine regimes were empirically exercised on the dev machine: a targeted two-file run downgraded under jest (ESM import) → byte-exact fallback path proven (46/46); the subsequent FULL-suite run proved phase-1 LIVE in the same environment — the pre-analyzed binary-test failure appeared exactly once with precisely the documented divergence, confirming live behavior before the tolerant rewrite. Host-runtime performance follows the grep_files precedent (3.4x/2.8x on hosts b/c/d/e); per pinned observability facts, post-install engine state is verified via tool-response fields (`stats.filesScanned` differential), since plugin stdout never reaches `main.log`.
+
+**Versioning:** released as **v1.9.15** — `package.json` + `manifest.json` bumped v1.9.14 → v1.9.15 on 02.09, revision advanced 25 → 26 so LM Studio detects the update (user-directed). Suggested commit: `pattern_scan B': ripgrep phase-1 candidate prefilter (Option A parity, fallback-guaranteed)`.
+
+## [v1.9.14] — 02.09.2026: `get_memory` local-file parse guard (hotfix)
+
+**Context:** post-v1.9.13 reinstall verification surfaced a pre-existing defect in `get_memory`'s PRIORITY-1 read path (`src/tools/contextManagementTools.ts`). Every call logged to plugin stderr: `[ContextManagement.get_memory] Local file parse failed: TypeError: Cannot read properties of undefined (reading 'startsWith'). Falling back.` — first observed 02.09 ~17:43, reproducing on the fresh v1.9.13 process at ~18:07 after reinstall.
+
+**Root cause:** `.session_context/.ai_toolbox_memory.msgpack` in a working dir is shared storage for two record families: `save_memory` facts (`{key,value,timestamp}`) and auto-context entries from the context-management/auto-summarize stream (`{id,title,type,content,tags,scope,frequency,project_path,timestamp[,date]}`). This project's file held 154 records — only 3 with a string `key`; the other 151 have none. The reader filtered with `e.key.startsWith('memory_')` → `TypeError` on the first keyless record → the whole try-block aborted and PRIORITY-1 (local project file, the documented #1 source) silently died; every read fell through to plugin-root/RAM fallbacks. Writes were never affected (`save_memory` kept persisting); only reads degraded — facts looked present in RAM but would not survive a process restart from disk.
+
+**Fix (2 lines, `contextManagementTools.ts` only):** the key filter is now null-safe at both read sites — local project file and plugin-root fallback:
+```ts
+// before
+.filter(e => e.key.startsWith('memory_'))
+// after
+.filter(e => typeof e.key === 'string' && e.key.startsWith('memory_'))
+```
+No schema change, no migration, no new storage separation; context-shaped records are now skipped by the filter (their purpose) instead of throwing. The third `startsWith('memory_')` occurrence in the same function (over string keys from `Object.keys`) was already safe and is untouched.
+
+**Verification:** static re-read of both patched lines + CRLF integrity audit (file remains 100% CRLF); user-run gate pending: `npm run typecheck`, `npm run test:quiet`, `npm run build`, then reinstall v1.9.14 → `get_memory` expected to return all 3 local `memory_*` facts with **no** parse-failure line in `main.log`.
+
+**Versioning:** released as **v1.9.14** — `package.json` + `manifest.json` bumped v1.9.13 → v1.9.14 on 02.09, revision advanced 24 → 25 so LM Studio detects the update (user-directed).
+
+## [v1.9.13] — 02.09.2026: New `grep_files` ripgrep-backed regex engine with JS fallback (Option A)
+
+**Context:** plan_1788282568340_z5a4r521c, gated end-to-end by P0 spike data (`scripts/rg_spike.mjs`, T1–T4 — kept as the diagnostic/evidence generator) and a pre-change characterization battery. Goal: cut per-line CPU cost of regex-mode scans (and ReDoS exposure on the inline path) **without changing any visible output field, hang guard, or skip-record contract**.
+
+**Changes:**
+- **New `src/utils/ripgrepEngine.ts` (~250 LOC)** — self-contained candidate-file filter: lazy dynamic `import('ripgrep')` (pithings/ripgrep-node 0.3.1, ESM-only WASM build of rg) on first use only — mirrors the FIX-HANG-5 lazy-load discipline, so a missing/broken dep **never breaks plugin boot**; exit-code mapping per the package's documented contract (`0 → ok+files` · `1 → no-matches` clean negative · `2 → fallback-required`, incl. Rust-dialect parse errors such as lookarounds/backreferences, detected at compile time in ~2–3 ms); flag mirroring of production walker semantics (`--no-ignore --no-require-git --hidden`; `-i` passed as a parameter because grep_files compiles every regex with 'i'; caller-supplied exclusion globs; `--max-depth=cap+1` depth-budget parity quirk, unit-asserted — cap 0 → no flag); **no** `--max-filesize` (exact-byte size skip records stay phase-2-only). Contract: the function **never throws** — every failure mode resolves to a typed fallback signal.
+- **Wiring in `src/tools/fileSystemTools.ts` (regex-mode + directory target only)** — two-phase split: **phase 1** awaits the engine before scan start (its cost sits outside the 15 s `GREP_SCAN_DEADLINE_MS` window) and builds an allow-set of rg-named candidates; **phase 2** runs the EXISTING `processWithRegex` shaping unchanged on that set (line-split, >20k-char line gate, `.trim()`, truncation + '…', 1-based line numbers, include_context, result caps). Single-file targets and AST mode are byte-for-byte untouched paths; any phase-1 non-'ok' outcome leaves the candidate set null → **full-JS walk runs exactly as before**, every existing hang guard intact (15 s deadline, per-regex 500 ms abandon-and-continue, worker isolation + 2 s kill for ReDoS-suspect patterns, 30 s fallback timeout, wall-clock backstop).
+- **Pre-approved behavior deltas** (documented decisions from the P0 checkpoint, not regressions): `-i` always applies in regex mode (existing production semantics, now explicit); rg `--hidden` mirrors the walker's dot-dir scanning whenever no include pattern is given; the >20k-char line gate and all caps/skip-record contracts are preserved verbatim.
+- **Skip-record contract statement:** a file above `max_file_size` or over the `max_lines` cap is reported in `skipped_files` with byte/line counts identical to the pre-swap records — pinned by `grep_files_hang_backstop`, `grepFilesParity` and the golden baseline.
+- **Tests:** new `tests/ripgrepEngine.test.ts` (incl. real-WASM integration, skipIf-guarded when the dep is absent) + characterization battery `tests/grepFilesParity.test.ts` against frozen golden baseline `tests/fixtures/grepFilesBaseline.json` generated BEFORE any src change; AST-mode smoke coverage closed in the same phase.
+
+**Verification (user-run, G9):** four verification rounds — round-1 triage → fixes on disk → round 2: **two root causes found and minimally fixed**:
+- **RC-C:** the round-1 generic jest `moduleNameMapper` rule (`^\.\/utils/(.*)\.js$`) matched ANY utils require and broke the @babel/* CJS packages (they ship `lib/` with `.js`-suffixed requires) → replaced by per-file exact mapper entries only.
+- **RC-D:** rg runs with an absolute rootDir, so it reports matches by absolute path while the phase-2 gate compares targetDir-relative paths → candidate set never intersected (`matches: []`, `filesScanned: 0`); fixed by relativizing every candidate against `targetDir` before allow-set construction (paths outside the tree keep normalized absolute form and can never match — safe no-op).
+Round 3: **sole failure 705/706 → RC-E** (round-trip triage): with the rg prefilter 'ok', `processFile` early-returned non-named files BEFORE both gates, so non-matching over-cap files were silently absent from `skipped_files`. Fixed in `fileSystemTools.ts` ONLY: stat + size gate first, then a branch for prefilter-active non-named files → Buffer read + newline-byte count (`lineCount = newlines + 1`, exact `split('\n')` semantics) → byte-identical line-cap skip record; named-candidate and fallback paths unchanged. Perf trade-off documented honestly: the probe restores pre-swap I/O for gate-passing non-matching files — the remaining ripgrep win is per-line `.test()` CPU + ReDoS exposure on the inline path (the spike's ~22× figure predates parity restoration on an uncontrolled tree, so docs state speed qualitatively).
+Round 4: **ALL PASS** — typecheck 0 errors / full jest green / build success; parity re-run vs golden baseline = zero unexplained diffs (no one-time baseline special case triggered).
+
+**Versioning:** released as **v1.9.13** — `package.json` + `manifest.json` bumped v1.9.12 → v1.9.13 on 02.09, revision advanced 23 → 24 so LM Studio detects the update (user-directed). Suggested commit: `feat(grep_files): ripgrep-backed regex engine with JS fallback`.
+
+## [01.09.2026 ~18:30] — Tier-1 dead-code removal (~90 KB / 1739 LOC; user-GO-gated phases with before/after parity checks)
+
+**Context:** full dead-code audit of all 140 TS files in `src/` + `tests/` (AST unused-export detection cross-validated by import-graph reconstruction). Tier-1 = confirmed orphans with **zero referencers anywhere**. Removal executed stepwise per user constraint (≤5 destructive ops/phase, checkpoint after each phase; plan_1788278947185).
+
+**Deleted — 13 files (~90.3 KB / ~1739 LOC):**
+- **Orphans:** `src/utils/simulation.ts` (self-exec dev script), `src/toolsDocumentation.ts`, `src/tools/imageAnalysisTools.ts` (superseded by live `imageProcessingTools.ts`), `src/tools/backupUtils.ts`, `src/tools/toolProtocolWarnings.ts`
+- **Registries:** `src/tools/executionRegistry.ts`, `src/tools/utilityRegistry.ts` (duplicate of live 3-arg `registerUtilityTools` in `utilityTools.ts`; no jest mapper targeted them)
+- **Dead recodeTool rules:** `rules/{deadCodeDetection,asyncModernizer,typeInference,modulePathNormalization}.ts` — engine (`recodeEngine.ts`), types (`recodeTypes.ts`) and the LIVE rule `rules/unusedImports.ts` verified untouched in the same directory listings
+- **Stale artifacts:** `src/toolsProvider.ts.bak`, `tests/executedToolTransparency.test.ts.bak`
+
+**Behavior-neutral by construction:** tsup entry is `src/index.ts` only → none of these modules were ever in the shipped bundle. Zero config edits (`jest.config.cjs` re-read in full: live `./tools/utilityTools.js` mock mapper intact; no entry referenced a deleted path).
+
+**Evidence-gate lesson (no blind deletion):** audit initially flagged `tests/grep_files.test.ts` as importing nonexistent `../src/utils/helper`. Full-file read proved the string exists **only inside test-fixture template literals** (`fs.writeFile` fixture content) — an import-graph false positive from matching file text, not real imports. Gate held: green baseline + clean imports ⇒ test **kept**.
+
+**Verification (user-executed):** BEFORE — typecheck 0 errors / Jest all-green / build success; AFTER (all 13 deletions) — identical results (`npm run typecheck`, `npm run test:quiet`, `npm run build`). No suite added/removed/broken.
+
+**Docs sync (same session):** current-state docs aligned with code — `ARCHITECTURE.md` module tree + recode-rule sections, `TOOLS_REFERENCE.md` rule table; historical entries in CHANGELOG/RELEASE_NOTES left intact as history.
+
+**Versioning:** no bump — **v1.9.12 rev 23 stays current.** Folds into the pending user deploy (together with the `executedTool` transparency stamp from the entry below). Suggested commit: `chore: remove audited Tier-1 dead code (~90 KB)`.
+
+## [01.09.2026 ~17:05] — `executedTool` transparency stamp in the toolsProvider wrapper (silent-substitution incident follow-up, option B)
+
+**Context:** "silent tool substitution" incident (user's own LM Studio logs 2026-09-01, 16:18–16:23): with `grep_files` disabled, a chart ran instead; after disabling `generate_chart`, `run_python` ran — plus false success narration and stray PNGs. Attribution closed from log evidence: **model/generation-side tool substitution + transcript observability gap** — NOT an ai_toolbox routing defect (host remapping unproven; a 16:20 tool-card screenshot would be the only remaining way to fully exclude it). The wrapper already logged the true executed name (`[AutoTracker] [DELTA] … from <name>`), but that ground truth never reached the chat transcript.
+
+**Change (`src/toolsProvider.ts`, `instrumentedImplementation`):** after the measurement/guard try-catch, plain-object results gain one additive field — `executedTool` = **the registered (minified) name of the implementation that actually executed**: `{ ...result, executedTool }`. Strictly additive:
+- Plain objects (`Object.prototype`) gain exactly ONE key. No tool emits this key today (grep-verified across `src/` before introduction); if a collision ever appeared, the wrapper value is authoritative (spread order).
+- Strings, numbers, booleans, arrays, null, undefined and non-plain objects (class instances, Buffer, Date) pass through **byte-identical** — nothing can attach to them; their shape never changes. `src/tools/` contains no class definitions, so every real payload is covered by the plain-object branch or an unchanged passthrough.
+- Zero routing/behavior change: same implementation executes; timing, side effects and error propagation untouched. FIX #20 A1 bookkeeping (`TokenStatsManager.recordToolResult`) still fires exactly once per successful call — with the ORIGINAL (unstamped) payload and the SAME ground-truth name the stamp now carries.
+
+**Tests:** new suite `tests/executedToolTransparency.test.ts` (8 tests) runs the REAL pipeline (registration → `minifyTools` → instrumentation wrapper) with six side-effect-free probe tools injected through one registry module — mocked at the moduleNameMapper'd stub path (`../__mocks__/markdownPreviewTools.js`) so it intercepts the provider's actual dependency graph. Coverage: stamp === registered name; per-tool identity across probes in a single run; additive-only key contract (original fields verbatim, exactly one key added); byte-identical passthrough for string/number/array/null; FIX #20 A1 regression guard (`recordToolResult` once per success, zero on failure — pre-existing semantics preserved); error propagation unchanged; godMode sweep (unique non-empty names + wrapper contract across every exposed tool).
+
+**Verification status:**
+- ✅ Guard logic verified offline (plain-Node mirror of the exact expression): 14/14 edge cases pass (object / `{}` / array / string / number / boolean / null / undefined / class instance / Buffer / Date / source non-mutation / collision precedence / `unknown_tool` fallback).
+- ⏳ User-side: `npx jest tests/executedToolTransparency.test.ts`, then full baseline `npm test` — expect 657 existing + 8 new green. Sandbox cannot execute (child_process blocked by policy).
+
+**Deployment:** the live install runs from **source** (`src/`) → sync `src/toolsProvider.ts` into the LM Studio install folder and fully restart LM Studio. No rebuild/reinstall required (bundles carry no version strings).
+
+**Versioning:** **no bump — v1.9.12 rev 23 stays current.** Candidate for a future release decision (v1.9.13 or fold-in); manifest untouched in this session.
+
 ## [v1.9.12] — 31.08.2026: New `pattern_scan` tool + puppeteer `connected` property-read fix + dead-file removal
 
 **Changes:**

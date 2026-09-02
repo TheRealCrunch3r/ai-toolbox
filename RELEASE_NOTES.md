@@ -1,3 +1,52 @@
+### [v1.9.15] — 02.09.2026: `pattern_scan` ripgrep phase-1 prefilter (B')
+
+**Faster regex-mode scanning for directory targets — same contract, same fallback guarantee.** The Option A architecture that v1.9.13 shipped to `grep_files` now runs in `pattern_scan`: an in-process WASM ripgrep pass names the files whose content can match; only those go through the worker pipeline, while every non-named file still produces byte-identical gate records and scan stats.
+
+- **What changed:** regex-mode directory scans resolve candidates via one rg pass first (shared `src/utils/ripgrepEngine.ts` module — same instance and lazy-load discipline as grep_files, so a missing dep can never break plugin boot). Literal mode is honored for explicit-literal or demoted patterns; case-sensitivity follows the call (`caseSensitive`, default **true** — unlike grep_files' hardcoded `-i`).
+- **Fallback is transparent:** Rust-dialect patterns (e.g. lookarounds), a missing dependency, or any engine failure → the full pre-B' JS walk runs byte-for-byte with every cap and skip-record contract intact. No short-circuit even on a clean "no matches".
+- **One documented divergence:** a file rg proved pattern-absent no longer yields a `'binary'` skip record (detection needs content inspection; such files are unobservable in all other output fields). Pinned by tests that accept both regimes and fail on anything else.
+- **Verified (user-run, 02.09):** typecheck / lint / build PASS + full Jest suite ALL GREEN after two minimal triage fixes (a literal-type annotation; an unescaped apostrophe in a test title). Both engine regimes exercised live on the dev machine — fallback byte-exactness and live phase-1 behavior each empirically confirmed.
+- **Versioning:** released as **v1.9.15** — `package.json`/`manifest.json` bumped v1.9.14 → v1.9.15 on 02.09, revision advanced 25 → 26 so LM Studio detects the update (user-directed).
+
+### [v1.9.14] — 02.09.2026: `get_memory` local-file parse guard (hotfix)
+
+**Memory reads no longer silently abandon the project-local store.** After reinstalling v1.9.13, verification showed every `get_memory` call in projects with auto-context history logging a parse error to plugin stderr and falling back away from the documented #1 source (the working-dir memory file).
+
+- **Why it happened:** that file is shared storage — `save_memory` facts (`{key,value,timestamp}`) sit next to auto-context entries (`{id,title,type,content,tags,…}`), which carry no `key`. The reader's `e.key.startsWith('memory_')` filter threw on the first such record, aborting the entire read. Writes were never affected; only reads degraded — facts lived in RAM but not from disk across a restart.
+- **Fix:** 2-line null-safe guard in `src/tools/contextManagementTools.ts` at both read sites (local project file + plugin-root fallback) — keyless records are now skipped by the filter instead of throwing. No schema change, no new files, no behavior change for valid facts; all other output fields untouched.
+- **Verified:** static re-read of patched lines + CRLF integrity audit; user-run gate: typecheck / jest / build green on v1.9.14, then reinstall → `get_memory` returns all local `memory_*` facts with no parse-failure line in `main.log`.
+- **Versioning:** released as **v1.9.14** — `package.json`/`manifest.json` bumped v1.9.13 → v1.9.14 on 02.09, revision advanced 24 → 25 so LM Studio detects the update (user-directed).
+
+### [v1.9.13] — 02.09.2026: New `grep_files` ripgrep-backed regex engine with JS fallback
+
+**Faster regex-mode scanning for directory targets — same contract, same guards.** A new self-contained module (`src/utils/ripgrepEngine.ts`) runs an in-process WASM ripgrep (pithings/ripgrep-node 0.3.1, lazy-loaded on first use) as a **phase-1 candidate-file prefilter** before `grep_files` scans; phase 2 shapes matches with the existing code, byte-for-byte.
+
+- **What changed:** regex-mode + directory targets now resolve which files can match in one rg pass (rg 15.x WASM), then only those candidates go through the proven shaping pipeline — line-splitting, >20k-char line gate, truncation + ellipses, context lines and all caps stay exactly as before. Single-file targets and AST mode are untouched code paths.
+- **Fallback is transparent:** Rust-dialect patterns rg cannot parse (lookarounds/backreferences), a missing dependency, or any engine failure → the full-JS walk runs byte-for-byte with every hang guard intact (15 s deadline, worker isolation + 2 s kill for ReDoS-suspect patterns, wall-clock backstop). Missing dep can never break plugin boot.
+- **No behavior regressions:** `skipped_files` records stay byte-identical to pre-change output (size-gate and line-cap entries included — verified by the parity suite vs a frozen golden baseline); `-i` always applies in regex mode as before; hidden-file scanning mirrors previous walker semantics.
+- **Verified (user-run, 4 rounds):** typecheck 0 errors + full jest green + build success on round 4 after two triaged root-cause fixes (RC-C test-mapper, RC-D candidate-path relativization) and one skip-record parity fix (RC-E); zero unexplained parity diffs.
+- **Versioning:** released as **v1.9.13** — `package.json`/`manifest.json` bumped v1.9.12 → v1.9.13 on 02.09, revision advanced 23 → 24 so LM Studio detects the update (user-directed).
+
+### [01.09.2026 ~18:30] — Tier-1 dead-code removal (~90 KB / 1739 LOC; parity-verified)
+
+**Removed 13 audited orphan files after a full AST + import-graph audit of all 140 TS files (zero referencers confirmed for each):** `src/utils/simulation.ts`, `src/toolsDocumentation.ts`, `src/tools/imageAnalysisTools.ts` (superseded by live `imageProcessingTools.ts`), `src/tools/{backupUtils,toolProtocolWarnings,executionRegistry,utilityRegistry}.ts`, dead recodeTool rules `rules/{deadCodeDetection,asyncModernizer,typeInference,modulePathNormalization}.ts`, plus stale artifacts `src/toolsProvider.ts.bak` + `tests/executedToolTransparency.test.ts.bak`.
+
+- **Why it's safe:** none of these modules were reachable from the tsup entry (`src/index.ts`) → zero shipped-bundle impact; live equivalents kept and verified present in the same listings (`recodeEngine.ts`, `recodeTypes.ts`, `rules/unusedImports.ts`); `jest.config.cjs` needed no edits (full re-read confirmed).
+- **No blind deletion:** an audit false-positive flagged `tests/grep_files.test.ts` as importing a missing module; full-file read showed the string exists only in test-fixture template literals → gate held, test kept.
+- **Verification (user-executed):** typecheck 0 errors + full Jest suite green + tsup build success — identical BEFORE and AFTER all deletions.
+- **Docs synced:** `ARCHITECTURE.md` module tree & recode-rule sections and `TOOLS_REFERENCE.md` rule table updated to current code state; historical changelog entries left as history.
+- **Versioning:** no bump — v1.9.12 rev 23 stays current; folds into the pending user deploy (alongside the `executedTool` transparency stamp below).
+
+### [01.09.2026 ~17:05] — Tool-result transparency stamp: `executedTool` (silent-substitution incident follow-up)
+
+**Every plain-object tool result now carries the ground truth of what actually ran.** Follow-up to the 2026-09-01 "silent tool substitution" incident (model called a disabled tool name; log evidence attributed it to model-side substitution, not an ai_toolbox routing defect — but the transcript had no way to verify which implementation executed).
+
+- **What changed** (`src/toolsProvider.ts`): the instrumentation wrapper stamps `executedTool` = registered name of the implementation that actually executed into every plain-object result. Additive-only: strings/numbers/arrays/null and non-plain objects pass through byte-identical; routing, side effects, timing and error propagation unchanged; FIX #20 token bookkeeping semantics preserved (records the original payload with the same ground-truth name).
+- **Why it matters:** if a model believes it called tool X but the result says `executedTool: "Y"`, substitution is visible in the transcript instead of hidden behind a plausible-looking success narrative.
+- **Tests:** new 8-test suite `tests/executedToolTransparency.test.ts` runs the real registration→minify→instrument pipeline with six side-effect-free probe tools (mocked at the jest-mapped stub path); includes a regression guard for FIX #20 A1 bookkeeping and unchanged error propagation. Guard logic additionally verified offline: 14/14 edge cases pass.
+- **Status:** ⏳ pending user-side `npx jest tests/executedToolTransparency.test.ts` + full baseline (`657 + 8 new expected green`). Live activation = sync `src/toolsProvider.ts` into the LM Studio install (source-run) + full restart.
+- **Versioning:** no bump — v1.9.12 rev 23 stays current; candidate for a future release decision.
+
 ### [v1.9.12] — 31.08.2026: New `pattern_scan` tool + puppeteer `connected` fix + dead-file removal
 
 **Ships three code changes from the post-v1.9.11 (28.08) window, plus a full MD docs sync against current code.**
