@@ -232,8 +232,10 @@ export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[
   // TokenStatsManager (per-turn delta). After every recording the AutoTracker mid-loop guard is
   // evaluated: if turn-start baseline + cumulative delta crossed the checkpoint threshold, a proactive
   // session-memory snapshot is saved — because preprocess() (and hence compression + user prompt) only
-  // runs on user messages. The wrapper never mutates or delays tool results; measurement and guarding
-  // are best-effort side effects (any failure is logged, never thrown into the tool call).
+  // runs on user messages. The wrapper never alters routing, delays calls, or changes non-object
+  // payloads — it only adds an additive `executedTool` transparency field to plain-object results
+  // (01.09.2026). Measurement and guarding are best-effort side effects (any failure is logged,
+  // never thrown into the tool call).
   const instrumented = minified.map((t): Tool => {
     type ToolImplFn = (params: Record<string, unknown>, ctx: unknown) => unknown;
     type InstrumentableTool = Tool & { name?: string; implementation?: ToolImplFn };
@@ -245,6 +247,9 @@ export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[
     // Tools are constructed fresh by the registration functions on every provider call, so each
     // implementation is wrapped exactly once here; even if the provider re-runs (config reload),
     // recordToolResult() still executes exactly once per invocation — bookkeeping never double-counts.
+    // Transparency note (01.09.2026): plain-object results also gain an additive `executedTool` field
+    // (registered name of the implementation that actually ran) — see the stamp below; routing, side
+    // effects and all non-object payloads are untouched.
     const wrapped: ToolImplFn = async function instrumentedImplementation(
       params: Record<string, unknown>,
       ctx: unknown,
@@ -265,6 +270,24 @@ export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[
       } catch (err) {
         // Measurement/guard must never break a successful tool call.
         console.warn('[AutoTracker] [DELTA] Payload recording failed (non-fatal):', err);
+      }
+      // TRANSPARENCY STAMP (01.09.2026, silent-substitution incident follow-up): record in the result
+      // payload WHICH registered implementation actually executed — ground truth for transcript/LLM.
+      // If a model believes it called tool X but `executedTool` names Y, substitution is visible
+      // instead of hidden behind a plausible-looking success narrative. Strictly additive:
+      //  - plain-object results gain exactly ONE new field (`executedTool`; no existing key collides —
+      //    verified by grep across src/ before introduction), wrapper value is authoritative;
+      //  - strings, numbers, booleans, arrays, null, undefined and class instances pass through
+      //    byte-identical (prototype check excludes non-plain objects so their shape never changes);
+      //  - routing, side effects, timing and error propagation are untouched.
+      const executedTool = raw.name ?? 'unknown_tool';
+      if (
+        result !== null &&
+        typeof result === 'object' &&
+        !Array.isArray(result) &&
+        Object.getPrototypeOf(result) === Object.prototype
+      ) {
+        return { ...result, executedTool };
       }
       return result;
     };

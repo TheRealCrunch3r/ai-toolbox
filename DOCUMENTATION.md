@@ -66,6 +66,15 @@ IF REMOTE URL (http://, https://):
 
 ## 🆕 Latest Updates
 
+### Tool-Result Transparency Stamp: `executedTool` — post-v1.9.12 incident follow-up (2026-09-01)
+**Every plain-object tool result now carries the ground truth of which registered implementation actually executed.** Follow-up to the 2026-09-01 "silent tool substitution" incident: log forensics attributed it to model-side substitution + a transcript observability gap (NOT an ai_toolbox routing defect), and this fix closes that observability gap.
+
+#### Changes
+- **`src/toolsProvider.ts` (`instrumentedImplementation`)**: after the FIX #20 measurement/guard block, plain-object results are returned as `{ ...result, executedTool }`, where `executedTool` = the registered (post-minification) name of the implementation that actually ran. This is the same name the AutoTracker DELTA log lines already used for host-log attribution — now it also reaches the chat transcript via the payload itself.
+- **Strictly additive contract:** strings, numbers, booleans, arrays, null/undefined and non-plain objects (class instances, Buffer, Date) pass through byte-identical; only plain objects gain exactly one key. No tool emits `executedTool` today (grep-verified before introduction); on any future collision the wrapper value is authoritative. Routing, side effects, timing and error propagation are unchanged; FIX #20 A1 bookkeeping still records the original payload with the same ground-truth name.
+- **Verification:** new suite `tests/executedToolTransparency.test.ts` (8 tests) exercises the real registration → minify → instrument pipeline via six side-effect-free probe tools, incl. a regression guard for FIX #20 A1 (`recordToolResult` once per success / zero on failure). Guard expression additionally verified offline: 14/14 payload-class edge cases pass.
+- **Status:** ⏳ user-side `npx jest tests/executedToolTransparency.test.ts` + full baseline (657 existing + 8 new expected green); live activation = sync `src/toolsProvider.ts` into the source-run LM Studio install + full restart. No version bump (v1.9.12 rev 23 stays current).
+
 ### OOM Hardening Suite, rag_web_content Fix Suite & Chunking Fixed-Point Termination — v1.9.10 (2026-08-24/25)
 **Hardened every web/RAG allocation path against host heap exhaustion and terminated the chunking loop that could spin forever on poison-length documents. Full test suite green (user-verified 25.08.2026 ~00:13); version stays at v1.9.10 — no bump.**
 
