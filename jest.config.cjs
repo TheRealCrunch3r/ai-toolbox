@@ -24,6 +24,12 @@ module.exports = {
     '^\\.\\./src/(.*)\\.js$': '<rootDir>/src/$1',
     '^\\.\\./tests/(.*)\\.js$': '<rootDir>/tests/$1',
 
+    // ── executedTool transparency suite (01.09.2026): the test file imports its probe stub via
+    // './__mocks__/markdownPreviewTools.js' — same RC#4 class as above (explicit .js-suffixed relative
+    // import with no mapper entry → "Cannot find module"). Target MUST equal the tools-fallback target
+    // so both requests resolve to ONE registry ID and jest.mock in the suite intercepts it ──
+    '^\\.\\/__mocks__/markdownPreviewTools\\.js$': '<rootDir>/tests/__mocks__/markdownPreviewTools.ts',
+
     // ── Tool modules imported statically by other src files (../foo.js → ../foo.ts) ──
     '^\\.\\./security\\.js$': '<rootDir>/src/security.ts',
     '^\\.\\./config\\.js$': '<rootDir>/src/config.ts',
@@ -95,9 +101,16 @@ module.exports = {
     // ── FIX #19 (19.08.2026): single-dot same-dir form — src/stateManager.ts imports './contextTiers.js'; no mapper entry existed → "Cannot find module './contextTiers.js'" crashed 4 suites (RC#4) ──
     '^\\./contextTiers\\.js$': '<rootDir>/src/contextTiers.ts',
 
-    // ── Source file .js rewrites for utils/ directory ──
+    // ── Source file .js rewrites for utils/ directory — PER-FILE entries only (NOT generic).
+    // G9 round-2 regression (01.09.2026): the generic rule installed in round 1 ('^\\.\\./utils/(.*)\\.js$') matched ANY
+    // '../utils/<name>.js' specifier anywhere in the module graph — including inside node_modules: @babel/types@7.29.7 ships CJS with
+    // .js-suffixed relative requires (lib/validators/is.js → require('../utils/shallowEqual.js')); the rule hijacked that to a nonexistent
+    // <rootDir>/src/utils/<name> → createNoMappedModuleFoundError in every suite transitively loading @babel/* (refactorCodeTools).
+    // moduleNameMapper has no origin filter, so exact per-file entries are the only safe form. Set = pre-G9 rollback-point entries + ripgrepEngine
+    // (the actual G9 need: src/tools/fileSystemTools.ts imports '../utils/ripgrepEngine.js').
     '^\\.\\./utils/hubExclusionClustering\\.js$': '<rootDir>/src/utils/hubExclusionClustering.ts',
     '^\\.\\./utils/atomicWrite\\.js$': '<rootDir>/src/utils/atomicWrite.ts',
+    '^\\.\\./utils/ripgrepEngine\\.js$': '<rootDir>/src/utils/ripgrepEngine.ts',
 
     // ── Package-level mock redirects (ESM-only deps) ──
     '^archiver$': '<rootDir>/tests/__mocks__/archiver.ts',

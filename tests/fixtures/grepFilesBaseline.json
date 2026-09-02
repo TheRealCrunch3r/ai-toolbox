@@ -1,0 +1,486 @@
+{
+  "_meta": {
+    "generator": "tests/grepFilesParity.test.ts (GREP_BASELINE_WRITE=1)",
+    "writtenAt": "2026-09-01T19:55:17.482Z",
+    "node": "v24.15.0",
+    "platform": "win32-x64",
+    "engine": "current JS regex engine (pre-ripgrep) — DO NOT regenerate after P2 without re-review",
+    "diffGatedFields": [
+      "success",
+      "count",
+      "patternMode",
+      "autoEscaped",
+      "aborted",
+      "matches[]",
+      "skipped_files[].file+reasonClass"
+    ],
+    "reviewOnlyFields": [
+      "filesScanned",
+      "truncated"
+    ]
+  },
+  "cases": {
+    "P01-literal-simple": {
+      "success": true,
+      "count": 1,
+      "filesScanned": 1,
+      "truncated": false,
+      "patternMode": "regex",
+      "autoEscaped": false,
+      "aborted": false,
+      "matches": [
+        {
+          "file": "probe.txt",
+          "line_number": 1,
+          "content": "needleAlpha here"
+        }
+      ],
+      "skipped_files": [
+        {
+          "file": "hugefile.txt",
+          "reasonClass": "max_file_size"
+        },
+        {
+          "file": "bigfile.txt",
+          "reasonClass": "line_cap"
+        }
+      ]
+    },
+    "P02-case-insensitivity": {
+      "success": true,
+      "count": 1,
+      "filesScanned": 1,
+      "truncated": false,
+      "patternMode": "regex",
+      "autoEscaped": false,
+      "aborted": false,
+      "matches": [
+        {
+          "file": "probe.txt",
+          "line_number": 2,
+          "content": "caseMixedProbe too"
+        }
+      ],
+      "skipped_files": [
+        {
+          "file": "hugefile.txt",
+          "reasonClass": "max_file_size"
+        },
+        {
+          "file": "bigfile.txt",
+          "reasonClass": "line_cap"
+        }
+      ]
+    },
+    "P03-regex-class-quantifiers": {
+      "success": true,
+      "count": 1,
+      "filesScanned": 1,
+      "truncated": false,
+      "patternMode": "regex",
+      "autoEscaped": false,
+      "aborted": false,
+      "matches": [
+        {
+          "file": "probe.txt",
+          "line_number": 3,
+          "content": "abcd42tail"
+        }
+      ],
+      "skipped_files": [
+        {
+          "file": "hugefile.txt",
+          "reasonClass": "max_file_size"
+        },
+        {
+          "file": "bigfile.txt",
+          "reasonClass": "line_cap"
+        }
+      ]
+    },
+    "P04-top-level-alternation": {
+      "success": true,
+      "count": 1,
+      "filesScanned": 1,
+      "truncated": false,
+      "patternMode": "regex",
+      "autoEscaped": false,
+      "aborted": false,
+      "matches": [
+        {
+          "file": "probe.txt",
+          "line_number": 4,
+          "content": "altBranchOne and altBranchTwo( and altBranchThree"
+        }
+      ],
+      "skipped_files": [
+        {
+          "file": "hugefile.txt",
+          "reasonClass": "max_file_size"
+        },
+        {
+          "file": "bigfile.txt",
+          "reasonClass": "line_cap"
+        }
+      ]
+    },
+    "P05-auto-escape-cpp-signature": {
+      "success": true,
+      "count": 1,
+      "filesScanned": 1,
+      "truncated": false,
+      "patternMode": "auto_escaped",
+      "autoEscaped": true,
+      "aborted": false,
+      "matches": [
+        {
+          "file": "probe.txt",
+          "line_number": 5,
+          "content": "std::vector<int>* ptr declared"
+        }
+      ],
+      "skipped_files": [
+        {
+          "file": "hugefile.txt",
+          "reasonClass": "max_file_size"
+        },
+        {
+          "file": "bigfile.txt",
+          "reasonClass": "line_cap"
+        }
+      ]
+    },
+    "P06-unsafe-nested-repetition": {
+      "success": true,
+      "count": 1,
+      "filesScanned": 1,
+      "truncated": false,
+      "patternMode": "literal",
+      "autoEscaped": false,
+      "aborted": false,
+      "matches": [
+        {
+          "file": "probe.txt",
+          "line_number": 6,
+          "content": "(a+)+b literal text"
+        }
+      ],
+      "skipped_files": [
+        {
+          "file": "hugefile.txt",
+          "reasonClass": "max_file_size"
+        },
+        {
+          "file": "bigfile.txt",
+          "reasonClass": "line_cap"
+        }
+      ]
+    },
+    "P07-long-pattern-forced-literal": {
+      "success": true,
+      "count": 1,
+      "filesScanned": 1,
+      "truncated": false,
+      "patternMode": "literal",
+      "autoEscaped": false,
+      "aborted": false,
+      "matches": [
+        {
+          "file": "probe.txt",
+          "line_number": 7,
+          "content": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…"
+        }
+      ],
+      "skipped_files": [
+        {
+          "file": "hugefile.txt",
+          "reasonClass": "max_file_size"
+        },
+        {
+          "file": "bigfile.txt",
+          "reasonClass": "line_cap"
+        }
+      ]
+    },
+    "P08a-lookbehind-js-only": {
+      "success": true,
+      "count": 1,
+      "filesScanned": 1,
+      "truncated": false,
+      "patternMode": "auto_escaped",
+      "autoEscaped": true,
+      "aborted": false,
+      "matches": [
+        {
+          "file": "probe.txt",
+          "line_number": 9,
+          "content": "(?<=pre_)needleLook+"
+        }
+      ],
+      "skipped_files": [
+        {
+          "file": "hugefile.txt",
+          "reasonClass": "max_file_size"
+        },
+        {
+          "file": "bigfile.txt",
+          "reasonClass": "line_cap"
+        }
+      ]
+    },
+    "P08b-lookaround-autoescaped": {
+      "success": true,
+      "count": 1,
+      "filesScanned": 1,
+      "truncated": false,
+      "patternMode": "auto_escaped",
+      "autoEscaped": true,
+      "aborted": false,
+      "matches": [
+        {
+          "file": "probe.txt",
+          "line_number": 9,
+          "content": "(?<=pre_)needleLook+"
+        }
+      ],
+      "skipped_files": [
+        {
+          "file": "hugefile.txt",
+          "reasonClass": "max_file_size"
+        },
+        {
+          "file": "bigfile.txt",
+          "reasonClass": "line_cap"
+        }
+      ]
+    },
+    "P09-long-line-gate": {
+      "success": true,
+      "count": 0,
+      "filesScanned": 1,
+      "truncated": false,
+      "patternMode": "regex",
+      "autoEscaped": false,
+      "aborted": false,
+      "matches": [],
+      "skipped_files": [
+        {
+          "file": "hugefile.txt",
+          "reasonClass": "max_file_size"
+        },
+        {
+          "file": "bigfile.txt",
+          "reasonClass": "line_cap"
+        }
+      ]
+    },
+    "P10-line-cap-skip": {
+      "success": true,
+      "count": 0,
+      "filesScanned": 0,
+      "truncated": false,
+      "patternMode": "regex",
+      "autoEscaped": false,
+      "aborted": false,
+      "matches": [],
+      "skipped_files": [
+        {
+          "file": "hugefile.txt",
+          "reasonClass": "max_file_size"
+        },
+        {
+          "file": "bigfile.txt",
+          "reasonClass": "line_cap"
+        }
+      ]
+    },
+    "P11-size-gate-skip": {
+      "success": true,
+      "count": 0,
+      "filesScanned": 0,
+      "truncated": false,
+      "patternMode": "regex",
+      "autoEscaped": false,
+      "aborted": false,
+      "matches": [],
+      "skipped_files": [
+        {
+          "file": "hugefile.txt",
+          "reasonClass": "max_file_size"
+        },
+        {
+          "file": "bigfile.txt",
+          "reasonClass": "line_cap"
+        }
+      ]
+    },
+    "P12-crlf-line-endings": {
+      "success": true,
+      "count": 1,
+      "filesScanned": 1,
+      "truncated": false,
+      "patternMode": "regex",
+      "autoEscaped": false,
+      "aborted": false,
+      "matches": [
+        {
+          "file": "crlf.txt",
+          "line_number": 2,
+          "content": "crlfLineTwo"
+        }
+      ],
+      "skipped_files": [
+        {
+          "file": "hugefile.txt",
+          "reasonClass": "max_file_size"
+        },
+        {
+          "file": "bigfile.txt",
+          "reasonClass": "line_cap"
+        }
+      ]
+    },
+    "P13-dotfile-scanned": {
+      "success": true,
+      "count": 1,
+      "filesScanned": 1,
+      "truncated": false,
+      "patternMode": "regex",
+      "autoEscaped": false,
+      "aborted": false,
+      "matches": [
+        {
+          "file": ".hiddendir/dotprobe.txt",
+          "line_number": 1,
+          "content": "hiddenDotFileProbe"
+        }
+      ],
+      "skipped_files": [
+        {
+          "file": "hugefile.txt",
+          "reasonClass": "max_file_size"
+        },
+        {
+          "file": "bigfile.txt",
+          "reasonClass": "line_cap"
+        }
+      ]
+    },
+    "P14-default-excluded-dir": {
+      "success": true,
+      "count": 0,
+      "filesScanned": 5,
+      "truncated": false,
+      "patternMode": "regex",
+      "autoEscaped": false,
+      "aborted": false,
+      "matches": [],
+      "skipped_files": [
+        {
+          "file": "hugefile.txt",
+          "reasonClass": "max_file_size"
+        },
+        {
+          "file": "bigfile.txt",
+          "reasonClass": "line_cap"
+        }
+      ]
+    },
+    "P15-include-overrides-default-exclude": {
+      "success": true,
+      "count": 1,
+      "filesScanned": 1,
+      "truncated": false,
+      "patternMode": "regex",
+      "autoEscaped": false,
+      "aborted": false,
+      "matches": [
+        {
+          "file": "node_modules/pkg/index.js",
+          "line_number": 1,
+          "content": "nodeModulesProbe inside default-excluded dir"
+        }
+      ],
+      "skipped_files": []
+    },
+    "P16-unicode": {
+      "success": true,
+      "count": 1,
+      "filesScanned": 1,
+      "truncated": false,
+      "patternMode": "regex",
+      "autoEscaped": false,
+      "aborted": false,
+      "matches": [
+        {
+          "file": "unicode.txt",
+          "line_number": 1,
+          "content": "prefix café naïve π≈3.14 suffix"
+        }
+      ],
+      "skipped_files": [
+        {
+          "file": "hugefile.txt",
+          "reasonClass": "max_file_size"
+        },
+        {
+          "file": "bigfile.txt",
+          "reasonClass": "line_cap"
+        }
+      ]
+    },
+    "P11b-size-gate-raised-cap": {
+      "success": true,
+      "count": 1,
+      "filesScanned": 1,
+      "truncated": false,
+      "patternMode": "regex",
+      "autoEscaped": false,
+      "aborted": false,
+      "matches": [
+        {
+          "file": "hugefile.txt",
+          "line_number": 2,
+          "content": "hiddenInHugeFile"
+        }
+      ],
+      "skipped_files": [
+        {
+          "file": "bigfile.txt",
+          "reasonClass": "line_cap"
+        }
+      ]
+    },
+    "P15b-include-filter": {
+      "success": true,
+      "count": 0,
+      "filesScanned": 0,
+      "truncated": false,
+      "patternMode": "regex",
+      "autoEscaped": false,
+      "aborted": false,
+      "matches": [],
+      "skipped_files": []
+    },
+    "P10b-line-cap-reason-class": {
+      "success": true,
+      "count": 0,
+      "filesScanned": 0,
+      "truncated": false,
+      "patternMode": "regex",
+      "autoEscaped": false,
+      "aborted": false,
+      "matches": [],
+      "skipped_files": [
+        {
+          "file": "hugefile.txt",
+          "reasonClass": "max_file_size"
+        },
+        {
+          "file": "bigfile.txt",
+          "reasonClass": "line_cap"
+        }
+      ]
+    }
+  }
+}

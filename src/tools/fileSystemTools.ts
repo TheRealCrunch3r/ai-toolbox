@@ -13,6 +13,7 @@ import { validatePath, isSafeRegex } from '../security.js';
 import type * as workerThreads from 'worker_threads';
 import { recordFileModification } from './fileModTracker.js';
 import { patternScan } from './patternScan.js';
+import { searchCandidates, type RipgrepResult } from '../utils/ripgrepEngine.js';
 import { getWorkingDir, setWorkingDir, resolvePath } from '../workingDir.js';
 import {
   levenshteinSimilarity,
@@ -29,6 +30,16 @@ export const MAX_FILE_SIZE = 100_000;
 
 /** Hard cap on lines per file for regex-mode grep_files — prevents catastrophic backtracking. */
 export const MAX_LINES_PER_FILE = 5000;
+
+// ==================== DEFAULT EXCLUSIONS (PERFORMANCE & TOKEN SAVING) ====================
+/** Directory names pruned wholesale by the grep_files walker when NO include pattern is given (see
+ *  walkDirectory). Hoisted from walkDirectory to module scope so the ripgrep phase-1 prefilter can
+ *  mirror the exact same pruning via `-g '!<name>'` flags. Set contents unchanged by the hoist. */
+export const DEFAULT_EXCLUDED_DIRS = new Set([
+  'node_modules', '.git', 'dist', 'build',
+  '.next', '.nuxt', '__pycache__', '.cache',
+  'vendor', '.vscode', '.idea', '.vs'
+]);
 
 // ==================== FIX-HANG-5: WORKER-ISOLATED REGEX EVALUATION (29.08) ====================
 // Residual hang class that survived FIX-HANG-1..4: a SINGLE catastrophic-backtracking
@@ -2272,6 +2283,10 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
         const MAX_CONTENT_LENGTH = max_content_length ?? 150;
         const MAX_DEPTH = max_depth ?? 10; // Prevent infinite recursion
         const effectiveMaxLines = max_lines ?? MAX_LINES_PER_FILE; // FIX-G3: line cap is configurable (ReDoS posture preserved at default)
+
+        // RIPGREP PHASE-1 state (Option A engine swap, plan_1788282568340_z5a4r521c P2-G7): null = prefilter
+        // disabled or fell back → the full-JS walk below runs EXACTLY as before (byte-for-byte fallback).
+        let rgCandidateRelPaths: Set<string> | null = null;
         let resultsCount = 0;
         let filesScanned = 0; // Count of files that passed all gates and were actually searched
         const matches: Array<{ file: string; line_number: number; content: string; node_type?: string; context?: { function_signature?: string; class_context?: string; docblock?: string } }> = [];
@@ -2371,13 +2386,34 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
           if (abortController.signal.aborted) return;
 
           try {
-            // Early size check BEFORE reading file
+            // RIPGREP PHASE-1 GATE (Option A engine swap) + SKIP-RECORD PARITY (round-3 fix): when the rg prefilter
+            // succeeded, files it did not name can never yield matches by construction — but they MUST still pass
+            // through BOTH size gates so skipped_files keeps its pre-swap contract ("files above max_file_size OR
+            // over the line cap are reported in skipped_files", pinned by grep_files_hang_backstop + grepFilesParity).
+            // rg runs WITHOUT --max-filesize (engine header §5: size gate stays in phase 2, exact-byte records), so a
+            // non-named file can still be over the size cap; the stat below restores that record at ~1 syscall cost.
             const stats = await fs.stat(fullPath);
             if (stats.size > effectiveMaxFileSize) {
               skippedFiles.push({ file: relativePath, reason: `exceeds max_file_size (${stats.size} bytes > ${effectiveMaxFileSize} bytes) — re-run with a higher max_file_size to include it` });
               return;
             }
+            if (rgCandidateRelPaths !== null && !rgCandidateNamed(relativePath)) {
+              // Non-named + size gate passed → old full-JS flow would read the file and apply the line cap before any
+              // regex work. Re-read ONLY to count lines so over-cap non-matching files get their record too — this is
+              // exactly what the pre-swap walker did (it always read every gate-passing file) at ~stat+read cost per
+              // such file; NO .test() runs, no shaping, no worker. Named candidates skip straight to the shared read.
+              const probe = await fs.readFile(fullPath); // Buffer: newline counting needs no utf8 decode of content
+              let newlines = 0;
+              for (let k = 0; k < probe.length; k++) if (probe[k] === 10) newlines++;
+              const lineCount = newlines + 1; // split('\n') semantics: N newline bytes → N+1 elements (trailing empty counts)
+              if (lineCount > effectiveMaxLines) {
+                skippedFiles.push({ file: relativePath, reason: `exceeds ${effectiveMaxLines} line limit (${lineCount} lines — per-file safety cap to prevent catastrophic regex backtracking; raise max_lines to include this file)` });
+                console.log(`[grep_files] Skipping file ${relativePath} (${lineCount} lines, exceeds ${effectiveMaxLines} line limit)`);
+              }
+              return;
+            }
 
+            // Named candidate (or full-JS fallback walk): both gates already cleared above — proceed to shared read/shaping.
             const content = await fs.readFile(fullPath, 'utf-8');
 
             if (mode === 'ast') {
@@ -2623,6 +2659,17 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
           return docLines.length > 0 ? docLines.join('\n') : undefined;
         }
 
+        // Round-3 parity helper: O(1) membership test for the rg candidate set in BOTH normalized forms —
+        // forward slashes (the stored form, incl. out-of-root absolute no-op entries) and native separators.
+        function rgCandidateNamed(relPathNative: string): boolean {
+          if (!rgCandidateRelPaths || rgCandidateRelPaths.size === 0) return false;
+          const norm = relPathNative.split(path.sep).join('/');
+          if (rgCandidateRelPaths.has(norm)) return true;
+          // Windows-only belt & braces: native backslash form in case a caller ever passes an un-normalized path.
+          if (path.sep !== '/') { const bs = norm.split('/').join('\\'); if (rgCandidateRelPaths.has(bs)) return true; }
+          return false;
+        }
+
         async function walkDirectory(dirPath: string, concurrencyLimit: number, currentDepth: number = 0): Promise<void> {
           // DEPTH LIMIT ENFORCEMENT — prevent infinite recursion
           if (currentDepth > MAX_DEPTH) return;
@@ -2640,12 +2687,7 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
             return; // Skip inaccessible directories
           }
 
-          // ==================== DEFAULT EXCLUSIONS (PERFORMANCE & TOKEN SAVING) ====================
-          const DEFAULT_EXCLUDED_DIRS = new Set([
-            'node_modules', '.git', 'dist', 'build', 
-            '.next', '.nuxt', '__pycache__', '.cache', 
-            'vendor', '.vscode', '.idea', '.vs'
-          ]);
+          // (DEFAULT_EXCLUDED_DIRS hoisted to module scope — see constants block above; walkDirectory references it via closure)
 
           const batchPromises: Array<Promise<void>> = [];
 
@@ -2718,6 +2760,44 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
         timeoutId = setTimeout(() => abortController.abort(), GREP_TIMEOUT_MS);
 
         try {
+          // ==================== RIPGREP PHASE 1 — candidate-file prefilter (Option A engine swap) ====================
+          // Directory + regex mode only. On 'ok' the walker's per-file gate below restricts phase-2 processing to
+          // rg-named candidates; ANY other outcome (fallback-required incl. dialect parse error / missing dep /
+          // unexpected throw) leaves rgCandidateRelPaths null → the full-JS walk runs byte-for-byte as before,
+          // with every existing hang guard intact. Phase 1 is awaited BEFORE scan start, so its cost is outside
+          // the GREP_SCAN_DEADLINE window and cannot consume budget meant for line work.
+          if (mode === 'regex' && targetStats.isDirectory()) {
+            let rgRes: RipgrepResult | null = null;
+            try {
+              rgRes = await searchCandidates({
+                rootDir: targetDir,
+                pattern,                    // raw user input — boolean-equivalent to the split-branch set for per-line presence output (ripgrepEngine header §6)
+                mode: patternMode === 'auto_escaped' || patternMode === 'literal' ? 'literal' : 'regex',
+                caseInsensitive: true,      // production compiles every grep_files regex with 'i' (verified P1 source read L2322/2325/2354/2357)
+                excludeGlobs: include ? [] : Array.from(DEFAULT_EXCLUDED_DIRS),  // mirrors walker conditional pruning (include suppresses defaults — preserved by hoist)
+                maxDepth: MAX_DEPTH,
+              });
+            } catch {
+              rgRes = null;                 // searchCandidates is contractually non-throwing; this is belt & braces for the fallback guarantee
+            }
+            if (rgRes?.status === 'ok') {
+              const set = new Set<string>();
+              for (const p of rgRes.files ?? []) {
+                let norm = p.split('\\').join('/'); // rg emits forward slashes; normalize defensively anyway
+                // G9 round-2 parity fix (01.09.2026): rg ran with an ABSOLUTE rootDir, so it reports matched files by absolute path — but the
+                // processFile gate above compares against targetDir-RELATIVE paths (path.relative). Without relativizing here the set never
+                // intersects and every file early-returns: matches=[], skipped_files absent, filesScanned=0. Paths that do not sit under
+                // targetDir are kept in normalized absolute form so they can never match a relativePath (safe no-op).
+                norm = path.relative(targetDir, norm.split('/').join(path.sep)).split(path.sep).join('/');
+                set.add(norm);
+              }
+              rgCandidateRelPaths = set;
+              console.log(`[grep_files] ripgrep phase-1 → ok (${set.size} candidate file(s))`);
+            } else {
+              console.log(`[grep_files] ripgrep phase-1 → ${rgRes ? rgRes.status + `${rgRes.reason ? ` (${rgRes.reason})` : ''}` : 'unexpected error'} — full-JS walk (fallback path)`);
+            }
+          }
+
           // ==================== WALL-CLOCK BACKSTOP FOR BOTH TARGET TYPES (FIX-HANG-2, 26.08) ====================
           // A spinning synchronous segment (.test(), AST parse) starves every timer — including the one above.
           // This race therefore settles the TOOL CALL itself at deadline+5s with whatever partial results exist,

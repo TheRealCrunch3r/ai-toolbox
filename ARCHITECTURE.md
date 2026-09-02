@@ -617,6 +617,30 @@ Heavy dependencies loaded on first use:
 - **Tesseract.js** — OCR engine
 - **SQLite** — Database engine (Node 23+)
 - **pdf-parse / mammoth** — Document parsing
+- **ripgrep** — `grep_files` phase-1 candidate filter (WASM build of rg; lazy dynamic import on first use, see §5 below)
+
+### 5. ripgrep-backed `grep_files` candidate filter (`src/utils/ripgrepEngine.ts`) — current state (v1.9.13-pending, 01.–02.09)
+
+`grep_files` regex mode on **directory** targets runs in two phases; single-file targets and AST mode are unchanged code paths.
+
+```
+regex-mode directory scan:
+  phase 1  searchCandidates(ripgrepEngine.ts) — awaited BEFORE scan start (cost outside the 15 s deadline window)
+             exit 0 → allow-set of rg-named candidate files (relativized against targetDir; RC-D fix)
+             exit 1 → no matches (clean negative; set stays null → full-JS walk runs anyway, byte-for-byte fallback)
+             exit 2 / import failure / WASI error → { status:'fallback-required', reason } (e.g. Rust-dialect parse
+                      errors: lookarounds/backreferences) → same full-JS fallback, all hang guards intact
+  phase 2  existing walkDirectory/processFile pipeline on the candidate set only: per-file stat + size gate FIRST
+             (exact-byte skip records), line-cap probe read for non-named files (RC-E fix: byte-identical
+             skipped_files contract), then unchanged processWithRegex shaping
+```
+
+Design points (full contracts in the module header):
+
+- **Boot-safe lazy dependency** — `ripgrep` (pithings/ripgrep-node 0.3.1, ESM-only WASM build of rg) is dynamically imported on first use only; a missing or broken package degrades to a typed fallback and never breaks plugin boot.
+- **Parity flags mirror the production walker** — `--no-ignore --no-require-git --hidden` (the walker scans dot-dirs when no include pattern is given), `-i` passed as a parameter (grep_files compiles every regex with 'i'), caller-supplied exclusion globs, and depth-budget parity via `--max-depth=cap+1` (rg 15.x WASM includes one boundary level less; cap 0 emits no flag — pinned by unit test).
+- **Size gate stays in phase 2** — intentionally no `--max-filesize`: production skip records carry exact byte counts, and rg's size units/rounding differ.
+- **Fallback = pre-swap behavior** — any non-'ok' outcome leaves the candidate set null, so the full-JS walk (incl. worker isolation for ReDoS-prone patterns) runs with every existing hang guard active.
 
 ---
 
@@ -1100,13 +1124,10 @@ src/
 │   ├── lineOperations.ts       # Line-level text operations (1 tool — REGISTERED under 'utility' toggle)
 │   ├── taskPlanningTools.ts    # Task planning & execution tracking (3 tools — REGISTERED)
 │   ├── markdownPreviewTools.ts # Markdown preview generation (1 tool — REGISTERED under 'utility' toggle)
-│   ├── backupUtils.ts          # Backup utility helpers (REGISTERED)
-│   ├── executionRegistry.ts    # Execution registry & state tracking (REGISTERED)
 │   ├── fileModTracker.ts       # File modification tracker (REGISTERED)
 │   ├── # networkToolsRegistry.ts — REMOVED 24.08 (was an orphan file with zero imports; deletion was tracked backlog since v1.9.3 and completed in the rag_web_content fix suite)
 │   ├── toolPriority.ts         # Cluster-aware tool priority ranking (REGISTERED)
-│   ├── toolProtocolWarnings.ts # Tool protocol warning system (REGISTERED)
-│   ├── utilityRegistry.ts      # Utility registry manager (REGISTERED)
+│   ├── # backupUtils.ts / executionRegistry.ts / toolProtocolWarnings.ts / utilityRegistry.ts — REMOVED 01.09.2026 (Tier-1 dead code: zero referencers; see CHANGELOG_v2.md entry ~18:30)
 │   └── restoreFromBak.ts       # Backup restoration utility (REGISTERED)
 │   ├── attachmentManager.ts    # Attachment handling & management (REGISTERED)
 │   ├── browserActions.ts       # Browser action execution & validation (REGISTERED)
@@ -1157,11 +1178,8 @@ The modular "Recode" architecture was introduced in v1.5.34 to support AST-based
 ```text
 src/tools/recodeTool/
 ├── rules/
-│   ├── unusedImports.ts              ← Tier 1: Implemented ✅ (extracted from refactorCodeTools.ts)
-│   ├── deadCodeDetection.ts          ← Tier 1: **Placeholder** (Single-file analyzer only; cross-directory scanning pending ⚠️)
-│   ├── modulePathNormalization.ts    ← Tier 1: Implemented ✅ (New v1.9.8 — import path normalization & validation)
-│   ├── typeInference.ts              ← Tier 1: Implemented ✅ (explicit `any` → inferred types / `unknown` suggestions)
-│   └── asyncModernizer.ts            ← Tier 2: Implemented ✅ (callback-style + `.then()` chains → async/await conversion)
+│   ├── unusedImports.ts              ← Tier 1: Implemented ✅ (extracted from refactorCodeTools.ts) — the only live rule as of 01.09.2026
+│   └── # deadCodeDetection / modulePathNormalization / typeInference / asyncModernizer — REMOVED 01.09.2026 (Tier-1 dead code: never wired into any tool operation; see CHANGELOG_v2.md entry ~18:30)
 ├── recodeEngine.ts           ← AST transformation orchestrator with dry-run diff support (LCS-based)
 └── recodeTypes.ts            ← Shared interfaces & schemas (RuleContext, RuleResult, RecodeRule)
 ```
@@ -1182,12 +1200,10 @@ The following rule files are defined in the proposal but NOT yet created:
 - ⏳ `rules/securityHardener.ts` — Security pattern hardening
 - ⏳ `rules/duplicateCodeExtraction.ts` — Duplicate code detection & extraction
 
-### Implemented Rule Files (v1.9.8+)
+### Rule Files Removed 01.09.2026 (formerly "Implemented Rule Files (v1.9.8+)")
 
-The following rule files have been implemented and integrated into the Recode Engine:
-- ✅ `rules/asyncModernizer.ts` — Callback → async/await conversion (Tier 2)
-- ✅ `rules/typeInference.ts` — Type inference and annotation fixes (Tier 1)
-- ✅ `rules/modulePathNormalization.ts` — Module path normalization & validation (New v1.9.8)
+The following rule files were implemented in the v1.9.8 window but never wired into any tool operation — removed as Tier-1 dead code on 01.09.2026 (`rules/unusedImports.ts` is the only live rule; see CHANGELOG_v2.md entry [01.09.2026 ~18:30]):
+- 🗑️ `rules/deadCodeDetection.ts`, `rules/modulePathNormalization.ts`, `rules/typeInference.ts`, `rules/asyncModernizer.ts`
 
 ---
 
@@ -1564,7 +1580,7 @@ promptPreprocessor() → detectProjectKeywords(message)
 
 ### Utility Modules (`src/utils/`)
 - `hubExclusionClustering.ts` — Hub-Exclusion Clustering algorithm (Louvain community detection, hub identification, majority-vote reattachment)
-- `simulation.ts` — Feature simulation script for demonstrating Graphify-inspired capabilities (83 tests)
+- 🗑️ `simulation.ts` was removed 01.09.2026 (self-executing dev script; Tier-1 dead code — its clustering assertions live on in the still-live `tests/hubExclusionClustering.test.ts`)
 
 ### Updated Module Dependencies (v1.9.8)
 ```typescript

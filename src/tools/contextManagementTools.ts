@@ -1697,7 +1697,7 @@ WHEN TO USE:
             
             // Filter memory_ keys from local file
             const memories = entries
-              .filter(e => e.key.startsWith('memory_'))
+              .filter(e => typeof e.key === 'string' && e.key.startsWith('memory_'))
               .map(e => ({ key: e.key, value: e.value }))
               .filter(m => m.value !== undefined);
 
@@ -1734,7 +1734,7 @@ WHEN TO USE:
             const entries = decode(buffer) as Array<{ key: string; value: unknown; timestamp: number }>;
             
             const memories = entries
-              .filter(e => e.key.startsWith('memory_'))
+              .filter(e => typeof e.key === 'string' && e.key.startsWith('memory_'))
               .map(e => ({ key: e.key, value: e.value }))
               .filter(m => m.value !== undefined);
             
