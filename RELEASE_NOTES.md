@@ -1,3 +1,15 @@
+### [03.09.2026] — v1.9.15 rev 27: Hub-install dependency fix (hotfix re-publish)
+
+**The ripgrep fast path now installs correctly on the LM Studio Hub.** `pattern_scan`'s B' prefilter and `grep_files`' rg engine load the npm package `ripgrep` lazily at tool-call time — but it was declared as a devDependency, so any production-scoped install would have silently disabled the fast path for every Hub user (permanent pure-JS fallback, no visible error).
+
+- **What changed:** one-line declaration move (`devDependencies` → `dependencies`) + lock refresh; version pin unchanged at 0.3.1 — the build verified live this session on a fresh reinstall.
+- **Why it matters:** official LM Studio docs confirm Hub installs auto-download dependencies from `package.json`/`package-lock.json`; a dependency required at runtime must sit in `dependencies`. Graceful fallback behavior is untouched either way — this removes the silent-degradation risk, not code.
+- **Verified:** lock diff audited to exactly the planned flag flip (plus npm's own normalization of a stale lock version and within-range transitive patch bumps); post-refresh smoke suites 39/39 green incl. real-WASM integration (commit ec783a8).
+- **Versioning:** no version-number change — revision advanced 26 → 27 so LM Studio detects the update; re-published via `lms push`.
+
+---
+
+
 ### [v1.9.15] — 02.09.2026: `pattern_scan` ripgrep phase-1 prefilter (B')
 
 **Faster regex-mode scanning for directory targets — same contract, same fallback guarantee.** The Option A architecture that v1.9.13 shipped to `grep_files` now runs in `pattern_scan`: an in-process WASM ripgrep pass names the files whose content can match; only those go through the worker pipeline, while every non-named file still produces byte-identical gate records and scan stats.
