@@ -4,7 +4,7 @@
 
 **120+ ready-made tools — one plugin, zero glue code.**
 
-> `v1.9.12` · `24 modules` · `MIT` · `Node 20+` · `600+ tests green`
+> `v1.9.15` · `24 modules` · `MIT` · `Node 20+` · `730 tests green (43 suites)`
 
 ---
 
@@ -40,7 +40,7 @@ The closest direct competitor on the Hub: same job (tools for local LLMs), very 
 | ✅ **AST-level refactoring** (rename, move functions, dead-import cleanup) — syntax-safe transforms with auto-rollback, not string edits |
 | ✅ **Real RAG:** vector index over PDF / DOCX / XLSX with page-level provenance — not just keyword search |
 | ✅ **Image & data viz:** OCR, vision-model image analysis, chart generation |
-| ✅ **120+ tools** vs ~49 — backed by 657 tests across 38 suites (~12× the test bench) |
+| ✅ **120+ tools** vs ~49 — backed by 730 tests across 43 suites (~13× the test bench) |
 | ✅ **Crash-resilient writes + rollback on failure:** a botched edit can never corrupt your file |
 
 And one honest note: their i18n covers 4 languages, we cover 2 — that's the gap we're closing first. We'd rather tell you than pretend it doesn't exist.
@@ -95,7 +95,7 @@ Charts rendered to image files from raw data (bar/line/pie/scatter/radar). Live 
 ```bash
 # Developing instead of using?
 npm install && npm run build   # ESM + CJS via tsup
-npm test                        # full suite: 36+ suites green
+npm test                        # full suite: 43 suites / 730 tests green
 ```
 
 ---
@@ -166,6 +166,9 @@ One plugin replaces an entire shelf. Here's every family, what it covers, and it
 
 | Version | Headline |
 |---|---|
+| **v1.9.15** | ⚡ B' ripgrep phase-1 prefilter for `pattern_scan` (byte-identical JS fallback guarantee) · rev 27: `ripgrep` promoted to runtime dependency, fixing silent fast-path loss on Hub installs — live-verified on the user machine |
+| **v1.9.14** | 🧠 `get_memory` local-file parse guard — keyless auto-context records no longer abort reads (hotfix) |
+| **v1.9.13** | 🔍 ripgrep-backed regex engine for `grep_files` (in-process WASM prefilter, transparent fallback keeps every hang guard) · `executedTool` ground-truth stamp on all tool results · Tier-1 dead-code removal (~90 KB) |
 | **v1.9.12** | 🆕 `pattern_scan` recursive content search (unsafe regex auto-demotes to literal; 256 KB / 10k-line hard caps) · puppeteer `connected` property-read fix · dead-file removal — full MD docs sync |
 | **v1.9.10** | 🔧 OOM-hardening suite: bounded web/RAG reads, chunking fixed-point termination, `rag_web_content` dedup — plugin-host heap is now safe under poison payloads |
 | **v1.9.9** | ⏱️ Deadline-capped `grep_files` (partial results + `aborted` flag) · AutoTracker token deltas fire thresholds *inside* long tool chains · live `chat used ≈ N tok` DELTA log |
@@ -178,7 +181,7 @@ One plugin replaces an entire shelf. Here's every family, what it covers, and it
 
 ## 📦 Core dependencies
 
-`@lmstudio/sdk` ^1.5.0 · `puppeteer` ^24 · `isomorphic-git` ^1.38 · `sharp` ^0.33+ · `tesseract.js` ^7 · `pdf-parse` / `mammoth` / `xlsx` (document pipeline) · `@dqbd/tiktoken` (ContextGuard) · `zod` (runtime validation)
+`@lmstudio/sdk` ^1.5.0 · `puppeteer` ^24 · `isomorphic-git` ^1.38 · `sharp` ^0.35.3 · `tesseract.js` ^7 · `pdf-parse` / `mammoth` / `xlsx` (document pipeline) · `ripgrep` ^0.3.1 (WASM regex engine, lazy-loaded) · `@dqbd/tiktoken` (ContextGuard) · `zod` (runtime validation)
 
 ---
 
