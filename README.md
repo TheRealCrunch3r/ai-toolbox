@@ -43,7 +43,7 @@ The closest direct competitor on the Hub: same job (tools for local LLMs), very 
 | ✅ **120+ tools** vs ~49 — backed by 730 tests across 43 suites (~13× the test bench) |
 | ✅ **Crash-resilient writes + rollback on failure:** a botched edit can never corrupt your file |
 
-And one honest note: their i18n covers 4 languages, we cover 2 — that's the gap we're closing first. We'd rather tell you than pretend it doesn't exist.
+Our previous i18n gap is closed: **we now ship 4 locales** (en · de · zh-CN · zh-TW), each a full translation set — and anti-stub tests guard the suite so alias/fallback languages can never silently regress. We'd rather tell you than pretend it doesn't exist.
 
 ---
 

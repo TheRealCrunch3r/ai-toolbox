@@ -5,6 +5,8 @@
 import type { LanguageCode, FullTranslationSet } from './types';
 import { enTranslations } from './en';
 import { deTranslations } from './de';
+import { zhCNTranslations } from './zh-CN';
+import { zhTWTranslations } from './zh-TW';
 
 export class I18nManager {
   private translations: Map<LanguageCode, FullTranslationSet>;
@@ -15,9 +17,8 @@ export class I18nManager {
     this.translations.set('en', enTranslations);
     this.translations.set('de', deTranslations);
     
-    // Register zh-CN and zh-TW (fallback to English translations for now)
-    this.translations.set('zh-CN', enTranslations);
-    this.translations.set('zh-TW', enTranslations);
+    this.translations.set('zh-CN', zhCNTranslations);
+    this.translations.set('zh-TW', zhTWTranslations);
     
     this.currentLanguage = 'en'; // Default language
   }

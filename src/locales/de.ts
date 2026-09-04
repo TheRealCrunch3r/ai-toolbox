@@ -77,7 +77,7 @@ export const deTranslations: FullTranslationSet = {
     ],
   },
   backgroundCommands: {
-    categoryTitle: '⏱️ Background Command Tools',
+    categoryTitle: '⏱️ Hintergrund-Kommando-Tools',
     tools: [
       { toolName: 'run_background_command', description: 'Lang-running Prozess im Background starten', parameters: ['command, timeout_hours (mandatory), name (mandatory)'] },
       { toolName: 'check_background_command', description: 'Status und Output von running Command prüfen', parameters: ['id'] },
