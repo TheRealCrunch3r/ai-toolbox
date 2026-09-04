@@ -22,6 +22,21 @@ export interface FullTranslationSet {
   databaseQueries: ToolCategoryTranslations;
   documentParsing: ToolCategoryTranslations;
   backgroundCommands: ToolCategoryTranslations;
+
+  // Tier-2 (04.09): full live-tool coverage categories — all five locale sets
+  // carry them, so they are REQUIRED (tightened after the incremental fill).
+  codeRefactoring: ToolCategoryTranslations;
+  execution: ToolCategoryTranslations;
+  utilities: ToolCategoryTranslations;
+  imageProcessing: ToolCategoryTranslations;
+  vectorRag: ToolCategoryTranslations;
+  uiGeneration: ToolCategoryTranslations;
+  contextManagement: ToolCategoryTranslations;
+  textProcessing: ToolCategoryTranslations;
+  backupRestore: ToolCategoryTranslations;
+  dataVisualization: ToolCategoryTranslations;
+  httpClient: ToolCategoryTranslations;
+  taskPlanning: ToolCategoryTranslations;
   general: {
     pluginName: string;
     enabledTools: string;
@@ -31,4 +46,4 @@ export interface FullTranslationSet {
   };
 }
 
-export type LanguageCode = 'en' | 'de' | 'zh-CN' | 'zh-TW';
+export type LanguageCode = 'en' | 'de' | 'es' | 'zh-CN' | 'zh-TW';

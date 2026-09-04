@@ -72,7 +72,7 @@ describe('I18nManager translation coverage guards (anti-stub)', () => {
   test('all languages share the exact category + tool structure of English', () => {
     const enManager = new I18nManager();
     const base = asAny(enManager.getTranslations());
-    for (const lang of ['de', 'zh-CN', 'zh-TW']) {
+    for (const lang of ['de', 'es', 'zh-CN', 'zh-TW']) {
       const m = new I18nManager();
       m.setLanguage(lang);
       const set = asAny(m.getTranslations());
@@ -92,7 +92,7 @@ describe('I18nManager translation coverage guards (anti-stub)', () => {
     const enManager = new I18nManager();
     const base = asAny(enManager.getTranslations());
     const violations: string[] = [];
-    for (const lang of ['de', 'zh-CN', 'zh-TW']) {
+    for (const lang of ['de', 'es', 'zh-CN', 'zh-TW']) {
       const m = new I18nManager();
       m.setLanguage(lang);
       const set = asAny(m.getTranslations());

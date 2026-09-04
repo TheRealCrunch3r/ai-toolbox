@@ -5,6 +5,7 @@
 import type { LanguageCode, FullTranslationSet } from './types';
 import { enTranslations } from './en';
 import { deTranslations } from './de';
+import { esTranslations } from './es';
 import { zhCNTranslations } from './zh-CN';
 import { zhTWTranslations } from './zh-TW';
 
@@ -16,6 +17,7 @@ export class I18nManager {
     this.translations = new Map();
     this.translations.set('en', enTranslations);
     this.translations.set('de', deTranslations);
+    this.translations.set('es', esTranslations);
     
     this.translations.set('zh-CN', zhCNTranslations);
     this.translations.set('zh-TW', zhTWTranslations);

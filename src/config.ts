@@ -126,7 +126,7 @@ export const ConfigSchema = z.object({
 
   // i18n Settings
 
-  language: z.enum(['en', 'de', 'zh-CN', 'zh-TW']).default('en'),
+  language: z.enum(['en', 'de', 'es', 'zh-CN', 'zh-TW']).default('en'),
 
 
 
@@ -310,6 +310,30 @@ export const configSchematics = createConfigSchematics()
 
 
 
+  // 🌐 LANGUAGE (top of menu by design)
+
+  .field('language', 'select', {
+
+    displayName: '🌐 Language',
+
+    options: [
+
+      { value: 'en', displayName: 'English' },
+
+      { value: 'de', displayName: 'Deutsch (German)' },
+
+      { value: 'es', displayName: 'Español' },
+
+      { value: 'zh-CN', displayName: 'Simplified Chinese' },
+
+      { value: 'zh-TW', displayName: 'Traditional Chinese' },
+
+    ],
+
+  }, DEFAULT_CONFIG.language)
+
+
+
   // ⚠️ GOD MODE - TOP PRIORITY WARNING TOGGLE ⚠️
 
   .field('godMode', 'boolean', { 
@@ -352,7 +376,7 @@ export const configSchematics = createConfigSchematics()
 
     displayName: '💾 Git Auto-Commit', 
 
-    subtitle: '⚙️ Teil der Git & GitHub Tools',
+    subtitle: '⚙️ Part of Git & GitHub Tools',
 
     hint: 'Automatically commit changes after operations',
 
@@ -364,7 +388,7 @@ export const configSchematics = createConfigSchematics()
 
     placeholder: 'main',
 
-    subtitle: '⚙️ Teil der Git & GitHub Tools',
+    subtitle: '⚙️ Part of Git & GitHub Tools',
 
     hint: 'Branch name for new repositories and git operations',
 
@@ -507,49 +531,49 @@ export const configSchematics = createConfigSchematics()
 
   .field('executionJavaScript', 'boolean', {
 
-    displayName: '⚡ JavaScript-Ausführung erlauben',
+    displayName: '⚡ Allow JavaScript Execution',
 
-    subtitle: "Aktiviert das 'run_javascript'-Tool",
+    subtitle: "Enables the 'run_javascript' tool",
 
-    hint: 'GEFAHR: Code läuft auf Ihrem Rechner.',
+    hint: 'WARNING: code runs on your machine.',
 
   }, DEFAULT_CONFIG.executionJavaScript)
 
   .field('executionPython', 'boolean', {
 
-    displayName: '🐍 Python-Ausführung erlauben',
+    displayName: '🐍 Allow Python Execution',
 
-    subtitle: "Aktiviert das 'run_python'-Tool",
+    subtitle: "Enables the 'run_python' tool",
 
-    hint: 'GEFAHR: Code läuft auf Ihrem Rechner.',
+    hint: 'WARNING: code runs on your machine.',
 
   }, DEFAULT_CONFIG.executionPython)
 
   .field('executionTerminal', 'boolean', {
 
-    displayName: '💻 Terminal-Ausführung erlauben',
+    displayName: '💻 Allow Terminal Execution',
 
-    subtitle: "Aktiviert das 'run_in_terminal'-Tool",
+    subtitle: "Enables the 'run_in_terminal' tool",
 
-    hint: 'Öffnet echte Terminal-Fenster.',
+    hint: 'Opens real terminal windows.',
 
   }, DEFAULT_CONFIG.executionTerminal)
 
   .field('executionShell', 'boolean', {
 
-    displayName: '🔧 Shell-Befehlsausführung erlauben',
+    displayName: '🔧 Allow Shell Command Execution',
 
-    subtitle: "Aktiviert das 'execute_command'-Tool",
+    subtitle: "Enables the 'execute_command' tool",
 
-    hint: 'GEFAHR: Befehle laufen auf Ihrem Rechner.',
+    hint: 'WARNING: commands run on your machine.',
 
   }, DEFAULT_CONFIG.executionShell)
 
 
   .field('executionTests', 'boolean', {
-    displayName: '🧪 Test-Ausführung erlauben',
-    subtitle: "Aktiviert das 'run_tests'-Tool",
-    hint: 'GEFAHR: Führt npm jest / pytest / go test aus — kann Pakete installieren und Code ausführen.',
+    displayName: '🧪 Allow Test Execution',
+    subtitle: "Enables the 'run_tests' tool",
+    hint: 'WARNING: runs npm jest / pytest / go test — can install packages and execute code.',
   }, DEFAULT_CONFIG.executionTests)
 
 
@@ -615,7 +639,7 @@ export const configSchematics = createConfigSchematics()
 
     displayName: '⏱️ Browser Timeout', 
 
-    subtitle: '⚙️ Teil der Browser Automation Tools',
+    subtitle: '⚙️ Part of Browser Automation Tools',
 
     min: 1000, max: 30000, int: true,
 
@@ -629,7 +653,7 @@ export const configSchematics = createConfigSchematics()
 
     displayName: '👻 Headless Mode', 
 
-    subtitle: '⚙️ Teil der Browser Automation Tools',
+    subtitle: '⚙️ Part of Browser Automation Tools',
 
     hint: 'Run browser without GUI (recommended for automation).',
 
@@ -654,28 +678,6 @@ export const configSchematics = createConfigSchematics()
   .field('statePersistenceEnabled', 'boolean', { displayName: '💽 State Persistence', hint: 'Persist tool execution state between sessions' }, DEFAULT_CONFIG.statePersistenceEnabled)
 
   .field('stateMaxSize', 'numeric', { min: 1024, max: 1048576, int: true }, DEFAULT_CONFIG.stateMaxSize)
-
-
-
-  // 🌐 LANGUAGE & NOTIFICATIONS 🌐
-
-  .field('language', 'select', {
-
-    displayName: '🌐 Language',
-
-    options: [
-
-      { value: 'en', displayName: 'English' },
-
-      { value: 'de', displayName: 'Deutsch (German)' },
-
-      { value: 'zh-CN', displayName: 'Simplified Chinese' },
-
-      { value: 'zh-TW', displayName: 'Traditional Chinese' },
-
-    ],
-
-  }, DEFAULT_CONFIG.language)
 
 
 
