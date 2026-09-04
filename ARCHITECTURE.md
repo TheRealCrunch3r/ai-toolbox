@@ -1095,11 +1095,14 @@ src/
 ├── promptPreprocessor.ts       # Document RAG + ContextGuard integration
 ├── backgroundCommands.ts       # Background process manager
 ├── fuzzySearch.ts              # Fuzzy file search implementation
-├── locales/                    # i18n translation files
-│   ├── en.ts
-│   ├── de.ts
-│   ├── zh-CN.ts
-│   └── zh-TW.ts
+├── locales/                    # i18n subsystem (see "Localization (i18n)" section)
+│   ├── types.ts                # LanguageCode, Translation, ToolCategoryTranslations, FullTranslationSet
+│   ├── en.ts                   # English — reference locale (order + coverage baseline)
+│   ├── de.ts                   # German
+│   ├── es.ts                   # Spanish (added 04.09 with the i18n Tier-2 epic)
+│   ├── zh-CN.ts                # Simplified Chinese
+│   ├── zh-TW.ts                # Traditional Chinese
+│   └── i18n.ts                 # I18nManager (language switching + accessors)
 ├── tools/                      # Tool category modules (30 source files)
 │   ├── fileSystemTools.ts      # File system operations (23 tools — REGISTERED, incl. pattern_scan)
 │   ├── patternScan.ts          # pattern_scan search engine (clean-room module, ReDoS-gated; tool registered in fileSystemTools.ts)
@@ -1730,3 +1733,42 @@ All previously synchronous file-write tools converted to async with shared `atom
 - ✅ Build verified: CJS ~12.6MB, ESM ~12.0MB (same as v1.9.6 — no size regression from async conversion)
 
 ---
+
+## 🌐 Localization (i18n) — current state (v1.9.15 / rev 27, refreshed 04.09.2026)
+
+The plugin carries a localization subsystem under `src/locales/` providing tool descriptions in five languages: **English (`en`, reference), German (`de`), Spanish (`es` — added 04.09 with the i18n Tier-2 epic), Simplified Chinese (`zh-CN`) and Traditional Chinese (`zh-TW`)**.
+
+### Components
+
+| File | Role |
+|------|------|
+| `src/locales/types.ts` | Shared types: `LanguageCode = 'en' \| 'de' \| 'es' \| 'zh-CN' \| 'zh-TW'`; `Translation { toolName, description, parameters[], example? }`; `ToolCategoryTranslations { categoryTitle, tools[] }`; `FullTranslationSet` — **20 per-category blocks** + a `general` block (`pluginName`, `enabledTools`, `disabledTools`, `errorPrefix`, `successPrefix`). Since the Tier-2 completion (04.09) all 20 categories are REQUIRED in every locale set. |
+| `src/locales/en.ts` / `de.ts` / `es.ts` / `zh-CN.ts` / `zh-TW.ts` | One complete translation set per language (`enTranslations`, …). Coverage: **129 per-category tool entries**, parity-verified across all five locales with exact `en` order. `read_document` and `rag_web_content` appear in two category blocks each — distinct tool names number 127. |
+| `src/locales/i18n.ts` | The `I18nManager` class (API below). |
+
+### I18nManager (`src/locales/i18n.ts`)
+
+```typescript
+class I18nManager {
+  // constructor: registers all five locale sets in a Map<LanguageCode, FullTranslationSet>; default 'en'
+  setLanguage(language: LanguageCode): void   // throws Error on unsupported language code
+  getTranslations(): FullTranslationSet       // the active translation set
+  get(category: keyof FullTranslationSet, key?: string): unknown  // whole category block, or one tool entry by name
+  getAvailableLanguages(): LanguageCode[]     // ['en', 'de', 'es', 'zh-CN', 'zh-TW']
+  getCurrentLanguage(): LanguageCode
+}
+```
+
+### Settings-panel wiring (`src/config.ts`)
+
+- **Zod schema**: `language: z.enum(['en', 'de', 'es', 'zh-CN', 'zh-TW']).default('en')` in the `// i18n Settings` block; `DEFAULT_CONFIG.language = 'en'`.
+- **UI field**: `.field('language', 'select', { displayName: '🌐 Language', options: [English, Deutsch (German), Español, Simplified Chinese, Traditional Chinese] }, DEFAULT_CONFIG.language)` is the **first** field of `createConfigSchematics()` — and because schematics declaration order defines LM Studio's settings-menu order, 🌐 Language sits at the **top of the menu by design** (no HTML involved; the panel is generated from these declarations).
+
+### Test guards (`tests/i18n.test.ts`)
+
+Translation-file loading + formatting suite including the four parity guard tests added with the Tier-2 epic — all five locale sets must stay at full live-tool coverage and in exact `en` order, so adding or removing a tool breaks CI until every locale is updated.
+
+### Integration status (honest state as of this refresh)
+
+- ✅ **Complete & guarded**: locale data (5 sets × 129 entries), `I18nManager`, Zod config field, settings-panel entry, parity test guards — all committed (`90f7a66` zh Tier-1, `6ddb7a8` es + Tier-2 full coverage).
+- ⏳ **Pending**: runtime application at registration. As of this audit no production source file imports from `src/locales/` (verified by repo-wide scan — only `tests/i18n.test.ts` does) and `config.language` is persisted but not yet consumed: tool descriptions registered via `toolsProvider.ts` still use the in-code English strings, which remain canonical. The natural hook point is description construction during the declarative-registry loop (apply the active locale's `description`, falling back to the code string on missing key); until that lands, changing 🌐 Language persists the preference without altering registered descriptions.

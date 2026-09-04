@@ -1,16 +1,16 @@
 # Documentation Update Summary — AI Toolbox Plugin
 
-**Date**: 2026-08-19  
-**Version**: v1.9.12  
+**Date**: 2026-09-04  
+**Version**: v1.9.15 (manifest revision 27)  
 **Status**: ✅ Complete
 
 ---
 
-## 📋 Version Status Overview (v1.9.12 — released 31.08: `pattern_scan` tool + puppeteer `connected` property-read fix + dead-file removal; previous release v1.9.11 on 28.08, see CHANGELOG_v2.md)
+## 📋 Version Status Overview (current: **v1.9.15 / manifest revision 27** — refreshed 04.09.2026 against live code; full release history in CHANGELOG_v2.md, most recent before this state: v1.9.12 released 31.08 with the `pattern_scan` tool)
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| **Tool Count** | ✅ 24 tool modules (131 unique tools, incl. v1.9.12 `pattern_scan`) | All registered via declarative pattern (v1.8.2+) |
+| **Tool Count** | ✅ 24 tool modules — live ground truth (04.09.2026): **129 unique tools**, counted as per-category i18n registration entries in `src/locales/en.ts` and parity-verified across all 5 locales (`read_document` and `rag_web_content` are each served by two categories) | All registered via declarative pattern (v1.8.2+) |
 | **Context Management** | ✅ Scoping + Heuristic Scoring + TTL Pruning | v1.9.1+ improvements active |
 | **Token Counting** | ✅ Native History API × 0.24 ratio | Matches LM Studio sidebar <0.3% deviation |
 | **Graphify Intelligence Suite** | ✅ Fully Implemented (v1.9.5) | Confidence tags, hub-exclusion clustering, project auto-detection, tier provenance, cluster-aware priority |
@@ -73,7 +73,7 @@ IF REMOTE URL (http://, https://):
 - **`src/toolsProvider.ts` (`instrumentedImplementation`)**: after the FIX #20 measurement/guard block, plain-object results are returned as `{ ...result, executedTool }`, where `executedTool` = the registered (post-minification) name of the implementation that actually ran. This is the same name the AutoTracker DELTA log lines already used for host-log attribution — now it also reaches the chat transcript via the payload itself.
 - **Strictly additive contract:** strings, numbers, booleans, arrays, null/undefined and non-plain objects (class instances, Buffer, Date) pass through byte-identical; only plain objects gain exactly one key. No tool emits `executedTool` today (grep-verified before introduction); on any future collision the wrapper value is authoritative. Routing, side effects, timing and error propagation are unchanged; FIX #20 A1 bookkeeping still records the original payload with the same ground-truth name.
 - **Verification:** new suite `tests/executedToolTransparency.test.ts` (8 tests) exercises the real registration → minify → instrument pipeline via six side-effect-free probe tools, incl. a regression guard for FIX #20 A1 (`recordToolResult` once per success / zero on failure). Guard expression additionally verified offline: 14/14 payload-class edge cases pass.
-- **Status:** ⏳ user-side `npx jest tests/executedToolTransparency.test.ts` + full baseline (657 existing + 8 new expected green); live activation = sync `src/toolsProvider.ts` into the source-run LM Studio install + full restart. No version bump (v1.9.12 rev 23 stays current).
+- **Status:** ⏳ user-side `npx jest tests/executedToolTransparency.test.ts` + full baseline (superseded — current suite: **734 tests / 43 suites**, verified green 04.09.2026); live activation = sync `src/toolsProvider.ts` into the source-run LM Studio install + full restart. No version bump (v1.9.12 rev 23 stays current).
 
 ### OOM Hardening Suite, rag_web_content Fix Suite & Chunking Fixed-Point Termination — v1.9.10 (2026-08-24/25)
 **Hardened every web/RAG allocation path against host heap exhaustion and terminated the chunking loop that could spin forever on poison-length documents. Full test suite green (user-verified 25.08.2026 ~00:13); version stays at v1.9.10 — no bump.**
@@ -348,7 +348,7 @@ All dangerous tool categories are **disabled by default**:
 
 | File | Changes Made |
 |------|-------------|
-| `README.md` | Up-to-date (v1.9.x release history incl. v1.9.12; 131 unique tools across 24 modules) |
+| `README.md` | Refreshed 04.09.2026 (v1.9.15; test badge/count corrected to **734 tests / 43 suites**; tool count stated as "120+ tools across 24 modules" per package.json) |
 | `ARCHITECTURE.md` | Gateway Pattern marked as ABANDONED; tool counts corrected to 20 modules |
 | `TOOLS_REFERENCE.md` | Up-to-date (~132 tools documented) |
 | `DOCUMENTATION.md` | Deprecated features clearly marked; tool count corrections applied |

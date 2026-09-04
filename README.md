@@ -4,7 +4,7 @@
 
 **120+ ready-made tools — one plugin, zero glue code.**
 
-> `v1.9.15` · `24 modules` · `MIT` · `Node 20+` · `730 tests green (43 suites)`
+> `v1.9.15` · `24 modules` · `MIT` · `Node 20+` · `734 tests green (43 suites)`
 
 ---
 
@@ -40,7 +40,7 @@ The closest direct competitor on the Hub: same job (tools for local LLMs), very 
 | ✅ **AST-level refactoring** (rename, move functions, dead-import cleanup) — syntax-safe transforms with auto-rollback, not string edits |
 | ✅ **Real RAG:** vector index over PDF / DOCX / XLSX with page-level provenance — not just keyword search |
 | ✅ **Image & data viz:** OCR, vision-model image analysis, chart generation |
-| ✅ **120+ tools** vs ~49 — backed by 730 tests across 43 suites (~13× the test bench) |
+| ✅ **120+ tools** vs ~49 — backed by 734 tests across 43 suites (~13× the test bench) |
 | ✅ **Crash-resilient writes + rollback on failure:** a botched edit can never corrupt your file |
 
 Our previous i18n gap is closed: **we now ship 5 locales** (en · de · es · zh-CN · zh-TW), each a full translation set — and anti-stub tests guard the suite so alias/fallback languages can never silently regress. We'd rather tell you than pretend it doesn't exist.
@@ -95,7 +95,7 @@ Charts rendered to image files from raw data (bar/line/pie/scatter/radar). Live 
 ```bash
 # Developing instead of using?
 npm install && npm run build   # ESM + CJS via tsup
-npm test                        # full suite: 43 suites / 730 tests green
+npm test                        # full suite: 43 suites / 734 tests green
 ```
 
 ---
