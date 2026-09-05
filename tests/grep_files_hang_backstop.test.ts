@@ -16,9 +16,10 @@
  *   - host AbortSignal forwarded INTO an internal AbortController (one-way signals can only be listened to);
  *   - a single real setTimeout arms the wall-clock cap; at the deadline it calls controller.abort();
  *   - every cooperative check reads guard.signal.aborted; disarm() clears the timer on EVERY completion path.
- * KNOWN TRADE-OFF: a spinning synchronous .test() starves the event loop, so no timer can fire mid-spin —
- * the abort applies at the next file/line boundary instead (upstream gates remain: isSafeRegex/literal
- * demotion, size/line gates, 20k-char line skip).
+ * KNOWN TRADE-OFF (pre-ITEM-B): a spinning synchronous .test() starves the event loop, so no timer can fire mid-spin —
+ * the abort applies at the next file/line boundary instead. ITEM-B (05.09) removed this trade-off at the source:
+ * regex evaluation now runs in an isolated worker (src/utils/regexWorker.ts) whose watchdog terminate() preempts
+ * even a spinning .test(); upstream gates remain (isSafeRegex/literal demotion, size/line gates, 20k-char line skip).
  */
 
 import { registerFileSystemTools } from '../src/tools/fileSystemTools';
