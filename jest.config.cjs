@@ -111,6 +111,8 @@ module.exports = {
     '^\\.\\./utils/hubExclusionClustering\\.js$': '<rootDir>/src/utils/hubExclusionClustering.ts',
     // FIX-DEBLOAT (04.09): src/tools/fileSystemTools.ts imports '../utils/grepGuard.js' — same RC#4 class as the entries above; per-file form only (G9 round-2: generic rule hijacks node_modules requires)
     '^\\.\\./utils/grepGuard\\.js$': '<rootDir>/src/utils/grepGuard.ts',
+    // ITEM-B (05.09): src/tools/fileSystemTools.ts + src/tools/patternScan.ts import '../utils/regexWorker.js' — same RC#4 class as grepGuard above; per-file form only (G9 round-2)
+    '^\\.\\./utils/regexWorker\\.js$': '<rootDir>/src/utils/regexWorker.ts',
     '^\\.\\./utils/atomicWrite\\.js$': '<rootDir>/src/utils/atomicWrite.ts',
     '^\\.\\./utils/ripgrepEngine\\.js$': '<rootDir>/src/utils/ripgrepEngine.ts',
 

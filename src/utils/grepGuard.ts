@@ -13,13 +13,13 @@
  * Every cooperative check in the caller reads guard.signal.aborted — there is exactly one abort
  * state, no secondary flags, no race promises, no orphaned timers (disarm() clears the deadline).
  *
- * KNOWN RESIDUAL RISK (documented trade-off of this simplification): a single catastrophic-
- * backtracking RegExp.prototype.test() blocks the JS event loop synchronously and NO timer —
- * including the cap above — can fire while it spins; the abort then applies at the next file/line
- * boundary instead. Upstream mitigations that remain: isSafeRegex denial + literal auto-demotion,
- * per-file size (default 100 KB) / line-count (default 5000) gates, and the 20k-char line skip in
- * regex mode. If a live hang recurs, restore worker isolation (git history, FIX-HANG-5) rather than
- * stacking another timer layer here.
+ * ITEM-B (05.09): worker isolation RESTORED at the two incident hotspots — grep_files processWithRegex and
+ * pattern_scan scanFileWithLimits now route ALL regex file evaluation through src/utils/regexWorker.ts, where a
+ * watchdog terminate() preempts even an unpreemptible .test() (proven live 30.08, FIX-HANG-5c). A spinning
+ * catastrophic-backtracking pattern therefore dies in an isolated worker instead of starving this thread; the cap
+ * above remains the cross-file wall-clock budget + host-abort forwarding layer (and terminates in-flight evals via
+ * externalSignal). Residual inline exposure: find_replace_all's whole-file .match()/.replace() segments still run
+ * under pre-call cooperative gates only (out of ITEM-B scope — that tool modifies files and keeps its 15 s budget).
  */
 
 /** Default wall-clock cap for ONE grep_files call (ms). Set by user order 04.09: keep it tunable in one place. */
