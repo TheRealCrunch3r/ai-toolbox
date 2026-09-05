@@ -15,6 +15,8 @@ import { patternScan } from './patternScan.js';
 // searchCandidates call site all gone); src/utils/ripgrepEngine.ts itself is retained — pattern_scan
 // (src/tools/patternScan.ts) now consumes it as its only production caller.
 import { createGrepGuard, GREP_MAX_RUN_MS, FIND_REPLACE_ALL_MAX_RUN_MS } from '../utils/grepGuard.js';
+// ITEM-B (05.09): worker-isolated regex evaluation — a spinning .test() can no longer starve the host event loop. See src/utils/regexWorker.ts.
+import { evaluateLinesInWorker, REGEX_WORKER_BUDGET_MS } from '../utils/regexWorker.js';
 import { getWorkingDir, setWorkingDir, resolvePath } from '../workingDir.js';
 import {
   levenshteinSimilarity,
@@ -1955,7 +1957,7 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
   // if a hung session's logs lack this line, the process is executing a STALE pre-fix bundle — i.e., the shared
   // grepGuard (src/utils/grepGuard.ts) with its single cap timer was NOT loaded. This converts "is the fix live?"
   // from inference to a log fact.
-  console.log('[ai_toolbox] HANG-GUARD v3 ACTIVE — grep_files + find_replace_all: shared abort guard | wall-clock caps 500ms / 15s (FIX-DEBLOAT; supersedes FIX-HANG-1/2/4, F1/F2/F3)');
+  console.log('[ai_toolbox] HANG-GUARD v3 ACTIVE — grep_files + find_replace_all: shared abort guard | wall-clock caps 500ms / 15s (FIX-DEBLOAT; supersedes FIX-HANG-1/2/4, F1/F2/F3) | regex eval isolated in workers (ITEM-B 05.09)');
 
 // grep_files tool — Search file contents across directory with regex support (OPTIMIZED FOR TOKEN SAVINGS) — ASYNC ===
   tools.push(tool({
@@ -1994,6 +1996,11 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
         // src/utils/grepGuard.ts. It forwards the host's one-way AbortSignal (@lmstudio/sdk ToolCallContext.signal)
         // into an internal controller and arms a single wall-clock cap timer (GREP_MAX_RUN_MS, default 500 ms).
         // Every cooperative check below reads guard.signal.aborted — exactly ONE abort state for the call.
+        // FORENSICS (05.09): host-originated aborts were invisible in main.log — no plugin line was ever emitted for a
+        // call the host had already aborted before our scan code ran (incident: wedged session, 05.09 ~12:1x). One INFO
+        // line makes that path observable; routine cap/completion telemetry below is unchanged.
+        if (ctx?.signal?.aborted) console.log(`[grep_files] aborted-in 0ms (host signal already fired before scan start)`);
+
         const guard = createGrepGuard(ctx?.signal, GREP_MAX_RUN_MS, 'grep_files');
 
         const targetDir = resolvePath(searchPath);
@@ -2158,24 +2165,27 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
           }
         }
 
-        // ==================== SYNCHRONOUS REGEX WORK — COOPERATIVE STOPS ====================
+        // ==================== REGEX WORK — ISOLATED IN A WORKER (ITEM-B 05.09) ====================
         // JS cannot preempt a spinning synchronous .test() call, and the guard's cap timer CANNOT fire while such a
-        // loop is running (timers starve with the event loop). So we enforce cooperative stops HERE:
-        //   1. The guard's wall-clock cap — its timer sets aborted at GREP_MAX_RUN_MS; every line/regex boundary checks it.
-        //   2. A per-line length cap — pathological single lines are never meaningful matches and
-        //      dominate .test() cost, so skip them instead of scanning MB-sized strings.
+        // loop is running (timers starve with the event loop). ITEM-B removes that exposure entirely: every file's
+        // regex evaluation runs in an isolated worker_threads worker (src/utils/regexWorker.ts) — the host thread
+        // never executes a .test(). Containment layers, in order of binding force:
+        //   1. Worker watchdog (REGEX_WORKER_BUDGET_MS): terminate() preempts even an unpreemptible .test()
+        //      (proven live 30.08, FIX-HANG-5c) — a ReDoS-prone pattern dies in the worker; host stays responsive.
+        //   2. The guard's wall-clock cap / host abort: forwarded as externalSignal into each eval → in-flight
+        //      workers terminate early (kind:'aborted'); unstarted files bail at their pre-dispatch gate below.
+        //   3. Per-line length cap — pathological single lines are blanked BEFORE dispatch so the worker never
+        //      tests them (identical match set to the pre-ITEM-B inline skip; smaller message payload).
         const MAX_LINE_CHARS_REGEX_MODE = 20000;  // skip individual lines longer than this in regex mode
-        const PER_REGEX_TIMEOUT_MS = 500;         // max ms a single .test() may take before that branch is abandoned
         const grepScanStartedAt = Date.now();
 
         /**
-         * Process file with regex pattern matching.
+         * Process file with regex pattern matching — evaluation isolated in a worker (ITEM-B 05.09).
          */
         async function processWithRegex(content: string, relativePath: string, compiledRegexes: RegExp[]): Promise<void> {
           const lines = content.split('\n');
 
           // CRITICAL FIX: Limit per-file processing to prevent catastrophic backtracking on large files
-          // JavaScript has no mechanism to abort sync .test() calls — we must limit input size.
           if (lines.length > effectiveMaxLines) {
             skippedFiles.push({ file: relativePath, reason: `exceeds ${effectiveMaxLines} line limit (${lines.length} lines — per-file safety cap to prevent catastrophic regex backtracking; raise max_lines to include this file)` });
             // FIX (v1.9.10): was console.warn — this is an expected, informational skip event
@@ -2187,63 +2197,68 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
           // File passed both size gate AND line-cap gate → count as scanned
           filesScanned++;
 
-          // FIX-HANG-5 REMOVED (04.09 debloat): the worker-isolated regex-evaluation path no longer exists —
-          // patterns are tested inline below under the pre-test deadline/abort gates + line-length cap, which is
-          // what actually bounds event-loop exposure for every pattern class (risky or not).
+          // PRE-DISPATCH GATE: never START a new evaluation once the guard's cap/abort fired (same posture as the
+          // pre-ITEM-B per-line checks — now one check per file instead of per line).
+          if (guard.signal.aborted) return;
 
-          // Gate above guarantees lines.length <= effectiveMaxLines here — no truncation possible
-          for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
-            // STRICT LIMIT CHECK before processing each line
-            if (resultsCount >= MAX_RESULTS) return;
+          // Per-line length cap preserved byte-for-byte: over-long lines are blanked BEFORE dispatch so the worker
+          // never tests them (identical match set to the pre-ITEM-B inline skip, smaller message payload).
+          const evalLines = new Array<string>(lines.length);
+          for (let i = 0; i < lines.length; i++) {
+            evalLines[i] = lines[i].length > MAX_LINE_CHARS_REGEX_MODE ? '' : lines[i];
+          }
 
-            // CAP CHECK: a spinning .test() can never be preempted by the guard's timer, so we self-police here and
-            // stop cooperatively once aborted is set — this bounds all further work after the cap fires.
-            if (guard.signal.aborted) return;
+          // THE isolation: no .test() runs on the host thread. The guard signal terminates in-flight evals early;
+          // the watchdog inside evaluateLinesInWorker bounds any single evaluation to REGEX_WORKER_BUDGET_MS.
+          const outcome = await evaluateLinesInWorker(
+            compiledRegexes.map((r) => ({ source: r.source, flags: r.flags })),
+            evalLines,
+            { externalSignal: guard.signal },
+          );
 
-            // HARD STOP 2: per-line length cap — skip pathological single lines (e.g. minified or
-            // generated one-liners) that dominate .test() cost but are never useful matches.
-            if (lines[lineIdx].length > MAX_LINE_CHARS_REGEX_MODE) continue;
-
-            let matched = false;
-            const lineText = lines[lineIdx];
-
-            for (const r of compiledRegexes) {
-              // PRE-TEST GATE: a spinning .test() CANNOT be preempted — JS has no way to interrupt it mid-execution.
-              // The only real defense is to never START new regex work once the guard's cap/abort fired, so gate
-              // BEFORE each test (a check after .test() returns can never fire during the spin).
-              if (guard.signal.aborted) return;
-              const reStart = Date.now();
-              if (r.test(lineText)) {
-                matched = true;
-                break;
-              }
-              // Post-test observation only (informational): a single test() that took longer than budget is
-              // reported, but the binding guarantee is the pre-test gate above.
-              if (Date.now() - reStart > PER_REGEX_TIMEOUT_MS) {
-                console.warn(`[grep_files] Regex timed out (>${PER_REGEX_TIMEOUT_MS}ms per test) on line ${lineIdx + 1}; skipping remaining patterns for this line`);
-              }
+          if (!outcome.ok) {
+            // NO inline fallback — that would reintroduce the exact spin class this isolation removes.
+            if (outcome.kind === 'budget') {
+              console.warn(`[grep_files] FIX-HANG-5: worker exceeded ${REGEX_WORKER_BUDGET_MS}ms budget — terminated (possible ReDoS)`);
+              skippedFiles.push({ file: relativePath, reason: `regex evaluation terminated in isolated worker after ${REGEX_WORKER_BUDGET_MS}ms — likely ReDoS-prone pattern` });
+            } else if (outcome.kind === 'error') {
+              console.warn(`[grep_files] regex worker error on ${relativePath}: ${outcome.detail}`);
+              skippedFiles.push({ file: relativePath, reason: `regex evaluation failed in isolated worker (${outcome.detail}) — file not searched` });
+            } else {
+              // kind:'aborted' (guard cap / host abort): the call-level aborted flag stays authoritative for the SCAN,
+              // but this file produced NO results either way (worker terminated before returning) — record it so
+              // callers can tell "partial scan" apart from "this file contributed nothing". No reason discrimination:
+              // GrepGuard exposes one abort state by design (deadline vs host-cancel).
+              console.log(`[grep_files] regex eval on ${relativePath} terminated by guard abort mid-evaluation`);
+              skippedFiles.push({ file: relativePath, reason: `regex evaluation interrupted when the call was aborted (${GREP_MAX_RUN_MS}ms scan cap or user cancel) — no results recorded for this file` });
             }
-            if (matched) {
-              const rawContent = lines[lineIdx].trim();
+            return;
+          }
 
-              const matchEntry: { file: string; line_number: number; content: string; context?: { function_signature?: string; class_context?: string; docblock?: string } } = {
-                file: relativePath,
-                line_number: lineIdx + 1,
-                content: rawContent.length > MAX_CONTENT_LENGTH ? rawContent.slice(0, MAX_CONTENT_LENGTH) + '…' : rawContent,
+          // Worker returned first-match-per-line indices (ascending) — shape entries exactly as the pre-ITEM-B loop did.
+          for (const lineIdx of outcome.matchedLineIndices) {
+            // STRICT LIMIT CHECK before processing each match
+            if (resultsCount >= MAX_RESULTS) break;
+
+            const rawContent = lines[lineIdx].trim();
+
+            const matchEntry: { file: string; line_number: number; content: string; context?: { function_signature?: string; class_context?: string; docblock?: string } } = {
+              file: relativePath,
+              line_number: lineIdx + 1,
+              content: rawContent.length > MAX_CONTENT_LENGTH ? rawContent.slice(0, MAX_CONTENT_LENGTH) + '…' : rawContent,
+            };
+
+            // Context-aware grep: extract surrounding context (cheap string ops — stay on the host thread)
+            if (include_context) {
+              matchEntry.context = {
+                function_signature: extractFunctionContext(lines, lineIdx),
+                class_context: extractClassContext(lines, lineIdx),
+                docblock: extractDocblock(lines, lineIdx),
               };
-
-              // Context-aware grep: extract surrounding context
-              if (include_context) {
-                matchEntry.context = {
-                  function_signature: extractFunctionContext(lines, lineIdx),
-                  class_context: extractClassContext(lines, lineIdx),
-                  docblock: extractDocblock(lines, lineIdx),
-                };
-              }
-
-              matches.push(matchEntry);
-              resultsCount++;
             }
+
+            matches.push(matchEntry);
+            resultsCount++;
           }
         }
 
@@ -3047,7 +3062,7 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
     name: 'pattern_scan',
     description: `Recursively search file contents under a directory (or within a single file) for a pattern, returning matching lines as {file, line, content}.
 
-Differences vs grep_files: fails fast on unsafe or syntactically invalid regexes by auto-demoting to literal mode (reported via demotedToLiteral), fully async with bounded concurrency, hard per-file and total match caps (stats.truncated when hit), explicit skipped[] reporting for oversized/line-capped/binary files, deterministic ordering (file, then line).
+Differences vs grep_files: fails fast on unsafe or syntactically invalid regexes by auto-demoting to literal mode (reported via demotedToLiteral), fully async with bounded concurrency, hard per-file and total match caps (stats.truncated when hit), explicit skipped[] reporting for oversized/line-capped/binary/regex-timeout files, deterministic ordering (file, then line).
 Directories node_modules/.git/dist/build/out/.next/.nuxt/__pycache__/.venv/coverage are always pruned. Relative roots resolve against the current working directory.`,
     parameters: {
       pattern: z.string().min(1).describe('Non-empty search pattern (regex by default; use mode "literal" for plain text)'),
@@ -3078,7 +3093,10 @@ Directories node_modules/.git/dist/build/out/.next/.nuxt/__pycache__/.venv/cover
       maxTotalMatches?: number;
       matchLineLength?: number;
       concurrency?: number;
-    }) => {
+    }, ctx?: { signal?: AbortSignal }) => { // HANG-GUARD (05.09): host abort signal — same ctx contract as grep_files above
+      // FORENSICS (05.09): make host-originated pre-aborts observable in main.log (same invisible-abort gap as grep_files).
+      if (ctx?.signal?.aborted) console.log(`[pattern_scan] aborted-in 0ms (host signal already fired before scan start)`);
+
       // patternScan resolves relative roots against process.cwd() — bridge to the plugin working dir.
       const effectiveRoot = root ? resolvePath(root) : getWorkingDir();
       try {
@@ -3096,6 +3114,8 @@ Directories node_modules/.git/dist/build/out/.next/.nuxt/__pycache__/.venv/cover
           maxTotalMatches,
           matchLineLength,
           concurrency,
+          // HANG-GUARD (05.09): forward the host abort signal into the scan's shared cap guard.
+          abortSignal: ctx?.signal,
         });
         if (!result.ok) {
           return { success: false as const, error: result.error ?? 'pattern_scan failed' };
@@ -3107,6 +3127,10 @@ Directories node_modules/.git/dist/build/out/.next/.nuxt/__pycache__/.venv/cover
             skipped: result.skipped,
             excluded_dirs: result.excludedDirs,
             stats: result.stats,
+            // HANG-GUARD (05.09) forensics: cap/host aborts leave a host-log line + explicit partial-results fields.
+            ...(result.aborted
+              ? { aborted: true, hint: `Scan was cut short at the ${GREP_MAX_RUN_MS}ms wall-clock cap or by a host abort — results are PARTIAL; re-run with narrower scope (smaller root/includeGlobs) for full coverage.` }
+              : {}),
             ...(result.demotedToLiteral ? { demoted_to_literal: result.demotedToLiteral } : {}),
           },
         };

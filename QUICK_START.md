@@ -72,7 +72,7 @@ executionTerminal: true (for shell scripting)
 
 ## Documentation
 
-- **Tool Reference**: `TOOLS_REFERENCE.md` — Complete parameter documentation for all 131 unique tools across 24 modules (v1.9.8). Includes new v1.9.8 architectural features: Confidence-Tagged Results, Hub-Exclusion Clustering, Project Auto-Detection, Context Tier Provenance, Cluster-Aware Tool Priority.
+- **Tool Reference**: `TOOLS_REFERENCE.md` — Complete parameter documentation for all 129 registration entries / 127 distinct tool names (current v1.9.15 — locale-verified, see TOOLS_REFERENCE.md overview). Includes the v1.9.8-era Graphify-Inspired Suite: Confidence-Tagged Results, Hub-Exclusion Clustering, Project Auto-Detection, Context Tier Provenance, Cluster-Aware Tool Priority.
 - **Architecture**: `ARCHITECTURE.md` — System design, registration pattern, data flows
 - **Security**: `SECURITY.md` — Threat model, input validation, secure defaults
 - **Contributing**: `CONTRIBUTING.md` — Development workflow, adding new tools

@@ -124,7 +124,7 @@ export function main(context: PluginContext) {
 }
 ```
 
-### 2. Tool Registration Flow (Current State — v1.9.8)
+### 2. Tool Registration Flow (Current State — v1.9.15 / manifest rev 27)
 
 ```
 toolsProvider() called by LM Studio SDK
@@ -136,7 +136,7 @@ createToolsProvider(config, stateManager, bgCommandManager)
     ├── BackgroundCommandManager ──► Initialize process tracker
     └── Declarative Registry Pattern (v1.8.2+):
             │
-            ├── TOOL_REGISTRIES array (20 entries, closure-based)
+            ├── TOOL_REGISTRIES array (21 entries, closure-based; execution tools registered separately after the loop — audited 05.09)
             │   ├── Each entry captures dependencies at definition time
             │   ├── Single for...of loop iterates all entries
             │   └── Config key gating + GOD MODE bypass
@@ -158,7 +158,7 @@ createToolsProvider(config, stateManager, bgCommandManager)
             ├── registerExecutionTools()       ──► 5 tools (mixed defaults)
             │
             ▼
-        Return Tool[] to SDK ──► **131 unique tools** registered across 24 modules (configurable per user)
+        Return Tool[] to SDK ──► **129 registration entries / 127 distinct tool names** from `src/tools/` — 26 source files, 23 exporting register functions (`pattern_scan` registered via `fileSystemTools.ts`; locale-verified v1.9.15, see TOOLS_REFERENCE.md)
 ```
 
 ### ✅ Gateway Pattern Status (v1.8.2+) — ⚠️ ABANDONED
@@ -276,7 +276,7 @@ export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[
   const TOOL_REGISTRIES: ToolRegistryEntry[] = [
     { key: 'fileSystem', register: () => registerFileSystemTools(config, stateManager) },
     { key: 'webSearch', register: () => registerWebResearchTools(config) },
-    // ... 18 more entries (20 total)
+    // ... 19 more entries (21 total — audited 05.09; execution tools handled separately, not via the array)
   ];
 
   // --- Registry Loop (replaces ~80 lines of if/else blocks) ---
@@ -1034,7 +1034,7 @@ index.ts
 │   ├── config.ts
 │   ├── stateManager.ts
 │   ├── backgroundCommands.ts
-│   └── tools/*.ts (15 registered modules)
+│   └── tools/*.ts (22 live registration modules + helpers — audited 05.09)
 │       ├── security.ts (shared)
 │       ├── workingDir.ts (shared)
 │       └── performanceUtils.ts (shared)
@@ -1103,7 +1103,7 @@ src/
 │   ├── zh-CN.ts                # Simplified Chinese
 │   ├── zh-TW.ts                # Traditional Chinese
 │   └── i18n.ts                 # I18nManager (language switching + accessors)
-├── tools/                      # Tool category modules (30 source files)
+├── tools/                      # Tool category modules (26 source files — audited 05.09 vs v1.9.15 rev 27: 22 live register fns; utilityTools.ts exports 2 more but neither is ever called [dead]; patternScan/fileModTracker/toolPriority = helper-only)
 │   ├── fileSystemTools.ts      # File system operations (23 tools — REGISTERED, incl. pattern_scan)
 │   ├── patternScan.ts          # pattern_scan search engine (clean-room module, ReDoS-gated; tool registered in fileSystemTools.ts)
 │   ├── webResearchTools.ts     # Web research & search (3 tools — REGISTERED; rag_web_content served by vectorRagTools.ts since v1.9.10)
@@ -1132,17 +1132,17 @@ src/
 │   ├── toolPriority.ts         # Cluster-aware tool priority ranking (REGISTERED)
 │   ├── # backupUtils.ts / executionRegistry.ts / toolProtocolWarnings.ts / utilityRegistry.ts — REMOVED 01.09.2026 (Tier-1 dead code: zero referencers; see CHANGELOG_v2.md entry ~18:30)
 │   └── restoreFromBak.ts       # Backup restoration utility (REGISTERED)
-│   ├── attachmentManager.ts    # Attachment handling & management (REGISTERED)
-│   ├── browserActions.ts       # Browser action execution & validation (REGISTERED)
-│   ├── findLMStudioHome.ts     # LM Studio home directory detection & fallback (REGISTERED)
-│   ├── lmStudioApi.ts          # LM Studio REST API integration layer (REGISTERED)
-│   └── tokenStatsManager.ts    # Token statistics tracking & management (REGISTERED)
+│   ├── attachmentManager.ts    # ⚠️ audited 05.09: lives in src/, NOT src/tools/ — attachment handling
+│   ├── browserActions.ts       # ⚠️ lives in src/ — browser action execution & validation
+│   ├── findLMStudioHome.ts     # ⚠️ lives in src/ — LM Studio home directory detection
+│   ├── lmStudioApi.ts          # ⚠️ lives in src/ — LM Studio REST API integration layer
+│   └── tokenStatsManager.ts    # ⚠️ lives in src/ — token statistics tracking (manager, not a tool)
 └── types/                      # Type definitions
     ├── dom-augment.d.ts        # DOM type augmentations for browser automation
     ├── node-notifier.d.ts      # Node.js notifier type declarations
     └── types.d.ts              # Core shared type definitions
 
-tests/                          # Jest test suite (25 suites)
+tests/                          # Jest test suite (~45 suites / 747 tests, verified green on 05.09 via npm test — see README meta line; per-file list below is abbreviated)
 ├── security.test.ts            # Core security validation tests
 ├── security.edge-cases.test.ts # Security boundary & edge case testing
 ├── config.test.ts              # Zod schema + UI schematics validation
@@ -1227,16 +1227,18 @@ All tool categories are now fully registered in `toolsProvider.ts` using the dec
 | HTTP Client | httpClientTools.ts | 3 | ✅ Yes | Disabled |
 | Vector RAG | vectorRagTools.ts | 7 | ✅ Yes | Enabled |
 | UI Generation | uiGenerationTools.ts | 3 | ✅ Yes | Disabled |
-| Context Management | contextManagementTools.ts | 12 | ✅ Yes | Enabled |
+| Context Management | contextManagementTools.ts | 20 (was "12" — audited 05.09 against code) | ✅ Yes | Enabled |
 | Text Processing | textProcessingTools.ts | 4 | ✅ Yes | Enabled |
-| AST Refactoring | refactorCodeTools.ts | 2 | ✅ Yes | Enabled |
+| AST Refactoring | refactorCodeTools.ts | 1 (was "2" — `unusedImports` is a recode-engine rule object, not a registered tool; audited 05.09) | ✅ Yes | Enabled |
 | Execution | executionTools.ts | 5 | ✅ Yes | Mixed (JS/Python: enabled, Terminal/Shell: disabled) |
-| Backup Operations | backupTools.ts + cleanupBackupsTool.js | 5 | ✅ Yes | Utility toggle |
+| Backup Operations | backupTools.ts + cleanupBackupsTool.ts (typo ".js" fixed 05.09) | 5 | ✅ Yes | Utility toggle |
 | Data Visualization | dataVisualizationTools.ts | 1 | ✅ Yes | Utility toggle |
 | Line Operations | lineOperations.ts | 1 | ✅ Yes | Utility toggle |
 | Markdown Preview | markdownPreviewTools.ts | 1 | ✅ Yes | Utility toggle |
 | Task Planning | taskPlanningTools.ts | 3 | ✅ Yes | Enabled (default) |
-| **Total Registered** | | **131 unique tools** (24 modules) | | |
+| **Total Registered** | | **Code-defined total (audited 05.09): 131 live tool definitions across the 22 registered modules; exposed set is toggle-dependent — GOD MODE max ≈ 130 (`read_document` deduped)** · legacy locale figure: 129 entries / 127 distinct names in `src/locales/en.ts` (see drift note below) | | |
+
+> **⚠️ Locale vs code drift (audited 05.09 against `src/tools/` + `toolsProvider.ts`; fix decision pending):** the locale sets (`src/locales/*.ts`, all five locales) carry **3 ghost entries with no tool definition in code**: `browser_session_open` (real tool: `browser_open_page`), `gh_auth` (no such registered tool; even `check_gh_auth` exists only as data in `toolPriority.ts`), and `analyze_image` (no image-analysis module). Conversely, **2 registered tools have no locale entry**: `delete_lines`, `markdown_preview`. So "129/127" counts *locale data*, not code; the per-category counts above are code-based.
 
 > **Note**: All previously "unregistered" utility tool categories (backup, data visualization, line operations, markdown preview) are now properly registered in `toolsProvider.ts` under the `utility` config key. The former gateway file (`gatewayTools.ts`) has been removed from the codebase (v1.9.10 session, 24.08) — direct SDK registration with schema minification handles grammar parser compatibility.
 
@@ -1742,7 +1744,7 @@ The plugin carries a localization subsystem under `src/locales/` providing tool 
 
 | File | Role |
 |------|------|
-| `src/locales/types.ts` | Shared types: `LanguageCode = 'en' \| 'de' \| 'es' \| 'zh-CN' \| 'zh-TW'`; `Translation { toolName, description, parameters[], example? }`; `ToolCategoryTranslations { categoryTitle, tools[] }`; `FullTranslationSet` — **20 per-category blocks** + a `general` block (`pluginName`, `enabledTools`, `disabledTools`, `errorPrefix`, `successPrefix`). Since the Tier-2 completion (04.09) all 20 categories are REQUIRED in every locale set. |
+| `src/locales/types.ts` | Shared types: `LanguageCode = 'en' \| 'de' \| 'es' \| 'zh-CN' \| 'zh-TW'`; `Translation { toolName, description, parameters[], example? }`; `ToolCategoryTranslations { categoryTitle, tools[] }`; `FullTranslationSet` — **19 per-category blocks** (audited 05.09 — was "20"; lineOperations & markdownPreview have no category of their own) + a `general` block (`pluginName`, `enabledTools`, `disabledTools`, `errorPrefix`, `successPrefix`). Since the Tier-2 completion (04.09) all 19 categories are REQUIRED in every locale set. |
 | `src/locales/en.ts` / `de.ts` / `es.ts` / `zh-CN.ts` / `zh-TW.ts` | One complete translation set per language (`enTranslations`, …). Coverage: **129 per-category tool entries**, parity-verified across all five locales with exact `en` order. `read_document` and `rag_web_content` appear in two category blocks each — distinct tool names number 127. |
 | `src/locales/i18n.ts` | The `I18nManager` class (API below). |
 

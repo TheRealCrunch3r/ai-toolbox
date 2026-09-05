@@ -10,7 +10,7 @@
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| **Tool Count** | ✅ 24 tool modules — live ground truth (04.09.2026): **129 unique tools**, counted as per-category i18n registration entries in `src/locales/en.ts` and parity-verified across all 5 locales (`read_document` and `rag_web_content` are each served by two categories) | All registered via declarative pattern (v1.8.2+) |
+| **Tool Count** | ✅ Re-audited against code 05.09: **~131 live tool definitions across the 22 registration modules in `src/tools/`** (exposure toggle-dependent; GOD MODE max ≈ 130 after `read_document` dedup). Legacy locale figure: 129 entries / 127 distinct names in `src/locales/en.ts`, parity-verified across all 5 locales (`read_document` and `rag_web_content` appear in two categories each — see ARCHITECTURE.md drift note for the 3 ghost entries / 2 missing tools) | All registered via declarative pattern (v1.8.2+) |
 | **Context Management** | ✅ Scoping + Heuristic Scoring + TTL Pruning | v1.9.1+ improvements active |
 | **Token Counting** | ✅ Native History API × 0.24 ratio | Matches LM Studio sidebar <0.3% deviation |
 | **Graphify Intelligence Suite** | ✅ Fully Implemented (v1.9.5) | Confidence tags, hub-exclusion clustering, project auto-detection, tier provenance, cluster-aware priority |
@@ -73,7 +73,7 @@ IF REMOTE URL (http://, https://):
 - **`src/toolsProvider.ts` (`instrumentedImplementation`)**: after the FIX #20 measurement/guard block, plain-object results are returned as `{ ...result, executedTool }`, where `executedTool` = the registered (post-minification) name of the implementation that actually ran. This is the same name the AutoTracker DELTA log lines already used for host-log attribution — now it also reaches the chat transcript via the payload itself.
 - **Strictly additive contract:** strings, numbers, booleans, arrays, null/undefined and non-plain objects (class instances, Buffer, Date) pass through byte-identical; only plain objects gain exactly one key. No tool emits `executedTool` today (grep-verified before introduction); on any future collision the wrapper value is authoritative. Routing, side effects, timing and error propagation are unchanged; FIX #20 A1 bookkeeping still records the original payload with the same ground-truth name.
 - **Verification:** new suite `tests/executedToolTransparency.test.ts` (8 tests) exercises the real registration → minify → instrument pipeline via six side-effect-free probe tools, incl. a regression guard for FIX #20 A1 (`recordToolResult` once per success / zero on failure). Guard expression additionally verified offline: 14/14 payload-class edge cases pass.
-- **Status:** ⏳ user-side `npx jest tests/executedToolTransparency.test.ts` + full baseline (superseded — current suite: **734 tests / 43 suites**, verified green 04.09.2026); live activation = sync `src/toolsProvider.ts` into the source-run LM Studio install + full restart. No version bump (v1.9.12 rev 23 stays current).
+- **Status:** ⏳ user-side `npx jest tests/executedToolTransparency.test.ts` + full baseline (superseded — current suite: **747 tests / 45 suites**, verified green 05.09.2026 via npm test); live activation = sync `src/toolsProvider.ts` into the source-run LM Studio install + full restart. No version bump (v1.9.12 rev 23 stays current).
 
 ### OOM Hardening Suite, rag_web_content Fix Suite & Chunking Fixed-Point Termination — v1.9.10 (2026-08-24/25)
 **Hardened every web/RAG allocation path against host heap exhaustion and terminated the chunking loop that could spin forever on poison-length documents. Full test suite green (user-verified 25.08.2026 ~00:13); version stays at v1.9.10 — no bump.**
@@ -237,7 +237,9 @@ The gateway pattern (`src/tools/gatewayTools.ts`) was introduced in v1.6.0, **ab
 
 ## 📊 Tool Count Corrections
 
-The following corrections reflect the current v1.8.2 implementation:
+> **⚠️ Point-in-time section (as of v1.8.2):** these rows record the correction state *at that date* and are exempt from "match current code" syncs — do not rewrite them. For the CURRENT counts see ARCHITECTURE.md § "Tool Registration Summary" (re-audited 05.09 against code: ~131 live tool definitions across the 22 registered modules; locale-verified figure 129 entries / 127 distinct names in `src/locales/en.ts`).
+
+The following corrections reflect the v1.8.2 implementation (historical):
 
 | Category | Previous Count | Corrected Count | Changes |
 |----------|---------------|-----------------|---------|
@@ -307,7 +309,7 @@ All dangerous tool categories are **disabled by default**:
 ## ✅ Verification Checklist
 
 ### README.md
-- [x] Tool count updated dynamically; currently **130** unique tools registered across 24 modules
+- [x] Tool count updated dynamically — README rewritten 05.09 with code-verified figures (**130+** live tool definitions; unverified "24 modules" convention dropped)
 - [x] Release History updated with v1.8.x entries (declarative registry, grep_files fix, token counting)
 - [x] All tool names verified against source code
 - [x] Configuration table matches `config.ts` Zod schema exactly
@@ -348,14 +350,14 @@ All dangerous tool categories are **disabled by default**:
 
 | File | Changes Made |
 |------|-------------|
-| `README.md` | Refreshed 04.09.2026 (v1.9.15; test badge/count corrected to **734 tests / 43 suites**; tool count stated as "120+ tools across 24 modules" per package.json) |
+| `README.md` | Rewritten 05.09.2026 (v1.9.15): SEO restructure + code-verified figures — **747 tests / 45 suites** (live npm test), **130+ tools**; unverified "24 modules" convention dropped; `utilityTools` (~27 incl. secret_scan) footnoted as not yet registered |
 | `ARCHITECTURE.md` | Gateway Pattern marked as ABANDONED; tool counts corrected to 20 modules |
 | `TOOLS_REFERENCE.md` | Up-to-date (~132 tools documented) |
 | `DOCUMENTATION.md` | Deprecated features clearly marked; tool count corrections applied |
 | `CHANGELOG.md` | Up-to-date (v1.8.0–v1.8.2 entries complete) |
 | `CONTRIBUTING.md` | Updated to show declarative registry pattern for adding new tools (v1.8.2+) |
 | `SECURITY.md` | Up-to-date (threat model, security controls) |
-| `SUMMARY.md` | Rebuilt with v1.8.2 status, deprecated features noted |
+| ~~`SUMMARY.md`~~ — file no longer exists (removed after the v1.8.2 window; verified 05.09) | Rebuilt with v1.8.2 status, deprecated features noted |
 
 ---
 
