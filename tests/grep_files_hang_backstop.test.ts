@@ -1,36 +1,28 @@
 /**
- * REGRESSION SUITE — grep_files silent-hang fix (FIX-HANG-1/2, 26.08.2026)
+ * REGRESSION SUITE — grep_files hang fixes (FIX-HANG-1/2/3/4, 26.08–27.08; v3 architecture 04.09)
  *
- * Incident: a directory-mode scan on node_modules/ssh2/test hung silently for ~2 minutes and was
- * aborted by the LM Studio host WITHOUT any result.
+ * Historical incidents pinned by this suite:
+ *   FIX-HANG-1: every abort check read `signal` destructured from an EMPTY object — ALWAYS undefined;
+ *               a real AbortController existed but nothing ever read its flag (silent ~2-minute hang on
+ *               node_modules/ssh2/test, aborted by the host without any result).
+ *   FIX-HANG-2: directory mode had NO wall-clock backstop at all.
+ *   FIX-HANG-3: the backstop setTimeout was orphaned — a spurious [ERROR] fired exactly 20.0s after EVERY
+ *               healthy grep (log forensics 27.08: 8/8 RESULT-DELTA→BACKSTOP pairings at Δ=+20.0s).
+ *   FIX-HANG-4: SDK compliance — implementation accepts ToolCallContext and forwards ctx.signal so host
+ *               aborts are honored like internal ones.
  *
- * Root cause (pinned): every abort check in the scan loops read `signal` destructured from an EMPTY
- * object (`const { signal }: { signal?: AbortSignal } = {}`) — a value that was ALWAYS undefined — while
- * no loop ever read the internal AbortController's flag. The "per-regex timeout" ran AFTER .test()
- * returned (never during a spin), and directory mode had NO wall-clock backstop at all, so any
- * event-loop-starving synchronous segment (spinning .test(), AST parse) blocked every timer — including
- * the 15s deadline and 30s fallback — until the host killed the call.
- *
- * Fix under test:
- *   FIX-HANG-1: ONE AbortController, created before all scan functions; every loop check reads it (both
- *               in-loop and on the SUCCESS return path); the per-regex budget gate now runs BEFORE each
- *               .test() — the only thing that can actually stop further work once time is up.
- *   FIX-HANG-2: directory mode AND single-file mode are both raced against a wall-clock backstop
- *               (deadline + 5s = 20s) that settles the tool call with partial results — the caller can
- *               never again wait on a black hole.
- *   FIX-HANG-3 (re-incident, "NOT FIXED" 27.08 17:45): the backstop setTimeout was orphaned — its id was
- *               captured nowhere and only the separate 30s fallback was cleared in finally. So EVERY healthy
- *               grep left a live 20s timer behind that fired "[grep_files] Wall-clock backstop ... reached"
- *               [ERROR] exactly 20.0s after the result had already been delivered (log forensics: 8/8
- *               RESULT-DELTA→BACKSTOP pairings at Δ=+20.0s, zero intervening starts; scans measured in ms).
- *               Fix: capture the id + clear it in finally (same pattern find_replace_all already uses, L3015/
- *               L3027 of fileSystemTools.ts before this fix was ported back to grep_files).
- *   FIX-HANG-4 (SDK compliance): implementation now accepts the SDK's second argument (toolCallContext) and
- *               forwards ctx.signal — a live host AbortSignal per @lmstudio/sdk ToolCallContext — into the
- *               single internal controller, so host-initiated aborts are honored like internal ones.
+ * ARCHITECTURE UNDER TEST (v3, 04.09 FIX-DEBLOAT): the stacked timer machinery is replaced by ONE shared
+ * cancellation primitive per call — src/utils/grepGuard.ts createGrepGuard(ctx?.signal, GREP_MAX_RUN_MS=500ms):
+ *   - host AbortSignal forwarded INTO an internal AbortController (one-way signals can only be listened to);
+ *   - a single real setTimeout arms the wall-clock cap; at the deadline it calls controller.abort();
+ *   - every cooperative check reads guard.signal.aborted; disarm() clears the timer on EVERY completion path.
+ * KNOWN TRADE-OFF: a spinning synchronous .test() starves the event loop, so no timer can fire mid-spin —
+ * the abort applies at the next file/line boundary instead (upstream gates remain: isSafeRegex/literal
+ * demotion, size/line gates, 20k-char line skip).
  */
 
 import { registerFileSystemTools } from '../src/tools/fileSystemTools';
+import { GREP_MAX_RUN_MS } from '../src/utils/grepGuard'; // static import — keeps this suite in lockstep with production (no hardcoded 500)
 import type { PluginConfig } from '../src/config';
 import type { StateManager } from '../src/stateManager';
 import * as fs from 'fs/promises';
@@ -40,7 +32,7 @@ import * as os from 'os';
 interface GrepMatch { file: string; line_number: number; content: string; }
 interface GrepResult { success: boolean; error?: string; data?: { matches: GrepMatch[]; count: number; filesScanned: number; aborted?: boolean; hint?: string; skipped_files?: unknown[] }; }
 
-describe('grep_files hang-fix regression (FIX-HANG-1/2)', () => {
+describe('grep_files hang-fix regression (FIX-HANG-1/2 → v3 shared guard)', () => {
   let tools: ReturnType<typeof registerFileSystemTools>;
   let testDir: string;
 
@@ -62,7 +54,7 @@ describe('grep_files hang-fix regression (FIX-HANG-1/2)', () => {
 
   const getGrepTool = () => tools.find(t => t.name === 'grep_files');
 
-  test('directory-mode scan still returns matches with the backstop race in place (no behavioral regression)', async () => {
+  test('directory-mode scan still returns matches under the shared guard (no behavioral regression)', async () => {
     const grepTool = getGrepTool();
     if (!grepTool) throw new Error('grep_files tool not found');
 
@@ -77,11 +69,11 @@ describe('grep_files hang-fix regression (FIX-HANG-1/2)', () => {
 
     expect(result.success).toBe(true);
     if (result.success) {
-      // Both markers found → the Promise.race wrapper is transparent for normal fast scans
+      // Both markers found → the guard's plain await is transparent for normal fast scans
       const files = result.data!.matches.map(m => m.file.replace(/\\/g, '/'));
       expect(files.some(f => f.includes('alpha.ts'))).toBe(true);
       expect(files.some(f => f.includes('sub/beta.js'))).toBe(true);
-      // A healthy scan must NOT report itself as aborted (success path now carries the flag too — FIX-HANG-1)
+      // A healthy scan must NOT report itself as aborted (success path carries the flag — v3 guard)
       expect(result.data!.aborted ?? false).toBe(false);
       // The >5001-line fixture is reported via skipped_files (pre-existing contract preserved)
       const skipped = (result.data!.skipped_files ?? []) as Array<{ file: string }>;
@@ -89,7 +81,7 @@ describe('grep_files hang-fix regression (FIX-HANG-1/2)', () => {
     }
   });
 
-  test('single-file target still works through the shared backstop race', async () => {
+  test('single-file target still works through the shared guard', async () => {
     const grepTool = getGrepTool();
     if (!grepTool) throw new Error('grep_files tool not found');
 
@@ -111,16 +103,16 @@ describe('grep_files hang-fix regression (FIX-HANG-1/2)', () => {
   });
 
   /**
-   * THE regression test. Deadlines are wall-clock based (Date.now), so fake time is accelerated
-   * deterministically: every Date.now call returns base + realElapsed × SPEEDUP, with SPEED chosen so the
-   * full scan (~10–50ms real) spans THOUSANDS of seconds of fake time — guaranteed to cross the 15s deadline
-   // long before completion, on any machine. If FIX-HANG-1's wiring were still dead (checks reading an
-   * always-undefined value / unread flag), the deadline branch would never fire, no abort would be set, and
-   * the result would carry NO `aborted` flag — exactly the old silent-hang contract. With the fix, checks
-   * see aborted=true after the first deadline crossing and every remaining unit of work short-circuits;
-   * the success path now surfaces the flag (also fixed), so partial results are labeled as such.
+   * THE regression test (rewritten for v3, 04.09). The guard arms a REAL setTimeout(GREP_MAX_RUN_MS=500ms) —
+   * the old Date.now SPEEDUP hack cannot fake timer expiry, so this now uses jest modern fake timers:
+   * the implementation starts under a frozen clock (guard timer scheduled but not yet fired), real fs I/O
+   * proceeds while we advance the fake clock past 500ms with advanceTimersByTimeAsync (which also flushes
+   * microtasks between steps, letting in-flight native I/O complete). The cap then aborts via the internal
+   * controller; every remaining file/line boundary sees guard.signal.aborted and short-circuits. If the
+   * wiring were dead (checks reading an unread flag / undefined value), no abort would ever be set and the
+   * result would carry NO `aborted` flag — exactly the old silent-hang contract.
    */
-  test('deadline abort is OBSERVABLE: wall-clock overrun → early settle + aborted flag on success path (was dead code)', async () => {
+  test('deadline abort is OBSERVABLE: wall-clock cap expiry → early settle + aborted flag on success path', async () => {
     const grepTool = getGrepTool();
     if (!grepTool) throw new Error('grep_files tool not found');
 
@@ -130,49 +122,51 @@ describe('grep_files hang-fix regression (FIX-HANG-1/2)', () => {
     const deadlineDir = path.join(os.tmpdir(), `grep-hang-deadline-${Date.now()}`);
     await fs.mkdir(deadlineDir, { recursive: true });
 
-    let spy: jest.SpyInstance;
     try {
       const fileCount = 40; // > concurrencyLimit (8) → multiple awaited batches → checks run many times
       for (let f = 0; f < fileCount; f++) {
         await fs.writeFile(path.join(deadlineDir, `d${String(f).padStart(2, '0')}.txt`), `marker_${f} plain line\nsecond line ${f}\n`.repeat(3));
       }
 
-      // Capture the REAL clock first (fixtures already written — no Date.now needed during setup below).
-      const realNow = () => new Date().getTime(); // bypasses any spy on Date.now
-      const t0Real = realNow();
-      const base = 1_700_000_000_000;            // arbitrary stable fake epoch
-      const SPEEDUP = 250_000;                   // ~30ms real → ~7.5s fake per batch step; full scan spans thousands of fake seconds
+      jest.useFakeTimers();
+      try {
+        // Start the implementation WITHOUT awaiting — at this instant the guard has scheduled its 500ms cap on
+        // the FAKE clock and no real time can elapse to fire it prematurely.
+        const implPromise = grepTool.implementation({
+          pattern: 'marker_|plain', // matches in many files → the walk would continue into later batches without the abort
+          path: deadlineDir,
+          max_results: 500,
+          include_context: false,
+          max_content_length: 150,
+          max_file_size: 100_000,
+        }) as Promise<GrepResult>;
 
-      spy = jest.spyOn(Date, 'now').mockImplementation(() => base + (realNow() - t0Real) * SPEEDUP);
+        // Advance the fake clock past the cap. advanceTimersByTimeAsync steps through time in small increments,
+        // flushing microtasks after each — that is also where the real (libuv) fs callbacks of the in-flight scan
+        // get their chance to run between steps. At 500ms the guard timer fires → controller.abort() → every
+        // subsequent boundary check aborts and the call settles with partial results.
+        await jest.advanceTimersByTimeAsync(700);
 
-      const result = await grepTool.implementation({
-        pattern: 'marker_|plain', // matches in many files → the walk continues into later batches
-        path: deadlineDir,
-        max_results: 500,
-        include_context: false,
-        max_content_length: 150,
-        max_file_size: 100_000,
-      }) as unknown as GrepResult;
-
-      spy.mockRestore();
-
-      expect(result.success).toBe(true);
-      if (result.success) {
-        // THE assertion: deadline firing is observable end-to-end. Partial results MUST be labeled aborted —
-        // old code produced no such flag even under a 2-minute overrun (dead signal wiring).
-        expect(result.data!.aborted ?? false).toBe(true);
-        // And the partial-results hint explains why coverage may be incomplete (no more silent empties/trims)
-        expect(typeof result.data!.hint === 'string').toBe(true);
-        // Sanity: the cut-short scan still returned whatever it had collected up to that point
-        expect(Array.isArray(result.data!.matches)).toBe(true);
+        const result = await implPromise;
+        expect(result.success).toBe(true);
+        if (result.success) {
+          // THE assertion: cap firing is observable end-to-end. Partial results MUST be labeled aborted —
+          // old code produced no such flag even under a 2-minute overrun (dead signal wiring).
+          expect(result.data!.aborted ?? false).toBe(true);
+          // And the partial-results hint explains why coverage may be incomplete (no more silent empties/trims)
+          expect(typeof result.data!.hint === 'string').toBe(true);
+          // Sanity: the cut-short scan still returned whatever it had collected up to that point
+          expect(Array.isArray(result.data!.matches)).toBe(true);
+        }
+      } finally {
+        jest.useRealTimers();
       }
     } finally {
-      if (spy) spy.mockRestore();
       try { await fs.rm(deadlineDir, { recursive: true, force: true }); } catch {}
     }
   });
 
-  test('fast single-file scan resolves cleanly through the backstop race (race loses → no aborted flag)', async () => {
+  test('fast single-file scan resolves cleanly under the shared guard (cap never fires → no aborted flag)', async () => {
     const grepTool = getGrepTool();
     if (!grepTool) throw new Error('grep_files tool not found');
 
@@ -188,33 +182,32 @@ describe('grep_files hang-fix regression (FIX-HANG-1/2)', () => {
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data!.matches.length).toBeGreaterThanOrEqual(1);
-      expect(result.data!.aborted ?? false).toBe(false); // race side lost → clean success shape
+      expect(result.data!.aborted ?? false).toBe(false); // real cap timer never fired → clean success shape
     }
   });
 
   /**
-   * FIX-HANG-3 regression (27.08): the wall-clock backstop setTimeout was ORPHANED — never cleared on normal
-   * completion. Proof of the incident: LM Studio server log 2026-08-27 shows EVERY healthy grep (result already
-   * delivered, "RESULT-DELTA" line) followed by a spurious "[grep_files] Wall-clock backstop ... reached" [ERROR]
-   * at exactly Δ=+20.0s with no scan in flight (8/8 pairings). This test asserts BOTH timers scheduled per call —
-   * the 30s fallback (GREP_TIMEOUT_MS) and the 20s backstop (backstopMs = deadline + 5s) — are cleared before a
-   * healthy implementation returns. Old code cleared only the 30s one → fails here; fixed code passes.
+   * v3 orphan-timer regression (successor of FIX-HANG-3, 27.08): the guard arms exactly ONE setTimeout per call
+   * — the GREP_MAX_RUN_MS cap (default 500ms) — and disarm() in finally must clear it on EVERY completion path,
+   * so no stray "[grep_files] wall-clock cap ... reached" warn can fire after a healthy scan has already
+   * returned. This test spies on setTimeout/clearTimeout, runs one healthy single-file scan and asserts that
+   * every 500ms timer this call scheduled was cleared before the implementation resolved. Old code left its
+   * backstop timers pending (8/8 spurious [ERROR] lines at Δ=+20s in log forensics); fixed code clears all.
    */
-  test('FIX-HANG-3: healthy scan disarms BOTH timers — no orphaned backstop left behind', async () => {
+  test('v3 guard: healthy scan disarms its cap timer — no orphaned setTimeout left behind', async () => {
     const grepTool = getGrepTool();
     if (!grepTool) throw new Error('grep_files tool not found');
 
-    const scheduled = new Map<unknown, number>(); // timer id → delay ms (only ours: 30s fallback + 20s backstop per call)
-    const cleared = new Set<unknown>();
-    let nextId = 1;
+    const capTimerIds: unknown[] = []; // unique fake ids of timers scheduled with the guard's delay
+    const clearedIds = new Set<unknown>();
 
-    const setSpy = jest.spyOn(globalThis, 'setTimeout').mockImplementation(((fn: unknown, ms?: number) => {
-      const id = Symbol('fake-settimeout-' + (nextId++));
-      scheduled.set(id, ms ?? 0);
+    const setSpy = jest.spyOn(globalThis, 'setTimeout').mockImplementation(((fn: (...a: unknown[]) => void, ms?: number) => {
+      const id = Symbol('fake-timer'); // inert — nothing real may fire in this test; the id is only tracked for clear-verification
+      if (ms === GREP_MAX_RUN_MS) capTimerIds.push(id); // only the guard's cap timer qualifies by delay
       return id as unknown as ReturnType<typeof setTimeout>;
     }) as typeof setTimeout);
     const clearSpy = jest.spyOn(globalThis, 'clearTimeout').mockImplementation(((id?: unknown) => {
-      if (id !== undefined && id !== null) cleared.add(id);
+      if (id !== undefined && id !== null) clearedIds.add(id);
     }) as typeof clearTimeout);
 
     try {
@@ -229,22 +222,15 @@ describe('grep_files hang-fix regression (FIX-HANG-1/2)', () => {
 
       expect(result.success).toBe(true);
       if (result.success) {
-        expect(result.data!.aborted ?? false).toBe(false); // healthy scan — this is the scenario that orphaned timers
+        expect(result.data!.aborted ?? false).toBe(false); // healthy scan — this is the scenario that orphaned timers pre-v3
       }
 
-      const backstopTimers = [...scheduled.entries()].filter(([, d]) => d === 20_000);
-      const fallbackTimers = [...scheduled.entries()].filter(([, d]) => d === 30_000);
-      expect(fallbackTimers.length).toBeGreaterThanOrEqual(1); // sanity: the 30s fallback WAS scheduled this call
-      expect(backstopTimers.length).toBeGreaterThanOrEqual(1); // sanity: the backstop WAS scheduled this call
+      expect(capTimerIds.length).toBeGreaterThanOrEqual(1); // sanity: the guard's cap timer WAS scheduled this call
 
-      // THE assertion (FIX-HANG-3): every timer THIS call scheduled must be cleared before return —
-      // old code left all 20s backstops pending → they fired a fake [ERROR] line 20s after healthy scans.
-      for (const [id, d] of scheduled) {
-        if (d === 20_000 || d === 30_000) {
-          // Jest's expect() takes no message argument — fail with a descriptive throw instead.
-          if (!cleared.has(id)) {
-            throw new Error(`timer with delay ${d}ms was NOT cleared on normal completion (orphaned backstop — FIX-HANG-3 regression)`);
-          }
+      // THE assertion (v3): EVERY cap timer THIS call scheduled must be cleared before return.
+      for (const id of capTimerIds) {
+        if (!clearedIds.has(id)) {
+          throw new Error(`guard cap timer (${GREP_MAX_RUN_MS}ms) was NOT cleared on normal completion (orphaned — spurious post-return warn regression)`);
         }
       }
     } finally {
@@ -266,37 +252,28 @@ describe('grep_files hang-fix regression (FIX-HANG-1/2)', () => {
     ctrl.abort(); // already aborted before the call — no timing involved
 
     const result = await (grepTool.implementation as unknown as (args: object, ctx?: { signal?: AbortSignal }) => Promise<GrepResult>)(
-      { pattern: 'ALPHA_MARKER', path: testDir, max_results: 50, include_context: false, max_content_length: 150, max_file_size: 100_000 },
+      { pattern: 'ALPHA_MARKER', path: testDir, max_results: 500, include_context: false, max_content_length: 150, max_file_size: 100_000 },
       { signal: ctrl.signal },
     );
 
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.data!.aborted ?? false).toBe(true); // host abort surfaces via the single internal controller
+      expect(result.data!.aborted ?? false).toBe(true); // host abort surfaces via the shared guard controller
       expect(typeof result.data!.hint === 'string').toBe(true); // partial-results explanation present
       expect(result.data!.matches.length).toBe(0); // scan never started → nothing collected
     }
   });
 
   /**
-   * FIX-HANG-4 (mid-scan branch): a host signal that fires DURING the walk must cut the scan short — the 'abort'
-   * listener flips the shared controller and the next file-boundary check stops work.
+   * FIX-HANG-4 (mid-scan branch): a host signal that fires DURING the walk must cut the scan short — the guard's
+   * 'abort' listener flips the shared controller and the next file-boundary check stops work.
    *
-   * DETERMINISTIC GATE (27.08 final rework; protocol verified against the live implementation): replaces BOTH the
-   * original racy setTimeout(50) version — flaky in both directions: a ~20 ms hot-cache scan finishes before the
-   * timer ⇒ aborted:false, slow FS/AV wins ⇒ pass — and an earlier draft whose single-batch premise was WRONG for
-   * multi-subdir fixtures (subdir recursion joins the same batch array — fileSystemTools.ts L2351-2352 / L2366-2367 —
-   * so 4×20 subdirs can hold all 80 file-stats in flight at once). This protocol relies on a verified invariant: with
-   * a FLAT single directory and max_concurrent_files = 32, the walker flushes (await Promise.all) exactly when its
-   * batch reaches 32 — so at that instant EXACTLY 32 processFile calls are in flight, all parked inside their FIRST
-   * await (fs.promises.stat):
-   *   1. jest.spyOn on require('fs').promises.stat — the module object the implementation resolves at RUNTIME (`import
-   *      * as _fs from 'fs'; const fs = _fs.promises`, fileSystemTools.ts L5-6); a DIFFERENT instance than this test's
-   *      own 'fs/promises' import (used for fixtures only). Call #1 is the targetDir auto-detect stat (L2384) → passed
-*   2. Sticky parking (rework 27.08): live evidence disproved the "32 in flight at flush" premise (spyCalls=81 but parked never left 0 → walk serialized at stat boundary). Park EVERY call after #1; bounded poll (5 s) waits for ≥1 parked.
-*   3. Cut point: NO release — ctrl.abort() fires while all parked stats are still pending. The impl's 'abort' listener flips its shared controller synchronously; resumed files bail at an aborted pre-check, unstarted ones are rejected (swallowed by per-file catch). No deadlock possible.
-*   4. Assertions: matches.length === 0, filesScanned < fileCount (exact cut point is walk-shape-dependent — read from result), data.aborted === true (success path carries the flag — L2478), hint present, host signal aborted.
-
+   * Protocol (verified against the live implementation; unchanged by v3 except for line refs): with a FLAT single
+   * directory, every processFile call suspends at its FIRST await (fs.promises.stat). The spy parks all stat calls
+   * after #1 (the targetDir auto-detect stat passes through to real fs); bounded poll waits for ≥1 parked; then ALL
+   * waiters are settled with real stat results and the host abort fires. Every resumed file bails at its next
+   * aborted pre-check, unstarted ones return at their entry check — zero matches collected, no deadlock possible
+   * (no waiter is ever left pending).
    */
   test('FIX-HANG-4: host AbortSignal mid-scan → early settle with partial results + aborted:true', async () => {
     const grepTool = getGrepTool();
@@ -305,7 +282,7 @@ describe('grep_files hang-fix regression (FIX-HANG-1/2)', () => {
     // FLAT single directory (no subdirectories): walkDirectory flushes at exactly concurrencyLimit in-flight files, so the
     // gate below can prove a precise cut point. Subdir fixtures break that invariant — see doc block above.
     const fileCount = 80;          // ≫ concurrencyLimit: guarantees an un-processed remainder after the cut point
-    const concurrencyLimit = 32;   // batch size used by walkDirectory (L2366): await Promise.all at len >= limit
+    const concurrencyLimit = 32;   // batch size used by walkDirectory: await Promise.all at len >= limit
     const hostDir = path.join(os.tmpdir(), `grep-host-abort-${Date.now()}`);
     await fs.mkdir(hostDir, { recursive: true });
 
@@ -314,7 +291,7 @@ describe('grep_files hang-fix regression (FIX-HANG-1/2)', () => {
       await fs.writeFile(path.join(hostDir, `f${String(f).padStart(2, '0')}.txt`), `hostabort_marker ${f}\npadding line 1\n`);
     }
 
-    // Gate target: the SAME module object fileSystemTools.ts resolves at call time (see doc note above).
+    // Gate target: the SAME module object fileSystemTools.ts resolves at call time (`import * as _fs from 'fs'; const fs = _fs.promises`).
     const nodeFs = require('fs') as typeof import('fs');
     type StatResult = Awaited<ReturnType<typeof nodeFs.promises.stat>>;
     interface StatWaiter { p: Parameters<typeof nodeFs.promises.stat>[0]; opts?: unknown; resolve: (v: StatResult) => void; reject: (e: unknown) => void; }
@@ -341,8 +318,6 @@ describe('grep_files hang-fix regression (FIX-HANG-1/2)', () => {
     );
 
     // Global unhandledrejection trap — catches any silent rejection in the scan's promise chain before it settles.
-    // Attached via process.on (restored in finally). This also PREVENTS the default crash-on-unhandled-rejection,
-    // which is what we want during diagnostics: surface the reason instead of killing the suite silently.
     const unhandledRejections: unknown[] = [];
     const urhListener = (reason: unknown) => { unhandledRejections.push(reason); };
     process.on('unhandledRejection', urhListener);
@@ -360,10 +335,8 @@ describe('grep_files hang-fix regression (FIX-HANG-1/2)', () => {
         (e: unknown) => { implEarlyState = `rejected ${String(e).slice(0, 200)}`; },
       );
 
-      // Sticky-parking gate — bounded poll until at least ONE file stat is parked inside the mock. (The earlier "exactly
-      // 32 in flight at flush" premise was disproven by the 27.08 run: spyCalls=81 but parked never left 0 → the walk is
-      // serialized at the stat boundary, so no batch of stats ever accumulates. Parking every call after #1 is safe under
-      // BOTH sequential and batched walks — whichever files start while the gate holds stay in flight.)
+      // Sticky-parking gate — bounded poll until at least ONE file stat is parked inside the mock. Parking every call
+      // after #1 is safe under BOTH sequential and batched walks — whichever files start while the gate holds stay in flight.
       const deadline = Date.now() + 5000;
       while (parkedCount < 1) {
         if (Date.now() > deadline) throw new Error(
@@ -376,12 +349,10 @@ describe('grep_files hang-fix regression (FIX-HANG-1/2)', () => {
         console.warn(`[DIAGNOSTIC] ${unhandledRejections.length} unhandled rejection(s) during gate-wait:`, unhandledRejections);
       }
 
-      // Cut point — TWO-STEP (walk shape on disk L2366/2371 proves files suspend INSIDE `await fs.stat`, where no abort
-      // check can reach them): 1) settle every parked waiter with real stat results (so ALL in-flight processFile calls
-      // resume), THEN 2) fire the host abort. The implementation's 'abort' listener flips its shared controller synchronously;
-      // each resumed file then hits an aborted pre-check (resultsCount/aborted gate, per-line check L2182) before collecting
-      // anything, and unstarted files return at their L2095 pre-check. Deterministic: no waiter is ever left pending, so the
-      // implementation MUST settle — no deadlock under either sequential or batched walk shapes.
+      // Cut point — TWO-STEP: 1) settle every parked waiter with real stat results (so ALL in-flight processFile calls
+      // resume), THEN 2) fire the host abort. The guard's 'abort' listener flips its controller synchronously; each
+      // resumed file then hits an aborted pre-check before collecting anything, and unstarted files return at their
+      // entry check. Deterministic: no waiter is ever left pending, so the implementation MUST settle.
       for (const w of waiters.splice(0)) realStat(w.p, (w.opts ?? undefined) as never).then(w.resolve, w.reject); // real fs settles each parked waiter
       ctrl.abort();
 

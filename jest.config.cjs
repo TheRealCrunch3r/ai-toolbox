@@ -109,6 +109,8 @@ module.exports = {
     // moduleNameMapper has no origin filter, so exact per-file entries are the only safe form. Set = pre-G9 rollback-point entries + ripgrepEngine
     // (the actual G9 need: src/tools/fileSystemTools.ts imports '../utils/ripgrepEngine.js').
     '^\\.\\./utils/hubExclusionClustering\\.js$': '<rootDir>/src/utils/hubExclusionClustering.ts',
+    // FIX-DEBLOAT (04.09): src/tools/fileSystemTools.ts imports '../utils/grepGuard.js' — same RC#4 class as the entries above; per-file form only (G9 round-2: generic rule hijacks node_modules requires)
+    '^\\.\\./utils/grepGuard\\.js$': '<rootDir>/src/utils/grepGuard.ts',
     '^\\.\\./utils/atomicWrite\\.js$': '<rootDir>/src/utils/atomicWrite.ts',
     '^\\.\\./utils/ripgrepEngine\\.js$': '<rootDir>/src/utils/ripgrepEngine.ts',
 

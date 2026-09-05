@@ -76,6 +76,52 @@ const DEBUG_MODE = !!process.env.AI_TOOLBOX_DEBUG;
  */
 const TOKEN_SCALING_FACTOR = 1;
 
+/**
+ * Hard wall-clock cap (ms) for the internal summarization prediction in compressHistory()
+ * (model.respond, maxTokens=1024). Without it a slow/under-resourced summary model could block
+ * prompt preprocessing indefinitely. 60s covers realistic local-model runs of ≤1024 tokens while
+ * bounding worst-case latency. Kept here (single consumer) rather than in utils/grepGuard.ts,
+ * whose caps are scoped to the file-scan tools.
+ */
+const COMPRESSION_PREDICTION_MAX_MS = 60_000;
+
+/**
+ * Composes an optional external (host/preprocessor) AbortSignal with a hard wall-clock cap into ONE
+ * AbortSignal for SDK prediction opts — same one-controller pattern as utils/grepGuard.ts: the host
+ * signal is forwarded via listener (per WHATWG spec signals are one-way, no reverse .abort()), and
+ * exactly one timer arms the cap. Returns { signal, dispose }; dispose() MUST be called on every
+ * completion path so no stray timer or listener survives after the prediction settles.
+ */
+function withTimeoutCap(external: AbortSignal | undefined, maxMs: number): { signal: AbortSignal; dispose: () => void } {
+  const controller = new AbortController();
+  let forwardAbort: (() => void) | undefined;
+
+  if (external) {
+    if (external.aborted) {
+      controller.abort();
+    } else {
+      forwardAbort = () => controller.abort();
+      external.addEventListener('abort', forwardAbort, { once: true });
+    }
+  }
+
+  let deadlineId: ReturnType<typeof setTimeout> | undefined;
+  if (maxMs > 0) {
+    deadlineId = setTimeout(() => {
+      console.warn(`[ContextGuard] compression prediction cap (${maxMs}ms) reached — aborting, using fallback summary`);
+      controller.abort();
+    }, maxMs);
+  }
+
+  return {
+    signal: controller.signal,
+    dispose(): void {
+      if (deadlineId !== undefined) clearTimeout(deadlineId);
+      if (external && forwardAbort) external.removeEventListener('abort', forwardAbort);
+    },
+  };
+}
+
 function debugLog(...args: unknown[]): void {
   if (DEBUG_MODE) console.log('[ContextGuard]', ...args);
 }
@@ -384,8 +430,16 @@ export class ContextGuard {
 
   /**
    * Compresses history by sending oldest messages to a local model.
+   *
+   * @param abortSignal optional host/preprocessor AbortSignal (SDK ctl.abortSignal) — when aborted,
+   * the in-flight summarization prediction stops immediately and the documented fallback summary is
+   * used instead. Independently of this signal, the prediction is hard-capped at
+   * COMPRESSION_PREDICTION_MAX_MS so a slow summary model can never block preprocessing forever.
    */
-  async compressHistory(messages: ContextMessage[]): Promise<ContextMessage[]> {
+  async compressHistory(
+    messages: ContextMessage[],
+    abortSignal?: AbortSignal,
+  ): Promise<ContextMessage[]> {
     // 🔹 FIX #2: Pass summaryModel to countTokens so SDK-native counting is used during threshold check
     const currentTokens = await this.countTokens(messages, 0, this.config.summaryModel);
     const threshold = this.config.tokenLimit * 0.9;
@@ -462,14 +516,25 @@ SUMMARY:`;
         
         debugLog('[COMPRESS]', `Sending summarization request for ${toCompress.length} messages...`);
         
-        // Use respond() for chat-based interaction (more reliable than complete())
+        // Use respond() for chat-based interaction (more reliable than complete()).
+        // Cancellable + capped: host abort signal forwarded in AND hard wall-clock cap — see withTimeoutCap().
+        const { signal: predictionSignal, dispose: disposePredictionGuard } = withTimeoutCap(abortSignal, COMPRESSION_PREDICTION_MAX_MS);
+
+        try {
         const response = model.respond(
           [{ role: 'user', content: summaryPrompt }],
-          { maxTokens: 1024, temperature: 0.1 }
+          { maxTokens: 1024, temperature: 0.1, signal: predictionSignal }
         );
-        
-        // Wait for the result
+
+        // Wait for the result — prediction runs here; host cancel or cap aborts it in-flight.
         const result = await response.result();
+
+        // User cancel (host abort) or cap timeout → SDK reports stopReason 'userStopped'. Treat as a failed
+        // compression and take the documented fallback path below instead of trusting partial content.
+        if (result.stats && result.stats.stopReason === 'userStopped') {
+          throw new Error('Summarization stopped by user cancel or prediction cap');
+        }
+
         const summary = result.content || `[ContextGuard Summary: ${toCompress.length} older messages compressed.]`;
         
         debugLog('[COMPRESS]', `Summarization complete. Generated ${summary.length} chars.`);
@@ -516,6 +581,10 @@ SUMMARY:`;
           visualIndicator,
           ...messages.slice(-keepLast)
         ];
+        } finally {
+          // Clear the cap timer + host-signal listener on EVERY path (no orphaned timers/listeners).
+          disposePredictionGuard();
+        }
       } catch (error) {
         console.error(`[ContextGuard] Summarization failed: ${(error as Error).message}`);
         console.error(`[ContextGuard] Stack: ${(error as Error).stack}`);

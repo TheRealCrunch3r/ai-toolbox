@@ -821,7 +821,9 @@ export async function preprocess(
           pendingWarning = undefined; // drop this turn's locally-captured copy too — the suffix builder must NOT re-inject a YES/NO request about history that is being replaced now
         }
 
-        const compressedMessages = await contextGuard.compressHistory(safeMessages) as unknown as ChatMessage[];
+        // Forward the host abort signal so an in-flight summarization prediction stops when the user
+        // cancels this turn (same ctl.abortSignal already used for embedding/retrieval below).
+        const compressedMessages = await contextGuard.compressHistory(safeMessages, ctl.abortSignal) as unknown as ChatMessage[];
         // Clear history by popping all messages
         while ((history?.getLength() ?? 0) > 0) {
           history.pop();

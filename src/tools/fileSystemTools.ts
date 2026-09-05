@@ -9,11 +9,12 @@ import { spawn } from 'child_process';
 import type { PluginConfig } from '../config.js';
 import type { StateManager } from '../stateManager.js';
 import { validatePath, isSafeRegex } from '../security.js';
-// FIX-HANG-5: worker_threads TYPES only (type-only import = zero runtime cost; the value is still lazy-required at call time).
-import type * as workerThreads from 'worker_threads';
 import { recordFileModification } from './fileModTracker.js';
 import { patternScan } from './patternScan.js';
-import { searchCandidates, type RipgrepResult } from '../utils/ripgrepEngine.js';
+// FIX-DEBLOAT (04.09): ripgrep phase-1 fully removed from grep_files (import, state vars, walker gate and the
+// searchCandidates call site all gone); src/utils/ripgrepEngine.ts itself is retained — pattern_scan
+// (src/tools/patternScan.ts) now consumes it as its only production caller.
+import { createGrepGuard, GREP_MAX_RUN_MS, FIND_REPLACE_ALL_MAX_RUN_MS } from '../utils/grepGuard.js';
 import { getWorkingDir, setWorkingDir, resolvePath } from '../workingDir.js';
 import {
   levenshteinSimilarity,
@@ -33,276 +34,13 @@ export const MAX_LINES_PER_FILE = 5000;
 
 // ==================== DEFAULT EXCLUSIONS (PERFORMANCE & TOKEN SAVING) ====================
 /** Directory names pruned wholesale by the grep_files walker when NO include pattern is given (see
- *  walkDirectory). Hoisted from walkDirectory to module scope so the ripgrep phase-1 prefilter can
- *  mirror the exact same pruning via `-g '!<name>'` flags. Set contents unchanged by the hoist. */
+ *  walkDirectory). Hoisted from walkDirectory to module scope so tests and pattern_scan's ripgrep mirror can
+ *  import the exact same set. Set contents unchanged by the hoist. */
 export const DEFAULT_EXCLUDED_DIRS = new Set([
   'node_modules', '.git', 'dist', 'build',
   '.next', '.nuxt', '__pycache__', '.cache',
   'vendor', '.vscode', '.idea', '.vs'
 ]);
-
-// ==================== FIX-HANG-5: WORKER-ISOLATED REGEX EVALUATION (29.08) ====================
-// Residual hang class that survived FIX-HANG-1..4: a SINGLE catastrophic-backtracking
-// RegExp.prototype.test() call blocks the JS event loop for minutes and starves EVERY timer —
-// including the 15s scan deadline, the 30s fallback AND the 20s wall-clock backstop (timers cannot
-// fire while one synchronous call is spinning). No cooperative gating between calls can preempt an
-// in-flight .test(). The only mechanism that preempts synchronous JS in Node.js is a separate
-// thread: risky patterns are therefore evaluated inside a worker and hard-killed via
-// worker.terminate() when the budget expires (node:worker_threads — terminate() kills unpreemptible
-// work, per Node docs; nothing else can). Safe patterns keep the inline .test() fast path → zero
-// overhead for the common case.
-
-/** Hard-kill budget for one file's worth of regex work in the worker (well under the 15s scan deadline). */
-const WORKER_KILL_MS = 2000;
-
-/**
- * Inline worker source: receives { lines, patterns }, tests every line against each pattern
- * (first match per line wins — mirrors the inline loop), posts back matched LINE INDICES. The main
- * thread keeps all match shaping / context extraction; the worker only does the unpreemptible work.
- * Plain ES5 on purpose — no imports, runs identically in every Node ≥ 12 runtime (LM Studio host).
- */
-const REGEX_TEST_WORKER_SOURCE = [
-  // FIX-HANG-5c (30.08): this runs in a node:worker_threads Worker (see `new WorkerCtor(..., { eval: true })`),
-  // NOT a browser Web Worker — so `self.onmessage`/`e.data` are the wrong API and threw "self is not defined" at
-  // boot: every risky pattern crashed at worker start (zero regex work) yet was reported as a 2000ms kill.
-  // Correct contract here: parentPort's 'message' handler receives the payload value DIRECTLY (no MessageEvent).
-  // Verified offline in this runtime (Node v24.15.0): safe pattern returns exact indices; T1b-exact catastrophic
-  // payload is hard-killed by worker.terminate() at 2000ms (see docs/history/GATE_PROBE_EVIDENCE_fixhang5c.md, FIX-HANG-5c).
-  'var pt; try { pt = require("worker_threads").parentPort; } catch (e) { pt = null; }',
-  'if (!pt) throw new Error("no parentPort");',
-  'pt.on("message", function (data) {',
-  '  var out = [];',
-  '  try {',
-  '    for (var i = 0; i < data.lines.length; i++) {',
-  '      var line = data.lines[i];',
-  '      if (!line) continue;',
-  '      for (var p = 0; p < data.patterns.length; p++) {',
-  '        if (data.patterns[p].test(line)) { out.push(i); break; }',
-  '      }',
-  '    }',
-  '  } catch (err) {',
-  '    try { pt.postMessage({ error: String(err && err.message || err) }); } catch (_) {}',
-  '    return;',
-  '  }',
-  '  try { pt.postMessage(out); } catch (_2) {}',
-  '});',
-].join('\n');
-
-/**
- * FIX-HANG-5 triage — STRICTER than isSafeRegex (which is a deny-list that misses shapes such as
- * brace-bounded nested quantifiers `(a+){25}`, backreferences and deeply nested groups). Anything the
- * gate cannot PROVE cheap goes to the killable worker; the false-positive cost is ~one 10–30ms worker
- * spawn per affected file, hard-capped at WORKER_KILL_MS. Conservative by design: a mis-triaged-safe
- * pattern can hang the host (the incident we are fixing), a mis-triaged-risky one just costs ms.
- */
-export function patternNeedsWorkerIsolation(pattern: string): boolean {
-  if (!pattern || pattern.length === 0) return false;
-
-  let i = 0;
-  const n = pattern.length;
-  // Per open group: does the group BODY already contain a quantifier (+ * ? or {...})?
-  // A closing ')' followed by ANY quantifier on such a body is the canonical catastrophic shape.
-  const groupBodyHasQuantifier: boolean[] = [];
-  let sawBackreference = false;
-
-  while (i < n) {
-    const c = pattern[i];
-    if (c === '\\' && i + 1 < n) { // escaped char — not syntax
-      if (/^[1-9]$/.test(pattern[i + 1])) sawBackreference = true; // backrefs: \1, \2…
-      i += 2;
-      continue;
-    }
-    if (c === '[') { // character class — skip to closing ']' (escaped ] inside is literal); a quantified class marks its enclosing group body like any other quantifier
-      i++;
-      while (i < n && pattern[i] !== ']') {
-        if (pattern[i] === '\\' && i + 1 < n) i += 2;
-        else i++;
-      }
-      i++; // consume ']'
-      let j = i;
-      while (j < n && (pattern[j] === ' ' || pattern[j] === '\t')) j++;
-      if ((pattern[j] === '+' || pattern[j] === '*' || pattern[j] === '?') || /^\{[0-9]+(,[0-9]*)?\}/.test(pattern.slice(j))) {
-        const top = groupBodyHasQuantifier.length - 1;
-        if (top >= 0) groupBodyHasQuantifier[top] = true;
-      }
-      continue;
-    }
-    if (c === '(') {
-      groupBodyHasQuantifier.push(false);
-      i++;
-      continue;
-    }
-    if (c === ')') {
-      const bodyHadQuantifier = groupBodyHasQuantifier.pop() ?? false;
-      // What follows the closing paren?
-      let j = i + 1;
-      while (j < n && (pattern[j] === ' ' || pattern[j] === '\t')) j++;
-      if (bodyHadQuantifier) {
-        const q = pattern[j];
-        if (q === '+' || q === '*') return true;            // nested unbounded quantifiers: (a+)+, (.*)* …
-        if (q === '{') return /^\{[0-9]+(,[0-9]*)?\}/.test(pattern.slice(j)); // FIX-HANG-5b (30.08): UNANCHORED prefix test — the $ anchor required the ENTIRE remaining pattern to be just {n[,m]}, so any trailing content ("{4}x") defeated triage: ((a+){3}){4}x was mis-routed INLINE (T1b double-freeze root cause). Any valid brace quantifier on an unbounded (+/*) body is catastrophic at ANY count form, with or without a following operator.
-        // A QUANTIFIED sub-group is itself a repeating unit wherever it sits in an enclosing body — even with
-        // literal text between it and the outer ')': ((a+)b)+ = O(n^2) split ambiguity. Forward to the
-        // enclosing scope unconditionally (top-level stack empty → no-op). Fixes ((a+)b)+c mis-triage.
-        const topQfwd = groupBodyHasQuantifier.length - 1;
-        if (topQfwd >= 0) groupBodyHasQuantifier[topQfwd] = true;
-      } else {
-        const q = pattern[j];
-        // Alternation inside a quantified group where two or more branches share a common prefix can also
-        // explode (ambiguous segmentation → exponential backtracking on non-matching input): (ab|abc)+d.
-        // The inline path has no preemption for that class either, so route it to the killable worker — false
-        // positives cost ~one 10–30ms spawn per affected file only (conservative-by-design posture).
-        if ((q === '+' || q === '*' || (q === '{' && /^\{[0-9]+(,[0-9]*)?\}/.test(pattern.slice(j))))) {
-          const body = pattern.substring(1, i); // between the matched '(' and this ')'
-          // Split on TOP-LEVEL pipes only (depth 0 w.r.t. nested groups / char classes).
-          const branches: string[] = [];
-          let depth2 = 0;
-          let startIdx = 0;
-          for (let k = 0; k < body.length; k++) {
-            if (body[k] === '\\') { k++; continue; }
-            if (body[k] === '[') {
-              let e = k + 1;
-              while (e < body.length && body[e] !== ']') { if (body[e] === '\\') e += 2; else e++; }
-              k = e; continue;
-            }
-            if (body[k] === '(') depth2++;
-            else if (body[k] === ')') depth2--;
-            else if (body[k] === '|' && depth2 === 0) { branches.push(body.substring(startIdx, k)); startIdx = k + 1; }
-          }
-          branches.push(body.substring(startIdx));
-          // If one branch is a proper prefix of another, segmentation becomes ambiguous → isolate.
-          for (let x = 0; x < branches.length; x++) {
-            for (let y = 0; y < branches.length; y++) {
-              if (x === y) continue;
-              const A = branches[x], B = branches[y];
-              if (A && B && (B.startsWith(A) || A.startsWith(B))) return true;
-            }
-          }
-        }
-      }
-      i += 1;
-      // After handling ')', fall through to quantifier detection on the same char for the ENCLOSING scope:
-      const qAfter = j < n ? pattern[j] : '';
-      if (qAfter === '+' || qAfter === '*' || /^{[0-9]+(,[0-9]*)?\}$/.test(qAfter) || qAfter === '?') {
-        // Mark the enclosing group body as containing a quantifier.
-        const top = groupBodyHasQuantifier.length - 1;
-        if (top >= 0) groupBodyHasQuantifier[top] = true;
-      } else if (/^\{[0-9]+(,[0-9]*)?\}/.test(pattern.slice(j))) {
-        const top = groupBodyHasQuantifier.length - 1;
-        if (top >= 0) groupBodyHasQuantifier[top] = true;
-      }
-      continue;
-    }
-    // Bare quantifiers mark the enclosing group body as "contains a quantifier".
-    if (c === '+' || c === '*' || c === '?') {
-      const top = groupBodyHasQuantifier.length - 1;
-      if (top >= 0) groupBodyHasQuantifier[top] = true;
-      i++;
-      continue;
-    }
-    if (c === '{') {
-      // A brace quantifier inside a group body. VARIABLE-length forms ({n,m}, {n,}) are true
-      // split-ambiguity sources when that group is later repeated — treat as body quantifiers like +/*/?;
-      // fixed {n} stays safe (unique partition) and must NOT mark the body.
-      const braceM = pattern.slice(i).match(/^\{[0-9]+(,[0-9]*)?\}/);
-      if (braceM) {
-        if (/^\{[0-9]+,[0-9]*\}/.test(pattern.slice(i))) {
-          const top = groupBodyHasQuantifier.length - 1;
-          if (top >= 0) groupBodyHasQuantifier[top] = true;
-        }
-        i += braceM[0].length;
-      } else {
-        i++;
-      }
-      continue;
-    }
-    i++;
-  }
-
-  // Backreferences can force expensive matching on non-matching inputs (engine re-scans alternatives).
-  if (sawBackreference) return true;
-
-  return false;
-}
-
-/**
- * FIX-HANG-5 — evaluate lines against risky patterns INSIDE a worker with a hard-kill watchdog.
- * Resolves to matched line indices on success, or null when the worker was killed (budget overrun)
- * or failed — callers treat null as "this file's regex work could not complete" and record it in
- * skipped_files instead of letting anything run unbounded on the main thread.
- */
-export async function testLinesInWorker(
-  lines: string[],
-  patterns: RegExp[],
-): Promise<number[] | null> {
-  try {
-    // Lazy require at call time (not module top-level) so unit-test environments that don't use this
-    // path — and any runtime where worker_threads is unavailable — never pay for or break on the import.
-    // Intentional: load worker_threads lazily at call time so environments without it never pay for / break on the import.
-    // eslint-disable-next-line @typescript-eslint/no-require-imports -- lazy require is a deliberate design decision (see comment above)
-    const WorkerCtor = (require('worker_threads') as typeof workerThreads).Worker;
-
-    return await new Promise<number[] | null>((resolve) => {
-      let settled = false;
-      let worker: workerThreads.Worker;
-      try {
-        worker = new WorkerCtor(REGEX_TEST_WORKER_SOURCE, { eval: true });
-      } catch (spawnErr) {
-        // Environment without worker support → caller falls back to inline matching (documented posture).
-        console.warn(`[grep_files] FIX-HANG-5: worker spawn failed (${(spawnErr as Error)?.message}) — falling back to inline regex`);
-        resolve(null);
-        return;
-      }
-
-      const killTimer = setTimeout(() => {
-        if (settled) return;
-        settled = true;
-        console.warn(`[grep_files] FIX-HANG-5: worker exceeded ${WORKER_KILL_MS}ms budget — terminated (possible ReDoS)`);
-        worker.terminate().catch(() => { /* already dead */ });
-        resolve(null); // killed → report as skipped, NEVER let the spin continue anywhere
-      }, WORKER_KILL_MS);
-
-      const onMessage = (msg: unknown): void => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(killTimer);
-        worker.removeAllListeners();
-        const arr = msg as number[] | { error?: string };
-        if (Array.isArray(arr)) resolve(arr.filter((v) => typeof v === 'number'));
-        else resolve(null); // worker reported an internal error — treat like a kill for safety
-      };
-      const onError = (err: Error): void => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(killTimer);
-        console.warn(`[grep_files] FIX-HANG-5: worker error (${err.message}) — treating as skipped`);
-        worker.terminate().catch(() => { /* already dead */ });
-        resolve(null);
-      };
-
-      worker.on('message', onMessage);
-      worker.once('error', onError);
-      // NOTE: 'exit' without a message = killed or crashed → the killTimer (or its settlement) already resolved;
-      // nothing to do here, but we keep a listener so an unhandled exit can't surface as noise.
-      worker.once('exit', () => { /* handled */ });
-
-      try {
-        worker.postMessage({ lines, patterns });
-      } catch (postErr) {
-        if (!settled) {
-          settled = true;
-          clearTimeout(killTimer);
-          console.warn(`[grep_files] FIX-HANG-5: postMessage failed (${(postErr as Error)?.message})`);
-          worker.terminate().catch(() => { /* already dead */ });
-        }
-        resolve(null);
-      }
-    });
-  } catch (e) {
-    console.warn(`[grep_files] FIX-HANG-5: isolation layer failed (${(e as Error)?.message})`);
-    return null; // caller treats as "could not complete" and records the skip — safe default
-  }
-}
 
 // ==================== AST Types ====================
 // Local type definitions for AST nodes (avoids external type dependency issues)
@@ -2212,12 +1950,12 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
   }));
 
 
-  // ==================== HANG-GUARD LIVE INDICATOR (28.08.2026) ====================
+  // ==================== HANG-GUARD LIVE INDICATOR (28.08.2026; v3 text 04.09) ====================
   // Emitted ONCE per plugin load so the LM Studio console proves which build is actually running in memory:
-  // if a hung session's logs lack this line, the process is executing a STALE pre-fix bundle — i.e., the
-  // FIX-HANG-1/2/4 hard stops (real AbortController, 15s deadline gates, 20s wall-clock backstop) were NOT
-  // loaded. This converts "is the fix live?" from inference to a log fact.
-  console.log('[ai_toolbox] HANG-GUARD v2 ACTIVE — grep_files + find_replace_all: real abort controller | 15s scan deadline gates | 20s wall-clock backstop (FIX-HANG-1/2/4, FIX-HANG-F1/F2/F3)');
+  // if a hung session's logs lack this line, the process is executing a STALE pre-fix bundle — i.e., the shared
+  // grepGuard (src/utils/grepGuard.ts) with its single cap timer was NOT loaded. This converts "is the fix live?"
+  // from inference to a log fact.
+  console.log('[ai_toolbox] HANG-GUARD v3 ACTIVE — grep_files + find_replace_all: shared abort guard | wall-clock caps 500ms / 15s (FIX-DEBLOAT; supersedes FIX-HANG-1/2/4, F1/F2/F3)');
 
 // grep_files tool — Search file contents across directory with regex support (OPTIMIZED FOR TOKEN SAVINGS) — ASYNC ===
   tools.push(tool({
@@ -2252,24 +1990,11 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
       max_depth?: number;
     }, ctx?: { signal?: AbortSignal }) => {
       try {
-        // FIX-HANG-4 (SDK compliance, 27.08): @lmstudio/sdk calls implementations as (args, toolCallContext) where
-        // ToolCallContext.signal is "a signal that should be listened to in order to know when to abort the tool call"
-        // (verified: node_modules/@lmstudio/sdk/dist/index.d.ts + index.cjs passes ongoingToolCall.abortController.signal).
-        // Forward host aborts into the single internal controller so EVERY existing cooperative check reacts.
-        const abortController = new AbortController();
-
-        // FIX-HANG-1 (silent 2-min hang, root-caused 26.08): ONE authoritative abort state for the whole scan.
-        // Previously `signal` was destructured from an empty object — every "abort check" below tested a value
-        // that was ALWAYS undefined, and no loop ever read the internal controller's flag. So when the deadline
-        // fired, all in-flight work kept running to completion (the observed silent hang; host had to kill it).
-
-        // FIX-HANG-4: forward host aborts into the single internal controller. Host signals are one-way per
-        // WHATWG DOM spec (no reverse .abort()), so we LISTEN — every existing cooperative check then reacts.
-        const hostSignal = ctx?.signal;
-        if (hostSignal) {
-          if (hostSignal.aborted) abortController.abort();
-          else hostSignal.addEventListener('abort', () => abortController.abort(), { once: true });
-        }
+        // HANG-GUARD v3 (04.09, FIX-DEBLOAT): one shared cancellation primitive for the whole scan — see
+        // src/utils/grepGuard.ts. It forwards the host's one-way AbortSignal (@lmstudio/sdk ToolCallContext.signal)
+        // into an internal controller and arms a single wall-clock cap timer (GREP_MAX_RUN_MS, default 500 ms).
+        // Every cooperative check below reads guard.signal.aborted — exactly ONE abort state for the call.
+        const guard = createGrepGuard(ctx?.signal, GREP_MAX_RUN_MS, 'grep_files');
 
         const targetDir = resolvePath(searchPath);
 
@@ -2283,10 +2008,6 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
         const MAX_CONTENT_LENGTH = max_content_length ?? 150;
         const MAX_DEPTH = max_depth ?? 10; // Prevent infinite recursion
         const effectiveMaxLines = max_lines ?? MAX_LINES_PER_FILE; // FIX-G3: line cap is configurable (ReDoS posture preserved at default)
-
-        // RIPGREP PHASE-1 state (Option A engine swap, plan_1788282568340_z5a4r521c P2-G7): null = prefilter
-        // disabled or fell back → the full-JS walk below runs EXACTLY as before (byte-for-byte fallback).
-        let rgCandidateRelPaths: Set<string> | null = null;
         let resultsCount = 0;
         let filesScanned = 0; // Count of files that passed all gates and were actually searched
         const matches: Array<{ file: string; line_number: number; content: string; node_type?: string; context?: { function_signature?: string; class_context?: string; docblock?: string } }> = [];
@@ -2382,38 +2103,17 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
           // STRICT LIMIT CHECK before any processing begins
           if (resultsCount >= MAX_RESULTS) return;
           
-          // ABORT SIGNAL CHECK - LM Studio compliance (FIX-HANG-1: real controller, was dead code)
-          if (abortController.signal.aborted) return;
+          // ABORT/CAP CHECK — the shared guard covers both host aborts and the wall-clock cap (single source of truth)
+          if (guard.signal.aborted) return;
 
           try {
-            // RIPGREP PHASE-1 GATE (Option A engine swap) + SKIP-RECORD PARITY (round-3 fix): when the rg prefilter
-            // succeeded, files it did not name can never yield matches by construction — but they MUST still pass
-            // through BOTH size gates so skipped_files keeps its pre-swap contract ("files above max_file_size OR
-            // over the line cap are reported in skipped_files", pinned by grep_files_hang_backstop + grepFilesParity).
-            // rg runs WITHOUT --max-filesize (engine header §5: size gate stays in phase 2, exact-byte records), so a
-            // non-named file can still be over the size cap; the stat below restores that record at ~1 syscall cost.
+            // SIZE GATE (pre-existing contract — pinned by grep_files_hang_backstop + grepFilesParity): files above
+            // max_file_size are never read and always reported in skipped_files with an exact-byte reason record.
             const stats = await fs.stat(fullPath);
             if (stats.size > effectiveMaxFileSize) {
               skippedFiles.push({ file: relativePath, reason: `exceeds max_file_size (${stats.size} bytes > ${effectiveMaxFileSize} bytes) — re-run with a higher max_file_size to include it` });
               return;
             }
-            if (rgCandidateRelPaths !== null && !rgCandidateNamed(relativePath)) {
-              // Non-named + size gate passed → old full-JS flow would read the file and apply the line cap before any
-              // regex work. Re-read ONLY to count lines so over-cap non-matching files get their record too — this is
-              // exactly what the pre-swap walker did (it always read every gate-passing file) at ~stat+read cost per
-              // such file; NO .test() runs, no shaping, no worker. Named candidates skip straight to the shared read.
-              const probe = await fs.readFile(fullPath); // Buffer: newline counting needs no utf8 decode of content
-              let newlines = 0;
-              for (let k = 0; k < probe.length; k++) if (probe[k] === 10) newlines++;
-              const lineCount = newlines + 1; // split('\n') semantics: N newline bytes → N+1 elements (trailing empty counts)
-              if (lineCount > effectiveMaxLines) {
-                skippedFiles.push({ file: relativePath, reason: `exceeds ${effectiveMaxLines} line limit (${lineCount} lines — per-file safety cap to prevent catastrophic regex backtracking; raise max_lines to include this file)` });
-                console.log(`[grep_files] Skipping file ${relativePath} (${lineCount} lines, exceeds ${effectiveMaxLines} line limit)`);
-              }
-              return;
-            }
-
-            // Named candidate (or full-JS fallback walk): both gates already cleared above — proceed to shared read/shaping.
             const content = await fs.readFile(fullPath, 'utf-8');
 
             if (mode === 'ast') {
@@ -2458,13 +2158,12 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
           }
         }
 
-        // ==================== HARD STOP FOR SYNCHRONOUS REGEX WORK (BUG FIX) ====================
-        // JS cannot preempt a spinning synchronous .test() call, and the external 30s AbortSignal
-        // timer CANNOT fire while such a loop is running. So we enforce cooperative stops HERE:
-        //   1. A wall-clock deadline — checked every line; exceeded → abort (sets signal.aborted).
+        // ==================== SYNCHRONOUS REGEX WORK — COOPERATIVE STOPS ====================
+        // JS cannot preempt a spinning synchronous .test() call, and the guard's cap timer CANNOT fire while such a
+        // loop is running (timers starve with the event loop). So we enforce cooperative stops HERE:
+        //   1. The guard's wall-clock cap — its timer sets aborted at GREP_MAX_RUN_MS; every line/regex boundary checks it.
         //   2. A per-line length cap — pathological single lines are never meaningful matches and
         //      dominate .test() cost, so skip them instead of scanning MB-sized strings.
-        const GREP_SCAN_DEADLINE_MS = 15000;      // hard ceiling for the whole synchronous scan (well under host timeout)
         const MAX_LINE_CHARS_REGEX_MODE = 20000;  // skip individual lines longer than this in regex mode
         const PER_REGEX_TIMEOUT_MS = 500;         // max ms a single .test() may take before that branch is abandoned
         const grepScanStartedAt = Date.now();
@@ -2488,50 +2187,18 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
           // File passed both size gate AND line-cap gate → count as scanned
           filesScanned++;
 
-          // ==================== FIX-HANG-5: worker isolation for risky patterns (29.08) ====================
-          // A single catastrophic-backtracking .test() on a RISKY pattern (nested quantifiers / backrefs —
-          // see patternNeedsWorkerIsolation) blocks the event loop and starves EVERY timer, so the 15s scan
-          // deadline, 30s fallback and 20s wall-clock backstop all cannot fire while it spins. Such patterns are
-          // therefore evaluated for this whole file INSIDE a worker (single round-trip; hard-terminated after
-          // WORKER_KILL_MS via worker.terminate()). Safe patterns keep the inline .test() fast path — zero overhead.
-          const hasRiskyPatterns = compiledRegexes.some(r => patternNeedsWorkerIsolation(r.source));
-          let riskyMatchedLineSet: Set<number> | null = null;
-          if (hasRiskyPatterns) {
-            // Abort/deadline may have fired between gates — honor before spending the round-trip.
-            if (!abortController.signal.aborted && resultsCount < MAX_RESULTS && Date.now() - grepScanStartedAt <= GREP_SCAN_DEADLINE_MS) {
-              const idx = await testLinesInWorker(lines, compiledRegexes);
-              if (idx === null) {
-                // Worker killed/failed — likely ReDoS: record the skip and stop this file. The host is now SAFE:
-                // nothing unbounded runs on it for this file (the kill budget already burned). Other files continue.
-                skippedFiles.push({ file: relativePath, reason: `regex evaluation terminated in isolated worker after ${WORKER_KILL_MS}ms — likely ReDoS-prone pattern (nested quantifiers / backreference); refine the pattern or narrow the search scope` });
-                console.log(`[grep_files] FIX-HANG-5: skipped ${relativePath} (worker kill — possible ReDoS)`);
-                return;
-              }
-              const s = new Set<number>();
-              for (const i of idx) { if (i >= 0 && i < lines.length) s.add(i); }
-              riskyMatchedLineSet = s;
-            } else {
-              // Deadline/abort already tripped → skip the round-trip entirely; per-line checks below exit.
-              riskyMatchedLineSet = null;
-            }
-          }
+          // FIX-HANG-5 REMOVED (04.09 debloat): the worker-isolated regex-evaluation path no longer exists —
+          // patterns are tested inline below under the pre-test deadline/abort gates + line-length cap, which is
+          // what actually bounds event-loop exposure for every pattern class (risky or not).
 
           // Gate above guarantees lines.length <= effectiveMaxLines here — no truncation possible
           for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
-            // ABORT SIGNAL CHECK per-line - LM Studio compliance for long files (FIX-HANG-1: real controller)
-            if (abortController.signal.aborted) return;
             // STRICT LIMIT CHECK before processing each line
             if (resultsCount >= MAX_RESULTS) return;
 
-            // HARD STOP 1: wall-clock deadline — a spinning .test() can never be preempted by the
-            // external timer, so we self-police here and abort cooperatively once time is up. (For
-            // worker-isolated files this also bounds the NUMBER of killable round-trips.)
-            if (Date.now() - grepScanStartedAt > GREP_SCAN_DEADLINE_MS) {
-              console.warn(`[grep_files] Scan deadline (${GREP_SCAN_DEADLINE_MS}ms) exceeded — aborting to prevent hang`);
-              // Internal controller only: the host AbortSignal is one-way (no .abort() method per WHATWG DOM spec).
-              abortController.abort();
-              return;
-            }
+            // CAP CHECK: a spinning .test() can never be preempted by the guard's timer, so we self-police here and
+            // stop cooperatively once aborted is set — this bounds all further work after the cap fires.
+            if (guard.signal.aborted) return;
 
             // HARD STOP 2: per-line length cap — skip pathological single lines (e.g. minified or
             // generated one-liners) that dominate .test() cost but are never useful matches.
@@ -2540,36 +2207,22 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
             let matched = false;
             const lineText = lines[lineIdx];
 
-            if (riskyMatchedLineSet !== null) {
-              // FIX-HANG-5: this file carries a risky pattern — the whole-file evaluation already ran in an
-              // isolated, killable worker (see pre-loop block). The result is a pure lookup now; no unpreemptible
-              // regex work executes on the main thread for this line.
-              matched = riskyMatchedLineSet.has(lineIdx);
-            } else {
             for (const r of compiledRegexes) {
-              // HARD STOP 3 (FIXED, 26.08): a spinning .test() CANNOT be preempted — JS has no way to
-              // interrupt it mid-execution. The only real defense is to never START new regex work once the
-              // budget is exhausted. The previous check ran AFTER test() returned (i.e., never during the
-              // spin), so a single pathological call could block the event loop — and with it ALL timers,
-              // including the deadline and the 30s abort timer — for minutes. Gate BEFORE each test:
-              if (abortController.signal.aborted) return;
-              if (Date.now() - grepScanStartedAt > GREP_SCAN_DEADLINE_MS) {
-                console.warn(`[grep_files] Scan deadline (${GREP_SCAN_DEADLINE_MS}ms) exceeded mid-regex — aborting to prevent hang`);
-                abortController.abort();
-                return;
-              }
+              // PRE-TEST GATE: a spinning .test() CANNOT be preempted — JS has no way to interrupt it mid-execution.
+              // The only real defense is to never START new regex work once the guard's cap/abort fired, so gate
+              // BEFORE each test (a check after .test() returns can never fire during the spin).
+              if (guard.signal.aborted) return;
               const reStart = Date.now();
               if (r.test(lineText)) {
                 matched = true;
                 break;
               }
               // Post-test observation only (informational): a single test() that took longer than budget is
-              // reported, but the binding guarantee is the pre-test gate above + the outer backstop race.
+              // reported, but the binding guarantee is the pre-test gate above.
               if (Date.now() - reStart > PER_REGEX_TIMEOUT_MS) {
                 console.warn(`[grep_files] Regex timed out (>${PER_REGEX_TIMEOUT_MS}ms per test) on line ${lineIdx + 1}; skipping remaining patterns for this line`);
               }
             }
-            } // end FIX-HANG-5 inline fast path (safe patterns only)
             if (matched) {
               const rawContent = lines[lineIdx].trim();
 
@@ -2659,17 +2312,6 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
           return docLines.length > 0 ? docLines.join('\n') : undefined;
         }
 
-        // Round-3 parity helper: O(1) membership test for the rg candidate set in BOTH normalized forms —
-        // forward slashes (the stored form, incl. out-of-root absolute no-op entries) and native separators.
-        function rgCandidateNamed(relPathNative: string): boolean {
-          if (!rgCandidateRelPaths || rgCandidateRelPaths.size === 0) return false;
-          const norm = relPathNative.split(path.sep).join('/');
-          if (rgCandidateRelPaths.has(norm)) return true;
-          // Windows-only belt & braces: native backslash form in case a caller ever passes an un-normalized path.
-          if (path.sep !== '/') { const bs = norm.split('/').join('\\'); if (rgCandidateRelPaths.has(bs)) return true; }
-          return false;
-        }
-
         async function walkDirectory(dirPath: string, concurrencyLimit: number, currentDepth: number = 0): Promise<void> {
           // DEPTH LIMIT ENFORCEMENT — prevent infinite recursion
           if (currentDepth > MAX_DEPTH) return;
@@ -2677,8 +2319,8 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
           // OPTIMIZATION: Early exit if we have enough results
           if (resultsCount >= MAX_RESULTS) return;
           
-          // ABORT SIGNAL CHECK - LM Studio compliance (FIX-HANG-1: real controller, was dead code)
-          if (abortController.signal.aborted) return;
+          // ABORT/CAP CHECK — the shared guard covers both host aborts and the wall-clock cap (single source of truth)
+          if (guard.signal.aborted) return;
 
           let entries: _fs.Dirent[];
           try {
@@ -2741,70 +2383,9 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
           return handleError(new Error(`Path not found or inaccessible: '${targetDir}'`));
         }
 
-        // ==================== OPERATION TIMEOUT + ABORT HANDLING ====================
-        // FIX: Prevent indefinite hangs from regex backtracking or large directory trees
-        // LM Studio compliance: Support both AbortSignal (ctx.signal) and setTimeout fallback
-        
-        const GREP_TIMEOUT_MS = 30000; // 30 seconds max fallback timeout
-        
-        // FIX-HANG-1: `abortController` is created ONCE at the top of this implementation (single source of
-        // truth for all loop checks). The old code declared a SECOND controller here that only this timer
-        // referenced, while every loop check read an always-undefined `signal` — so the 30s abort was never observed.
-        
-        // Fallback timeout: sets the authoritative aborted flag after GREP_TIMEOUT_MS. (If synchronous work is
-        // starving the event loop, even THIS timer cannot fire until it yields — that residual window is closed by
-        // the wall-clock backstop race below, which settles the tool call regardless.)
-        let timeoutId: ReturnType<typeof setTimeout> | null = null;
-        // FIX-HANG-3: declared OUTSIDE the try — a finally block cannot see variables scoped to the try body.
-        let backstopId: ReturnType<typeof setTimeout> | undefined;
-        timeoutId = setTimeout(() => abortController.abort(), GREP_TIMEOUT_MS);
-
         try {
-          // ==================== RIPGREP PHASE 1 — candidate-file prefilter (Option A engine swap) ====================
-          // Directory + regex mode only. On 'ok' the walker's per-file gate below restricts phase-2 processing to
-          // rg-named candidates; ANY other outcome (fallback-required incl. dialect parse error / missing dep /
-          // unexpected throw) leaves rgCandidateRelPaths null → the full-JS walk runs byte-for-byte as before,
-          // with every existing hang guard intact. Phase 1 is awaited BEFORE scan start, so its cost is outside
-          // the GREP_SCAN_DEADLINE window and cannot consume budget meant for line work.
-          if (mode === 'regex' && targetStats.isDirectory()) {
-            let rgRes: RipgrepResult | null = null;
-            try {
-              rgRes = await searchCandidates({
-                rootDir: targetDir,
-                pattern,                    // raw user input — boolean-equivalent to the split-branch set for per-line presence output (ripgrepEngine header §6)
-                mode: patternMode === 'auto_escaped' || patternMode === 'literal' ? 'literal' : 'regex',
-                caseInsensitive: true,      // production compiles every grep_files regex with 'i' (verified P1 source read L2322/2325/2354/2357)
-                excludeGlobs: include ? [] : Array.from(DEFAULT_EXCLUDED_DIRS),  // mirrors walker conditional pruning (include suppresses defaults — preserved by hoist)
-                maxDepth: MAX_DEPTH,
-              });
-            } catch {
-              rgRes = null;                 // searchCandidates is contractually non-throwing; this is belt & braces for the fallback guarantee
-            }
-            if (rgRes?.status === 'ok') {
-              const set = new Set<string>();
-              for (const p of rgRes.files ?? []) {
-                let norm = p.split('\\').join('/'); // rg emits forward slashes; normalize defensively anyway
-                // G9 round-2 parity fix (01.09.2026): rg ran with an ABSOLUTE rootDir, so it reports matched files by absolute path — but the
-                // processFile gate above compares against targetDir-RELATIVE paths (path.relative). Without relativizing here the set never
-                // intersects and every file early-returns: matches=[], skipped_files absent, filesScanned=0. Paths that do not sit under
-                // targetDir are kept in normalized absolute form so they can never match a relativePath (safe no-op).
-                norm = path.relative(targetDir, norm.split('/').join(path.sep)).split(path.sep).join('/');
-                set.add(norm);
-              }
-              rgCandidateRelPaths = set;
-              console.log(`[grep_files] ripgrep phase-1 → ok (${set.size} candidate file(s))`);
-            } else {
-              console.log(`[grep_files] ripgrep phase-1 → ${rgRes ? rgRes.status + `${rgRes.reason ? ` (${rgRes.reason})` : ''}` : 'unexpected error'} — full-JS walk (fallback path)`);
-            }
-          }
-
-          // ==================== WALL-CLOCK BACKSTOP FOR BOTH TARGET TYPES (FIX-HANG-2, 26.08) ====================
-          // A spinning synchronous segment (.test(), AST parse) starves every timer — including the one above.
-          // This race therefore settles the TOOL CALL itself at deadline+5s with whatever partial results exist,
-          // instead of letting the caller wait on a black hole (observed failure: silent 2-minute hang, host had
-          // to abort the call without any result). The scan keeps running in the background if it slips past;
-          // its writes go into arrays nobody reads after this function returns.
-          const backstopMs = GREP_SCAN_DEADLINE_MS + 5000; // generous backstop over the internal deadline
+          // SCAN AWAIT (FIX-DEBLOAT 04.09): no wall-clock race — the shared guard's single cap timer (GREP_MAX_RUN_MS)
+          // aborts at the next cooperative boundary, and disarm() in finally releases it on every completion path.
           let scanPromise: Promise<void>;
           if (targetStats.isFile()) {
             // ==================== TARGET IS A FILE — search within it directly ====================
@@ -2815,19 +2396,10 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
             const concurrencyLimit = max_concurrent_files ?? 8;
             scanPromise = walkDirectory(targetDir, concurrencyLimit);
           }
-          await Promise.race([
-            scanPromise,
-            new Promise<'backstop'>((resolve) => {
-              backstopId = setTimeout(() => {
-                abortController.abort(); // declare aborted state; partial results already accumulated in `matches`
-                console.warn(`[grep_files] Wall-clock backstop (${backstopMs}ms) reached — returning partial results to prevent hang`);
-                resolve('backstop');
-              }, backstopMs);
-            }),
-          ]);
+          await scanPromise;
         } catch (error) {
           // Check if this was an abort vs a real error
-          if (abortController.signal.aborted) { // FIX-HANG-1: single controller; old `|| signal?.aborted` referred to a variable that no longer exists
+          if (guard.signal.aborted) { // shared guard: host abort OR wall-clock cap — partial results already accumulated in matches/skippedFiles
             // Return partial results with aborted flag per LM Studio pattern
             console.warn(`[grep_files] aborted in ${Date.now() - grepScanStartedAt}ms (host/timeout) — ${filesScanned} file(s) scanned, ${resultsCount} match(es), ${skippedFiles.length} skipped [partial results]`);
             return {
@@ -2849,18 +2421,14 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
           }
           throw error; // Re-throw non-abort errors
         } finally {
-          // Clean up timeouts to prevent memory leaks.
-          // FIX-HANG-3: the backstop timer MUST be disarmed on normal completion too — it was previously orphaned,
-          // so 20s after EVERY healthy grep (scan already returned its full result) it fired a spurious
-          // "[grep_files] Wall-clock backstop ... reached" [ERROR]. Root cause of the "recurring >20s hang":
-          // log forensics 27.08 show 8/8 pairings of RESULT-DELTA → BACKSTOP-ERROR at exactly Δ=+20.0s with no scan in flight.
-          if (timeoutId) clearTimeout(timeoutId);
-          if (backstopId !== undefined) clearTimeout(backstopId);
+          // DISARM (FIX-DEBLOAT): release the guard's cap timer on EVERY completion path — normal, aborted or thrown.
+          // (The pre-guard FIX-HANG-3 orphaned-timer bug class is structurally impossible: one timer, cleared here.)
+          guard.disarm();
         }
 
         // Completion telemetry (30.08): per-call wall-clock via console.warn → stderr, the ONLY channel LM Studio
         // persists to logs\main.log (stdout is dropped). Lets log forensics separate scan time from model-generation time.
-        console.warn(`[grep_files] completed in ${Date.now() - grepScanStartedAt}ms — ${filesScanned} file(s) scanned, ${resultsCount} match(es), ${skippedFiles.length} skipped${abortController.signal.aborted ? ' [ABORTED — partial results]' : ''}`);
+        console.warn(`[grep_files] completed in ${Date.now() - grepScanStartedAt}ms — ${filesScanned} file(s) scanned, ${resultsCount} match(es), ${skippedFiles.length} skipped${guard.signal.aborted ? ' [ABORTED — partial results]' : ''}`);
         return {
           success: true,
           data: {
@@ -2870,9 +2438,9 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
             truncated: resultsCount >= MAX_RESULTS,
             mode,
             patternMode,
-            // FIX-HANG-1: surface cooperative aborts on the SUCCESS path too — otherwise a deadline-trimmed scan is
+            // FIX-DEBLOAT: surface cooperative aborts on the SUCCESS path too — otherwise a cap-trimmed scan is
             // indistinguishable from a normal completion (the catch-path `aborted` flag only fires when the walk throws).
-            ...(abortController.signal.aborted && { aborted: true, hint: 'Scan was cut short by an internal deadline/timeout. Results are partial; re-run with narrower scope or higher limits if you need full coverage.' }),
+            ...(guard.signal.aborted && { aborted: true, hint: 'Scan was cut short by an internal deadline/timeout. Results are partial; re-run with narrower scope or higher limits if you need full coverage.' }),
             ...(skippedFiles.length > 0 && { skipped_files: skippedFiles }),
             ...(matches.length === 0 && skippedFiles.length > 0 && { warning: `No matches found and ${skippedFiles.length} file(s) were NOT searched because they exceeded limits (defaults: max_file_size=100KB, line cap=${MAX_LINES_PER_FILE} — both raisable via the max_file_size / max_lines parameters). Check the "skipped_files" list above — matches may exist in those files. Re-run with higher max_file_size/max_lines or use read_file directly on them.` }),
             ...(patternMode === 'auto_escaped' && { autoEscaped: true, hint: "Pattern fell back to LITERAL mode (auto-escaped): the ENTIRE pattern is treated as one exact string, so alternation (|) cannot match branch-by-branch — 0 matches here is expected behavior of literal mode, not absence of content. To fix: escape special characters per branch (e.g. 'Git \\& GitHub') or split the search into 2–4 smaller grep_files calls; note patterns >500 chars are also forced to literal mode." }),
@@ -3277,10 +2845,10 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
           return { success: false, error: 'Invalid path: directory traversal detected' };
         }
 
-        // FIX-HANG-F1 (port of grep_files FIX-HANG-1, 27.08): ONE authoritative abort state for the whole scan.
-        // The old code destructured `signal` from an EMPTY object literal — every "abort check" below tested a
-        // value that was ALWAYS undefined, so no loop ever observed any abort (host had to kill the process).
-        const abortController = new AbortController();
+        // HANG-GUARD v3 (FIX-DEBLOAT 04.09): shared cancellation primitive — one authoritative abort state for the
+        // whole scan (host-signal forwarding unavailable here: this tool takes no ctx param, so cap-only mode with
+        // FIND_REPLACE_ALL_MAX_RUN_MS; see src/utils/grepGuard.ts). Replaces the local controller + wall-clock race.
+        const guard = createGrepGuard(undefined, FIND_REPLACE_ALL_MAX_RUN_MS, 'find_replace_all');
 
         let regex: RegExp;
         try {
@@ -3297,21 +2865,19 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
         const filesSkipped: Array<{ file: string; reason: string }> = [];
         let totalMatches = 0;
 
-        // ==================== FIX-HANG-F2/F3 (port of grep_files hard stops, 27.08) ====================
+        // ==================== FIX-DEBLOAT (04.09): shared guard gates for unpreemptible segments ====================
         // A single content.match(regex)/content.replace(...) over a whole file is ONE unpreemptible synchronous
-        // segment: JS cannot interrupt it mid-execution and NO timer (abort, deadline, host fallback) can fire
-        // while it spins — measured 210ms for a .test() on a 23-char near-miss with ~x4 growth per char.
-        // Defense in depth (same posture as grep_files): pattern analysis is NOT the binding guarantee;
-        //   1. pre-call wall-clock gate before every synchronous regex op,
-        //   2. backstop race that settles this tool call at deadline+5s regardless of what is still spinning.
-        const FRA_SCAN_DEADLINE_MS = 15000;     // hard ceiling for the whole scan (well under host kill time)
-        const fraScanStartedAt = Date.now();
-
-        /** Cooperative deadline check — call BEFORE starting any synchronous regex work on file content. */
+        // segment: JS cannot interrupt it mid-execution and NO timer (including the guard's cap) can fire while it
+        // spins — measured 210ms for a .test() on a 23-char near-miss with ~x4 growth per char. Defense in depth
+        // (same posture as grep_files): pattern analysis is NOT the binding guarantee; the pre-call cooperative
+        // check before every synchronous regex op is. The wall-clock deadline itself lives inside the shared guard
+        // (FIND_REPLACE_ALL_MAX_RUN_MS — historical full-scan budget kept: this tool modifies files, so a short cap
+        // would cut batches mid-apply).
+        /** Cooperative abort gate — call BEFORE starting any synchronous regex work on file content. */
         function abortIfDeadlineExceeded(where: string): boolean {
-          if (abortController.signal.aborted || Date.now() - fraScanStartedAt > FRA_SCAN_DEADLINE_MS) {
-            console.warn(`[find_replace_all] Scan deadline (${FRA_SCAN_DEADLINE_MS}ms) exceeded ${where} — aborting to prevent hang`);
-            abortController.abort();
+          if (guard.signal.aborted) {
+            console.warn(`[find_replace_all] Scan deadline (${FIND_REPLACE_ALL_MAX_RUN_MS}ms) exceeded ${where} — aborting to prevent hang`);
+            guard.abort();
             return true;
           }
           return false;
@@ -3323,8 +2889,8 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
 
           if (filesProcessed.length >= max_files) return;
 
-          // ABORT SIGNAL CHECK - LM Studio compliance (FIX-HANG-F1: real controller flag — was a dead check on an always-undefined `signal`)
-          if (abortController.signal.aborted) return;
+          // ABORT/CAP CHECK — shared guard (single source of truth for the whole scan, see createGrepGuard above)
+          if (guard.signal.aborted) return;
 
           let entries: _fs.Dirent[];
           try {
@@ -3419,32 +2985,20 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
           }
         }
 
-        // ==================== FIX-HANG-F3 (port of grep_files FIX-HANG-2): WALL-CLOCK BACKSTOP RACE ====================
-        // A spinning .match()/.replace() segment starves EVERY timer — without this race the only way out is a host
-        // kill (~120s, observed failure class). The backstop settles THIS tool call at deadline+5s with whatever partial
-        // results exist; when it fires we return below with aborted:true. Any still-spinning background work writes into
-        // arrays nobody reads after the return, and its next file-boundary check sees the abort flag and stops there.
-        let backstopId: ReturnType<typeof setTimeout> | undefined; // cleared on normal completion — otherwise the timer would fire a stray warn 20s after every healthy scan
+        // SCAN AWAIT + DISARM (FIX-DEBLOAT 04.09): no backstop race — the shared guard's single cap timer settles this
+        // call at FIND_REPLACE_ALL_MAX_RUN_MS with whatever partial results exist, and disarm() in finally releases it on
+        // EVERY completion path (healthy, aborted or thrown) so no stray timer can fire after the return.
         try {
-          await Promise.race([
-            walkDir(targetDir),
-            new Promise<'backstop'>((resolve) => {
-              backstopId = setTimeout(() => {
-                abortController.abort(); // declare aborted state; partial results already accumulated in filesProcessed/totalMatches
-                console.warn(`[find_replace_all] Wall-clock backstop (${FRA_SCAN_DEADLINE_MS + 5000}ms) reached — returning partial results to prevent hang`);
-                resolve('backstop');
-              }, FRA_SCAN_DEADLINE_MS + 5000);
-            }),
-          ]);
+          await walkDir(targetDir);
         } catch (err) {
-          if (!abortController.signal.aborted) return handleError(err); // genuine error → previous behavior preserved
+          guard.disarm();
+          if (!guard.signal.aborted) return handleError(err); // genuine error → previous behavior preserved
           // Aborted mid-apply: NOT a hard failure — report the partial state below so the caller knows exactly what was modified.
         } finally {
-          // Always disarm the backstop once settled (either outcome) to prevent a stray warn firing later.
-          if (backstopId) clearTimeout(backstopId);
+          guard.disarm();
         }
 
-        const aborted = abortController.signal.aborted;
+        const aborted = guard.signal.aborted;
 
         if (dry_run) {
           return {
@@ -3455,10 +3009,10 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
               filesAffected: filesProcessed.length,
               files: filesProcessed,
               skipped: filesSkipped,
-              // FIX-HANG-F1 (port): surface cooperative aborts on the SUCCESS path too — otherwise a deadline-trimmed scan is indistinguishable from a normal completion.
+              // FIX-DEBLOAT: surface cooperative aborts on the SUCCESS path too — otherwise a cap-trimmed scan is indistinguishable from a normal completion.
               ...(aborted && { aborted: true }),
               ...(aborted
-                ? { message: `Dry run cut short at ${FRA_SCAN_DEADLINE_MS}ms deadline (partial results). Re-run with narrower scope or higher limits for full coverage.` }
+                ? { message: `Dry run cut short at ${FIND_REPLACE_ALL_MAX_RUN_MS}ms deadline (partial results). Re-run with narrower scope or higher limits for full coverage.` }
                 : { message: 'Dry run complete. Set dry_run: false and confirm: true to apply changes.' }),
             },
           };
@@ -3472,11 +3026,11 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
             filesModified: filesProcessed.length,
             files: filesProcessed,
             skipped: filesSkipped,
-            // FIX-HANG-F1 (port): surface cooperative aborts on the SUCCESS path too. In apply mode this doubles as a
+            // FIX-DEBLOAT: surface cooperative aborts on the SUCCESS path too. In apply mode this doubles as a
             // mid-batch safety report — files listed above were modified; files after the cut point were NOT touched.
             ...(aborted && { aborted: true }),
             ...(aborted
-              ? { message: `Changes applied to ${filesProcessed.length} file(s) BEFORE the scan was cut short by the ${FRA_SCAN_DEADLINE_MS}ms deadline (partial results). Remaining files in scope were NOT modified — re-run with narrower scope or higher limits for full coverage.` }
+              ? { message: `Changes applied to ${filesProcessed.length} file(s) BEFORE the scan was cut short by the ${FIND_REPLACE_ALL_MAX_RUN_MS}ms deadline (partial results). Remaining files in scope were NOT modified — re-run with narrower scope or higher limits for full coverage.` }
               : { message: 'Changes applied successfully.' }),
           },
         };
