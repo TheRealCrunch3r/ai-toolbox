@@ -2401,7 +2401,8 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
           // Check if this was an abort vs a real error
           if (guard.signal.aborted) { // shared guard: host abort OR wall-clock cap — partial results already accumulated in matches/skippedFiles
             // Return partial results with aborted flag per LM Studio pattern
-            console.warn(`[grep_files] aborted in ${Date.now() - grepScanStartedAt}ms (host/timeout) — ${filesScanned} file(s) scanned, ${resultsCount} match(es), ${skippedFiles.length} skipped [partial results]`);
+            // INFO-level by design: stderr lines surface as [ERROR] in LM Studio host logs (see L2182 precedent).
+            console.log(`[grep_files] aborted in ${Date.now() - grepScanStartedAt}ms (host/timeout) — ${filesScanned} file(s) scanned, ${resultsCount} match(es), ${skippedFiles.length} skipped [partial results]`);
             return {
               success: true,
               data: {
@@ -2426,9 +2427,10 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
           guard.disarm();
         }
 
-        // Completion telemetry (30.08): per-call wall-clock via console.warn → stderr, the ONLY channel LM Studio
-        // persists to logs\main.log (stdout is dropped). Lets log forensics separate scan time from model-generation time.
-        console.warn(`[grep_files] completed in ${Date.now() - grepScanStartedAt}ms — ${filesScanned} file(s) scanned, ${resultsCount} match(es), ${skippedFiles.length} skipped${guard.signal.aborted ? ' [ABORTED — partial results]' : ''}`);
+        // Completion telemetry (30.08; log level fixed 05.09): per-call wall-clock via console.log → stdout ([INFO] in host logs).
+        // The original warn→stderr route was deliberate back when stdout appeared dropped, but the LM Studio host renders
+        // ANY stderr line as [ERROR], so a healthy success log surfaced as an error (user report 05.09). Forensics value unchanged.
+        console.log(`[grep_files] completed in ${Date.now() - grepScanStartedAt}ms — ${filesScanned} file(s) scanned, ${resultsCount} match(es), ${skippedFiles.length} skipped${guard.signal.aborted ? ' [ABORTED — partial results]' : ''}`);
         return {
           success: true,
           data: {
