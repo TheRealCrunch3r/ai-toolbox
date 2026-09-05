@@ -1,6 +1,6 @@
 {
   "name": "@lmstudio/ai-toolbox",
-  "version": "v1.9.15",
+  "version": "v1.9.16",
   "description": "All-in-one AI agent toolkit plugin for LM Studio — 130+ ready-made local-LLM tool calls: safe file editing & hang-proof codebase search, AST code refactoring, background commands, web research, headless browser automation, Git/GitHub workflows, OCR & image tools, read-only SQLite, document parsing (PDF/DOCX/TXT), sandboxed JS/Python execution, local semantic RAG over PDF/DOCX/XLSX, HTTP client, cross-project memory with self-managing context windows, data visualization & UI generation, task planning, and backup/restore. 747 passing tests across 45 suites · 5 locales · MIT.",
   "type": "commonjs",
   "main": "dist/index.js",
