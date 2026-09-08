@@ -1,3 +1,13 @@
+### [08.09.2026] — v1.9.16 rev 28: `web_search` zero-result fallback fix
+
+**A dead or empty search engine no longer stops the whole search.** When a bot-blocked engine (e.g. DuckDuckGo's API path under anomaly detection) responds with an unparseable shell page and **zero results**, `web_search` previously stopped there and returned nothing — even though later engines in the chain (Bing, verified working) would have succeeded. Now a zero-result engine is logged and skipped; only if *every* engine comes back empty does the search fail, with wording that distinguishes "engines responded but returned no parseable results (possibly bot-blocked)" from hard total failure.
+
+- **What changed:** `src/tools/webResearchTools.ts` — 0-result response → log + continue to next engine; new `anyEngineEmpty` flag for the final error wording; `<2` sparse-but-real success threshold unchanged. Two regression tests added (`tests/webResearchTools.test.ts`, suite now 11/11).
+- **Why it matters:** on bot-blocked IPs (datacenter/cloud), searches could silently return zero results while a working engine sat later in the chain. Same tool call, same parameters — now they succeed.
+- **Verified:** jest 11/11 + ESLint 0 + tsc clean pre-rebuild; post-install live test on 08.09 — `web_search` returned 10 results via `ddg-fetch` after the blocked first engine was skipped (fallback logged in server log); no worker-pool anomalies post-restart.
+- **Versioning:** `package.json` v1.9.15 → **v1.9.16** ("748 passing tests across 45 suites"); `manifest.json` revision 27 → **28**.
+
+---
 ### [03.09.2026] — v1.9.15 rev 27: Hub-install dependency fix (hotfix re-publish)
 
 **The ripgrep fast path now installs correctly on the LM Studio Hub.** `pattern_scan`'s B' prefilter and `grep_files`' rg engine load the npm package `ripgrep` lazily at tool-call time — but it was declared as a devDependency, so any production-scoped install would have silently disabled the fast path for every Hub user (permanent pure-JS fallback, no visible error).

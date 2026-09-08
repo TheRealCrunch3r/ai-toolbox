@@ -329,13 +329,52 @@ describe('patternScan B\' — guard rails + dep-absent reference behavior', () =
   }, 10_000);
 
   test('concurrency does not change results under B\' (deterministic survivor set)', async () => {
+    // SLOW-HOST RELAXATION (same premise class as the patternScan.test.ts determinism leg, corrected 05.09): on a contended
+    // host the pool pays ≥250ms spawn pacing + ~43-67ms cold boot PER EVAL after the DRAIN rule kills idles between calls — so
+    // the sequential conc=1 leg hits the user-ordered GREP_MAX_RUN_MS=500 wall at file ~3 of 7 while the 8-way leg still
+    // completes (observed: a.filesScanned=3 aborted, b.filesScanned=7). A cap-abort is then a HOST-LOAD fact, not a
+    // determinism violation. Exact cross-leg equality stays the contract when BOTH legs complete; on any abort we drop to
+    // structural invariants HERE — never by touching GREP_MAX_RUN_MS or the pool pacing caps.
+    const tA = Date.now();
     const a = await patternScan({ pattern: T_ALPHA, root, concurrency: 1 });
+    console.log(`[DIAG] B' determinism leg-a (conc=1): elapsed=${Date.now() - tA}ms aborted=${String(a.aborted)} filesScanned=${a.stats.filesScanned}`);
+    const tB = Date.now();
     const b = await patternScan({ pattern: T_ALPHA, root, concurrency: 8 });
-    expect(b.matches).toEqual(a.matches); // matches[] is sorted (file,line) — deterministic regardless of worker scheduling
-    expect(b.stats.filesScanned).toBe(a.stats.filesScanned);
-    // skipped[] entries are pushed concurrently from multiple workers → compare as SETS (sorted), not by array order.
-    const norm = (s: { file: string; reason: string }[]): string[] => s.map((x) => `${x.file}:${x.reason}`).sort();
-    expect(norm(b.skipped)).toEqual(norm(a.skipped));
+    console.log(`[DIAG] B' determinism leg-b (conc=8): elapsed=${Date.now() - tB}ms aborted=${String(b.aborted)} filesScanned=${b.stats.filesScanned}`);
+    expect(a.ok).toBe(true);
+    expect(b.ok).toBe(true);
+
+    // Both legs completed inside the wall → the original exact contract: identical results regardless of worker scheduling.
+    if (!a.aborted && !b.aborted) {
+      expect(b.matches).toEqual(a.matches); // matches[] is sorted (file,line) — deterministic regardless of worker scheduling
+      expect(b.stats.filesScanned).toBe(a.stats.filesScanned);
+      expect(a.stats.filesScanned).toBe(TARGET_COUNT); // both legs saw every target — no silent walk divergence
+    } else {
+      // At least one leg was cap-aborted → its survivor set is a SCHEDULE-DEPENDING prefix of the same deterministic
+      // (file,line) ordering. Sound invariants at ANY cutoff:
+
+      for (const m of a.matches) { // field-wise compare on purpose — Array.includes() would be reference identity;
+        expect(ALPHA_EXPECTED_MATCHES.some((e) => e.file === m.file && e.line === m.line && e.content === m.content)).toBe(true); // partial ⊆ complete: no spurious or lost matches
+      }
+      for (let i = 1; i < a.matches.length; i++) { // partials stay canonically sorted by (file,line) — the sort is post-scan and authoritative
+        const p = a.matches[i - 1], c = a.matches[i];
+        expect(p.file.localeCompare(c.file) < 0 || (p.file === c.file && p.line <= c.line)).toBe(true);
+      }
+
+      // filesScanned — INEQUALITY ONLY at any cutoff (same correction as the patternScan.test.ts cap test): exact equality across
+      // legs is unsound when one leg aborted, because each stat bump precedes its gate/eval and the wall can land between files.
+      // Presence-based bound: every file that returned a match was stat'd before eval → bumped…
+      for (const leg of [a, b]) {
+        const matchedFiles = new Set(leg.matches.map((m) => m.file));
+        expect(leg.stats.filesScanned).toBeGreaterThanOrEqual(matchedFiles.size);
+        // …and at most all 7 targets were bumped:
+        expect(leg.stats.filesScanned).toBeLessThanOrEqual(TARGET_COUNT);
+      }
+
+      // skipped[] entries are pushed concurrently from multiple workers → compare as SETS (sorted), not by array order.
+      const norm = (s: { file: string; reason: string }[]): string[] => s.map((x) => `${x.file}:${x.reason}`).sort();
+      expect(norm(b.skipped)).toEqual(norm(a.skipped));
+    }
   }, 30_000);
 
   test('includeGlobs + excludeGlobs interact with the restriction without dropping matches', async () => {

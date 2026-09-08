@@ -52,7 +52,11 @@ describe('pattern_scan HANG-GUARD wall-clock cap (05.09)', () => {
       expect(result.ok).toBe(true);
       expect(result.matches.length).toBe(1); // a.txt only — b.txt has no needle
       expect((result.aborted ?? false)).toBe(false); // healthy scan must NOT report itself aborted
-      expect(warnSpy).not.toHaveBeenCalled(); // no orphaned cap timer → zero warns after return
+      // No ORPHANED CAP-TIMER warn (the FIX-HANG-3 class): the guard's line reads `[pattern_scan] wall-clock cap (...ms) reached — aborting`.
+      // Benign worker-pool lifecycle warns ([worker-pool] probe baseline / spawn / drain — added 05.09 pool rework, console.warn by
+      // design until their log-level audit lands) are allowed: this test pins the stray-cap-timer regression, not a global silence.
+      const strayCapWarns = warnSpy.mock.calls.filter((c) => typeof c[0] === 'string' && /\[pattern_scan\] wall-clock cap/.test(c[0]));
+      expect(strayCapWarns).toEqual([]);
     } finally {
       warnSpy.mockRestore();
     }

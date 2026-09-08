@@ -138,6 +138,7 @@ async function searchWithFallbackChain(
 ): Promise<{ success: boolean; data?: { query: string; results: SearchResultItem[]; count: number; engine: string }; error?: string }> {
   // DuckDuckGo API is always first — it's the only engine that doesn't block automated requests
   const chain = [...FALLBACK_ORDER];
+  let anyEngineEmpty = false; // 08.09 fix: distinguishes "all engines blocked/empty" from hard failures in the final error message
 
   for (const engine of chain) {
     try {
@@ -148,6 +149,17 @@ async function searchWithFallbackChain(
       }
 
       const results = await searchFn(query);
+
+      // 08.09 fix: HTTP-200-but-empty is the signature of a bot-blocked / JS-shell SERP page (observed
+      // live on google.com from datacenter IPs: consent redirect + zero parseable result elements). The
+      // old code returned success:true with count:0, which STOPPED the fallback chain at that dead engine
+      // — later engines were never tried. Treat 0 as a soft failure and continue; <2 stays log-only (real
+      // but genuinely sparse results are still worth returning).
+      if (results.length === 0) {
+        anyEngineEmpty = true;
+        console.log(`Search engine "${engine}" returned 0 results (likely blocked/JS-shell page), trying next`);
+        continue;
+      }
 
       // Validate result count - warn if low results
       if (results.length < 2) {
@@ -166,9 +178,13 @@ async function searchWithFallbackChain(
     }
   }
 
+  // 08.09 fix: when every engine returned an (empty) response rather than throwing, say so —
+  // "all failed" was misleading for the blocked/JS-shell case that motivated this change.
   return {
     success: false,
-    error: `All search engines failed. Tried: ${chain.join(' → ')}`,
+    error: anyEngineEmpty
+      ? `No search results found — engines responded but returned no parseable results (possibly bot-blocked). Tried: ${chain.join(' → ')}`
+      : `All search engines failed. Tried: ${chain.join(' → ')}`,
   };
 }
 

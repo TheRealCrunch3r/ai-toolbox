@@ -2216,7 +2216,8 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
             { externalSignal: guard.signal },
           );
 
-          if (!outcome.ok) {
+          // 'ok' narrows the discriminated union: only the success arm carries it; failure arms (budget/error/aborted) have 'kind'.
+          if (!('ok' in outcome)) {
             // NO inline fallback — that would reintroduce the exact spin class this isolation removes.
             if (outcome.kind === 'budget') {
               console.warn(`[grep_files] FIX-HANG-5: worker exceeded ${REGEX_WORKER_BUDGET_MS}ms budget — terminated (possible ReDoS)`);

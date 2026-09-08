@@ -194,4 +194,71 @@ describe('Web Research Tools', () => {
       expect((result as any).success).toBe(false);
     });
   });
+
+  // 08.09 regression (live probe, 08.09 datacenter IP): HTTP-200-but-empty SERP pages — bot-blocked /
+  // JS-shell responses (observed on google.com: consent redirect param + zero parseable result elements)
+  // were returned as success:true with count:0, which STOPPED the fallback chain at that dead engine and
+  // never let later engines run. These tests simulate exactly that shape per engine position.
+  describe('web_search zero-result fallback (blocked-engine regression)', () => {
+    const htmlStream = (text: string) => ({
+      getReader: () => {
+        let sent = false;
+        return {
+          read: async (): Promise<{ done: boolean; value?: Uint8Array }> =>
+            sent ? { done: true } : ((sent = true), { done: false, value: new TextEncoder().encode(text) }),
+          cancel: async () => {},
+        };
+      },
+    });
+
+    // google-style shell page: 200 OK, JS-required marker, zero parseable <h3> result elements
+    const shellHtml = '<html><body>This page requires JavaScript. ucbcb=1</body></html>';
+    // bing-style healthy page with real results (parse target of the exact regex in searchBing())
+    const bingGoodHtml = [1, 2]
+      .map((i) => `<li class="b_algo"><a href="https://ok.example/page${i}" rel="">Title ${i}</a></li>`)
+      .join('');
+
+    // Per-engine fetch sequence: ddg-fetch → shell (0), google → shell (0), bing → real results (2)
+    const fetchSequence = [shellHtml, shellHtml, bingGoodHtml];
+    let fetchCalls = 0;
+
+    beforeEach(() => {
+      fetchCalls = 0;
+      // Force the chain past ddg-api (library mock must throw — simulates the live DDG anomaly block)
+      const ddgMocked = require('duck-duck-scrape');
+      (ddgMocked.search as jest.Mock).mockReset();
+      (ddgMocked.search as jest.Mock).mockRejectedValue(new Error('anomaly'));
+      const puMocked = require('../src/performanceUtils');
+      (puMocked.fetchWithRetry as jest.Mock).mockImplementation(async (url: string) => {
+        const html = fetchSequence[Math.min(fetchCalls++, fetchSequence.length - 1)];
+        return { ok: true, url, headers: { get: () => null }, body: htmlStream(html) };
+      });
+    });
+
+    test('empty SERP page from a mid-chain engine must not stop the fallback chain', async () => {
+      const tool = tools?.find(t => t.name === 'web_search');
+      expect(tool).toBeDefined(); // sanity guard — fail loudly if registration changed
+      const result: any = await tool?.implementation({ query: 'blocked engine probe' });
+
+      // Chain path: ddg-api throws → ddg-fetch 0 results (shell) → MUST CONTINUE → google 0 → bing real data
+      expect(result.success).toBe(true);
+      expect(result.data.engine).toBe('bing');
+      expect(result.data.count).toBe(2);
+      expect(fetchCalls).toBe(3); // ddg-fetch, google, bing — all three were reached
+    });
+
+    test('all engines empty reports blocked/empty wording, not "all failed"', async () => {
+      const puMocked = require('../src/performanceUtils');
+      (puMocked.fetchWithRetry as jest.Mock).mockImplementation(async (url: string) => ({
+        ok: true, url, headers: { get: () => null }, body: htmlStream(shellHtml),
+      }));
+
+      const tool = tools?.find(t => t.name === 'web_search');
+      const result: any = await tool?.implementation({ query: 'all engines blocked' });
+
+      expect(result.success).toBe(false);
+      // 08.09 wording change: distinguishes "responded but empty" (likely bot-blocked) from hard failures
+      expect(String(result.error)).toContain('No search results found');
+    });
+  });
 });

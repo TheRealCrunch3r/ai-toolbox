@@ -154,10 +154,10 @@ export interface FileScanOutcome {
  * isolated worker_threads worker (src/utils/regexWorker.ts) with a REGEX_WORKER_BUDGET_MS watchdog, so a spinning
  * catastrophic-backtracking .test() can never starve the event loop again. The worker preserves first-match-per-line
  * semantics; `rx` is used only for its source+flags (reconstructed inside the worker). Quota/cap shaping stays on the
- * host below. `remaining` = best-effort global quota (early stop; the authoritative cap is enforced by patternScan via
+ * host below. `_remaining` = best-effort global quota (early stop; the authoritative cap is enforced by patternScan via
  * sort+slice after all files complete) — it also bounds the evaluated line window, same racy early-stop semantics as before.
  */
-async function scanFileWithLimits(absolutePath: string, relPath: string, rx: RegExp, lim: ScanLimits, remaining: number): Promise<FileScanOutcome> {
+async function scanFileWithLimits(absolutePath: string, relPath: string, rx: RegExp, lim: ScanLimits, _remaining: number): Promise<FileScanOutcome> { // _remaining: retained for dispatch-context visibility; FIX-QUOTA-WINDOW (06.09) stopped using it for the eval window — see below (underscore = intentional eslint no-unused-vars exemption)
   const buf = await fs.readFile(absolutePath);
   if (looksBinary(buf, Math.min(8192, buf.length))) return { matches: [], skipReason: 'binary' };
 
@@ -166,14 +166,18 @@ async function scanFileWithLimits(absolutePath: string, relPath: string, rx: Reg
   const out: ScanMatch[] = [];
   let workerTimeout = false;
 
-  if (scanned > 0 && remaining > 0) {
-    // Best-effort quota window: evaluate at most `remaining` lines (identical early-stop semantics to the pre-ITEM-B loop).
-    const windowLen = Math.min(scanned, remaining);
+  if (scanned > 0) {
+    // FIX-QUOTA-WINDOW (06.09): evaluate the FULL line window — the pre-fix "best-effort quota" sliced to
+    // `_remaining` MATCHES, conflating matches with lines: a file dispatched after ~totalCap prior matches lost every
+    // match beyond line #remaining silently (no skip record) — proven unreachable pin long.txt:501 under conc=8.
+    // Shaping is authoritative post-scan only (perFileCap below + sort/slice in the caller); `_remaining` param retained
+    // for dispatch-context visibility, intentionally unused here.
     const outcome = await evaluateLinesInWorker(
       [{ source: rx.source, flags: rx.flags }],
-      lines.slice(0, windowLen),
+      lines.slice(0, scanned),
     );
-    if (outcome.ok) {
+    // 'ok' narrows the discriminated union: only the success arm carries it; failure arms (budget/error/aborted) have 'kind'.
+    if ('ok' in outcome) {
       for (const i of outcome.matchedLineIndices) {
         let content = lines[i].trim();
         if (content.length > lim.lineLenCap) content = content.slice(0, Math.max(0, lim.lineLenCap - 1)) + '…';

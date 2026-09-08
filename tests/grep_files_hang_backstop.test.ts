@@ -199,8 +199,25 @@ describe('grep_files hang-fix regression (FIX-HANG-1/2 → v3 shared guard)', ()
     const grepTool = getGrepTool();
     if (!grepTool) throw new Error('grep_files tool not found');
 
+    // PRE-WARM (05.09 pool rework): one real-timer scan first so (a) the one-time startup probe is already spent on this
+    // module instance and (b) its final worker spawn anchors lastSpawnAtMs ≥250ms in the past before spies install —
+    // otherwise the test's own acquire could hit a >0ms rate-limit pacing wait, which under the inert timer mock below
+    // would await forever (sleep() can never resolve). Single-file target → exactly one eval/spawn.
+    await grepTool.implementation({
+      pattern: 'ALPHA_MARKER',
+      path: path.join(testDir, 'alpha.ts'),
+      max_results: 10,
+      include_context: false,
+      max_content_length: 150,
+      max_file_size: 100_000,
+    }) as unknown as Promise<unknown>; // pre-warm outcome is irrelevant here — real timers throughout, no assertion on it
+
     const capTimerIds: unknown[] = []; // unique fake ids of timers scheduled with the guard's delay
     const clearedIds = new Set<unknown>();
+
+    // ≥ REGEX_WORKER_SPAWN_MIN_INTERVAL_MS of real elapsed time since the pre-warm's spawn → any acquire inside the mocked
+    // scan computes waitMs ≤ 0 (no pacing sleep — which under inert timers would await forever). Real setTimeout: spies don't exist yet.
+    await new Promise((r) => setTimeout(r, 320));
 
     const setSpy = jest.spyOn(globalThis, 'setTimeout').mockImplementation(((fn: (...a: unknown[]) => void, ms?: number) => {
       const id = Symbol('fake-timer'); // inert — nothing real may fire in this test; the id is only tracked for clear-verification
@@ -211,8 +228,9 @@ describe('grep_files hang-fix regression (FIX-HANG-1/2 → v3 shared guard)', ()
       if (id !== undefined && id !== null) clearedIds.add(id);
     }) as typeof clearTimeout);
 
+    let result!: GrepResult; // hoisted: assertions live in the finally AFTER timer restore (see note there)
     try {
-      const result = await (grepTool.implementation as unknown as (args: object, ctx?: { signal?: AbortSignal }) => Promise<GrepResult>)({
+      result = await (grepTool.implementation as unknown as (args: object, ctx?: { signal?: AbortSignal }) => Promise<GrepResult>)({
         pattern: 'ALPHA_MARKER',
         path: path.join(testDir, 'alpha.ts'), // fast single-file target → normal completion
         max_results: 10,
@@ -220,6 +238,14 @@ describe('grep_files hang-fix regression (FIX-HANG-1/2 → v3 shared guard)', ()
         max_content_length: 150,
         max_file_size: 100_000,
       }) as unknown as GrepResult;
+    } finally {
+      // RESTORE TIMERS BEFORE ASSERTING: the pool rework (05.09) added real setTimeout users to a grep call — worker-pool spawn
+      // pacing (sleep), watchdog budget timer and waiter-wake all share globalThis.setTimeout. Under this test's INERT mock those
+      // can never fire, so any post-settle pool bookkeeping would wait forever inside the mocked timers. The spies stayed installed
+      // for the whole scan (every clear is recorded); assertions below are pure memory reads — restoring first removes the only
+      // hang vector while preserving the exact v3 contract under test: every 500ms cap timer this call scheduled was cleared.
+      setSpy.mockRestore();
+      clearSpy.mockRestore();
 
       expect(result.success).toBe(true);
       if (result.success) {
@@ -234,9 +260,6 @@ describe('grep_files hang-fix regression (FIX-HANG-1/2 → v3 shared guard)', ()
           throw new Error(`guard cap timer (${GREP_MAX_RUN_MS}ms) was NOT cleared on normal completion (orphaned — spurious post-return warn regression)`);
         }
       }
-    } finally {
-      setSpy.mockRestore();
-      clearSpy.mockRestore();
     }
   });
 

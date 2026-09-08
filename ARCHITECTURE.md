@@ -124,7 +124,7 @@ export function main(context: PluginContext) {
 }
 ```
 
-### 2. Tool Registration Flow (Current State — v1.9.15 / manifest rev 27)
+### 2. Tool Registration Flow (Current State — v1.9.16 / manifest rev 28)
 
 ```
 toolsProvider() called by LM Studio SDK

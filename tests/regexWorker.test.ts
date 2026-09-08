@@ -57,21 +57,26 @@ describe('evaluateLinesInWorker — correctness', () => {
       expect(r.matchedLineIndices[0]).toBe(0);
       expect(r.matchedLineIndices.every((v, i) => (i === 0 ? true : v > r.matchedLineIndices[i - 1]))).toBe(true);
     }
-    // A healthy eval must NOT consume the watchdog budget — guards against a regression where every eval times out.
-    expect(elapsed).toBeLessThan(REGEX_WORKER_BUDGET_MS);
+    // A healthy eval must NOT consume the watchdog budget — guards against a regression where every eval spins.
+    // NOTE (05.09): `elapsed` is WALL CLOCK from before acquireWorker() — after each prior test's release, the pool's
+    // DRAIN rule has terminated idle workers, so this call pays one cold spawn (~43-67ms on this host) + up to ~120ms (tuned 06.09; was 250ms) of
+    // REGEX_WORKER_SPAWN_MIN_INTERVAL_MS pacing before its eval even starts. Bound = budget + that worst-case warmup; the literal below
+    // keeps the pre-tune 250 as a deliberately conservative over-bound and is intentionally NOT tightened (it must hold on any host/tuning).
+    // the load-bearing guarantee (watchdog terminates any spin by its deadline) is pinned separately below in the T1b test.
+    expect(elapsed).toBeLessThan(REGEX_WORKER_BUDGET_MS + 250);
   });
 
   test('invalid pattern source → kind=error with detail (worker posts {ok:false} and returns)', async () => {
     const r = await evaluateLinesInWorker([{ source: '([unclosed', flags: '' }], ['a']);
-    expect(r.ok).toBe(false);
-    if (!r.ok) {
-      expect(r.kind).toBe('error');
-      expect(typeof (r as { detail?: string }).detail).toBe('string');
-    }
+    // Pool outcome union is discriminated by presence of `ok`: non-ok variants carry NO ok property at all (v1-era
+    // `{ ok:false, kind:... }` shape retired with the pool rework — callers branch on `'ok' in outcome`).
+    expect('ok' in r).toBe(false);
+    expect(r.kind).toBe('error');
+    expect(typeof (r as { detail?: string }).detail).toBe('string');
   });
 
-  test('default budget constant is the documented single tunable (2000 ms, carried over from FIX-HANG-5)', () => {
-    expect(REGEX_WORKER_BUDGET_MS).toBe(2000);
+  test('default budget constant is the documented single tunable (250 ms per owner order 05.09 — fail-fast on contended hosts)', () => {
+    expect(REGEX_WORKER_BUDGET_MS).toBe(250);
   });
 });
 
@@ -84,8 +89,9 @@ describe('evaluateLinesInWorker — containment (the load-bearing ITEM-B guarant
     const r = await evaluateLinesInWorker([{ source: '((a+){3}){4}x', flags: '' }], [evilLine, 'control line'], { budgetMs: 800 });
     const elapsed = Date.now() - t0;
 
-    expect(r.ok).toBe(false); // the spin must NOT complete — containment held
-    if (!r.ok) expect(r.kind).toBe('budget');
+    // The spin must NOT complete — containment held; pool union carries no `ok` on non-ok variants (see note above).
+    expect('ok' in r).toBe(false);
+    expect(r.kind).toBe('budget');
     // Resolved by the watchdog (≈ budget), not by the spin finishing and not by any host-side timeout.
     expect(elapsed).toBeGreaterThanOrEqual(700);
     expect(elapsed).toBeLessThan(5000);
@@ -96,7 +102,7 @@ describe('evaluateLinesInWorker — containment (the load-bearing ITEM-B guarant
     ac.abort(); // already-fired one-way host signal, as ToolCallContext would deliver after user cancel
     const t0 = Date.now();
     const r = await evaluateLinesInWorker([{ source: 'a', flags: '' }], ['a'], { externalSignal: ac.signal });
-    expect(r).toEqual({ ok: false, kind: 'aborted' });
+    expect(r).toEqual({ kind: 'aborted' }); // pool union: non-ok variants carry no `ok` property (v1 hybrid shape retired)
     expect(Date.now() - t0).toBeLessThan(500); // no spawn-and-spin window — the guard's abort is honored instantly
   });
 
@@ -108,7 +114,7 @@ describe('evaluateLinesInWorker — containment (the load-bearing ITEM-B guarant
     setTimeout(() => ac.abort(), 150);
     const t0 = Date.now();
     const r = await p;
-    expect(r).toEqual({ ok: false, kind: 'aborted' }); // terminated by the signal, NOT by the watchdog budget
+    expect(r).toEqual({ kind: 'aborted' }); // terminated by the signal, NOT by the watchdog budget; pool union has no `ok` here
     expect(Date.now() - t0).toBeLessThan(2000);
   }, 15_000);
 });
