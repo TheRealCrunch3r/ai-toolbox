@@ -32,5 +32,5 @@ Thumbs.db
 *.bak
 # AI Toolbox internal plans & drafts (never commit)
 future_improvements/
-.session_index.json 
+.session_index.json
 
