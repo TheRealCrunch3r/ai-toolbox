@@ -61,6 +61,10 @@ module.exports = {
     '^\\.\\/autoTracker\\.js$': '<rootDir>/src/autoTracker.ts',
     '^\\.\\/tokenStatsManager\\.js$': '<rootDir>/src/tokenStatsManager.ts',
 
+    // v1.9.17 (08.09): toolsProvider.ts statically imports './tools/toolGatingProfile.js' - same RC#4 class as FIX #20
+    // (new .js-suffixed static import without mapper entry -> Cannot find module in every suite loading the provider)
+    '^\\.\\/tools/toolGatingProfile\\.js$': '<rootDir>/src/tools/toolGatingProfile.ts',
+
 
     // ── Tool modules dynamically imported by toolsProvider.ts via import('./tools/xxx.js') ──
     // These are resolved relative to <rootDir>/src/, so the path is './tools/xxx.js'

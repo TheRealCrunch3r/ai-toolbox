@@ -1,3 +1,13 @@
+### [08.09.2026] — v1.9.17 rev 29: Tool Gating Profile — your tool toggles now remember themselves
+
+**Tool choices you make in one chat no longer vanish in the next.** LM Studio's per-chat config falls back to defaults for anything not explicitly persisted, so flipping e.g. `browserAutomation` on in one chat could silently reset it in a fresh one. The plugin now keeps its own user-level memory of your tool toggles: any toggle you set away from its default is captured automatically (no extra UI — the flip itself persists) into `%USERPROFILE%\.ai_toolbox\tool_gating_profile.json`, and applied back over per-chat defaults on every new chat ("sticky keys").
+
+- **What changed:** new `src/tools/toolGatingProfile.ts` + one hard-wired, non-fatal pass in the tools provider (reconcile → overlay → finalize; atomic writes; booleans only — never paths/tokens/secrets). Sparse storage: toggles at their default are evicted, so defaults can evolve across versions without corrupting saved intent.
+- **One deliberate nuance:** because a fresh chat's defaults are byte-indistinguishable from an explicit revert-to-default, re-flipping a toggle *back* to its default applies for that chat but does not clear the stored choice — clearing it means deleting/replacing that one JSON file (a `clear_tool_config` tool is on the roadmap).
+- **Verified:** all gates green (typecheck / ESLint / full jest **761/761 across 46 suites**); live capture proven — real user toggles written to the profile file by the running plugin on 08.09.
+- **Versioning:** `package.json` v1.9.16 → **v1.9.17**; `manifest.json` revision 28 → **29**.
+
+---
 ### [08.09.2026] — v1.9.16 rev 28: `web_search` zero-result fallback fix
 
 **A dead or empty search engine no longer stops the whole search.** When a bot-blocked engine (e.g. DuckDuckGo's API path under anomaly detection) responds with an unparseable shell page and **zero results**, `web_search` previously stopped there and returned nothing — even though later engines in the chain (Bing, verified working) would have succeeded. Now a zero-result engine is logged and skipped; only if *every* engine comes back empty does the search fail, with wording that distinguishes "engines responded but returned no parseable results (possibly bot-blocked)" from hard total failure.

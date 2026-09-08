@@ -2,7 +2,7 @@
 
 **Give your local LLM real hands.** This is an [LM Studio plugin](https://lmstudio.ai/) that turns any local model into a capable autonomous agent: safe file editing, hang-proof codebase search, background builds, headless browser automation, Git & GitHub workflows, OCR, charting, semantic RAG — and **self-managing context** so marathon sessions never die. One plugin, zero glue code, fully offline by default.
 
-> `v1.9.16` · `130+ ready-made tools` · `750 tests green (45 suites)` · `5 locales` · `MIT` · `Node 20+`
+> `v1.9.17` · `130+ ready-made tools` · `761 tests green (46 suites)` · `5 locales` · `MIT` · `Node 20+`
 
 ---
 
@@ -37,7 +37,7 @@ The closest direct competitor on the Hub: same job (tools for local LLMs), very 
 | ✅ **AST-level refactoring** (rename, move functions, dead-import cleanup) — syntax-safe transforms with auto-rollback, not string edits |
 | ✅ **Real RAG:** local vector index over PDF / DOCX / XLSX with page-level provenance — not just keyword search |
 | ✅ **Image & data viz:** OCR on screenshots and captures, image metadata + comparison, chart generation |
-| ✅ **130+ tools** vs ~49 — backed by 750 passing tests across 45 suites |
+| ✅ **130+ tools** vs ~49 — backed by 761 passing tests across 46 suites |
 | ✅ **Crash-resilient writes + rollback on failure:** a botched edit can never corrupt your file |
 
 Our previous i18n gap is closed: **we now ship 5 locales** (en · de · es · zh-CN · zh-TW), each a full translation set — and anti-stub tests guard the suite so alias/fallback languages can never silently regress. We'd rather tell you than pretend it doesn't exist.
@@ -92,7 +92,7 @@ Charts rendered to image files from raw data (bar/line/pie/doughnut/scatter/rada
 ```bash
 # Developing instead of using?
 npm install && npm run build   # ESM + CJS via tsup
-npm test                        # full suite: 45 suites / 750 tests green (~45 s)
+npm test                        # full suite: 46 suites / 761 tests green (~45 s)
 ```
 
 ---
@@ -161,6 +161,7 @@ One plugin replaces an entire shelf. Here's every family, what it covers, and it
 
 | Version | Headline |
 |---|---|
+| **v1.9.17** | 💾 Tool Gating Profile — user tool-toggle choices persist across new chats (auto-capture + sticky overlay, sparse user-level store) · rev 29 |
 | **v1.9.16** | 🔍 `web_search` zero-result fallback fix — dead/empty engine no longer stops the chain · rev 28: reinstall + restart live-verified same day (blocked `ddg-api` skipped → `ddg-fetch` returned results) |
 | **v1.9.15** | ⚡ B' ripgrep phase-1 prefilter for `pattern_scan` (byte-identical JS fallback guarantee) · rev 27: `ripgrep` promoted to runtime dependency, fixing silent fast-path loss on Hub installs — live-verified on the user machine |
 | **v1.9.14** | 🧠 `get_memory` local-file parse guard — keyless auto-context records no longer abort reads (hotfix) |
