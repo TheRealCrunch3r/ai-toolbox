@@ -160,7 +160,7 @@ Round 4: **ALL PASS** — typecheck 0 errors / full jest green / build success; 
 - **FIX-HANG-5b:** unanchored prefix test for brace quantifiers — the old `$`-anchored check let `((a+){3}){4}x` defeat triage (T1b double-freeze root cause). Any valid `{n[,m]}` on an unbounded `+/*` group body now routes to the worker at any position.
 - **FIX-HANG-5c:** worker source corrected from browser-Web-Worker API (`self.onmessage`) to Node contract (`parentPort` direct payload) — the old shape threw `self is not defined` at boot, so every risky pattern "crashed" and was misreported as a 2000 ms kill (zero regex work). Verified offline in this runtime: safe pattern returns exact indices; T1b-exact catastrophic payload hard-killed at 2000 ms.
 
-**Evidence:** probe artifacts + results archived to `docs/history/GATE_PROBE_EVIDENCE_fixhang5c.md` and `docs/history/FIXHANG5_REDOS_RESULTS.md` (code comments reference the new locations).
+**Evidence:** probe artifacts + results archived to `docs/history/GATE_PROBE_EVIDENCE_fixhang5c.md` and `docs/history/FIXHANG5_REDOS_RESULTS.md` (code comments reference the new locations; **both files removed from disk 08.09** — recover from git history, e.g. `git show d319c92~1:docs/history/FIXHANG5_REDOS_RESULTS.md`).
 
 ---
 

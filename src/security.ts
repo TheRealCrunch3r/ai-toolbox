@@ -99,7 +99,7 @@ export function isSafeRegex(pattern: string): boolean {
   // D2 (30.08): '*' removed from the [\w][...] alternative — a word char directly before an unescaped
   // quantifier '*' is normal regex usage ((a*){50}, \w*), not code-signature evidence, and rejecting it here
   // silently demoted such patterns to LITERAL mode (matches lost) BEFORE FIX-HANG-5 worker triage could route
-  // them (see docs/history/FIXHANG5_REDOS_RESULTS.md, FINDING-1). Code-signature positives stay rejected via the surviving
+  // them (FIXHANG-5 redos probe, FINDING-1 — evidence doc removed 08.09; in git history). Code-signature positives stay rejected via the surviving
   // alternatives: 'std::vector<int>*' (via ::), 'List* ptr' / 'const& x' (via [*&] whitespace-word), word-char+'&'.
   const looksLikeCodeSignature = /::|->|[\w]&|[*&]\s+\w/.test(pattern);
   if (hasUnescapedCodeChar && looksLikeCodeSignature) {

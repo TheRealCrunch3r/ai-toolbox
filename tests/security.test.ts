@@ -87,12 +87,12 @@ describe('isSafeRegex', () => {
   });
 
   // ===== D2 (30.08): star-adjacent patterns must NOT be literal-demoted before FIX-HANG-5 triage =====
-  // FINDING-1 (docs/history/FIXHANG5_REDOS_RESULTS.md): the code-signature clause rejected any pattern with a word char
+  // FINDING-1 (FIXHANG-5 redos probe — evidence doc removed 08.09; in git history): the code-signature clause rejected any pattern with a word char
   // directly before an unescaped '*' — e.g. (a*){50} was silently literalized in grep_files BEFORE
   // FIX-HANG-5 worker triage could route it to the killable worker (matches lost). Loosened: only '&'
   // adjacency plus :: / -> / [*&]-whitespace-word forms still flag code signatures.
   test('D2: word char before unescaped * is regex usage — stays SAFE (no literal demotion)', () => {
-    expect(isSafeRegex('(a*){50}')).toBe(true); // the live T2 demotion case (docs/history/FIXHANG5_REDOS_RESULTS.md)
+    expect(isSafeRegex('(a*){50}')).toBe(true); // the live T2 demotion case (FIXHANG-5 redos probe, FINDING-1)
     expect(isSafeRegex('foo*bar')).toBe(true);
   });
 

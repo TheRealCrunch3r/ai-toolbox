@@ -4,7 +4,7 @@
  * Pinned contracts:
  *   - first-match-per-line semantics (a line matching any pattern is reported exactly once, ascending indices);
  *   - /g-flagged patterns are stateless across lines (lastIndex reset per line — same as the pre-ITEM-B host loop);
- *   - the watchdog terminate()s a spinning catastrophic .test() (T1b class from docs/history/FIXHANG5_REDOS_RESULTS.md)
+ *   - the watchdog terminate()s a spinning catastrophic .test() (T1b class — FIXHANG-5 redos probe; evidence doc removed 08.09, in git history)
  *     and resolves kind:'budget' at ≈ budgetMs — THE load-bearing containment guarantee of ITEM-B;
  *   - externalSignal aborts in-flight evals early → kind:'aborted'; pre-aborted signals skip the worker entirely;
  *   - invalid pattern sources resolve kind:'error' (worker posts {ok:false}) — never throw, never hang.
@@ -82,7 +82,7 @@ describe('evaluateLinesInWorker — correctness', () => {
 
 describe('evaluateLinesInWorker — containment (the load-bearing ITEM-B guarantees)', () => {
   test('watchdog terminates a spinning catastrophic .test() (T1b class) and resolves kind=budget at ≈ budgetMs', async () => {
-    // T1b payload shape from docs/history/FIXHANG5_REDOS_RESULTS.md: pattern ((a+){3}){4}x vs 15k-`a` line.
+    // T1b payload shape (FIXHANG-5 redos probe — evidence doc removed 08.09): pattern ((a+){3}){4}x vs 15k-`a` line.
     // Proven live 30.08 (FIX-HANG-5c §5.2): this spin exceeds the 2000 ms watchdog — terminate() preempts it.
     const evilLine = 'a'.repeat(15_000);
     const t0 = Date.now();
