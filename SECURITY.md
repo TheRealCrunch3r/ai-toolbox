@@ -37,7 +37,7 @@ All user inputs are validated using Zod schemas before processing:
 |-----------|------------|---------|
 | `file_name` | `z.string()` + path validation | Prevent empty/malformed paths |
 | `max_length` | `z.number().min(1).max(50000)` | Enforce character limits |
-| `pattern` (grep) | Regex safety check (`isSafeRegex()`) | Prevent ReDoS attacks |
+| `pattern` (ripgrep / pattern_scan) | Rust-regex parse — invalid patterns auto-retry once as fixed strings; JS regexes pass the safety check, unsafe ones are demoted to literal | Prevent ReDoS attacks |
 | `command` | Sanitization (`sanitizeCommand()`) | Block dangerous shell commands |
 
 ### Layer 2: Path Validation
@@ -153,7 +153,8 @@ Tools are gated by configuration categories in `src/config.ts`:
 
 9. **Worker-isolated evaluation** (FIX-HANG-5, 29.–30.08): patterns the stricter `patternNeedsWorkerIsolation()` triage gate cannot cheaply PROVE safe are evaluated for the whole file inside an isolated `node:worker_threads` Worker — hard-killed via `worker.terminate()` after 2 s (`WORKER_KILL_MS = 2000`) if catastrophic backtracking is suspected; a killed file lands in `skipped_files` (reason "likely ReDoS-prone pattern") and the scan continues. Proven-safe patterns keep the inline fast path with zero overhead. This layer exists because no cooperative timer can preempt synchronous `RegExp.test()` on the main thread — only another thread can.
 
-**Transparency:** The `grep_files` tool returns a `patternMode: 'regex' | 'literal' | 'auto_escaped'` field indicating whether the pattern was matched as regex, escaped to literal text, or split into separate regexes for top-level alternation.  
+> **Native engine path (ripgrep TOOL SWAP, 14.09):** the standalone `ripgrep` tool performs file walk AND matching inside ONE worker-isolated native ripgrep process — no JS regex evaluation at all, so catastrophic backtracking is structurally absent on that path; a 3 s wall-clock watchdog terminates wedged workers (`GREP_FILES_MAX_RUN_MS = 3000`). The layers above govern the remaining JS-regex paths (notably `pattern_scan`; its ReDoS-suspect patterns run in killable isolated workers per layer 9).
+**Transparency:** the standalone `ripgrep` tool reports a `pattern_mode` value (`regex`, or `fixed-strings` when an invalid Rust pattern auto-retried as fixed strings, with an explanatory hint); `pattern_scan` returns a `demoted_to_literal` flag whenever its safety check forces literal matching. Mode changes are never silent.  
 **Test Case:** `pattern="((a+)+)b"` → Treated as literal string; `pattern="(a|b)+"` → Accepted as valid regex; `pattern="validateImageFile\(|\.resolvedPath!|await validateImageFile"` → Split into 3 separate regexes tested independently
 
 #### 4. SSRF (Server-Side Request Forgery)
@@ -166,16 +167,13 @@ Tools are gated by configuration categories in `src/config.ts`:
 **Mitigation:** Size limits on file operations (10MB for save_file, 50KB for web fetch)  
 **Test Case:** `save_file(content="<1GB string>")` → Should be rejected with size limit error
 
-#### 6. Token Explosion via grep_files
+#### 6. Token Explosion via unbounded search output (`ripgrep` / `pattern_scan`)
 **Risk:** High  
-**Mitigation:** Four-layer defense-in-depth (`max_content_length`, `max_file_size`, `max_results`, `max_depth`):
-- `max_content_length`: 150 chars/line (balance readability and token economy)
-- `max_file_size`: 100KB per file (skip larger files to prevent processing overhead)
-- `max_results`: 20 results default — prevents excessive output
-- `max_depth`: 10 directory depth default (range: 1–50) — prevents infinite recursion into nested directories
-- `MAX_LINES_PER_FILE`: 5,000 line limit per file in processing loop — prevents hanging on large files
+**Mitigation:** per-tool output bounding — no unbounded result stream can reach the model:
+- `ripgrep` (standalone native search): **no result limits** by owner directive — long scans settle at the 3 s wall-clock watchdog (`GREP_FILES_MAX_RUN_MS = 3000`) with `aborted: true` + partial results; matched lines shaped to ~150 chars + ellipsis
+- `pattern_scan`: four-layer caps — per-file size gate 256 KB, line-cap gate 10,000 lines (oversize/over-line files land in `skipped[]`, never scanned), per-file match cap 50, global cap 200 (`stats.truncated = true` when hit); matched lines truncated at 300 chars by default
 
-**Test Case:** `grep_files(pattern="." , max_results=500)` → Should be capped at default limit (20)
+**Test Case:** `ripgrep(pattern=".")` over a large tree → settles at the 3 s watchdog with partial results + abort hint; `pattern_scan(maxTotalMatches=1)` → capped by its global limit with `stats.truncated = true`
 
 ---
 
@@ -202,7 +200,7 @@ parameters: {
 **Validation Rules Applied:**
 - Type checking (string, number, boolean)
 - Range validation (min/max values)
-- Pattern matching (regex patterns for grep_files)
+- Pattern matching (Rust-regex parse with one fixed-string retry for ripgrep; JS regex safety check with literal demotion for pattern_scan)
 - Length limits (character counts for content parameters)
 
 ### 2. Path Validation
@@ -381,8 +379,8 @@ Conservative defaults prevent resource exhaustion:
 | File read (`max_length`) | 5,000 chars | Balance between utility and memory usage |
 | File write (`save_file`) | 10 MB | Prevent disk exhaustion |
 | Web fetch (`fetch_web_content`) | 50 KB | Prevent OOM from large pages |
-| grep search (`max_results`) | 20 results | Prevent token explosion |
-| grep content length | 150 chars/line | Balance readability and token economy |
+| ripgrep wall-clock bound | 3 s watchdog, then abort + partial results (no result limits) | Prevent runaway scans / token explosion |
+| matched-line shaping | ~150 chars + ellipsis (ripgrep engine default); 300 chars default `matchLineLength` (pattern_scan) | Balance readability and token economy |
 
 ---
 

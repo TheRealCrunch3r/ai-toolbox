@@ -34,3 +34,6 @@ Thumbs.db
 future_improvements/
 .session_index.json
 
+
+# Per-install state (machine-specific, never commit)
+install-state.json

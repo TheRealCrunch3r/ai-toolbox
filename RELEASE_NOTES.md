@@ -1,3 +1,17 @@
+### [15.09.2026] — v1.9.17 rev 30: ripgrep TOOL SWAP shipped + registry consolidation + worker-pool thrash fix
+
+**The `grep_files` era ends — search is now native ripgrep, the project registry has one unified tool, and back-to-back scans no longer pay a cold spawn per file.** This revision ships six verified changes accumulated 12.–15.09 (version number deliberately unchanged by owner decision; pure rev-bump so LM Studio detects the update).
+
+- **RIPGREP TOOL SWAP (14.09):** `grep_files` REMOVED → standalone `ripgrep`: file walk AND pattern matching run natively in ONE worker-isolated ripgrep process off the host thread; 3 s wall-clock watchdog (`GREP_FILES_MAX_RUN_MS = 3000`) terminates wedged workers with `aborted: true` + partial results; **no result limits** (owner directive); invalid Rust patterns auto-retry ONCE as fixed strings. The 13.09 main-thread wedge class is structurally dead — only an engine watchdog can terminate the worker.
+- **MANAGE remodel (12.09):** `register_project` → unified `manage_projects` (`register` / `unregister` / `update` / `clear_all`) with tombstone protection against stale session-memory resurrection; deprecated aliases kept one release cycle.
+- **READS-EXTENSION (12.09):** `manage_projects` absorbs registry reads (`info` / `list` / `search`) — legacy alias tools delegate to the shared impl and preserve response shapes exactly.
+- **FIX #32 (12.09):** recurring `[ERROR] [StateManager.updateSessionIndex]` log-noise class eliminated via silent skip of the orphaned per-copy legacy index (zero data impact; memory + session summaries unaffected).
+- **SEARCH-NORM (15.09):** registry search now case- AND word-separator-insensitive — query `ai toolbox` finds registered project `ai_toolbox`; whitespace-only / all-separator queries match nothing (latent empty-substring bug fixed in the same pass).
+- **DRAIN-GRACE (15.09):** delayed idle-drain of the regex worker pool (`REGEX_WORKER_DRAIN_GRACE_MS = 500`, cancel-on-acquire, shutdown cleanup) — closes the pattern_scan stall root cause: every release used to kill warm workers immediately, so each serial re-acquire paid a fresh spawn (~43–67 ms process creation plus pacing overhead); the live log had shown per-file spawned→drained cycles capped at ~97 files in 3 s.
+- **Verified (owner-run gates, all green):** full `npm test` EXACTLY **730 passed / 44 suites** / tsc clean / tsup build green; LIVE check 15.09 after rebuild+reload — recursive `pattern_scan src/` completed cleanly (69 files, 147 ms), no per-burst spawn/drain cycles.
+- **Versioning:** owner decision 15.09 — version number STAYS at v1.9.17; `manifest.json` revision advanced 29 → 30 so LM Studio detects the update (pure rev-bump precedent: v1.9.15 Hub-dependency hotfix, 03.09); `package.json` description refreshed to the current 730/44 test baseline.
+
+---
 ### [08.09.2026] — v1.9.17 rev 29: Tool Gating Profile — your tool toggles now remember themselves
 
 **Tool choices you make in one chat no longer vanish in the next.** LM Studio's per-chat config falls back to defaults for anything not explicitly persisted, so flipping e.g. `browserAutomation` on in one chat could silently reset it in a fresh one. The plugin now keeps its own user-level memory of your tool toggles: any toggle you set away from its default is captured automatically (no extra UI — the flip itself persists) into `%USERPROFILE%\.ai_toolbox\tool_gating_profile.json`, and applied back over per-chat defaults on every new chat ("sticky keys").

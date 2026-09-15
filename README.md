@@ -17,7 +17,7 @@
 | 🌐 **Cross-project memory** (`switch_context`, project registry) | Recall what *another* registered project decided last week. Recency×frequency scoring, TTL pruning, confirm-first switching (Step 0.7). | ⭐ **Absent from every surveyed plugin** |
 | 🏷️ **Confidence-tagged results + cluster-aware tool selection** (`confidenceTypes`, `toolPriority`) | Every auto-tracked fact is labeled EXTRACTED vs INFERRED vs AMBIGUOUS — so you can separate what the agent *knows* from what it's guessing; and when 130+ tools compete for a turn, cluster-aware priority keeps the right ones in reach under grammar limits. | 🥇 **No surveyed rival tags result confidence** — and none fits this many tools without dropping them at context limits |
 | 🧬 **AST-based code refactoring** (`refactor_code`) | Rename / move-function / extract-function / dead-import cleanup — syntax-safe AST transforms with **auto-rollback on failure**, not regex text hacking. | 🥇 **The only AST-based refactoring across ~115 surveyed plugins** |
-| 🔍 **Search that cannot hang** (`grep_files`, `find_replace_all`) | ReDoS-safe, deadline-capped search returning partial results + an explicit `aborted` flag; dry-run multi-file replace. | 🛡️ Rivals ship unbounded grep loops — this one physically can't spin forever |
+| 🔍 **Search that cannot hang** (`ripgrep`, `find_replace_all`) | Native ripgrep in an isolated worker off the host thread with a 3 s wall-clock watchdog; Rust-dialect regexes auto-demote to fixed strings and say so via `pattern_mode`; dry-run multi-file replace. | 🛡️ Rivals ship unbounded grep loops — this one physically can't spin forever |
 | 💾 **Safe file editing** (`replace_text_in_file`, `line_operations`) | `.bak` backup on every edit, pattern-anchored inserts, line-fingerprint verification, MD5 post-write integrity check. Restore any file in one call (`restore_from_bak`). | 🛡️ **3-layer guardrails** against stale-line-number corruption — rivals offer at best rename-backup shims |
 | ⏸️ **Non-blocking background commands** (`run_background_command` + monitor/cancel) | Kick off long builds & jobs, keep chatting, check status anytime, cancel when needed. No Docker required. | ⭐ Nearest rivals **require Docker**; this runs natively in the plugin host |
 | 🌍 **Real browser automation** (Puppeteer suite) | Headless Chromium with persistent sessions and UI interaction — not a one-shot "fetch page" call. | Rival "visit-website" plugins are ⚠️ *static scrapers only* |
@@ -55,7 +55,7 @@ Our previous i18n gap is closed: **we now ship 5 locales** (en · de · es · zh
 ## Feature Overview — What You Get
 
 ### Safe File Editing & Search
-In-place replace · line-anchored inserts · chunked reads on huge files · diffs · directory trees — and **every write is backed up first** (`.bak`, one-call restore). Project-wide search that physically cannot hang (`grep_files`: deadline-capped, `node_modules` excluded) plus dry-run multi-file replace.
+In-place replace · line-anchored inserts · chunked reads on huge files · diffs · directory trees — and **every write is backed up first** (`.bak`, one-call restore). Project-wide search that physically cannot hang (`ripgrep`: worker-isolated native scan with a 3 s wall-clock watchdog, default-pruned dirs such as `node_modules`) plus dry-run multi-file replace.
 
 ### Syntax-Respecting Code Refactoring
 AST-driven renames, function moves & extractions with auto-rollback — the agent refactors like a developer, not like `sed`.
@@ -111,7 +111,7 @@ npm test                        # full suite: 46 suites / 761 tests green (~45 s
 ## Security Posture — Built Like It Matters
 
 - 🛡️ Every file-modifying tool writes a `.bak` first — restore is one call (`restore_from_bak`)
-- 🛡️ `grep_files` / `find_replace_all`: ReDoS-safe regex screening, deadline hard stops, partial results with explicit `aborted` flag
+- 🛡️ `ripgrep` / `find_replace_all`: worker-isolated scanning (the host thread can't wedge), 3 s wall-clock watchdog, Rust-dialect auto-demotion disclosed via `pattern_mode` + hint
 - 🛡️ RAG & web paths: bounded reads (250K–500K char budgets), 30 s aborts per fetch attempt, chunking loops that *terminate* — no plugin-host OOM from poison documents
 - 🛡️ Sandboxed JS/Python execution; full shell available but **off by default**
 - Full threat model & disclosure process → [SECURITY.md](SECURITY.md)
@@ -132,7 +132,7 @@ One plugin replaces an entire shelf. Here's every family, what it covers, and it
 
 | Family | Count | What it gives your agent | Default |
 |---|---|---|---|
-| 📁 **File System** | 23 | Read/write/edit/search — path-validated, backed up, chunked reads on huge files, diffs, project trees, deadline-capped search + structured content scanning (`pattern_scan`) | ✅ |
+| 📁 **File System** | 23 | Read/write/edit/search — path-validated, backed up, chunked reads on huge files, diffs, project trees, worker-isolated `ripgrep` search (3 s watchdog) + structured content scanning (`pattern_scan`) | ✅ |
 | 🧬 **Refactoring & Recode engine** | `refactor_code` + rules | AST rename · move-function · extract · dead-import cleanup — plus a pluggable rule engine (dead-code hints, type inference, async modernizer) with dry-run diffs | ✅ |
 | 🔍 **Text Processing** | 4 | Regex transforms (`sed`-class), structured extraction (`awk`-class), line surgery with fingerprint guards, instant Markdown tables | ✅ |
 | 📋 **Task Planning** | 3 | Goal + step plans through a real state machine with live completion metrics — blocked steps retry cleanly | ✅ |

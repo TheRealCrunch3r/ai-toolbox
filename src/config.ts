@@ -10,7 +10,7 @@ import { createConfigSchematics } from '@lmstudio/sdk';
 
 export const ConfigSchema = z.object({
 
-  // Tool Gating (enable/disable individual tools)
+  // Tool Categories (enable/disable individual tools)
 
   fileSystem: z.boolean().default(true),
 
@@ -348,7 +348,7 @@ export const configSchematics = createConfigSchematics()
 
 
 
-  // 🎛️ TOOL GATING (Hauptschalter) 🎛️
+  // 🎛️ TOOL CATEGORIES (Hauptschalter) 🎛️
 
   .field('fileSystem', 'boolean', { displayName: '📁 File System Tools', hint: 'Enable file read/write/search operations' }, DEFAULT_CONFIG.fileSystem)
 

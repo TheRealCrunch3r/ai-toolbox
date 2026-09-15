@@ -41,7 +41,7 @@ export const DEFAULT_TOOL_PRIORITIES: ToolPriority[] = [
   { name: 'delete_lines_in_file', tier: 'critical', category: 'fileSystem', description: 'Delete lines from file' },
   { name: 'list_directory', tier: 'critical', category: 'fileSystem', description: 'List directory contents' },
   { name: 'find_files', tier: 'critical', category: 'fileSystem', description: 'Find files by pattern' },
-  { name: 'grep_files', tier: 'critical', category: 'fileSystem', description: 'Search files for pattern' },
+  { name: 'ripgrep', tier: 'critical', category: 'fileSystem', description: 'Search files for pattern (worker-isolated ripgrep engine)' },
   { name: 'make_directory', tier: 'critical', category: 'fileSystem', description: 'Create directory' },
   { name: 'move_file', tier: 'critical', category: 'fileSystem', description: 'Move/rename file' },
   { name: 'copy_file', tier: 'critical', category: 'fileSystem', description: 'Copy file' },

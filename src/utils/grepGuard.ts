@@ -25,8 +25,25 @@
 /** Default wall-clock cap for ONE grep_files call (ms). Set by user order 04.09: keep it tunable in one place. */
 export const GREP_MAX_RUN_MS = 500;
 
+/**
+ * Wall-clock cap for ONE pattern_scan call (ms) — 13.09 FIX-34a follow-up (user GO 13.2x): the tool now runs a fully
+ * async, abortable full-JS pipeline (the sync rg-WASM B' segment that justified inheriting grep_files' sync-era
+ * constant is removed), so GREP_MAX_RUN_MS=500 chronically truncated recursive scans at ~17 files with partial results.
+ * Same single-source-of-truth philosophy (one tunable place per tool class in this file), sized for multi-file trees:
+ * the cap still bounds any runaway walk/eval burst; ReDoS containment remains the per-eval worker watchdog (250ms).
+ */
+export const PATTERN_SCAN_MAX_RUN_MS = 3000;
+
 /** find_replace_all keeps its historical full-scan budget — it modifies files, so a short cap would cut batches mid-apply. */
 export const FIND_REPLACE_ALL_MAX_RUN_MS = 15_000;
+
+/**
+ * Wall-clock cap for ONE grep_files call (ms) — 13.09 FIX-34b: grep_files now runs a full-JS async, abortable
+ * pipeline (rg candidate prefilter isolated in a worker + per-eval regex-worker isolation), so the sync-era
+ * GREP_MAX_RUN_MS=500 would again chronically truncate recursive scans at ~17 files. Mirrors PATTERN_SCAN_MAX_RUN_MS:
+ * one tunable constant per tool class in this file; ReDoS containment remains the per-eval worker watchdog (250ms).
+ */
+export const GREP_FILES_MAX_RUN_MS = 3000;
 
 export interface GrepGuard {
   readonly signal: AbortSignal;

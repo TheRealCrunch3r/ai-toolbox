@@ -13,7 +13,7 @@
  * abort paths are real-time guarantees by design.
  */
 
-import { evaluateLinesInWorker, REGEX_WORKER_BUDGET_MS } from '../src/utils/regexWorker';
+import { evaluateLinesInWorker, REGEX_WORKER_BUDGET_MS, REGEX_WORKER_POOL_SIZE, PROBE_TOTAL_BUDGET_MS, REGEX_WORKER_DRAIN_GRACE_MS, shutdownRegexWorkerPool } from '../src/utils/regexWorker';
 
 describe('evaluateLinesInWorker — correctness', () => {
   test('basic match + case-insensitive flag respected (worker reconstructs RegExp from source+flags)', async () => {
@@ -117,4 +117,117 @@ describe('evaluateLinesInWorker — containment (the load-bearing ITEM-B guarant
     expect(r).toEqual({ kind: 'aborted' }); // terminated by the signal, NOT by the watchdog budget; pool union has no `ok` here
     expect(Date.now() - t0).toBeLessThan(2000);
   }, 15_000);
+});
+
+// ---------------------------------------------------------------------------
+// FIX-33 regression net (13.09 incident follow-up: signal-blind capacity queue + unbounded startup probe)
+// ---------------------------------------------------------------------------
+
+describe('FIX-33 — pool acquire/probe hardening', () => {
+  test('FIX-33a: abort DURING a capacity queue-wait resolves {kind:aborted} without occupying a worker (no unbounded wait)', async () => {
+    // Occupy all REGEX_WORKER_POOL_SIZE slots deterministically: guaranteed-spin evals (T1b class) each capped by their OWN
+    // watchdog budget — the spin can never finish early, so every slot stays busy for its full budget window.
+    const evilLine = 'a'.repeat(15_000);
+    const holders: Promise<unknown>[] = [];
+    for (let i = 0; i < REGEX_WORKER_POOL_SIZE; i++) {
+      holders.push(evaluateLinesInWorker([{ source: '((a+){3}){4}x', flags: '' }], [evilLine], { budgetMs: 800 }) as Promise<unknown>);
+    }
+    // Let the paced spawns (probe already ran in earlier describes of this file) settle into their busy windows first.
+    await new Promise((r) => setTimeout(r, 700));
+
+    const ac = new AbortController();
+    const tB = Date.now();
+    const pB = evaluateLinesInWorker([{ source: '((a+){3}){4}x', flags: '' }], [evilLine], { budgetMs: 5000, externalSignal: ac.signal });
+    // Pre-FIX-33a this call sat in the FIFO until a slot freed and then burned that worker; post-fix the abort below must cut it
+    // out of the queue immediately (or terminate it via the in-eval path if it had won a slot — either way: {kind:'aborted'}).
+    setTimeout(() => ac.abort(), 250);
+    const rB = await pB;
+    const elapsedB = Date.now() - tB;
+
+    expect(rB).toEqual({ kind: 'aborted' }); // by SIGNAL at ~250ms — not by its generous 5s budget, not a spawn error
+    expect(elapsedB).toBeGreaterThanOrEqual(200); // it actually queued (a pre-aborted fast path would resolve in milliseconds)
+    expect(elapsedB).toBeLessThan(REGEX_WORKER_BUDGET_MS + 1000); // resolved far before any holder could free capacity (~800ms+ after spawn)
+
+    // Containment still holds under full-pool load and the pool stays healthy: every holder ends in its budget outcome
+    // (the spin never completes within 800ms on any host — same class as the T1b pin above) and a normal eval succeeds.
+    const settled = await Promise.all(holders);
+    for (const h of settled) expect((h as { kind?: string }).kind).toBe('budget');
+    const after = await evaluateLinesInWorker([{ source: 'NEEDLE', flags: '' }], ['x NEEDLE y']);
+    expect(after).toEqual({ ok: true, matchedLineIndices: [0] });
+  }, 20_000);
+
+  test('FIX-33b: startup probe is total-bounded — a re-probed pool serves its first eval well inside the old ~25s worst case', async () => {
+    expect(PROBE_TOTAL_BUDGET_MS).toBeLessThanOrEqual(1000); // the bound itself, pinned (pre-fix: NO total bound — 5 samples x flat 5s)
+    shutdownRegexWorkerPool(); // reset probeRan -> the next acquire re-runs the (now-bounded) probe from scratch
+
+    const t0 = Date.now();
+    const r = await evaluateLinesInWorker([{ source: 'NEEDLE', flags: '' }], ['one NEEDLE here']);
+    const elapsed = Date.now() - t0;
+    expect(r).toEqual({ ok: true, matchedLineIndices: [0] });
+    // Probe (~1s budget) + one cold spawn (43-67ms observed on user host) completes far inside the pre-fix worst case of
+    // 5 samples x 5000ms ~ 25s; generous-but-meaningful so the pin holds on any host.
+    expect(elapsed).toBeLessThan(10_000);
+  }, 30_000);
+});
+
+
+// ---------------------------------------------------------------------------
+// DRAIN-GRACE regression net (15.09: releaseWorker's immediate idle-drain thrashed warm workers between back-to-back per-file evals, so every
+// re-acquire in a pattern_scan burst paid a fresh spawn (~43-67ms) + >=120ms pacing - proven root cause of the 15.09 stall; live log
+// 2026-09-15.1.log @17:14). Real timers on purpose, like the rest of this file: the grace window is a real-time guarantee.
+// ---------------------------------------------------------------------------
+
+describe('DRAIN-GRACE (15.09) \u2014 delayed idle-drain', () => {
+  let logSpy: jest.SpyInstance;
+
+  beforeEach(() => {
+    shutdownRegexWorkerPool(); // clean slate per test: empty pool, cleared grace timer + waiters, probe flag reset
+    logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    logSpy.mockRestore();
+    shutdownRegexWorkerPool(); // never leave a pending grace sweep between tests (real timers - no fake cleanup available)
+  });
+
+  const spawnLogCount = (): number => logSpy.mock.calls.filter((c) => String(c[0]).includes('spawned worker')).length;
+  const graceLogCount = (): number => logSpy.mock.calls.filter((c) => String(c[0]).includes('grace expired with no demand')).length;
+
+  test('reuse within the grace window: back-to-back evals pay exactly ONE spawn (zero-spawn reuse)', async () => {
+    const a = await evaluateLinesInWorker([{ source: 'NEEDLE', flags: '' }], ['x NEEDLE y']);
+    expect(a).toEqual({ ok: true, matchedLineIndices: [0] }); // first call pays probe-if-needed + cold spawn; its release schedules the grace
+
+    // The second eval lands well inside REGEX_WORKER_DRAIN_GRACE_MS of the first release -> its acquire cancels the pending sweep and reuses the
+    // warm idle worker. Pre-grace behavior drained that worker at the first release, forcing a second spawn here.
+    const b = await evaluateLinesInWorker([{ source: 'NEEDLE', flags: '' }], ['x NEEDLE y']);
+    expect(b).toEqual({ ok: true, matchedLineIndices: [0] });
+
+    expect(spawnLogCount()).toBe(1); // one spawn for both evals - the warm worker survived the inter-eval gap
+  }, 20_000);
+
+  test('quiet window expiry drains idle workers; the next eval pays exactly one fresh spawn', async () => {
+    const a = await evaluateLinesInWorker([{ source: 'NEEDLE', flags: '' }], ['x NEEDLE y']);
+    expect(a.ok).toBe(true);
+    expect(graceLogCount()).toBe(0); // still inside the quiet window
+
+    await new Promise((r) => setTimeout(r, REGEX_WORKER_DRAIN_GRACE_MS + 300)); // outlive the full grace window (real timers)
+    expect(graceLogCount()).toBe(1); // sweep fired and logged exactly one drain line for the idle worker
+
+    const b = await evaluateLinesInWorker([{ source: 'NEEDLE', flags: '' }], ['x NEEDLE y']);
+    expect(b).toEqual({ ok: true, matchedLineIndices: [0] });
+    expect(spawnLogCount()).toBe(2); // drained pool -> the post-grace eval pays a fresh spawn (the old cost, now bounded to once per quiet window)
+  }, 25_000);
+
+  test('shutdown clears a pending grace sweep - no stray drain activity after teardown', async () => {
+    const a = await evaluateLinesInWorker([{ source: 'NEEDLE', flags: '' }], ['x NEEDLE y']);
+    expect(a.ok).toBe(true); // its release left a PENDING grace sweep (no waiters) - do not let it elapse here
+
+    shutdownRegexWorkerPool(); // first line must cancel the pending timer
+    await new Promise((r) => setTimeout(r, REGEX_WORKER_DRAIN_GRACE_MS + 300)); // outlive where an uncancelled sweep would have fired
+    expect(graceLogCount()).toBe(0); // no stray post-teardown drain
+
+    const b = await evaluateLinesInWorker([{ source: 'NEEDLE', flags: '' }], ['x NEEDLE y']); // teardown left a clean, re-usable pool
+    expect(b).toEqual({ ok: true, matchedLineIndices: [0] });
+    expect(spawnLogCount()).toBe(2); // one spawn for each of the two evals - no zombie state from the cancelled sweep
+  }, 25_000);
 });

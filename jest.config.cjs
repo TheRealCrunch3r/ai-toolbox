@@ -1,6 +1,4 @@
-/**
- * Jest configuration for AI Toolbox plugin tests
- */
+
 
 module.exports = {
   preset: 'ts-jest',
@@ -33,6 +31,11 @@ module.exports = {
     // ── Tool modules imported statically by other src files (../foo.js → ../foo.ts) ──
     '^\\.\\./security\\.js$': '<rootDir>/src/security.ts',
     '^\\.\\./config\\.js$': '<rootDir>/src/config.ts',
+    // REG-MOVE (12.09): src/tools/contextManagementTools.ts imports '../dataDir.js' — same RC#4 class.
+    // 🔹 FIX #30 (12.09): original insertion was double-escaped ('^\\.\\../…') → matched NEITHER form;
+    // de-dotted to the working sibling style '^\.\./…' (byte-verified via require+RegExp against both specs).
+    '^\\.\\./dataDir\\.js$': '<rootDir>/src/dataDir.ts',
+
     '^\\.\\./workingDir\\.js$': '<rootDir>/src/workingDir.ts',
     '^\\.\\./performanceUtils\\.js$': '<rootDir>/src/performanceUtils.ts',
     '^\\.\\./fuzzySearch\\.js$': '<rootDir>/src/fuzzySearch.ts',
@@ -43,6 +46,9 @@ module.exports = {
     '^\\.\\/workingDir\\.js$': '<rootDir>/src/workingDir.ts',
     '^\\.\\/performanceUtils\\.js$': '<rootDir>/src/performanceUtils.ts',
     '^\\.\\/fuzzySearch\\.js$': '<rootDir>/src/fuzzySearch.ts',
+    // REG-MOVE (12.09): src/workingDir.ts imports './dataDir.js' — same RC#4 class; per-file form only (G9 round-2)
+    '^\\.\\/dataDir\\.js$': '<rootDir>/src/dataDir.ts',
+
     '^\\.\\/stateManager\\.js$': '<rootDir>/src/stateManager.ts',
     '^\\.\\/backgroundCommands\\.js$': '<rootDir>/src/backgroundCommands.ts',
     '^\\.\\/toolsSchemaMinifier\\.js$': '<rootDir>/src/toolsSchemaMinifier.ts',
@@ -60,10 +66,6 @@ module.exports = {
     // same RC#4 class (new .js-suffixed static import without mapper entry → "Cannot find module") ──
     '^\\.\\/autoTracker\\.js$': '<rootDir>/src/autoTracker.ts',
     '^\\.\\/tokenStatsManager\\.js$': '<rootDir>/src/tokenStatsManager.ts',
-
-    // v1.9.17 (08.09): toolsProvider.ts statically imports './tools/toolGatingProfile.js' - same RC#4 class as FIX #20
-    // (new .js-suffixed static import without mapper entry -> Cannot find module in every suite loading the provider)
-    '^\\.\\/tools/toolGatingProfile\\.js$': '<rootDir>/src/tools/toolGatingProfile.ts',
 
 
     // ── Tool modules dynamically imported by toolsProvider.ts via import('./tools/xxx.js') ──

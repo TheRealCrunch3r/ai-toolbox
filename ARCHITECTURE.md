@@ -617,30 +617,23 @@ Heavy dependencies loaded on first use:
 - **Tesseract.js** — OCR engine
 - **SQLite** — Database engine (Node 23+)
 - **pdf-parse / mammoth** — Document parsing
-- **ripgrep** — `grep_files` phase-1 candidate filter (WASM build of rg; lazy dynamic import on first use, see §5 below)
+- **ripgrep** — scan engine behind the standalone `ripgrep` tool AND `pattern_scan`'s B' phase-1 prefilter (WASM build of rg; lazy dynamic import on first use, see §5 below)
 
-### 5. ripgrep-backed `grep_files` candidate filter (`src/utils/ripgrepEngine.ts`) — current state (v1.9.13-pending, 01.–02.09)
+### 5. Ripgrep engine (`src/utils/ripgrepEngine.ts`) — current state post 14.09 TOOL SWAP (v1.9.17 / manifest rev 29)
 
-`grep_files` regex mode on **directory** targets runs in two phases; single-file targets and AST mode are unchanged code paths.
+The engine is a self-contained, worker-isolated ripgrep runner. Two consumers:
 
-```
-regex-mode directory scan:
-  phase 1  searchCandidates(ripgrepEngine.ts) — awaited BEFORE scan start (cost outside the 15 s deadline window)
-             exit 0 → allow-set of rg-named candidate files (relativized against targetDir; RC-D fix)
-             exit 1 → no matches (clean negative; set stays null → full-JS walk runs anyway, byte-for-byte fallback)
-             exit 2 / import failure / WASI error → { status:'fallback-required', reason } (e.g. Rust-dialect parse
-                      errors: lookarounds/backreferences) → same full-JS fallback, all hang guards intact
-  phase 2  existing walkDirectory/processFile pipeline on the candidate set only: per-file stat + size gate FIRST
-             (exact-byte skip records), line-cap probe read for non-named files (RC-E fix: byte-identical
-             skipped_files contract), then unchanged processWithRegex shaping
-```
+1. **Standalone `ripgrep` tool** (new 14.09 TOOL SWAP — owner directive: full replacement of the removed `grep_files`, AST mode included). The ENTIRE walk + match runs inside ONE worker-isolated rg process off the host thread; there is no JS fallback for this tool.
+2. **`pattern_scan` B' phase-1 prefilter** (unchanged since v1.9.15) — regex-mode directory scans first ask the engine which files *can* match, then run only those through the worker pipeline; any non-'ok' outcome falls back to the full-JS walk byte-for-byte with every cap and skip-record contract intact.
 
 Design points (full contracts in the module header):
 
-- **Boot-safe lazy dependency** — `ripgrep` (pithings/ripgrep-node 0.3.1, ESM-only WASM build of rg) is dynamically imported on first use only; a missing or broken package degrades to a typed fallback and never breaks plugin boot.
-- **Parity flags mirror the production walker** — `--no-ignore --no-require-git --hidden` (the walker scans dot-dirs when no include pattern is given), `-i` passed as a parameter (grep_files compiles every regex with 'i'), caller-supplied exclusion globs, and depth-budget parity via `--max-depth=cap+1` (rg 15.x WASM includes one boundary level less; cap 0 emits no flag — pinned by unit test).
-- **Size gate stays in phase 2** — intentionally no `--max-filesize`: production skip records carry exact byte counts, and rg's size units/rounding differ.
-- **Fallback = pre-swap behavior** — any non-'ok' outcome leaves the candidate set null, so the full-JS walk (incl. worker isolation for ReDoS-prone patterns) runs with every existing hang guard active.
+- **Boot-safe lazy dependency** — `ripgrep` (pithings/ripgrep-node 0.3.1, ESM-only WASM build of rg) is dynamically imported on first use only; a missing or broken package degrades gracefully (the standalone tool reports the failure as a clean result; pattern_scan falls back to JS) and never breaks plugin boot.
+- **Single wall-clock cap: 3 s watchdog** (`GREP_FILES_MAX_RUN_MS = 3000`, shared constant in `src/utils/grepGuard.ts`) — the engine's budget terminates a wedged worker off-thread → clean timeout result; host aborts are forwarded straight into the engine (pre-aborted settles immediately).
+- **Dialect-restricted regexes auto-demote** — Rust-regex parse errors (lookarounds/backreferences) trigger an automatic fixed-string (-F) re-run, disclosed via `pattern_mode: 'fixed-strings'` + hint in the tool result.
+- **No result limits on the standalone tool** (owner directive 14.09): every match found in scope is returned; default-pruned dirs are the engine's 12-dir exclusion set (pass `include_glob` to scan them).
+- **Depth parity quirk preserved** — `--max-depth` offset +1 inside the engine (rg WASM boundary semantics); omitted = unbounded.
+- **pattern_scan fallback unchanged** — any non-'ok' outcome for that consumer leaves the candidate set null → full-JS walk, byte-for-byte.
 
 ---
 
@@ -1164,7 +1157,8 @@ tests/                          # Jest test suite (46 suites / 761 tests, verifi
 ├── autoTracker.test.ts         # Token threshold checkpointing & session memory tests (v1.6.6+)
 ├── browserActions.test.ts      # Browser action execution & validation tests
 ├── fileSearch.test.ts          # Recursive file search with exclusion patterns tests
-├── grep_files.test.ts          # Regex/Literal matching, ReDoS protection, performance tests
+├── ripgrepEngine.test.ts       # Standalone ripgrep tool + engine contract — REAL-timer suite incl. 3 s watchdog cap-fire (new 14.09)
+├── ripgrepTools.test.ts        # ripgrep response-shape pins: mode echo, auto-demotion hint gating, no-match pattern_mode (new 14.09; former grep_files suites deleted in the same window)
 ├── refactorCodeTools.test.ts   # AST-based refactoring & dry-run diff tests (v1.5.30+)
 ├── hubExclusionClustering.test.ts # Hub-exclusion clustering algorithm verification (83 tests) — NEW v1.9.8
 └── projectAutoDetect.test.ts   # Project auto-detection & registration workflow tests — NEW v1.9.8
@@ -1236,7 +1230,7 @@ All tool categories are now fully registered in `toolsProvider.ts` using the dec
 | Line Operations | lineOperations.ts | 1 | ✅ Yes | Utility toggle |
 | Markdown Preview | markdownPreviewTools.ts | 1 | ✅ Yes | Utility toggle |
 | Task Planning | taskPlanningTools.ts | 3 | ✅ Yes | Enabled (default) |
-| **Total Registered** | | **Code-defined total (audited 05.09): 131 live tool definitions across the 22 registered modules; exposed set is toggle-dependent — GOD MODE max ≈ 130 (`read_document` deduped)** · legacy locale figure: 129 entries / 127 distinct names in `src/locales/en.ts` (see drift note below) | | |
+| **Total Registered** | | **Code-defined total: **130** live tool definitions across the 22 registered modules (re-audited 15.09 against current code, post ripgrep TOOL SWAP: File System 23 with −1 removed `grep_files` + 1 added standalone `ripgrep`; exposed set is toggle-dependent — GOD MODE max ≈ 129 (`read_document` deduped))** · legacy locale figure: 129 entries / 127 distinct names in `src/locales/en.ts` (see drift note below) | | |
 
 > **⚠️ Locale vs code drift (audited 05.09 against `src/tools/` + `toolsProvider.ts`; fix decision pending):** the locale sets (`src/locales/*.ts`, all five locales) carry **3 ghost entries with no tool definition in code**: `browser_session_open` (real tool: `browser_open_page`), `gh_auth` (no such registered tool; even `check_gh_auth` exists only as data in `toolPriority.ts`), and `analyze_image` (no image-analysis module). Conversely, **2 registered tools have no locale entry**: `delete_lines`, `markdown_preview`. So "129/127" counts *locale data*, not code; the per-category counts above are code-based.
 
@@ -1745,7 +1739,7 @@ The plugin carries a localization subsystem under `src/locales/` providing tool 
 | File | Role |
 |------|------|
 | `src/locales/types.ts` | Shared types: `LanguageCode = 'en' \| 'de' \| 'es' \| 'zh-CN' \| 'zh-TW'`; `Translation { toolName, description, parameters[], example? }`; `ToolCategoryTranslations { categoryTitle, tools[] }`; `FullTranslationSet` — **19 per-category blocks** (audited 05.09 — was "20"; lineOperations & markdownPreview have no category of their own) + a `general` block (`pluginName`, `enabledTools`, `disabledTools`, `errorPrefix`, `successPrefix`). Since the Tier-2 completion (04.09) all 19 categories are REQUIRED in every locale set. |
-| `src/locales/en.ts` / `de.ts` / `es.ts` / `zh-CN.ts` / `zh-TW.ts` | One complete translation set per language (`enTranslations`, …). Coverage: **129 per-category tool entries**, parity-verified across all five locales with exact `en` order. `read_document` and `rag_web_content` appear in two category blocks each — distinct tool names number 127. |
+| `src/locales/en.ts` / `de.ts` / `es.ts` / `zh-CN.ts` / `zh-TW.ts` | One complete translation set per language (`enTranslations`, …). Coverage: **locale data re-audited 15.09 post ripgrep TOOL SWAP**: the former per-category counts (129 entries / 127 distinct names) predate the `grep_files`→`ripgrep` rename in all five locale sets — exact current figures pending owner re-run of `npm test` (`tests/i18n.test.ts` parity guards); order + coverage remain parity-verified against `en`. |
 | `src/locales/i18n.ts` | The `I18nManager` class (API below). |
 
 ### I18nManager (`src/locales/i18n.ts`)

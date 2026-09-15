@@ -16,6 +16,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { encode } from '@msgpack/msgpack';
 
 import {
   getWorkingDir,
@@ -23,16 +24,21 @@ import {
   resetWorkingDir,
   listRegisteredProjects,
   restoreLastActiveProjectCwd,
+  getStateFilePath, // 🔹 FIX #31b (12.09): state-file location owned by the module (jest-safe)
 } from '../src/workingDir';
 import { detectProjectKeyword, applyProjectCwdSwitch, normalizeConfirmationReply, decideProjectSwitch } from '../src/promptPreprocessor';
 import { registerTaskPlanningTools } from '../src/tools/taskPlanningTools';
 import { DEFAULT_CONFIG } from '../src/config';
+// 🔹 REG-MOVE (12.09): per-test isolation of the persistent data-dir registry (see beforeEach below)
+import { setDataDirOverride } from '../src/dataDir';
 
 // ==================== Helpers & Fixtures ====================
 
-/** Repo root (tests/..). The working-dir state file lives at <root>/.ai_toolbox_state.json. */
+/** Repo root (tests/..). 🔹 FIX #31b: the working-dir state-file location is owned by src/workingDir.ts —
+ * under jest it resolves to a per-run temp file (leak fix), in production <root>/.ai_toolbox_state.json.
+ * ALWAYS read it via getStateFilePath(); never re-derive the path here. */
 const REPO_ROOT = path.resolve(__dirname, '..');
-const STATE_FILE = path.join(REPO_ROOT, '.ai_toolbox_state.json');
+const STATE_FILE = getStateFilePath();
 // PlanStorageManager syncs every save() to the plugin root (src/ in jest, dist/ when built).
 const PLUGIN_ROOT_PLAN_FILE = path.join(REPO_ROOT, 'src', '.session_context', '.ai_toolbox_plans.json');
 
@@ -64,12 +70,27 @@ afterAll(async () => {
   }
 });
 
-beforeEach(() => {
+let isolatedDataDir: string | null = null;
+
+// 🔹 REG-MOVE (12.09): listRegisteredProjects() / restoreLastActiveProjectCwd() now merge a TOP-PRIORITY
+// persistent data-dir registry via getDataDir(). Under jest without an override that resolves to the STABLE
+// shared path %TEMP%\ai_toolbox_test_data — residue from earlier runs/suites would leak into every
+// fixture-based assertion here (empty-registry tests, off-by-one counts; observed live 12.09). Hermetic:
+// fresh temp data dir in, cleared + removed out.
+beforeEach(async () => {
   resetWorkingDir(); // clears module cache + persisted state → deterministic start
+  isolatedDataDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'ai-toolbox-cwd-datadir-'));
+  setDataDirOverride(isolatedDataDir);
 });
 
 afterEach(() => {
   resetWorkingDir(); // established convention — never leak CWD state between tests
+  const d = isolatedDataDir;
+  if (d) {
+    isolatedDataDir = null;
+    setDataDirOverride(undefined); // never leak an override into other suites
+    void fs.promises.rm(d, { recursive: true, force: true }).catch(() => {});
+  }
 });
 
 // ==================== listRegisteredProjects ====================
@@ -334,6 +355,44 @@ describe('restoreLastActiveProjectCwd', () => {
 
     resetWorkingDir();
     expect(restoreLastActiveProjectCwd(base)).toEqual({ restored: false });
+  });
+
+  // 🔹 FIX #29 regression guard (12.09 "elephant in the room"): a reinstall wipes BOTH plugin-dir registries
+  // while .ai_toolbox_state.json still holds a VALID workingDir — old code hit the idempotent guard's early
+  // return before bootstrap ever ran, so list_projects/search_projects/keyword detection saw an empty
+  // registry for the whole session. Bootstrap must now run on that boot path too: it materializes the
+  // durable session-memory stamp into the primary plugin-dir registry and leaves the valid CWD untouched.
+  test('FIX #29: boot repairs empty plugin-dir registries even when persisted CWD state is valid', () => {
+    const base = path.join(tempRoot, 'fix29-reinstall');
+    fs.mkdirSync(base, { recursive: true }); // NO project_registry.json, NO .session_index.json (post-wipe)
+
+    const victimProj = path.join(tempRoot, 'fix29-victim-project');
+    fs.mkdirSync(victimProj, { recursive: true });
+
+    // Drive the bootstrap via its always-scanned source: the plugin-root memory file under <base>. The stamp
+    // uses the canonical shape (<wd>/.session_context/<file>.msgpack → register dirname(dirname(stamp))).
+    // Under jest the getWorkingDir() source is guard-blocked, so this fixture stays fully hermetic.
+    const memPath = path.join(base, '.session_context', '.ai_toolbox_memory.msgpack');
+    fs.mkdirSync(path.dirname(memPath), { recursive: true });
+    fs.writeFileSync(memPath, encode([
+      { id: 'ctx_fix29', timestamp: Date.now(), type: 'summary', title: 'fix29 stamp', content: 'x', project_path: path.join(victimProj, '.session_context', '.ai_toolbox_memory.msgpack') },
+    ]));
+
+    // Valid persisted state pointing at an unrelated existing dir — the branch where old code skipped bootstrap.
+    const keepDir = path.join(tempRoot, 'fix29-keep-dir');
+    fs.mkdirSync(keepDir, { recursive: true });
+    setWorkingDir(keepDir);
+
+    const result = restoreLastActiveProjectCwd(base);
+
+    expect(result).toEqual({ restored: false }); // CWD untouched — repair is registry-only, not a switch
+    expect(getWorkingDir()).toBe(path.resolve(keepDir));
+
+    // The primary registry file now exists under the plugin dir and knows the stamped project.
+    const materialized = listRegisteredProjects(base);
+    expect(materialized).toHaveLength(1);
+    expect(materialized[0].name).toBe('fix29-victim-project');
+    expect(materialized[0].path).toBe(path.resolve(victimProj));
   });
 });
 

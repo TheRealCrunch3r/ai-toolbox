@@ -54,6 +54,14 @@ export const REGEX_WORKER_BUDGET_MS = 250;
 export const REGEX_WORKER_POOL_SIZE = 4;
 
 /**
+ * DRAIN-GRACE (15.09): quiet window (ms) after a release before the delayed idle-drain sweep fires — back-to-back evals within it REUSE warm workers instead of paying a fresh spawn (~43-67ms on this host)
+ * + ≥120ms pacing each re-acquire; the pre-grace immediate drain was the proven pool-thrash root cause of the 15.09 pattern_scan stall (owner GO 18:16). Any acquire cancels the pending
+ * sweep — see cancelDrainGrace / scheduleDrainGrace in the pool-state section and releaseWorker's tail. Trade-off (accepted): ≤REGEX_WORKER_POOL_SIZE warm workers (~≤200MB RSS) may survive up to
+ * one quiet window after demand ends; shutdownRegexWorkerPool() clears the pending timer at teardown.
+ */
+export const REGEX_WORKER_DRAIN_GRACE_MS = 500;
+
+/**
  * Minimum spacing between worker spawns (ms) — protects a contended host from spawn-burst queue buildup.
  * Tuned 06.09: 250 → 120 after the live startup probe measured warm spawn+first-message at 14-19 ms on the user
  * host; worst-case burst ramp drops ~750ms → ~360ms for a full 4-worker top-up. Pool cap (4), eval budget
@@ -134,6 +142,44 @@ let lastSpawnAtMs = 0;                 // rate-limit anchor
 let probeRan = false;                  // one-time startup probe per process
 const waiters: Array<() => void> = []; // FIFO queue of acquires blocked on capacity
 
+/* DRAIN-GRACE (15.09): delayed idle-drain — state + sweep helpers (replace releaseWorker's immediate drain-all-idles). Provenance: the immediate drain killed warm workers between back-to-back
+ * per-file evals, so every re-acquire in a pattern_scan burst paid a fresh spawn (~43-67ms) + ≥120ms pacing — proven thrash root cause of the 15.09 stall (live log 2026-09-15.1.log @17:14).
+ * The sweep RE-ARMS on every release (clear + fresh timer) so it fires only after the pool has been quiet for a FULL REGEX_WORKER_DRAIN_GRACE_MS window; ANY acquire in that window cancels it
+ * outright (an acquire IS demand). Expiry runs the SAME sweep as the old immediate drain. Quarantine/retirement stay IMMEDIATE — unchanged. */
+let drainGraceTimer: ReturnType<typeof setTimeout> | null = null;
+
+function cancelDrainGrace(): void {
+  if (drainGraceTimer !== null) clearTimeout(drainGraceTimer);
+  drainGraceTimer = null;
+}
+
+/** Re-arm the delayed sweep (clear + fresh timer) — call on EVERY release so the grace window restarts from each one. */
+function scheduleDrainGrace(): void {
+  cancelDrainGrace();
+  drainGraceTimer = setTimeout(() => {
+    drainGraceTimer = null; // fired — do not re-arm from inside the sweep (a later release will, if idles remain)
+    const drained: PooledWorker[] = [];
+    for (const w of pool) {
+      if (w.state === 'idle') { terminateQuietly(w.worker); drained.push(w); } // busy workers complete + are swept on their own later release
+    }
+    if (drained.length > 0) {
+      const ids = new Set(drained.map((w) => w.id));
+      pool = pool.filter((w) => !ids.has(w.id));
+      console.log(`[worker-pool] grace expired with no demand — drained ${drained.length} idle worker(s) (live=${pool.length})`);
+    }
+  }, REGEX_WORKER_DRAIN_GRACE_MS);
+}
+
+// FIX-33a (13.09): thrown from acquireWorker when the CALLER'S abort signal fires while a capacity slot is being waited for.
+// A real Error subclass (not a bare sentinel) so @typescript-eslint/only-throw-error + prefer-promise-reject-errors hold; callers
+// distinguish it from spawn failures (which map to {kind:'error'}) — an aborted wait maps to {kind:'aborted'} with no worker work.
+class AcquireAbortedError extends Error {
+  constructor() {
+    super('acquire aborted by caller signal');
+    this.name = 'AcquireAbortedError';
+  }
+}
+
 // LOGGING CHANNEL POLICY (06.09): benign lifecycle/diagnostic lines use console.log (stdout — LM Studio renders it
 // as [INFO]; eslint no-console allows debug/log/warn/error, NOT info). console.warn goes to stderr and renders as
 // [ERROR] in server logs, which masked normal pool churn (spawn pacing/drains) behind error noise.
@@ -144,6 +190,34 @@ const waiters: Array<() => void> = []; // FIFO queue of acquires blocked on capa
 function notifyWaiter(): void {
   const wake = waiters.shift();
   if (wake) setTimeout(wake, 0); // never resume inside terminate()'s callback stack
+}
+
+/** FIX-33a (13.09): detach a queued waiter that is bailing on caller abort — an aborted acquire must not keep occupying the
+ * FIFO slot, or a later notifyWaiter() would consume its wake-up and skip the next real waiter. */
+function removeWaiter(resolve: () => void): void {
+  const i = waiters.indexOf(resolve);
+  if (i >= 0) waiters.splice(i, 1);
+}
+
+/**
+ * FIX-33a (13.09): wait for a capacity slot or caller abort — whichever comes first; on abort the waiter detaches from the FIFO
+ * queue and rejects with AcquireAbortedError. Push BEFORE listener attach: in single-threaded dispatch an 'abort' event cannot fire
+ * between the two, so no wake-up can be lost (an already-aborted signal never queues at all). A listener that outlives a WON slot
+ * is a harmless one-shot no-op against an already-settled Promise.
+ */
+function waitForSlotOrAbort(abortSignal?: AbortSignal): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const onAbort = (): void => {
+      removeWaiter(resolve);
+      reject(new AcquireAbortedError());
+    };
+    waiters.push(resolve); // push FIRST — then attach (see doc above for why the order matters)
+    if (!abortSignal || !abortSignal.aborted) {
+      abortSignal?.addEventListener('abort', onAbort, { once: true });
+    } else {
+      onAbort(); // already aborted at queue entry — never wait in the first place (no listener attached, nothing to clean up)
+    }
+  });
 }
 
 function sleep(ms: number): Promise<void> {
@@ -165,19 +239,36 @@ function terminateQuietly(worker: Worker): void {
   try { void worker.terminate(); } catch { /* already terminated */ }
 }
 
+// FIX-33b (13.09): hard TOTAL budget for the ENTIRE startup probe (all samples combined). Pre-fix design had no total
+// bound — an unresponsive host could burn up to PROBE_SPAWN_COUNT × 5s = ~25s on the FIRST pool use, and that first
+// acquire blocks every search-tool caller in process while it runs. Now: ≤ this budget (+ one 50ms timeout-floor at the boundary).
+export const PROBE_TOTAL_BUDGET_MS = 1000;
+
 /**
- * One-time host baseline probe (first pool use in this process): spawn+ready PROBE_SPAWN_COUNT workers sequentially,
+ * One-time host baseline probe (first pool use in this process): spawn+ready up to PROBE_SPAWN_COUNT workers sequentially,
  * log the measured ms values. The spawned probes are NOT added to the pool — they exist only to put live per-session
  * worker-creation numbers into main.log (session forensics previously lived only in cross-session memory notes).
+ * FIX-33b (13.09): total wall-clock bound PROBE_TOTAL_BUDGET_MS with an inconclusive fallback — the probe degrades gracefully
+ * instead of stalling the first search-tool call for up to ~25s on a wedged/unresponsive host. The probe is DIAGNOSTIC ONLY:
+ * skipping remaining samples never changes eval correctness (the first real eval runs its own watchdog budget regardless).
  */
 async function runStartupProbe(): Promise<void> {
+  const startedAt = Date.now();
   const samples: number[] = [];
+  let inconclusive = false;
   for (let i = 0; i < PROBE_SPAWN_COUNT; i++) {
+    if (Date.now() - startedAt >= PROBE_TOTAL_BUDGET_MS) { // total-bound check BEFORE each sample — the probe never starts one past its budget
+      inconclusive = true;
+      break;
+    }
     let probeWorker: Worker | undefined;
     const t0 = Date.now();
     try {
       probeWorker = new Worker(WORKER_CODE, { eval: true });
-      await firstEvalRoundTrip(probeWorker); // any message from the worker proves boot+message-path works
+      // FIX-33b (13.09): per-sample timeout derives from the REMAINING total budget — no sample can push the whole
+      // probe past PROBE_TOTAL_BUDGET_MS by more than the 50ms timeout floor at the boundary.
+      const remaining = Math.max(50, PROBE_TOTAL_BUDGET_MS - (Date.now() - startedAt));
+      await firstEvalRoundTrip(probeWorker, remaining); // any message from the worker proves boot+message-path works
       samples.push(Date.now() - t0);
     } catch (err) {
       console.warn(`[worker-pool] startup probe sample ${i + 1} failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -186,17 +277,21 @@ async function runStartupProbe(): Promise<void> {
       if (probeWorker) terminateQuietly(probeWorker);
     }
   }
-  if (samples.length > 0) {
+  if (inconclusive) {
+    console.warn(`[worker-pool] startup probe INCONCLUSIVE: ${PROBE_TOTAL_BUDGET_MS}ms total budget hit after n=${samples.length}/${PROBE_SPAWN_COUNT} sample(s) ms=[${samples.join(', ')}…] — skipping remaining samples (diagnostic only; the first real eval still runs its own watchdog)`);
+  } else if (samples.length > 0) {
     console.log(`[worker-pool] startup probe n=${samples.length} spawn+first-message ms=[${samples.join(', ')}] — per-session host worker-creation baseline`);
   } else {
     console.warn('[worker-pool] startup probe: worker creation FAILED on this host — regex eval will report errors until spawns succeed');
   }
 }
 
-/** Minimal ready round-trip used by the probe: post one trivial eval, resolve on first message. */
-function firstEvalRoundTrip(worker: Worker): Promise<void> {
+/** Minimal ready round-trip used by the probe: post one trivial eval, resolve on first message or `timeoutMs`, whichever comes first. */
+function firstEvalRoundTrip(worker: Worker, timeoutMs?: number): Promise<void> {
+  // FIX-33b (13.09): caller-supplied remaining budget replaces the old flat 5s; the 50ms floor keeps the timer from collapsing at the boundary.
+  const cap = Math.max(50, timeoutMs ?? PROBE_TOTAL_BUDGET_MS);
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('startup-probe timeout (5s)')), 5000);
+    const timer = setTimeout(() => reject(new Error(`startup-probe timeout (${cap}ms)`)), cap);
     worker.on('message', () => { clearTimeout(timer); resolve(); });
     worker.on('error', (err: Error) => { clearTimeout(timer); reject(err); });
     worker.postMessage({ id: 'probe', regexes: [{ source: '^x$', flags: '' }], lines: ['nope'] });
@@ -207,14 +302,21 @@ function firstEvalRoundTrip(worker: Worker): Promise<void> {
  * Acquire one exclusive busy worker for an evaluation.
  * Order: reuse idle (under lifetime cap) → spawn within capacity+rate-limit → queue-wait on capacity.
  * The wait is bounded by construction — every in-flight eval self-terminates within the watchdog/abort window.
+ * FIX-33a (13.09): also aborts on caller signal when one is passed — throws AcquireAbortedError instead of continuing to queue-wait
+ * (evaluateLinesInWorker maps it to {kind:'aborted'}; pre-fix, waiters stayed in the FIFO until capacity freed and then consumed
+ * a slot for an eval that was already meaningless at dispatch time).
  */
-async function acquireWorker(): Promise<PooledWorker> {
+async function acquireWorker(abortSignal?: AbortSignal): Promise<PooledWorker> {
   if (!probeRan) {
     probeRan = true;
     await runStartupProbe(); // one-time, process-scoped; logged
   }
 
+  cancelDrainGrace(); // DRAIN-GRACE (15.09): an acquire IS demand — a pending sweep must not drain the warm pool we are about to draw from
   for (;;) {
+    // FIX-33a (13.09): honor caller abort on EVERY loop iteration — covers the pre-wait recheck and the post-wake path (a wake from a
+    // freed slot must not hand that slot to an already-aborted call).
+    if (abortSignal?.aborted) throw new AcquireAbortedError();
     const reusable = pool.find((w) => w.state === 'idle' && w.evals < REGEX_WORKER_MAX_EVALS_PER_LIFE);
     if (reusable) { reusable.state = 'busy'; return reusable; }
 
@@ -245,7 +347,11 @@ async function acquireWorker(): Promise<PooledWorker> {
     // At capacity — queue. Bounded wait: in-flight evals terminate within max(REGEX_WORKER_BUDGET_MS, externalSignal).
     const queuedAt = Date.now();
     console.warn(`[worker-pool] at capacity (${REGEX_WORKER_POOL_SIZE}) — queuing (live=${pool.length}, busy=${pool.filter((w) => w.state === 'busy').length})`);
-    await new Promise<void>((resolve) => waiters.push(resolve));
+    try {
+      await waitForSlotOrAbort(abortSignal); // FIX-33a (13.09): throws AcquireAbortedError if the caller's signal fires while waiting for a slot
+    } catch (err) {
+      throw err instanceof AcquireAbortedError ? err : new Error(`unexpected queue-wait rejection: ${String(err)}`); // rethrow as-is; nothing else should reject
+    }
     const waitedMs = Date.now() - queuedAt;
     if (waitedMs > 100) {
       console.warn(`[worker-pool] queue wait ${waitedMs}ms — host worker contention`);
@@ -255,11 +361,14 @@ async function acquireWorker(): Promise<PooledWorker> {
 
 /**
  * Return a healthy worker to idle service, or retire it (lifetime cap / quarantine). Wakes one waiter when queued.
- * DRAIN rule: with NO waiters pending, all IDLE workers are terminated on release — live worker threads keep the
- * parent process's event loop alive, so leaving warm idles behind would hang `npm test` (no --forceExit in the plain
- * script) and idle-process teardown. This matches ITEM-B v1's observable threading behavior (no lingering workers);
- * the pool still delivers its incident-relevant guarantees — intra-burst parallelism up to REGEX_WORKER_POOL_SIZE,
- * spawn rate-limiting, quarantine, bounded queue waits. Cost: a new tool call pays ≤1 spawn (~43-67ms + pacing) cold.
+ * DRAIN rule — DRAIN-GRACE (15.09): with NO waiters pending the idle-drain is DELAYED by REGEX_WORKER_DRAIN_GRACE_MS
+ * instead of immediate — back-to-back per-file evals (pattern_scan/grep_files bursts) must REUSE warm workers rather than
+ * pay a fresh spawn (~43-67ms) + ≥120ms pacing on every re-acquire; the pre-grace immediate drain was the proven thrash root
+ * cause of the 15.09 pattern_scan stall (live log 2026-09-15.1.log @17:14, ~97 files/3s ≈ predicted thrash throughput). The sweep
+ * re-arms on EVERY release and fires only after a FULL quiet window; any acquire cancels it outright (an acquire IS demand), so
+ * `npm test` teardown stays clean — shutdownRegexWorkerPool() clears the pending timer before terminating workers. Trade-off
+ * (owner-accepted 15.09): ≤REGEX_WORKER_POOL_SIZE warm workers (~≤200MB RSS) may survive up to one grace window after demand ends.
+ * Quarantine and lifetime retirement remain IMMEDIATE — unchanged in the branch below.
  */
 function releaseWorker(entry: PooledWorker, healthy: boolean): void {
   if (!healthy || entry.evals >= REGEX_WORKER_MAX_EVALS_PER_LIFE) {
@@ -271,18 +380,11 @@ function releaseWorker(entry: PooledWorker, healthy: boolean): void {
   }
 
   if (waiters.length > 0) {
+    cancelDrainGrace(); // DRAIN-GRACE (15.09): demand is pending — a queued acquire takes the freed slot, no sweep may race it
     notifyWaiter(); // queued acquires take priority over drain — they will find the freed slot/idle worker
     return;
   }
-  const drained: PooledWorker[] = [];
-  for (const w of pool) {
-    if (w.state === 'idle') { terminateQuietly(w.worker); drained.push(w); } // busy workers complete + drain later
-  }
-  if (drained.length > 0) {
-    const ids = new Set(drained.map((w) => w.id));
-    pool = pool.filter((w) => !ids.has(w.id));
-    console.log(`[worker-pool] drained ${drained.length} idle worker(s) (no demand — no live thread outlives the eval batch; live=${pool.length})`);
-  }
+  scheduleDrainGrace(); // DRAIN-GRACE (15.09): delayed sweep instead of immediate idle-drain — see state + helpers in the pool-state section above
 }
 
 /**
@@ -307,9 +409,19 @@ export async function evaluateLinesInWorker(
 
   let entry: PooledWorker;
   try {
-    entry = await acquireWorker();
+    // FIX-33a (13.09): pass the caller's abort signal into the acquire — a capacity queue-wait now honors it too, not only in-eval waits.
+    entry = await acquireWorker(options?.externalSignal);
   } catch (err) {
+    if (err instanceof AcquireAbortedError) return { kind: 'aborted' }; // FIX-33a: aborted while waiting for capacity — no worker was ever used
     return { kind: 'error', detail: err instanceof Error ? `worker spawn failed — ${err.message}` : String(err) };
+  }
+
+  // FIX-33a (13.09): recheck AFTER the acquire — a host signal may have fired during the one-time startup probe or a slow spawn; running an
+  // eval that was already aborted at dispatch time would burn a worker slot for up to the full budget. Quarantine: never hand this freshly
+  // acquired worker back into service after an abort race.
+  if (options?.externalSignal?.aborted) {
+    releaseWorker(entry, false);
+    return { kind: 'aborted' };
   }
 
   // Watchdog + external abort arms BEFORE the postMessage (v1 ordering): both terminate the DEDICATED worker of this
@@ -385,6 +497,7 @@ export async function evaluateLinesInWorker(
  * (jest afterAll / shutdown), never under live load.
  */
 export function shutdownRegexWorkerPool(): void {
+  cancelDrainGrace(); // DRAIN-GRACE (15.09): never let a pending sweep fire after teardown — it would run against the pool about to be reset below
   for (const w of pool) terminateQuietly(w.worker);
   pool = [];
   waiters.length = 0;

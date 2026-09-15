@@ -27,7 +27,7 @@
  *      a) promptPreprocessor.ts detects project keywords and checks registered projects
  *      b) If found → injects confirmation prompt asking to switch working directory
  *      c) User confirms → plugin switches context; if not registered, asks for path
- *      d) User provides path → call register_project tool with that confirmed path
+ *      d) User provides path → call manage_projects(action="register") with that confirmed path (register_project remains a deprecated alias, 12.09)
  *    The explicitConfirmation boolean gate in projectAutoDetect.ts enforces this at runtime.
  * 
  * 3. NO PERSISTENT MEMORY AS SUBSTITUTE FOR CODE FIXES
@@ -73,7 +73,7 @@ const logger = {
 export function main(context: PluginContext) {
   logger.info('Initializing...');
   
-  // ⚠️ NO AUTO-REGISTRATION ON STARTUP — projects must be registered explicitly via register_project tool
+  // ⚠️ NO AUTO-REGISTRATION ON STARTUP — projects must be registered explicitly via the manage_projects tool (action='register')
   // This prevents silent registration of wrong/stale paths without user confirmation.
 
   // Restore last-active project CWD if persisted state is missing/invalid (e.g., after a plugin reinstall).

@@ -2,25 +2,8 @@
  * Tests for toolsProvider function (tool registration and filtering)
  */
 
-import os from 'os';
-import path from 'path';
-
-import fsSync from 'fs';
-
 import { toolsProvider } from '../src/toolsProvider.js';
 import { DEFAULT_CONFIG } from '../src/config.js';
-import { resetGatingProfileCache } from '../src/tools/toolGatingProfile.js';
-
-// v1.9.17: redirect the persistent tool-gating profile away from the real user home so this
-// suite's disabled-config passes can never write sticky toggles into %USERPROFILE%.
-if (!process.env.AI_TOOLBOX_GATING_PROFILE_PATH) {
-  process.env.AI_TOOLBOX_GATING_PROFILE_PATH = path.join(
-    os.tmpdir(),
-    `ai_toolbox_gating_profile_providertest_${process.pid}.json`,
-  );
-}
-
-const PROVIDER_TEST_PROFILE_PATH = process.env.AI_TOOLBOX_GATING_PROFILE_PATH;
 
 // Mock the SDK controller to avoid real LM Studio SDK dependency
 function createMockController(config: Record<string, unknown>) {
@@ -50,15 +33,6 @@ function createMockController(config: Record<string, unknown>) {
 describe('toolsProvider', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    // v1.9.17: hermetic gating profile per test - a previous case's disabled-config pass may have
-    // written sticky toggles to the redirected file (or a prior run left one behind); without this,
-    // their overlay would blank enabled categories and change tool counts for later cases.
-    resetGatingProfileCache();
-    try {
-      fsSync.unlinkSync(PROVIDER_TEST_PROFILE_PATH);
-    } catch {
-      // fine if absent
-    }
   });
 
   test('should return available tools filtered by config (all enabled)', async () => {

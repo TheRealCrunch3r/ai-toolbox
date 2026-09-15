@@ -443,7 +443,7 @@ All changes verified with comprehensive test suite:
 
 ##### ⚠️ Deprecated: `searchWithAutoRegister()` & `initializeProjectDetection()` (v1.9.8+)
 Both functions are **deprecated** as of v1.9.8+:
-- `searchWithAutoRegister()`: No longer called from any code path. Registration now requires explicit user confirmation via the `register_project` tool with confirmed path.
+- `searchWithAutoRegister()`: No longer called from any code path. Registration now requires explicit user confirmation via the `manage_projects` tool (action="register") with confirmed path.
 - `initializeProjectDetection()`: Removed from startup flow in `index.ts`. Added explanatory comment: "NO AUTO-REGISTRATION ON STARTUP". Projects must be registered explicitly.
 
 ##### ✅ New Flow: Project Keyword Detection (`promptPreprocessor.ts`) + Registry Sync (`_syncFromSessionMemory()`)

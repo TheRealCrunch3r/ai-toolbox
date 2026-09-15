@@ -2,14 +2,14 @@
  * Project Auto-Detection & Registration Module (v1.9.8+)
  * 
  * ⚠️ IMPORTANT: Silent auto-registration has been REMOVED as of v1.9.8.
- * Projects must be registered explicitly via the register_project tool with user confirmation.
+ * Projects must be registered explicitly via the manage_projects tool (action='register') with user confirmation.
  * This module only provides detection utilities and explicit registration functions —
  * NO automatic registration occurs during plugin startup or search operations.
  * 
  * Workflow (v1.9.8+):
  * 1. User mentions project name → searches Cross-Project Registry
  * 2. If empty → LLM asks user for confirmed working directory path
- * 3. User confirms → register_project tool called explicitly with confirmation flag
+ * 3. User confirms → manage_projects(action='register') called explicitly with confirmation flag
  * 4. Searches again with normalized name (hyphen ↔ underscore)
  */
 
@@ -210,9 +210,9 @@ export function detectProjectFromPath(dirPath: string): ProjectDetectionResult {
  * Auto-detect and register the current working directory if it's a valid project.
  * 
  * ⚠️ CRITICAL SAFETY GATE (v1.9.8 fix): This function MUST only be called explicitly
- * by user-facing tools (register_project). It is NOT called during startup — that was
+ * by user-facing tools (manage_projects, action='register'). It is NOT called during startup — that was
  * a bug in v1.6–v1.9.7 where silent auto-registration registered wrong paths without
- * confirmation. Registration now requires explicit user action via the register_project tool.
+ * confirmation. Registration now requires explicit user action via the manage_projects tool (action='register').
  * 
  * Uses user-mentioned name as override if provided (stronger signal than auto-detected).
  * 
@@ -256,8 +256,8 @@ export function autoDetectAndRegister(
 /**
  * Register a project in the cross-project registry.
  * 
- * This is a wrapper around the system's register_project() function that handles
- * common registration patterns and provides defaults for source directories.
+ * This is a wrapper around the system's manage_projects(action='register') tool (12.09; register_project
+ * remains a deprecated alias) that handles common registration patterns and provides defaults for source dirs.
  */
 export function registerProject(
   name: string,
@@ -275,12 +275,12 @@ export function registerProject(
     ...(fs.existsSync(path.join(workingDirPath, 'index')) ? ['index/'] : [])
   ];
 
-  // Call the system's register_project function (this would be injected or called via IPC)
+  // Call the system's manage_projects(action='register') tool (this would be injected or called via IPC)
   console.log(`[ProjectAutoDetect] Registering project: "${normalizedName}" at ${workingDirPath}`);
   console.log(`[ProjectAutoDetect] Source directories: ${finalSourceDirs.join(', ')}`);
   
   // In actual implementation, this would call:
-  // register_project(normalizedName, workingDirPath, finalSourceDirs)
+  // manage_projects({ action: 'register', project_name: normalizedName, working_dir_path: workingDirPath, source_dirs: finalSourceDirs })
 }
 
 // ==================== Search Enhancement ====================
@@ -371,7 +371,7 @@ export async function searchWithAutoRegister(
  * of wrong/stale paths without user confirmation. It is retained for backward compatibility
  * but will NOT register any project — it only detects and logs.
  * 
- * To register a project, use the explicit `register_project` tool with confirmation.
+ * To register a project, use the explicit manage_projects(action='register') tool with user confirmation.
  */
 export function initializeProjectDetection(cwd: string): void {
   const detection = detectProjectFromPath(cwd);
@@ -382,7 +382,7 @@ export function initializeProjectDetection(cwd: string): void {
     logger.info(`  Path: ${detection.path}`);
     logger.info(`  Confidence: ${(detection.confidence * 100).toFixed(0)}%`);
     logger.warn(`[ProjectAutoDetect] ⚠️ Registration SKIPPED — silent auto-registration disabled in v1.9.8.`);
-    logger.warn(`[ProjectAutoDetect] Use the register_project tool explicitly to register this project.`);
+    logger.warn(`[ProjectAutoDetect] Use manage_projects(action='register') explicitly (with user confirmation) to register this project.`);
   } else {
     logger.info(`[ProjectAutoDetect] Current directory does not appear to be a project.`);
   }

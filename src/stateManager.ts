@@ -111,7 +111,7 @@ async function updateSessionIndex(projectName: string): Promise<void> {
   const index = await loadSessionIndex();
   
   if (index[projectName]) {
-    // Only updates projects that are explicitly registered via register_project() tool.
+    // Only updates projects that are explicitly registered via manage_projects(action='register') tool (register_project remains a deprecated alias).
     // Unregistered projects will fail silently — this prevents accidental registration on first save without user confirmation.
     index[projectName].last_session_saved = Date.now();
     
@@ -123,9 +123,16 @@ async function updateSessionIndex(projectName: string): Promise<void> {
 
     await saveSessionIndex(index);
   } else {
-    // ⚠️ CRITICAL: This should NOT happen — project must be registered via register_project() tool first.
-    logger.warn(`[StateManager.updateSessionIndex] Project '${projectName}' is not yet registered in index. ` +
-                 `Call register_project(project_name="${projectName}", working_dir_path="<confirmed path>") to resolve.`);
+    // 🔹 FIX #32 (12.09): SILENT SKIP — this per-copy legacy index is ORPHANED by design since REG-MOVE.
+    // Project registration now lives ONLY in the persistent data-dir registry (~/.lmstudio/extensions/data/
+    // crunch3r/ai-toolbox/project_registry.json); NO code path seeds <PLUGIN_ROOT>/.session_index.json anymore,
+    // and the install dir is wiped on every `lms dev --install` — so a missing file/entry is the NORMAL state
+    // of any fresh copy, not an error. The old warn fired on EVERY state save (observed live 12.09 ~22:22 in
+    // LM Studio's main.log) and its suggested remedy was unperformable: manage_projects(action='register')
+    // never writes to this file. No data impact — memory/summaries persist via the working-dir msgpack stores;
+    // only this legacy bookkeeping timestamp (consumed solely by ProjectRegistryManager's READ-ONLY migration
+    // fallback _loadFromSessionIndex) is skipped here. Removing the whole mechanism = tracked Option C.
+    return;
   }
 }
 
@@ -157,9 +164,21 @@ async function loadMemoryFile(filePath: string, state: Map<string, StateEntry>, 
     let data: StateEntry[];
     try {
       data = decode(buffer) as StateEntry[];
-    } catch {
-      logger.warn(`Corrupted state file detected at ${filePath}, removing...`);
-      try { await fs.unlink(filePath); } catch { /* ignore */ }
+    } catch (decodeErr: unknown) {
+      // 🔹 F3 (10.09): QUARANTINE, never delete — an undecodable file may be a torn/partial write
+      // from the non-atomic fallback below, not logically corrupted data. Renaming to .corrupt-*
+      // preserves it for inspection/restore and stops the destroy-and-recreate cycle (old behavior:
+      // fs.unlink + empty state → next save wrote an empty file over the destroyed one).
+      const reason = decodeErr instanceof Error ? decodeErr.message : String(decodeErr);
+      logger.error(`[StateManager.loadMemoryFile] Corrupted/unreadable memory file at ${filePath} — quarantining (NO DELETE). Reason: ${reason}`);
+      try {
+        await fs.rename(filePath, `${filePath}.corrupt-${Date.now()}`);
+        logger.info(`[StateManager.loadMemoryFile] Quarantined as ${filePath}.corrupt-*`);
+      } catch (quarantineErr: unknown) {
+        // Rename can fail while the file is locked — do NOT fall back to unlink. Start empty; original preserved on disk.
+        const qMsg = quarantineErr instanceof Error ? quarantineErr.message : String(quarantineErr);
+        logger.error(`[StateManager.loadMemoryFile] QUARANTINE FAILED (file left in place, NO DELETE): ${qMsg}`);
+      }
       data = [];
     }
 
@@ -246,9 +265,27 @@ async function saveMemoryFile(filePath: string, state: Map<string, StateEntry>):
       try {
         await fs.writeFile(filePath + '.backup.json', JSON.stringify(finalRecords), 'utf-8'); // 🔹 FIX #25: mirror the REAL file contents (state + preserved foreign)
       } catch { /* Non-critical — skip if backup fails */ }
-    } catch {
-      // Fallback: write directly to the final path (non-atomic but reliable on Windows)
-      await fs.writeFile(filePath, encodedData);
+    } catch (renameErr: unknown) {
+      // 🔹 F3 (10.09): Non-atomic direct overwrite of an EXISTING file is the torn-write hazard that fed
+      // loadMemoryFile's old destroy cycle — a partial write leaves undecodable bytes, and concurrent readers
+      // may observe the truncation window. Behavior split:
+      //  - target already exists → ABORT this save (RAM state intact; next debounced save retries). The complete,
+      //    current file is never at risk from a non-atomic write.
+      //  - target missing (first-ever save) → direct write is acceptable: no prior data can be torn or destroyed.
+      const rMsg = renameErr instanceof Error ? renameErr.message : String(renameErr);
+      const tempFile = filePath + '.tmp';
+      try { await fs.unlink(tempFile); } catch { /* not needed — keep fallbacks clean */ }
+      if (await fs.access(filePath).then(() => true).catch(() => false)) {
+        logger.error(`[StateManager.saveMemoryFile] RENAME FAILED (${rMsg}) and target EXISTS — aborting save to avoid non-atomic overwrite of ${filePath}. RAM state preserved; next save will retry.`);
+      } else {
+        try {
+          await fs.writeFile(filePath, encodedData);
+          logger.warn(`[StateManager.saveMemoryFile] RENAME FAILED (${rMsg}); target was missing → direct write completed (non-atomic, first-save path).`);
+        } catch (writeErr: unknown) {
+          const wMsg = writeErr instanceof Error ? writeErr.message : String(writeErr);
+          logger.error(`[StateManager.saveMemoryFile] RENAME FAILED (${rMsg}) AND fallback direct write FAILED for ${filePath}: ${wMsg}`);
+        }
+      }
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -307,7 +344,7 @@ export class StateManager {
     const persistenceEnabled = this.persistenceEnabled;
     const stateMap = this.state;
 
-    // Initialize: load ONLY its session context file. Registration happens via register_project() tool only (explicit user confirmation).
+    // Initialize: load ONLY its session context file. Registration happens via manage_projects(action='register') tool only (explicit user confirmation).
     this._ready = (async () => {
       try {
         if (!persistenceEnabled) {

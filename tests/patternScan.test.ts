@@ -312,10 +312,10 @@ describe('globs and traversal', () => {
     // Leg b (concurrency=8) — DETERMINISM CONTRACT: a scan that COMPLETES un-aborted equals the pinned set, regardless of
     // concurrency/scheduling. SLOW-HOST RELAXATION (the path this comment always prescribed): pool overhead on a contended host —
     // one-time startup probe (~5 spawns × ≥120ms pacing — tuned 06.09, was ≥250ms), ≥120ms spawn rate-limit + ~43-67ms cold boot per eval after the DRAIN rule
-    // kills idles between calls — can push even an 8-way scan past the user-ordered GREP_MAX_RUN_MS=500 wall. A cap-abort is then a
-    // HOST-LOAD fact, not a determinism violation, so on abort we drop to subset assertions HERE — never by touching GREP_MAX_RUN_MS
-    // or weakening the dedicated cap test below. (Note, updated 06.09 after pacing 250→120: ≥3 spawn windows ≈ ≤360ms < 500ms wall →
-    // this leg can complete un-aborted and hit the EXACT pin on healthy hosts; the relaxed branch remains for contended ones.)
+    // kills idles between calls — can push even an 8-way scan past the pattern_scan wall (PATTERN_SCAN_MAX_RUN_MS=3000 since 13.09 FIX-34a follow-up; was user-ordered GREP_MAX_RUN_MS=500). A cap-abort is then a
+    // HOST-LOAD fact, not a determinism violation, so on abort we drop to subset assertions HERE — never by touching the cap constant
+    // or weakening the dedicated cap test below. (Note, updated 13.09: with the wall raised 500→3000 this leg completes un-aborted in
+    // virtually all regimes and hits the EXACT pin; the relaxed branch remains for contended hosts.)
     const tB = Date.now();
     const b = await patternScan({ pattern: 'NEEDLE', root, concurrency: 8 });
     // DIAGNOSTIC (test-only): surface elapsed + wall outcome — jest swallows patternScan's own phase-1 status console.log.
@@ -336,31 +336,40 @@ describe('globs and traversal', () => {
       }
     }
 
-    // Leg a (concurrency=1): sequential — cold pool spawn + pacing cost per eval (the pool DRAINS idles between calls), so the
-    // user-ordered 500ms wall cap (GREP_MAX_RUN_MS) fires mid-scan BY DESIGN: partial results, labeled `aborted`. The EXACT cutoff file
-    // is scheduling-dependent (cap lands inside some candidate's eval — see dedicated test below), so this leg asserts STRUCTURE only:
+    // Leg a (concurrency=1): sequential — cold pool spawn + pacing cost per eval (the pool DRAINS idles between calls). 13.09 FIX-34a follow-up:
+    // with PATTERN_SCAN_MAX_RUN_MS=3000 the full scan now normally COMPLETES un-aborted even at concurrency=1 on sane hosts — so this leg is
+    // regime-tolerant (same contract class as leg b): complete → EXACT pin; only extreme host load still fires the wall mid-scan, and then the
+    // partial results labeled `aborted` remain structurally sound. The EXACT cutoff file is scheduling-dependent when aborted (see dedicated test below).
     const a = await patternScan({ pattern: 'NEEDLE', root, concurrency: 1 });
     expect(a.ok).toBe(true);
-    expect(a.aborted).toBe(true); // wall-clock cap fired (host abort is impossible here — no signal passed)
 
-    // Cross-leg invariants that hold at ANY cutoff point (field-wise compare on purpose — Array.includes() would be reference-identity):
-    expect(a.matches.every((m) => PINNED_COMPLETE.some((e) => e.file === m.file && e.line === m.line && e.content === m.content))).toBe(true); // partial ⊆ complete: no spurious or lost matches
+    if (!a.aborted) {
+      expect(a.matches).toEqual(PINNED_COMPLETE); // completed un-aborted → the authoritative complete pin (the common case since 13.09's 500→3000 wall raise)
+    } else {
+        // Cross-leg invariants that hold at ANY cutoff point (field-wise compare on purpose — Array.includes() would be reference-identity):
+      expect(a.matches.every((m) => PINNED_COMPLETE.some((e) => e.file === m.file && e.line === m.line && e.content === m.content))).toBe(true); // partial ⊆ complete: no spurious or lost matches
     for (let i = 1; i < a.matches.length; i++) { // result stays canonically sorted by (file, line) even when partial
       const p = a.matches[i - 1], c = a.matches[i];
       expect(p.file.localeCompare(c.file) < 0 || (p.file === c.file && p.line <= c.line)).toBe(true);
     }
+      } // end else — cap-trimmed regime (aborted=true), added with the 13.09 regime split above
   });
 
-  it('low-concurrency scans hit the user-ordered wall cap and are labeled aborted (partial, consistent prefix)', async () => {
-    // REGRESSION PIN — worker-pool rework follow-up (05.09): after each call the pool drains idle workers, so a fresh
-    // concurrency=1 scan pays cold spawn (~43-67ms observed) + pacing per eval; sequential over 10 candidates exceeds the
-    // shared GREP_MAX_RUN_MS=500 budget (user-ordered — do not raise here). The cap MUST fire mid-scan, and the partial result
-    // must stay structurally consistent. This is what pins the abort-labeling contract of the pool rework.
+  it('concurrency=1 scans are structurally sound in ANY regime — complete or cap-trimmed partial (consistent prefix; wall raised to 3000ms 13.09)', async () => {
+    // REGRESSION PIN — worker-pool rework follow-up (05.09); UPDATED 13.09 FIX-34a follow-up: with PATTERN_SCAN_MAX_RUN_MS=3000
+    // the sequential scan now COMPLETES on sane hosts → r.aborted=false and matches equal the authoritative complete pin; only
+    // extreme host load still fires the wall mid-scan, and then the partial result must stay structurally consistent. The invariants
+    // below were written cutoff-independent BY DESIGN (that is what let this test survive the 500→3000 wall raise without re-derivation);
+    // they pin both the abort-labeling contract of the pool rework AND the complete-result contract.
     const r = await patternScan({ pattern: 'NEEDLE', root, concurrency: 1 });
     expect(r.ok).toBe(true);
-    expect(r.aborted).toBe(true); // wall-clock cap fired (host abort impossible — no signal passed)
-    expect(r.stats.truncated).toBe(false); // partiality comes from the CAP, not the match-total quota
-    expect(r.matches.length).toBeGreaterThan(0); // at least a.txt completes first (it is walk-first and tiny)
+    if (!r.aborted) {
+      expect(r.matches).toEqual(PINNED_COMPLETE); // completed un-aborted → full authoritative pin (common case since the 13.09 wall raise)
+    } else {
+      // Cap-trimmed regime: partiality comes from the CAP, not the match-total quota; at least a.txt completes first (walk-first and tiny).
+      expect(r.stats.truncated).toBe(false);
+      expect(r.matches.length).toBeGreaterThan(0);
+    }
 
     // WHY NO EXACT-CUTOFF PIN: the 500ms wall lands INSIDE some candidate's eval, so which files complete depends on host load.
     // Observed drift on THIS machine alone: full-suite run stopped at wedge.txt; a focused single-suite run completed all 10

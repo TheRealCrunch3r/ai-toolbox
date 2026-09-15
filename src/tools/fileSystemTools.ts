@@ -1,4 +1,3 @@
-import { parse as parseTS } from '@typescript-eslint/parser';
 import type { Tool } from '@lmstudio/sdk';
 import { tool } from '@lmstudio/sdk';
 import { z } from 'zod';
@@ -11,12 +10,12 @@ import type { StateManager } from '../stateManager.js';
 import { validatePath, isSafeRegex } from '../security.js';
 import { recordFileModification } from './fileModTracker.js';
 import { patternScan } from './patternScan.js';
-// FIX-DEBLOAT (04.09): ripgrep phase-1 fully removed from grep_files (import, state vars, walker gate and the
-// searchCandidates call site all gone); src/utils/ripgrepEngine.ts itself is retained — pattern_scan
-// (src/tools/patternScan.ts) now consumes it as its only production caller.
-import { createGrepGuard, GREP_MAX_RUN_MS, FIND_REPLACE_ALL_MAX_RUN_MS } from '../utils/grepGuard.js';
-// ITEM-B (05.09): worker-isolated regex evaluation — a spinning .test() can no longer starve the host event loop. See src/utils/regexWorker.ts.
-import { evaluateLinesInWorker, REGEX_WORKER_BUDGET_MS } from '../utils/regexWorker.js';
+// 14.09 TOOL SWAP (owner directive): grep_files is REMOVED and replaced by a standalone `ripgrep` tool — the ENTIRE search
+// (file walk AND pattern matching) runs natively inside ONE worker-isolated ripgrep process (src/utils/ripgrepEngine.ts).
+// The 13.09 wedge class stays structurally gone: rg's native walk runs off-thread and its budget watchdog terminates it on
+// the GREP_FILES_MAX_RUN_MS cap. Dialect parse errors auto-retry as fixed strings (-F); invalid patterns surface typed.
+import { runRipgrepEngine } from '../utils/ripgrepEngine.js';
+import { createGrepGuard, FIND_REPLACE_ALL_MAX_RUN_MS, GREP_FILES_MAX_RUN_MS, PATTERN_SCAN_MAX_RUN_MS } from '../utils/grepGuard.js';
 import { getWorkingDir, setWorkingDir, resolvePath } from '../workingDir.js';
 import {
   levenshteinSimilarity,
@@ -31,46 +30,19 @@ import {
 /** Default max file size in bytes to search (100 KB). Files exceeding this are silently skipped. */
 export const MAX_FILE_SIZE = 100_000;
 
-/** Hard cap on lines per file for regex-mode grep_files — prevents catastrophic backtracking. */
+/** Default per-file line cap used by find_replace_all's max_lines param (inherited from the old regex-mode
+ *  grep_files, removed in the 14.09 TOOL SWAP) — prevents catastrophic backtracking on very long files. */
 export const MAX_LINES_PER_FILE = 5000;
 
 // ==================== DEFAULT EXCLUSIONS (PERFORMANCE & TOKEN SAVING) ====================
-/** Directory names pruned wholesale by the grep_files walker when NO include pattern is given (see
- *  walkDirectory). Hoisted from walkDirectory to module scope so tests and pattern_scan's ripgrep mirror can
- *  import the exact same set. Set contents unchanged by the hoist. */
+/** Default directory exclusions for the ripgrep tool — applied only when NO include_glob is given (see the
+ *  ripgrep implementation below). Exported at module scope so tests and pattern_scan's ripgrep mirror can import
+ *  the exact same set. Set contents unchanged by the hoist from the old grep_files walker (14.09 TOOL SWAP). */
 export const DEFAULT_EXCLUDED_DIRS = new Set([
   'node_modules', '.git', 'dist', 'build',
   '.next', '.nuxt', '__pycache__', '.cache',
   'vendor', '.vscode', '.idea', '.vs'
 ]);
-
-// ==================== AST Types ====================
-// Local type definitions for AST nodes (avoids external type dependency issues)
-interface ASTLocation {
-  line: number;
-  column: number;
-}
-
-interface ASTLoc {
-  start: ASTLocation;
-  end: ASTLocation;
-}
-
-interface ASTBaseNode {
-  type: string;
-  loc?: ASTLoc;
-  range?: [number, number];
-  [key: string]: unknown;
-}
-
-interface InsertAtLineParams { file_name: string; line_number: number; content_to_insert?: string; content?: string; verify_after_insert?: boolean; }
-interface ASTProgram extends ASTBaseNode {
-  body: ASTBaseNode[];
-  sourceType?: string;
-  comments?: unknown[];
-  tokens?: unknown[];
-}
-
 
 // ==================== Typed Params Interfaces ====================
 
@@ -1952,887 +1924,131 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
   }));
 
 
-  // ==================== HANG-GUARD LIVE INDICATOR (28.08.2026; v3 text 04.09) ====================
+  // ==================== HANG-GUARD LIVE INDICATOR (28.08.2026; v3 text 04.09; pattern_scan cap clause added 13.09; identity-only slim 15.09) ====================
   // Emitted ONCE per plugin load so the LM Studio console proves which build is actually running in memory:
   // if a hung session's logs lack this line, the process is executing a STALE pre-fix bundle — i.e., the shared
   // grepGuard (src/utils/grepGuard.ts) with its single cap timer was NOT loaded. This converts "is the fix live?"
-  // from inference to a log fact.
-  console.log('[ai_toolbox] HANG-GUARD v3 ACTIVE — grep_files + find_replace_all: shared abort guard | wall-clock caps 500ms / 15s (FIX-DEBLOAT; supersedes FIX-HANG-1/2/4, F1/F2/F3) | regex eval isolated in workers (ITEM-B 05.09)');
+  // from inference to a log fact. Owner decision 15.09: marker stays identity-only; wall-clock caps referenced here
+  // BY CONSTANT NAME — literal values in comments rot (stale "500ms" banner incident, 14.09):
+  //   ripgrep tool       -> GREP_FILES_MAX_RUN_MS      (src/utils/grepGuard.ts)
+  //   find_replace_all   -> FIND_REPLACE_ALL_MAX_RUN_MS (src/utils/grepGuard.ts; shared abort guard)
+  //   pattern_scan       -> PATTERN_SCAN_MAX_RUN_MS     (src/utils/grepGuard.ts)
+  console.log('[ai_toolbox] BUILD MARKER (14.09 TOOL SWAP) — grep_files REMOVED; standalone ripgrep tool = worker-isolated rg engine off the host thread');
 
-// grep_files tool — Search file contents across directory with regex support (OPTIMIZED FOR TOKEN SAVINGS) — ASYNC ===
+
+  // ripgrep tool — standalone recursive content search (14.09 TOOL SWAP, owner directive). Replaces the removed
+  // grep_files: file walk AND pattern matching run natively inside ONE worker-isolated ripgrep process
+  // (src/utils/ripgrepEngine.ts) — the host thread only awaits + parses JSON, so the 13.09 wedge class stays dead by
+  // construction; a wedged worker is terminated by the engine's single wall-clock watchdog at GREP_FILES_MAX_RUN_MS.
+  // No AST mode (dropped with grep_files), no result limits as of now: maxMatches = Number.MAX_SAFE_INTEGER,
+  // matched-line content shaped by the engine default (150 chars + '…'). Dialect parse errors auto-retry once as
+  // fixed strings (-F) — surfaced via pattern_mode. Case-insensitive is the DEFAULT (legacy -i contract).
   tools.push(tool({
-    name: 'grep_files',
-    description: 'Search file contents across a directory. ⚠️ Files above max_file_size (default 100KB) OR with more lines than the max_lines cap (default 5000) are SKIPPED — raise those parameters to include them. Skips reported in skipped_files.',
+    name: 'ripgrep',
+    description: `Recursively search file contents under a directory (or within a single file) with ripgrep, returning matching lines as {file, line_number, content}.
+
+The ENTIRE scan (file walk + pattern match) runs inside ONE worker-isolated ripgrep process off the host thread; a 3s wall-clock watchdog terminates wedged workers, so the plugin host can never freeze. Default exclusions (exactly 12: node_modules/.git/dist/build/.next/.nuxt/__pycache__/.cache/vendor/.vscode/.idea/.vs — mirrors DEFAULT_EXCLUDED_DIRS; applies only when no include_glob is given; explicit exclude_globs are always appended on top of them.
+
+Pattern handling: mode "regex" compiles via Rust regex first; if compilation fails the SAME search automatically re-runs as fixed strings (literal semantics), reported via pattern_mode="fixed-strings". Use mode "literal" to skip straight to fixed-string matching. Matching is CASE-INSENSITIVE by default (set case_insensitive:false for exact-case). Relative paths resolve against the current working directory; a single-file target reports matches under its basename. Results are NOT capped — long scans settle at the 3s watchdog with an aborted=true hint instead of truncating results.`,
     parameters: {
-      pattern: z.string().describe('Regex or literal string to search for'),
-      path: z.string().default('.').describe('Directory to search in (defaults to current working directory)'),
-      mode: z.enum(['regex', 'ast']).optional().default('regex').describe('Search mode: "regex" for pattern matching or "ast" for structural code analysis'),
-      include_context: z.boolean().optional().default(false).describe('Include surrounding lines (2 before/after) in results'),
-      max_content_length: z.number().int().min(10).max(500).optional().default(150).describe('Max chars per matched line content (default: 150)'),
-      include: z.string().optional().describe('File glob pattern to include (e.g., "*.ts", "src/**/*.js")'),
-      exclude: z.string().optional().describe('Glob pattern for files/directories to exclude (e.g., "node_modules", "*.bak"); same glob semantics as include'),
-      max_results: z.number().int().min(1).max(500).default(20).describe('Maximum number of results to return (default: 20, max: 500)'),
-      max_file_size: z.number().int().min(1024).default(100_000).describe('Max file size in bytes to search (default: 100KB). Files above this limit are NOT searched and appear in skipped_files. Raise this value (e.g., 300_000) to include them.'),
-      max_lines: z.number().int().min(100).optional().default(MAX_LINES_PER_FILE).describe(`Max lines per file to search (default ${MAX_LINES_PER_FILE}). Files with more lines are NOT searched and appear in skipped_files. Raise this value (e.g., 10_000) to include very long files such as generated .d.ts bundles.`),
-      max_concurrent_files: z.number().int().min(1).max(32).optional().default(8).describe('Maximum files to process concurrently for performance tuning'),
-      max_depth: z.number().int().min(1).max(50).optional().default(10).describe('Maximum directory depth to search (default: 10, prevents infinite recursion)'),
+      pattern: z.string().min(1).describe('Search pattern (Rust regex by default; use mode "literal" for plain text)'),
+      path: z.string().optional().describe('Directory or single file to search (default: current working directory); relative paths resolve against the working directory'),
+      mode: z.enum(['regex', 'literal']).optional().describe('Pattern interpretation. Default "regex"; invalid Rust regexes auto-demotion-retry as literal, reported via pattern_mode'),
+      case_insensitive: z.boolean().optional().default(true).describe('Case-insensitive matching (rg -i; default true — legacy grep_files contract)'),
+      include_glob: z.string().optional().describe('Positive file filter glob (e.g. "*.ts", "src/**/*.md"); when set, the default directory exclusions are NOT applied'),
+      exclude_globs: z.array(z.string()).optional().describe('Negative filter globs (a matching directory is pruned whole); always appended on top of the default exclusions'),
+      max_depth: z.number().int().min(1).optional().describe('Maximum directory depth below root (omitted = unbounded)'),
     },
-    implementation: async ({ pattern, path: searchPath = '.', mode = 'regex', include, exclude, max_results, max_file_size, max_content_length, include_context = false, max_lines, max_concurrent_files, max_depth }: {
+    implementation: async ({ pattern, path: targetPath, mode, case_insensitive = true, include_glob, exclude_globs, max_depth }: {
       pattern: string;
       path?: string;
-      mode?: 'regex' | 'ast';
-      include?: string;
-      exclude?: string;
-      max_results?: number;
-      max_file_size?: number;
-      max_content_length?: number;
-      max_concurrent_files?: number;
-      include_context?: boolean;
-      max_lines?: number;
+      mode?: 'regex' | 'literal';
+      case_insensitive?: boolean;
+      include_glob?: string;
+      exclude_globs?: string[];
       max_depth?: number;
-    }, ctx?: { signal?: AbortSignal }) => {
+    }, ctx?: { signal?: AbortSignal }) => { // host abort signal — same ctx contract as pattern_scan
+      // FORENSICS: make host-originated pre-aborts observable in main.log (same invisible-abort gap class).
+      if (ctx?.signal?.aborted) console.log(`[ripgrep] aborted-in 0ms (host signal already fired before scan start)`);
+
+      const effectivePath = targetPath || '.';
       try {
-        // HANG-GUARD v3 (04.09, FIX-DEBLOAT): one shared cancellation primitive for the whole scan — see
-        // src/utils/grepGuard.ts. It forwards the host's one-way AbortSignal (@lmstudio/sdk ToolCallContext.signal)
-        // into an internal controller and arms a single wall-clock cap timer (GREP_MAX_RUN_MS, default 500 ms).
-        // Every cooperative check below reads guard.signal.aborted — exactly ONE abort state for the call.
-        // FORENSICS (05.09): host-originated aborts were invisible in main.log — no plugin line was ever emitted for a
-        // call the host had already aborted before our scan code ran (incident: wedged session, 05.09 ~12:1x). One INFO
-        // line makes that path observable; routine cap/completion telemetry below is unchanged.
-        if (ctx?.signal?.aborted) console.log(`[grep_files] aborted-in 0ms (host signal already fired before scan start)`);
+        if (!validatePath(effectivePath, getWorkingDir())) {
+          return { success: false as const, error: 'Invalid path: directory traversal detected' };
+        }
+        const rootDir = resolvePath(effectivePath);
 
-        const guard = createGrepGuard(ctx?.signal, GREP_MAX_RUN_MS, 'grep_files');
+        // Default exclusions apply ONLY when no positive filter is given (rg include globs narrow the file set;
+        // stacking both would silently prune e.g. "dist/x.ts" behind the user's explicit "*.ts"). User excludes
+        // are ALWAYS added on top of the defaults — they can only narrow further, never widen.
+        const excludeGlobs = [
+          ...(!include_glob && !exclude_globs?.length ? Array.from(DEFAULT_EXCLUDED_DIRS) : []),
+          ...(exclude_globs ?? []),
+        ];
 
-        const targetDir = resolvePath(searchPath);
+        const outcome = await runRipgrepEngine({
+          rootDir,
+          pattern,
+          mode: mode === 'literal' ? 'literal' : 'regex',
+          caseInsensitive: case_insensitive,
+          includeGlob: include_glob,
+          excludeGlobs,
+          maxDepth: max_depth, // undefined/≤0/non-finite → engine emits no --max-depth flag (unbounded)
+          budgetMs: GREP_FILES_MAX_RUN_MS,
+          maxMatches: Number.MAX_SAFE_INTEGER, // owner directive 14.09: NO result limits as of now
+          abortSignal: ctx?.signal,
+        });
 
-        if (!validatePath(searchPath, getWorkingDir())) {
-          return { success: false, error: 'Invalid path: directory traversal detected' };
+        // Union narrowing: only the success member carries `ok` — the 'in' guard splits the union;
+        // every subsequent check runs against the kind-discriminated remainder (no-matches | spawn-failure | timeout | aborted).
+        if ('ok' in outcome) {
+          return {
+            success: true as const,
+            data: {
+              matches: outcome.matches,
+              count: outcome.matches.length,
+              filesScanned: new Set(outcome.matches.map((m) => m.file)).size,
+              mode: mode ?? 'regex', // echoes the requested mode (sibling branches already do) — 14.09 cosmetic fix
+              pattern_mode: outcome.effectiveMode,
+              ...(mode !== 'literal' && outcome.effectiveMode === 'fixed-strings'
+                ? { hint: 'Pattern was not a valid Rust regex — the search automatically re-ran as fixed strings (literal semantics). Use mode "literal" explicitly to avoid the retry cost.' }
+                : {}), // 14.09 cosmetic fix: an explicit mode="literal" request is NOT a demotion — no misleading wording
+            },
+          };
         }
 
-        // Configuration with defaults - TOKEN LIMITING + DEPTH LIMIT
-        const MAX_RESULTS = max_results ?? 20;
-        const effectiveMaxFileSize = max_file_size ?? MAX_FILE_SIZE; // use module-level default
-        const MAX_CONTENT_LENGTH = max_content_length ?? 150;
-        const MAX_DEPTH = max_depth ?? 10; // Prevent infinite recursion
-        const effectiveMaxLines = max_lines ?? MAX_LINES_PER_FILE; // FIX-G3: line cap is configurable (ReDoS posture preserved at default)
-        let resultsCount = 0;
-        let filesScanned = 0; // Count of files that passed all gates and were actually searched
-        const matches: Array<{ file: string; line_number: number; content: string; node_type?: string; context?: { function_signature?: string; class_context?: string; docblock?: string } }> = [];
-
-        // FIX (silent-skip bug): track files dropped by size/line gates so callers are never
-        // left with an unexplained empty result. Mirrors find_replace_all's filesSkipped pattern.
-        const skippedFiles: Array<{ file: string; reason: string }> = [];
-
-        // ==================== REGEX VALIDATION + AUTO-ESCAPE ====================
-        let regexes: RegExp[] = [];  // ← Changed from single regex to array of regexes
-        let patternMode: 'regex' | 'literal' | 'auto_escaped' = 'regex';
-
-        /**
-         * Check if a top-level alternation (|) exists in the pattern, NOT inside parentheses.
-         * Returns true if the pattern uses | at the top level (e.g., "a|b", "x\\(|y").
-         */
-        function hasTopLevelAlternation(p: string): boolean {
-          let depth = 0;
-          for (let i = 0; i < p.length; i++) {
-            const c = p[i];
-            // Escape-aware (BUG FIX): skip escaped chars so \(\ ) \| are NOT counted as
-            // group delimiters / alternation operators. Without this, "countTokens\(" corrupts
-            // the depth count and a top-level | later in the pattern is misclassified.
-            if (c === '\\' && i + 1 < p.length) { i++; continue; }
-            if (c === '(') depth++;
-            else if (c === ')') depth--;
-            else if (c === '|' && depth === 0) return true;
-          }
-          return false;
+        if (outcome.kind === 'no-matches') {
+          // The engine discards effectiveMode on zero matches, so a regex-mode miss can be either a clean regex
+          // negative or an unobservable -F demotion — report the honest lower bound instead of guessing.
+          return { success: true as const, data: { matches: [], count: 0, filesScanned: 0, mode: mode ?? 'regex', pattern_mode: mode === 'literal' ? 'fixed-strings' : 'regex-or-demotion' } };
         }
 
-        // FIX: Auto-detect code signatures and auto-escape special characters
-        // If pattern contains C/C++/Rust code indicators (*, &, ->, ::, template <>) and
-        // lacks explicit regex escaping (\*, \(, \)), treat as literal search.
-        const codeSignatureIndicators = ['::', '->', '<', '>'];
-        const hasCodeIndicator = codeSignatureIndicators.some(ind => pattern.includes(ind));
-        // NOTE: Even if the user escaped SOME chars (like \( \)), unescaped * + ? still cause hangs.
-        const hasUnescapedBacktrackingChar = /(?<!\\)[*+?]/.test(pattern);
-        // REV-24: bare & REMOVED (same false-positive as security.ts isSafeRegex — "& word" is ordinary
-        // prose, e.g. section names like "Git & GitHub"; zero backtracking risk since & has no metachar).
-        // Real code-signature cases still caught via the -> / :: / <T> indicators + unescaped [*+?].
-        const hasUnescapedCodeChar = /(?<!\\)[*]/.test(pattern);
-        const looksLikeCodeSignature = hasCodeIndicator && (hasUnescapedBacktrackingChar || hasUnescapedCodeChar);
-
-        try {
-          if (looksLikeCodeSignature) {
-            // Auto-escape: treat as literal string search (prevents catastrophic backtracking on C++ signatures)
-            regexes = [new RegExp(escapeRegExp(pattern), 'i')];
-            patternMode = 'auto_escaped';
-          } else if (!isSafeRegex(pattern)) {
-            regexes = [new RegExp(escapeRegExp(pattern), 'i')];
-            patternMode = 'literal';
-          } else if (hasTopLevelAlternation(pattern)) {
-            // CRITICAL FIX: Split top-level alternation into separate regexes to prevent
-            // catastrophic backtracking when branches share overlapping substrings.
-            // e.g., "validateImageFile\(|\.resolvedPath!|await validateImageFile" → 3 separate tests
-            const branches: string[] = [];
-            let currentBranch = '';
-            let branchDepth = 0;
-            for (let i = 0; i < pattern.length; i++) {
-              // Escape-aware (BUG FIX): consume the escaped char so \(\ ) \| are treated as
-              // literal text, not group/alternation syntax. This is what makes "a\(|b" split
-              // into ["a\\(", "b"] instead of mis-nesting and gluing branches together.
-              if (pattern[i] === '\\' && i + 1 < pattern.length) {
-                currentBranch += pattern[i] + pattern[i + 1];
-                i++;
-                continue;
-              }
-              if (pattern[i] === '(') branchDepth++;
-              else if (pattern[i] === ')') branchDepth--;
-              else if (pattern[i] === '|' && branchDepth === 0) {
-                branches.push(currentBranch);
-                currentBranch = '';
-              } else {
-                currentBranch += pattern[i];
-              }
-            }
-            if (currentBranch.length > 0) branches.push(currentBranch);
-
-            regexes = branches.map(branch => new RegExp(branch, 'i'));
-            patternMode = 'regex';
-          } else {
-            regexes = [new RegExp(pattern, 'i')];
-          }
-        } catch {
-          return handleError(new Error(`Invalid regex pattern: ${pattern}`));
+        // timeout & aborted: the engine has already terminated the worker — partial state is empty by design.
+        if (outcome.kind === 'timeout' || outcome.kind === 'aborted') {
+          return {
+            success: true as const,
+            data: {
+              matches: [],
+              count: 0,
+              filesScanned: 0,
+              mode: mode ?? 'regex',
+              aborted: true,
+              hint: outcome.kind === 'timeout'
+                ? `Scan was cut short at the ${GREP_FILES_MAX_RUN_MS}ms wall-clock watchdog (worker terminated; host stayed responsive) — results are PARTIAL. Re-run with narrower scope (smaller path/include_glob) for full coverage.`
+                : 'Aborted by a host cancel before or mid-scan — no partial results returned. Re-run when convenient.',
+            },
+          };
         }
 
-        /**
-         * Process a single file for matches (both regex and AST modes).
-         */
-        async function processFile(fullPath: string, relativePath: string): Promise<void> {
-          // STRICT LIMIT CHECK before any processing begins
-          if (resultsCount >= MAX_RESULTS) return;
-          
-          // ABORT/CAP CHECK — the shared guard covers both host aborts and the wall-clock cap (single source of truth)
-          if (guard.signal.aborted) return;
-
-          try {
-            // SIZE GATE (pre-existing contract — pinned by grep_files_hang_backstop + grepFilesParity): files above
-            // max_file_size are never read and always reported in skipped_files with an exact-byte reason record.
-            const stats = await fs.stat(fullPath);
-            if (stats.size > effectiveMaxFileSize) {
-              skippedFiles.push({ file: relativePath, reason: `exceeds max_file_size (${stats.size} bytes > ${effectiveMaxFileSize} bytes) — re-run with a higher max_file_size to include it` });
-              return;
-            }
-            const content = await fs.readFile(fullPath, 'utf-8');
-
-            if (mode === 'ast') {
-              // ==================== AST MODE ====================
-              const ast = parseToAST(content, fullPath);
-              if (!ast) {
-                // AST parsing failed — fall back to regex for this file
-                return processWithRegex(content, relativePath, regexes);
-              }
-
-              // File passed size gate in AST mode → count as scanned
-              filesScanned++;
-              const remaining = MAX_RESULTS - resultsCount;
-              const astMatches = searchAST(ast, content, pattern, relativePath, include_context, remaining);
-
-              for (const astMatch of astMatches) {
-                // STRICT LIMIT CHECK inside AST match loop too
-                if (resultsCount >= MAX_RESULTS) break;
-
-                const matchEntry = {
-                  file: astMatch.file,
-                  line_number: astMatch.line_number,
-                  content: astMatch.content.length > MAX_CONTENT_LENGTH ? astMatch.content.slice(0, MAX_CONTENT_LENGTH) + '…' : astMatch.content,
-                  ...(astMatch.nodeType && { node_type: astMatch.nodeType }),
-                  ...(include_context && astMatch.context && {
-                    context: {
-                      ...(astMatch.context.functionSignature && { function_signature: astMatch.context.functionSignature }),
-                      ...(astMatch.context.classContext && { class_context: astMatch.context.classContext }),
-                      ...(astMatch.context.docblock && { docblock: astMatch.context.docblock }),
-                    },
-                  }),
-                };
-                matches.push(matchEntry);
-                resultsCount++;
-              }
-            } else {
-              // ==================== REGEX MODE ====================
-              await processWithRegex(content, relativePath, regexes);
-            }
-          } catch {
-            // Skip binary files or unreadable files
-          }
-        }
-
-        // ==================== REGEX WORK — ISOLATED IN A WORKER (ITEM-B 05.09) ====================
-        // JS cannot preempt a spinning synchronous .test() call, and the guard's cap timer CANNOT fire while such a
-        // loop is running (timers starve with the event loop). ITEM-B removes that exposure entirely: every file's
-        // regex evaluation runs in an isolated worker_threads worker (src/utils/regexWorker.ts) — the host thread
-        // never executes a .test(). Containment layers, in order of binding force:
-        //   1. Worker watchdog (REGEX_WORKER_BUDGET_MS): terminate() preempts even an unpreemptible .test()
-        //      (proven live 30.08, FIX-HANG-5c) — a ReDoS-prone pattern dies in the worker; host stays responsive.
-        //   2. The guard's wall-clock cap / host abort: forwarded as externalSignal into each eval → in-flight
-        //      workers terminate early (kind:'aborted'); unstarted files bail at their pre-dispatch gate below.
-        //   3. Per-line length cap — pathological single lines are blanked BEFORE dispatch so the worker never
-        //      tests them (identical match set to the pre-ITEM-B inline skip; smaller message payload).
-        const MAX_LINE_CHARS_REGEX_MODE = 20000;  // skip individual lines longer than this in regex mode
-        const grepScanStartedAt = Date.now();
-
-        /**
-         * Process file with regex pattern matching — evaluation isolated in a worker (ITEM-B 05.09).
-         */
-        async function processWithRegex(content: string, relativePath: string, compiledRegexes: RegExp[]): Promise<void> {
-          const lines = content.split('\n');
-
-          // CRITICAL FIX: Limit per-file processing to prevent catastrophic backtracking on large files
-          if (lines.length > effectiveMaxLines) {
-            skippedFiles.push({ file: relativePath, reason: `exceeds ${effectiveMaxLines} line limit (${lines.length} lines — per-file safety cap to prevent catastrophic regex backtracking; raise max_lines to include this file)` });
-            // FIX (v1.9.10): was console.warn — this is an expected, informational skip event
-            // (already reported to the caller via skippedFiles). warn→stderr showed it as [ERROR] in LM Studio logs.
-            console.log(`[grep_files] Skipping file ${relativePath} (${lines.length} lines, exceeds ${effectiveMaxLines} line limit)`);
-            return;
-          }
-
-          // File passed both size gate AND line-cap gate → count as scanned
-          filesScanned++;
-
-          // PRE-DISPATCH GATE: never START a new evaluation once the guard's cap/abort fired (same posture as the
-          // pre-ITEM-B per-line checks — now one check per file instead of per line).
-          if (guard.signal.aborted) return;
-
-          // Per-line length cap preserved byte-for-byte: over-long lines are blanked BEFORE dispatch so the worker
-          // never tests them (identical match set to the pre-ITEM-B inline skip, smaller message payload).
-          const evalLines = new Array<string>(lines.length);
-          for (let i = 0; i < lines.length; i++) {
-            evalLines[i] = lines[i].length > MAX_LINE_CHARS_REGEX_MODE ? '' : lines[i];
-          }
-
-          // THE isolation: no .test() runs on the host thread. The guard signal terminates in-flight evals early;
-          // the watchdog inside evaluateLinesInWorker bounds any single evaluation to REGEX_WORKER_BUDGET_MS.
-          const outcome = await evaluateLinesInWorker(
-            compiledRegexes.map((r) => ({ source: r.source, flags: r.flags })),
-            evalLines,
-            { externalSignal: guard.signal },
-          );
-
-          // 'ok' narrows the discriminated union: only the success arm carries it; failure arms (budget/error/aborted) have 'kind'.
-          if (!('ok' in outcome)) {
-            // NO inline fallback — that would reintroduce the exact spin class this isolation removes.
-            if (outcome.kind === 'budget') {
-              console.warn(`[grep_files] FIX-HANG-5: worker exceeded ${REGEX_WORKER_BUDGET_MS}ms budget — terminated (possible ReDoS)`);
-              skippedFiles.push({ file: relativePath, reason: `regex evaluation terminated in isolated worker after ${REGEX_WORKER_BUDGET_MS}ms — likely ReDoS-prone pattern` });
-            } else if (outcome.kind === 'error') {
-              console.warn(`[grep_files] regex worker error on ${relativePath}: ${outcome.detail}`);
-              skippedFiles.push({ file: relativePath, reason: `regex evaluation failed in isolated worker (${outcome.detail}) — file not searched` });
-            } else {
-              // kind:'aborted' (guard cap / host abort): the call-level aborted flag stays authoritative for the SCAN,
-              // but this file produced NO results either way (worker terminated before returning) — record it so
-              // callers can tell "partial scan" apart from "this file contributed nothing". No reason discrimination:
-              // GrepGuard exposes one abort state by design (deadline vs host-cancel).
-              console.log(`[grep_files] regex eval on ${relativePath} terminated by guard abort mid-evaluation`);
-              skippedFiles.push({ file: relativePath, reason: `regex evaluation interrupted when the call was aborted (${GREP_MAX_RUN_MS}ms scan cap or user cancel) — no results recorded for this file` });
-            }
-            return;
-          }
-
-          // Worker returned first-match-per-line indices (ascending) — shape entries exactly as the pre-ITEM-B loop did.
-          for (const lineIdx of outcome.matchedLineIndices) {
-            // STRICT LIMIT CHECK before processing each match
-            if (resultsCount >= MAX_RESULTS) break;
-
-            const rawContent = lines[lineIdx].trim();
-
-            const matchEntry: { file: string; line_number: number; content: string; context?: { function_signature?: string; class_context?: string; docblock?: string } } = {
-              file: relativePath,
-              line_number: lineIdx + 1,
-              content: rawContent.length > MAX_CONTENT_LENGTH ? rawContent.slice(0, MAX_CONTENT_LENGTH) + '…' : rawContent,
-            };
-
-            // Context-aware grep: extract surrounding context (cheap string ops — stay on the host thread)
-            if (include_context) {
-              matchEntry.context = {
-                function_signature: extractFunctionContext(lines, lineIdx),
-                class_context: extractClassContext(lines, lineIdx),
-                docblock: extractDocblock(lines, lineIdx),
-              };
-            }
-
-            matches.push(matchEntry);
-            resultsCount++;
-          }
-        }
-
-        /**
-         * Extract function signature context from surrounding lines (with caching).
-         */
-        const signatureCache = new Map<string, { func?: string; cls?: string }>();
-
-        function extractFunctionContext(lines: string[], currentLine: number): string | undefined {
-          // Check cache first using a composite key
-          const cacheKey = `func-${lines.length}-${currentLine}`;
-          const cached = signatureCache.get(cacheKey);
-          if (cached?.func !== undefined) return cached.func === '' ? undefined : cached.func;
-
-          let result: string | undefined;
-          for (let i = currentLine; i >= Math.max(0, currentLine - 20); i--) {
-            const line = lines[i].trim();
-            if (line.startsWith('function') || line.includes('=>') || line.includes(': function')) {
-              result = line;
-              break;
-            }
-            // Stop at class declaration or empty block
-            if (line.startsWith('class ') || line === '}') break;
-          }
-
-          signatureCache.set(cacheKey, { func: result ?? '' });
-          return result;
-        }
-
-        /**
-         * Extract class context from surrounding lines (with caching).
-         */
-        function extractClassContext(lines: string[], currentLine: number): string | undefined {
-          const cacheKey = `cls-${lines.length}-${currentLine}`;
-          const cached = signatureCache.get(cacheKey);
-          if (cached?.cls !== undefined) return cached.cls === '' ? undefined : cached.cls;
-
-          let result: string | undefined;
-          for (let i = currentLine; i >= Math.max(0, currentLine - 50); i--) {
-            const line = lines[i].trim();
-            if (line.startsWith('class ')) {
-              result = line;
-              break;
-            }
-          }
-
-          signatureCache.set(cacheKey, { cls: result ?? '' });
-          return result;
-        }
-
-        /**
-         * Extract JSDoc comment above the current line.
-         */
-        function extractDocblock(lines: string[], currentLine: number): string | undefined {
-          const docLines: string[] = [];
-          for (let i = currentLine - 1; i >= 0; i--) {
-            const line = lines[i].trim();
-            if (line.startsWith('*') || line.startsWith('/**') || line.endsWith('*/')) {
-              docLines.unshift(line);
-            } else if (line === '') {
-              if (docLines.length > 0) break;
-            } else {
-              break;
-            }
-          }
-          return docLines.length > 0 ? docLines.join('\n') : undefined;
-        }
-
-        async function walkDirectory(dirPath: string, concurrencyLimit: number, currentDepth: number = 0): Promise<void> {
-          // DEPTH LIMIT ENFORCEMENT — prevent infinite recursion
-          if (currentDepth > MAX_DEPTH) return;
-
-          // OPTIMIZATION: Early exit if we have enough results
-          if (resultsCount >= MAX_RESULTS) return;
-          
-          // ABORT/CAP CHECK — the shared guard covers both host aborts and the wall-clock cap (single source of truth)
-          if (guard.signal.aborted) return;
-
-          let entries: _fs.Dirent[];
-          try {
-            entries = await fs.readdir(dirPath, { withFileTypes: true });
-          } catch {
-            return; // Skip inaccessible directories
-          }
-
-          // (DEFAULT_EXCLUDED_DIRS hoisted to module scope — see constants block above; walkDirectory references it via closure)
-
-          const batchPromises: Array<Promise<void>> = [];
-
-          for (const entry of entries) {
-            // Skip large/bloat directories by default (unless explicitly included via include pattern)
-            if (!include && DEFAULT_EXCLUDED_DIRS.has(entry.name)) continue;
-            
-            const fullPath = path.join(dirPath, entry.name);
-
-            // Check user-provided exclude patterns — FIX-G4: glob semantics via the same matchGlob as include
-            if (exclude) {
-              const relEntry = path.relative(targetDir, fullPath);
-              if (matchGlob(relEntry, entry.name, exclude)) continue;
-            }
-
-            if (entry.isDirectory()) {
-              batchPromises.push(walkDirectory(fullPath, concurrencyLimit, currentDepth + 1));
-            } else if (entry.isFile()) {
-              // OPTIMIZATION: Early exit check inside loop too
-              if (resultsCount >= MAX_RESULTS) break;
-
-              // Check include pattern
-              const relPath = path.relative(targetDir, fullPath);
-              if (include && !matchGlob(relPath, entry.name, include) && !matchGlob(relPath, relPath, include)) {
-                continue;
-              }
-
-              const relativePath = path.relative(targetDir, fullPath);
-              
-              // Limit concurrency: batch processing with Promise.all
-              if (batchPromises.length >= concurrencyLimit) {
-                await Promise.all(batchPromises.splice(0, batchPromises.length));
-                if (resultsCount >= MAX_RESULTS) return;
-              }
-
-              batchPromises.push(processFile(fullPath, relativePath));
-            }
-          }
-
-          // Process remaining promises in final batch
-          if (batchPromises.length > 0) {
-            await Promise.all(batchPromises);
-          }
-        }
-
-        // ==================== FIX: Auto-detect file vs directory (Bug #1) ====================
-        let targetStats: _fs.Stats;
-        try {
-          targetStats = await fs.stat(targetDir);
-        } catch {
-          return handleError(new Error(`Path not found or inaccessible: '${targetDir}'`));
-        }
-
-        try {
-          // SCAN AWAIT (FIX-DEBLOAT 04.09): no wall-clock race — the shared guard's single cap timer (GREP_MAX_RUN_MS)
-          // aborts at the next cooperative boundary, and disarm() in finally releases it on every completion path.
-          let scanPromise: Promise<void>;
-          if (targetStats.isFile()) {
-            // ==================== TARGET IS A FILE — search within it directly ====================
-            console.log(`[grep_files] Detected single file '${targetDir}' — searching in-file instead of listing directory`);
-            scanPromise = processFile(targetDir, path.basename(targetDir));
-          } else {
-            // ==================== TARGET IS A DIRECTORY — walk and search recursively (concurrent) ====================
-            const concurrencyLimit = max_concurrent_files ?? 8;
-            scanPromise = walkDirectory(targetDir, concurrencyLimit);
-          }
-          await scanPromise;
-        } catch (error) {
-          // Check if this was an abort vs a real error
-          if (guard.signal.aborted) { // shared guard: host abort OR wall-clock cap — partial results already accumulated in matches/skippedFiles
-            // Return partial results with aborted flag per LM Studio pattern
-            // INFO-level by design: stderr lines surface as [ERROR] in LM Studio host logs (see L2182 precedent).
-            console.log(`[grep_files] aborted in ${Date.now() - grepScanStartedAt}ms (host/timeout) — ${filesScanned} file(s) scanned, ${resultsCount} match(es), ${skippedFiles.length} skipped [partial results]`);
-            return {
-              success: true,
-              data: {
-                matches,
-                count: resultsCount,
-                filesScanned,
-                truncated: resultsCount >= MAX_RESULTS,
-                mode,
-                patternMode,
-                ...(skippedFiles.length > 0 && { skipped_files: skippedFiles }),
-                ...(matches.length === 0 && skippedFiles.length > 0 && { warning: `No matches found and ${skippedFiles.length} file(s) were NOT searched because they exceeded limits (defaults: max_file_size=100KB, line cap=${MAX_LINES_PER_FILE} — both raisable via the max_file_size / max_lines parameters). Check the "skipped_files" list above — matches may exist in those files. Re-run with higher max_file_size/max_lines or use read_file directly on them.` }),
-                aborted: true,
-                hint: 'Operation was aborted by host or timeout. Partial results returned.',
-                ...(patternMode === 'auto_escaped' && { autoEscaped: true, hint: "Pattern fell back to LITERAL mode (auto-escaped): the ENTIRE pattern is treated as one exact string, so alternation (|) cannot match branch-by-branch — 0 matches here is expected behavior of literal mode, not absence of content. To fix: escape special characters per branch (e.g. 'Git \\& GitHub') or split the search into 2–4 smaller grep_files calls; note patterns >500 chars are also forced to literal mode." }),
-              },
-            };
-          }
-          throw error; // Re-throw non-abort errors
-        } finally {
-          // DISARM (FIX-DEBLOAT): release the guard's cap timer on EVERY completion path — normal, aborted or thrown.
-          // (The pre-guard FIX-HANG-3 orphaned-timer bug class is structurally impossible: one timer, cleared here.)
-          guard.disarm();
-        }
-
-        // Completion telemetry (30.08; log level fixed 05.09): per-call wall-clock via console.log → stdout ([INFO] in host logs).
-        // The original warn→stderr route was deliberate back when stdout appeared dropped, but the LM Studio host renders
-        // ANY stderr line as [ERROR], so a healthy success log surfaced as an error (user report 05.09). Forensics value unchanged.
-        console.log(`[grep_files] completed in ${Date.now() - grepScanStartedAt}ms — ${filesScanned} file(s) scanned, ${resultsCount} match(es), ${skippedFiles.length} skipped${guard.signal.aborted ? ' [ABORTED — partial results]' : ''}`);
-        return {
-          success: true,
-          data: {
-            matches,
-            count: resultsCount,
-            filesScanned,
-            truncated: resultsCount >= MAX_RESULTS,
-            mode,
-            patternMode,
-            // FIX-DEBLOAT: surface cooperative aborts on the SUCCESS path too — otherwise a cap-trimmed scan is
-            // indistinguishable from a normal completion (the catch-path `aborted` flag only fires when the walk throws).
-            ...(guard.signal.aborted && { aborted: true, hint: 'Scan was cut short by an internal deadline/timeout. Results are partial; re-run with narrower scope or higher limits if you need full coverage.' }),
-            ...(skippedFiles.length > 0 && { skipped_files: skippedFiles }),
-            ...(matches.length === 0 && skippedFiles.length > 0 && { warning: `No matches found and ${skippedFiles.length} file(s) were NOT searched because they exceeded limits (defaults: max_file_size=100KB, line cap=${MAX_LINES_PER_FILE} — both raisable via the max_file_size / max_lines parameters). Check the "skipped_files" list above — matches may exist in those files. Re-run with higher max_file_size/max_lines or use read_file directly on them.` }),
-            ...(patternMode === 'auto_escaped' && { autoEscaped: true, hint: "Pattern fell back to LITERAL mode (auto-escaped): the ENTIRE pattern is treated as one exact string, so alternation (|) cannot match branch-by-branch — 0 matches here is expected behavior of literal mode, not absence of content. To fix: escape special characters per branch (e.g. 'Git \\& GitHub') or split the search into 2–4 smaller grep_files calls; note patterns >500 chars are also forced to literal mode." }),
-          },
-        };
+        // spawn-failure (worker boot / dependency / exit-code-2 in literal mode): typed error, never a silent empty.
+        return { success: false as const, error: `ripgrep engine failed: ${outcome.detail}` };
       } catch (error) {
-        return handleError(error);
+        const message = error instanceof Error ? error.message : String(error);
+        return { success: false as const, error: `ripgrep search failed: ${message}` };
       }
     },
   }));
 
-  // Helper Functions for grep_files
-  /** Escape special regex characters for literal string matching */
-  function escapeRegExp(str: string): string {
-    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  }
-
-  /** Glob pattern matcher (supports *, ?, **) — FIX-G1: anchored last, char-by-char build */
-  function matchGlob(fullPath: string, filename: string, pattern: string): boolean {
-    // FIX-G1 (2026-08-22): build the regex char-by-char from the RAW glob and anchor LAST.
-    // Previous version prepended "^" before escaping specials — its escape pass turned the
-    // anchor into a literal \^ character match, so EVERY include pattern matched nothing:
-    // grep_files(include="*.ts") silently scanned 0 files (no skipped_files, no warning).
-    let regexStr = '';
-    for (let i = 0; i < pattern.length; i++) {
-      const c = pattern[i];
-      if (c === '*') {
-        // ** → match across path separators (multi-segment); lone * → within one segment only
-        if (pattern[i + 1] === '*') {
-          regexStr += '.*';
-          i++;
-        } else {
-          regexStr += '[^/]*';
-        }
-      } else if (c === '?') {
-        // ? → exactly one character that is not a path separator
-        regexStr += '[^/]';
-      } else {
-        // Escape remaining literal regex-specials (generated fragments never re-escaped)
-        regexStr += c.replace(/[.+^${}()|[\]\\]/g, '\\$&');
-      }
-    }
-    try {
-      // Anchor at the start AND end so globs match whole path segments (e.g. "*.ts" must not match "x.ts.bak")
-      const regex = new RegExp('^' + regexStr + '$', 'i');
-      // Normalize Windows backslash separators so "/"-style glob patterns match on every platform
-      const normalized = fullPath.replace(/\\/g, '/');
-      return regex.test(normalized) || regex.test(filename);
-    } catch {
-      return filename.includes(pattern.replace(/[*?]/g, ''));
-    }
-  }
-
-
-  // ==================== AST-Based Search Helpers ====================
-
-  /** AST Node types that can contain meaningful code patterns */
-  type ASTNodeType =
-    | 'FunctionDeclaration'
-    | 'FunctionExpression'
-    | 'ArrowFunctionExpression'
-    | 'MethodDefinition'
-    | 'ClassDeclaration'
-    | 'VariableDeclaration'
-    | 'ImportDeclaration'
-    | 'ExportNamedDeclaration'
-    | 'ExportDefaultDeclaration'
-    | 'TryStatement'
-    | 'ThrowStatement'
-    | 'ReturnStatement'
-    | 'IfStatement'
-    | 'ForStatement'
-    | 'WhileStatement';
-
-  /** Result of AST pattern matching */
-  interface ASTMatch {
-    file: string;
-    line_number: number;
-    content: string;
-    nodeType: ASTNodeType;
-    context?: {
-      functionSignature?: string;
-      classContext?: string;
-      docblock?: string;
-    };
-  }
-
-  /**
-   * Parse TypeScript/JavaScript source code into an AST.
-   * Returns null if parsing fails (graceful degradation).
-   */
-  function parseToAST(content: string, filePath: string): ASTProgram | null {
-    try {
-      // Determine language based on file extension
-      const isJSX = filePath.endsWith('.tsx') || filePath.endsWith('.jsx');
-
-      const ast = parseTS(content, {
-        sourceType: 'module',
-        ecmaVersion: 2022,
-        ecmaFeatures: {
-          jsx: isJSX,
-        },
-        loc: true,
-        range: true,
-        comment: true,
-        tokens: false,
-        // Allow top-level await and other modern features
-        allowInvalidAST: false,
-      }) as unknown as ASTProgram;
-
-      return ast;
-    } catch {
-      // If parsing fails, return null — the caller should fall back to regex
-      return null;
-    }
-  }
-
-  /**
-   * Recursively walk the AST and visit each node.
-   * Stops early if the visitor returns true.
-   */
-  function walkAST(
-    node: ASTBaseNode | ASTProgram,
-    visitor: (node: ASTBaseNode, parent: ASTBaseNode | null) => boolean | void,
-    parent: ASTBaseNode | null = null,
-  ): void {
-    if (visitor(node, parent)) return; // Early exit if visitor returns true
-
-    const keys = Object.keys(node);
-    for (const key of keys) {
-      const value = (node as Record<string, unknown>)[key];
-      if (!value) continue;
-
-      if (Array.isArray(value)) {
-        for (const item of value) {
-          if (item && typeof item === 'object' && 'type' in item) {
-            walkAST(item as ASTBaseNode, visitor, node);
-          }
-        }
-      } else if (typeof value === 'object' && 'type' in value) {
-        walkAST(value as ASTBaseNode, visitor, node);
-      }
-    }
-  }
-
-  /**
-   * Get the text content of an AST node from the source.
-   */
-  function getNodeText(node: ASTBaseNode, source: string): string {
-    if (!node.range) return '';
-    const [start, end] = node.range;
-    return source.substring(start, end).trim();
-  }
-
-  /**
-   * Get the line number of an AST node.
-   */
-  function getLineNumber(node: ASTBaseNode): number {
-    if (node.loc && node.loc.start) {
-      return node.loc.start.line;
-    }
-    return 0;
-  }
-
-  /**
-   * Extract the function signature containing a node.
-   */
-  function findEnclosingFunction(
-    targetNode: ASTBaseNode,
-    program: ASTProgram,
-    source: string,
-  ): string | undefined {
-    let foundSignature: string | undefined;
-
-    walkAST(program, (node) => {
-      if (foundSignature) return true; // Early exit
-      if (
-        node.type === 'FunctionDeclaration' ||
-        node.type === 'FunctionExpression' ||
-        node.type === 'ArrowFunctionExpression' ||
-        node.type === 'MethodDefinition'
-      ) {
-        // Check if target is within this function's range
-        if (node.range && targetNode.range) {
-          const [funcStart, funcEnd] = node.range;
-          const [targetStart, targetEnd] = targetNode.range;
-          if (targetStart >= funcStart && targetEnd <= funcEnd) {
-            foundSignature = getNodeText(node, source);
-            return true;
-          }
-        }
-      }
-    });
-
-    return foundSignature;
-  }
-
-  /**
-   * Extract the class declaration containing a node.
-   */
-  function findEnclosingClass(
-    targetNode: ASTBaseNode,
-    program: ASTProgram,
-    source: string,
-  ): string | undefined {
-    let foundClass: string | undefined;
-
-    walkAST(program, (node) => {
-      if (foundClass) return true;
-      if (node.type === 'ClassDeclaration' || node.type === 'ClassExpression') {
-        if (node.range && targetNode.range) {
-          const [classStart, classEnd] = node.range;
-          const [targetStart, targetEnd] = targetNode.range;
-          if (targetStart >= classStart && targetEnd <= classEnd) {
-            // Get just the class declaration line (not the whole body)
-            const classText = getNodeText(node, source);
-            const firstBrace = classText.indexOf('{');
-            foundClass = firstBrace > 0 ? classText.substring(0, firstBrace).trim() : classText;
-            return true;
-          }
-        }
-      }
-    });
-
-    return foundClass;
-  }
-
-  /**
-   * Extract JSDoc comment above a node.
-   */
-  function findDocblock(
-    targetNode: ASTBaseNode,
-    source: string,
-  ): string | undefined {
-    if (!targetNode.range) return undefined;
-    const [targetStart] = targetNode.range;
-    const linesBefore = source.substring(0, targetStart).split('\n');
-
-    // Look backwards for JSDoc comment
-    let docLines: string[] = [];
-    for (let i = linesBefore.length - 1; i >= 0; i--) {
-      const line = linesBefore[i].trim();
-      if (line.startsWith('*') || line.startsWith('/**') || line.endsWith('*/')) {
-        docLines.unshift(line);
-      } else if (line === '') {
-        // Allow one empty line between docblock and code
-        if (docLines.length > 0) break;
-      } else {
-        break;
-      }
-    }
-
-    return docLines.length > 0 ? docLines.join('\n') : undefined;
-  }
-
-  /**
-   * Search AST for patterns matching the query.
-   * Supports queries like:
-   * - "import" → find all import declarations
-   * - "function" → find all function declarations/expressions
-   * - "class" → find all class declarations
-   * - "throw" → find all throw statements
-   * - "try" → find all try/catch blocks
-   * - "return" → find all return statements
-   * - "variable" → find all variable declarations
-   * - "export" → find all export declarations
-   * - "loop" → find all for/while loops
-   * - "if" → find all if statements
-   * - "lodash" → find imports from 'lodash'
-   * - "error" → find throws and catches with 'error' in them
-   */
-  function searchAST(
-    ast: ASTProgram,
-    source: string,
-    pattern: string,
-    filePath: string,
-    includeContext: boolean,
-    maxResults: number,
-  ): ASTMatch[] {
-    const matches: ASTMatch[] = [];
-    const patternLower = pattern.toLowerCase();
-
-    // Define node type mappings for pattern matching
-    const nodeTypeMap: Record<string, ASTNodeType[]> = {
-      import: ['ImportDeclaration'],
-      function: ['FunctionDeclaration', 'FunctionExpression', 'ArrowFunctionExpression', 'MethodDefinition'],
-      class: ['ClassDeclaration'],
-      throw: ['ThrowStatement'],
-      try: ['TryStatement'],
-      return: ['ReturnStatement'],
-      variable: ['VariableDeclaration'],
-      export: ['ExportNamedDeclaration', 'ExportDefaultDeclaration'],
-      loop: ['ForStatement', 'WhileStatement'],
-      if: ['IfStatement'],
-    };
-
-    // Check if pattern matches a specific module name (e.g., "lodash", "react")
-    const modulePattern = /^(?:from\s+)?['"]([^'"]+)['"]$/;
-    const moduleMatch = pattern.match(modulePattern);
-
-    walkAST(ast, (node) => {
-      if (matches.length >= maxResults) return true;
-
-      const nodeType = node.type as ASTNodeType;
-      const lineNumber = getLineNumber(node);
-
-      // Handle module-specific imports (e.g., "lodash")
-      if (moduleMatch && nodeType === 'ImportDeclaration') {
-        const importNode = node as ASTBaseNode & { source: { value: string } };
-        const sourceText = importNode.source?.value || '';
-        if (sourceText.includes(moduleMatch[1])) {
-          const match: ASTMatch = {
-            file: filePath,
-            line_number: lineNumber,
-            content: getNodeText(node, source),
-            nodeType: 'ImportDeclaration',
-          };
-          if (includeContext) {
-            match.context = {
-              docblock: findDocblock(node, source),
-            };
-          }
-          matches.push(match);
-        }
-        return;
-      }
-
-      // Check if pattern matches any configured node types
-      let shouldMatch = false;
-
-      for (const [key, types] of Object.entries(nodeTypeMap)) {
-        if (patternLower.includes(key)) {
-          if (types.includes(nodeType)) {
-            shouldMatch = true;
-            break;
-          }
-        }
-      }
-
-      // Special handling for "error" pattern — matches throws and try/catches
-      if (patternLower.includes('error') || patternLower.includes('catch')) {
-        if (nodeType === 'ThrowStatement') {
-          shouldMatch = true;
-        }
-        if (nodeType === 'TryStatement') {
-          const tryNode = node as Record<string, unknown>;
-          if (tryNode.handler || tryNode.finalizer) {
-            shouldMatch = true;
-          }
-        }
-      }
-
-      if (shouldMatch) {
-        const match: ASTMatch = {
-          file: filePath,
-          line_number: lineNumber,
-          content: getNodeText(node, source),
-          nodeType,
-        };
-
-        if (includeContext) {
-          match.context = {
-            functionSignature: findEnclosingFunction(node, ast, source),
-            classContext: findEnclosingClass(node, ast, source),
-            docblock: findDocblock(node, source),
-          };
-        }
-
-        matches.push(match);
-      }
-    });
-
-    return matches.slice(0, maxResults);
-  }
 
   // find_replace_all tool — Multi-file search & replace with regex, dry-run support, and safety guards
   tools.push(tool({
@@ -3063,7 +2279,7 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
     name: 'pattern_scan',
     description: `Recursively search file contents under a directory (or within a single file) for a pattern, returning matching lines as {file, line, content}.
 
-Differences vs grep_files: fails fast on unsafe or syntactically invalid regexes by auto-demoting to literal mode (reported via demotedToLiteral), fully async with bounded concurrency, hard per-file and total match caps (stats.truncated when hit), explicit skipped[] reporting for oversized/line-capped/binary/regex-timeout files, deterministic ordering (file, then line).
+Positioning vs ripgrep: pattern_scan is the bounded JS engine — fails fast on unsafe or syntactically invalid regexes by auto-demoting to literal mode (reported via demotedToLiteral), fully async with bounded concurrency, hard per-file and total match caps (stats.truncated when hit), explicit skipped[] reporting for oversized/line-capped/binary/regex-timeout files, deterministic ordering (file, then line); use ripgrep for unbounded native full-coverage scans.
 Directories node_modules/.git/dist/build/out/.next/.nuxt/__pycache__/.venv/coverage are always pruned. Relative roots resolve against the current working directory.`,
     parameters: {
       pattern: z.string().min(1).describe('Non-empty search pattern (regex by default; use mode "literal" for plain text)'),
@@ -3130,7 +2346,7 @@ Directories node_modules/.git/dist/build/out/.next/.nuxt/__pycache__/.venv/cover
             stats: result.stats,
             // HANG-GUARD (05.09) forensics: cap/host aborts leave a host-log line + explicit partial-results fields.
             ...(result.aborted
-              ? { aborted: true, hint: `Scan was cut short at the ${GREP_MAX_RUN_MS}ms wall-clock cap or by a host abort — results are PARTIAL; re-run with narrower scope (smaller root/includeGlobs) for full coverage.` }
+              ? { aborted: true, hint: `Scan was cut short at the ${PATTERN_SCAN_MAX_RUN_MS}ms wall-clock cap or by a host abort — results are PARTIAL; re-run with narrower scope (smaller root/includeGlobs) for full coverage.` }
               : {}),
             ...(result.demotedToLiteral ? { demoted_to_literal: result.demotedToLiteral } : {}),
           },

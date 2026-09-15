@@ -16,6 +16,9 @@ jest.mock('os', () => ({
   hostname: jest.fn().mockReturnValue('test-host'),
   release: jest.fn().mockReturnValue('10.0.19041'),
   homedir: jest.fn().mockReturnValue('C:\\Users\\test'),
+  // 🔹 FIX #31b (12.09): workingDir.ts resolves its JEST state-file location via os.tmpdir() lazily —
+  // a full 'os' mock must expose it or the import chain crashes with "os.tmpdir is not a function".
+  tmpdir: jest.fn().mockReturnValue('C:\\Users\\test\\AppData\\Local\\Temp'),
 }));
 
 // Mock 'open' module

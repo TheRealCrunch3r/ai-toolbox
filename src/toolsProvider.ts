@@ -47,8 +47,6 @@ import { autoTracker } from './autoTracker.js';
 import { TokenStatsManager } from './tokenStatsManager.js';
 // OOM attribution (crashes 2026-08-24 ~20:24/21:10): pre-call heap probe so the next crash names its suspect tool.
 import { checkHeapPressure } from './performanceUtils.js';
-// v1.9.17 — persistent tool-gating profile: user toggle choices survive new chats (auto-capture + sticky overlay).
-import { syncToolGatingProfile } from './tools/toolGatingProfile.js';
 
 let stateManager: StateManager;
 let backgroundCommandManager: BackgroundCommandManager;
@@ -124,25 +122,6 @@ export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[
     taskPlanning: pluginConfig.get('taskPlanning'),
   };
 
-  // v1.9.17 - Tool Gating Profile (agreed design 08.09.2026): user toggle choices persist across new chats.
-  // syncToolGatingProfile applies the conservative sticky contract in one atomic pass: unambiguous live
-  // re-toggles (non-default values) beat stored ones; all other stored values override host defaults that
-  // fell back because getPluginConfig is per-chat scoped. Fire-and-forget here, awaited below - a profile
-  // failure is logged and never breaks tool registration. NOTE: .catch only covers async rejection; the
-  // try/catch additionally guards SYNCHRONOUS throws (e.g. path resolution) so tool registration can
-  // never depend on the gating profile working.
-  let gatingCapture: Promise<void> | undefined;
-  try {
-    gatingCapture = syncToolGatingProfile(config)
-      .catch((err: unknown) => {
-        // swallow + log; returning false keeps the catch chain boolean-typed
-        console.warn('[AI Toolbox] Tool gating profile save failed (non-fatal):', err);
-        return false;
-      })
-      .then(() => undefined); // drain only cares about completion, not the wrote-flag -> Promise<void>
-  } catch (err) {
-    console.warn('[AI Toolbox] Tool gating profile sync threw before start (non-fatal):', err);
-  }
 
   // Initialize StateManager if not already done
   if (!stateManager) {
@@ -248,11 +227,6 @@ export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[
 
   // Report the final tool set so ContextGuard's token estimate includes the serialized definitions (see toolOverhead.ts)
   reportToolSchemas(minified);
-
-  // Drain the fire-and-forget gating-profile write started above: by now it has settled in
-  // practice; if it is still pending we await it so tool registration never outruns its capture.
-  // Errors are already handled at creation (caught + logged) — this cannot reject.
-  await gatingCapture;
 
   // ==================== FIX #20 (A1+A2): mid-loop context growth instrumentation ====================
   // Wrap each tool's implementation once per registration to record its result payload in

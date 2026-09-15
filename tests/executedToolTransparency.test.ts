@@ -23,20 +23,9 @@
  *      function or absent implementation (wrapper contract; in production this covers all ~78 tools).
  */
 
-import os from 'os';
-import path from 'path';
-
 import { toolsProvider } from '../src/toolsProvider.js';
 import { DEFAULT_CONFIG } from '../src/config.js';
 
-// v1.9.17: redirect the persistent tool-gating profile away from the real user home — this suite
-// runs the REAL provider with godMode=true and must never persist sticky toggles into %USERPROFILE%.
-if (!process.env.AI_TOOLBOX_GATING_PROFILE_PATH) {
-  process.env.AI_TOOLBOX_GATING_PROFILE_PATH = path.join(
-    os.tmpdir(),
-    `ai_toolbox_gating_profile_transparency_${process.pid}.json`,
-  );
-}
 import { TokenStatsManager } from '../src/tokenStatsManager.js';
 // NOTE: import the stub via './__mocks__/markdownPreviewTools.js' — jest.config.cjs maps THIS specifier and
 // toolsProvider's dynamic `./tools/markdownPreviewTools.js` to the SAME file

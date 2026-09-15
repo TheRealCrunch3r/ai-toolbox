@@ -10,6 +10,7 @@ import type { PluginConfig } from '../config.js';
 import type { StateManager } from '../stateManager.js';
 import type { BackgroundCommandManager } from '../backgroundCommands.js';
 import { getWorkingDir } from '../workingDir.js';
+import { getDataDir } from '../dataDir.js'; // 🔹 REG-MOVE (12.09): persistent data-dir root for the project registry
 import type { ContextOrigin, ContextNode } from '../contextTiers.js';
 import { replaceTier, createContextNode } from '../contextTiers.js';
 import type { Confidence } from '../types/confidenceTypes.js';
@@ -804,12 +805,21 @@ export interface RegisteredProject {
 interface ProjectRegistryData {
   projects: RegisteredProject[];
   lastUpdated: number;
+  /** 🔹 MANAGE (12.09): canonical paths explicitly removed via manage_projects(action='unregister').
+   * Bounded tombstone list — _syncFromSessionMemory() must never resurrect these, even when stale
+   * cross-stamped session-memory entries still reference them. Backward compatible: pre-MANAGE files
+   * simply lack the field (treated as empty). */
+  unregistered?: string[];
 }
 
 const PROJECT_REGISTRY_MAX_ENTRIES = 100; // Prune oldest when exceeding this limit
+/** 🔹 MANAGE (12.09): cap for the tombstone list — oldest entries drop off when exceeded. */
+const UNREGISTERED_TOMBSTONE_MAX = 50;
 
 /** Session Index file path — legacy project registration format (StateManager) === */
+// 🔹 G3 (11.09): test override seam — hermetic suites point the legacy index at a temp dir; production leaves it unset.
 function getSessionIndexPath(): string {
+  if (ProjectRegistryManager._sessionIndexPathOverride) return ProjectRegistryManager._sessionIndexPathOverride;
   const baseDir = path.resolve(__dirname, '..');
   return path.join(baseDir, '.session_index.json');
 }
@@ -823,10 +833,41 @@ interface LegacySessionIndexEntry {
 
 export class ProjectRegistryManager {
   private registryPath: string;  // Stored in plugin root (shared across all projects)
-  
-  constructor() {
-    const baseDir = path.resolve(__dirname, '..');
-    this.registryPath = path.join(baseDir, '.session_context', 'project_registry.json');
+
+  /** 🔹 G3 (11.09): hermetic-test override for the legacy .session_index.json location (undefined = production path). */
+  static _sessionIndexPathOverride?: string;
+
+  constructor(registryPathOverride?: string, sessionIndexOverride?: string) {
+    // 🔹 REG-MOVE (12.09): production primary now lives in the PERSISTENT LM Studio data dir
+    // (~/.lmstudio/extensions/data/crunch3r/ai-toolbox/) — the install dir is wiped on every `lms dev --install`,
+    // which repeatedly destroyed registries stored there (see FIX #29 incident, 12.09). Hermetic tests keep using
+    // explicit overrides; a one-time migration of pre-move install-dir primaries runs in load().
+    this.registryPath = registryPathOverride ?? path.join(getDataDir(), 'project_registry.json');
+    // 🔹 G3: paired legacy-index override so migration can be tested hermetically (production leaves it undefined).
+    if (sessionIndexOverride !== undefined) {
+      ProjectRegistryManager._sessionIndexPathOverride = sessionIndexOverride;
+    }
+  }
+
+  /** 🔹 G3 (11.09): one-time migration of legacy .session_index.json entries into the primary registry.
+   * Triggered ONLY when the primary file is MISSING while a parseable legacy index holds ≥1 project — the exact
+   * state where older builds' registrations would otherwise die silently on a newer build that writes primary-only.
+   * Idempotent (no-op once primary exists), best-effort: any failure logs and falls back to read-time behavior;
+   * it never blocks list/search/register. */
+  private async _migrateLegacySessionIndex(): Promise<void> {
+    try {
+      if (await fs.access(this.registryPath).then(() => true).catch(() => false)) return; // Primary exists — nothing to migrate
+      const legacy = await this._loadFromSessionIndex();
+      if (legacy.length === 0) return; // Nothing migratable
+
+      // Reuse the exact same consolidation + canonical dedup the read path applies, so migrated entries are identical to what getAllProjects() would surface.
+      const consolidated = ProjectRegistryManager.consolidateProjects(legacy);
+      await this.save({ projects: consolidated, lastUpdated: Date.now() });
+      console.log(`[ProjectRegistry._migrateLegacySessionIndex] Migrated ${consolidated.length} project(s) from legacy .session_index.json into primary registry.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`[ProjectRegistry._migrateLegacySessionIndex] Legacy migration failed (non-fatal): ${message}`);
+    }
   }
 
   /** Ensure the .session_context directory exists */
@@ -878,10 +919,20 @@ export class ProjectRegistryManager {
     }
   }
 
-  /** 🔹 FIX: Auto-sync project registry from session memory files.
-   * Scans all known project paths for .ai_toolbox_memory.msgpack files,
-   * extracts their project_path field, and registers any missing projects.
-   * Called lazily before getAllProjects() to ensure registry freshness after restarts. */
+  /** 🔹 F2 (10.09): Auto-sync project registry from session memory files — directory-only, idempotent,
+   * dedup-consolidating variant of the previous auto-registerer. Changes vs the old behavior:
+   *  - Only REAL DIRECTORIES are registered. Entries' project_path stamps carry the MSGPACK FILE path
+   *    (<wd>/.session_context/.ai_toolbox_memory.msgpack, stamped by ContextStorageManager) — the actual
+   *    working directory is derived from it (dirname of .session_context). File paths are NEVER registered
+   *    as projects (old bug: registry entries whose "path" was a msgpack file, named ".ai_toolbox_memory.msgpack").
+   *  - The legacy branch that regex-extracted Windows paths from session-summary TEXT is REMOVED entirely —
+   *    free-form summary prose is not a registration source (it registered e.g. repo paths quoted in checkpoint
+   *    notes as phantom projects, and produced the duplicate "ai_toolbox" entries).
+   *  - Mutation stays idempotent + dedup-consolidating: registerProject() matches by exact path string, so this
+   *    only ADDS genuinely new directories and refreshes lastAccessed of known ones (no name churn). Canonical
+   *    case/trailing-slash dedup belongs to F1 (registerProject/getProjectByPath), deliberately NOT done here.
+   *  - Entries stamped with a bare directory path are honored as-is; stamps that resolve to nothing existing
+   *    are skipped silently (stale data, no phantom entries). */
   private async _syncFromSessionMemory(): Promise<void> {
     const data = await this.load();
     if (!data) return;
@@ -889,127 +940,259 @@ export class ProjectRegistryManager {
     // Get all registered project paths for quick lookup
     const registeredPaths = new Set(data.projects.map(p => p.path));
 
-    // Scan each registered project's working directory for session memory files
-    for (const project of data.projects) {
-      const memPath = path.join(project.path, '.session_context', '.ai_toolbox_memory.msgpack');
-      
+    // 🔹 MANAGE (12.09): canonical paths explicitly unregistered via manage_projects(action='unregister').
+    // These are NEVER auto-re-registered by this sync, even when cross-stamped session-memory entries
+    // still reference them (e.g., legacy shared stores or context-switched writes).
+    const tombstonedPaths = new Set((data.unregistered || []).map(p => ProjectRegistryManager.canonicalProjectPath(p)));
+
+    /** Resolve a stored project_path stamp to an actual working directory, or null if not one. */
+    const resolveStampToDirectory = async (stamp: string): Promise<string | null> => {
       try {
-        if (!await fs.access(memPath).then(() => true).catch(() => false)) {
-          continue; // No session memory for this project — skip
+        // Canonical current shape (ContextStorageManager stamps the memory FILE path): <wd>/.session_context/<file>
+        let candidate: string;
+        const parentDir = path.dirname(stamp);
+        if (path.basename(stamp).endsWith('.msgpack') && parentDir.toLowerCase().endsWith(path.sep + '.session_context')) {
+          candidate = path.dirname(parentDir); // → the working directory itself
+        } else {
+          candidate = stamp; // some writer stored a bare directory — honor it if it is one
+        }
+        const stats = await fs.stat(candidate);
+        return stats.isDirectory() ? candidate : null;
+      } catch {
+        return null; // Stale/nonexistent path — skip, never register ghosts
+      }
+    };
+
+    const tryRegister = async (rawStamp: string): Promise<void> => {
+      const dirPath = await resolveStampToDirectory(rawStamp);
+      if (!dirPath || registeredPaths.has(dirPath)) return;
+      // 🔹 MANAGE (12.09): honor explicit unregistrations — tombstoned paths are never auto-resurrected.
+      if (tombstonedPaths.has(ProjectRegistryManager.canonicalProjectPath(dirPath))) return;
+      const projectName = path.basename(dirPath) || dirPath;
+      console.log(`[ProjectRegistry._syncFromSessionMemory] Auto-registering discovered project: "${projectName}" at ${dirPath}`);
+      await this.registerProject(projectName, dirPath); // Idempotent (path-matched); also persists to disk
+      registeredPaths.add(dirPath);
+    };
+
+    // Scan each known project's session memory files for entries stamped with other working directories
+    const memSources = new Set<string>();
+    for (const project of data.projects) {
+      if (typeof project.path === 'string' && path.isAbsolute(project.path)) {
+        memSources.add(path.join(project.path, '.session_context', '.ai_toolbox_memory.msgpack'));
+      }
+    }
+    // Plugin-root legacy memory file (pre-isolation installs shared one store)
+    memSources.add(path.join(path.resolve(__dirname, '..'), '.session_context', '.ai_toolbox_memory.msgpack'));
+
+    for (const memPath of memSources) {
+      try {
+        if (!await fs.access(memPath).then(() => true).catch(() => false)) continue; // No session memory — skip
+        const buffer = await fs.readFile(memPath);
+        // 🔹 LINT (10.09): no cast here on purpose — decode()'s return type already matches, and an
+        // explicit `as unknown` trips @typescript-eslint/no-unnecessary-type-assertion (see getStoreDiagnostics note).
+        const raw = decode(buffer);
+        if (!Array.isArray(raw)) continue; // Not a record array — nothing to sync from
+
+        const stamps = new Set<string>();
+        for (const e of raw) {
+          if (!e || typeof e !== 'object') continue; // State records / malformed — never registration sources
+          const pp = (e as Record<string, unknown>).project_path;
+          if (typeof pp === 'string' && pp.length > 0) stamps.add(pp);
         }
 
-        const buffer = await fs.readFile(memPath);
-        const entries = decode(buffer) as ContextEntry[];
-
-        // Extract unique project_path values from entries (identifies which projects created this data)
-        const discoveredPaths = new Set(
-          entries
-            .filter((e): e is ContextEntry & { project_path: string } => 
-              e.project_path != null && typeof e.project_path === 'string'
-            )
-            .map(e => e.project_path)
-        );
-
-        // Register any newly discovered projects not already in registry
-        for (const discoveredPath of discoveredPaths) {
-          if (!registeredPaths.has(discoveredPath)) {
-            const projectName = path.basename(discoveredPath);
-            console.log(`[ProjectRegistry._syncFromSessionMemory] Auto-registering discovered project: "${projectName}" at ${discoveredPath}`);
-            
-            // Register the new project (this will also save to disk)
-            await this.registerProject(projectName, discoveredPath);
-            registeredPaths.add(discoveredPath);
-          }
+        for (const stamp of stamps) {
+          await tryRegister(stamp);
         }
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
-        console.warn(`[ProjectRegistry._syncFromSessionMemory] Failed to sync session memory for ${project.path}: ${msg}`);
-        // Non-fatal — continue scanning other projects
+        console.warn(`[ProjectRegistry._syncFromSessionMemory] Failed to sync session memory at ${memPath}: ${msg}`);
+        // Non-fatal — continue scanning other sources
       }
     }
 
-    // Also scan plugin root fallback (legacy entries without project_path)
-    const legacyMemPath = path.join(path.resolve(__dirname, '..'), '.session_context', '.ai_toolbox_memory.msgpack');
+    // NOTE (F2): the old legacy branch that mined session-summary TEXT for Windows paths
+    // (summary.content.match(/working dir|…/i)) was removed here on purpose — see header comment.
+  }
+
+  /** 🔹 FIX #28: shared shape validation for primary AND backup content. */
+  private static validateProjectRegistryData(obj: unknown): obj is ProjectRegistryData {
+    if (!obj || typeof obj !== 'object') return false;
+    const o = obj as Record<string, unknown>;
+    return (
+      Array.isArray(o.projects) &&
+      typeof o.lastUpdated === 'number'
+    );
+  }
+
+  /** Load project registry from disk.
+   * 🔹 FIX #28 (11.09, registry truncation incident): previously a corrupt/unparseable primary was swallowed
+   * silently ("Failed to load ... → null"), indistinguishable from a fresh install — and nothing could ever
+   * write again until manually repaired (observed live 11.09: mtime frozen 18:45→19:13, all list/search = []).
+   * Now: corrupt primary is QUARANTINED (<primary>.corrupt-<ts>) and the last known-good backup copy
+   * (.bak, written by save()) is restored atomically. No valid backup → null (fresh-install behavior; next
+   * registerProject rebuilds). */
+  /** 🔹 REG-MOVE (12.09): One-time idempotent migration of a pre-move install-dir primary into the persistent data
+   * dir. Triggered ONLY when the new location is absent AND <install>/.session_context/project_registry.json holds
+   * valid ProjectRegistryData — i.e., exactly once, on first load after an upgrade (G3 pattern). save() rebuilds
+   * the .bak copy in its NEW data-dir home so FIX #28 quarantine/restore semantics apply from that point on.
+   * Strictly one-directional: once the data-dir file exists it wins unconditionally and the old file is never
+   * written again (left in place for manual cleanup). Invalid legacy content is NOT migrated — logged instead,
+   * so a corrupt pre-move registry can be inspected manually rather than silently copied into the new home. */
+  /** @param legacyPathOverride 🔹 G3-style test seam: hermetic suites point the pre-move source at a temp dir; production leaves it undefined. */
+  private async _migrateInstallDirPrimary(legacyPathOverride?: string): Promise<void> {
     try {
-      if (!await fs.access(legacyMemPath).then(() => true).catch(() => false)) {
-        return; // No plugin root memory file — nothing to sync
+      if (await fs.access(this.registryPath).then(() => true).catch(() => false)) return; // Data-dir primary exists — nothing to migrate
+      const legacyPath = legacyPathOverride ?? path.join(path.resolve(__dirname, '..'), '.session_context', 'project_registry.json');
+      if (!await fs.access(legacyPath).then(() => true).catch(() => false)) return; // No pre-move registry — fresh state
+      const parsed: unknown = JSON.parse(await fs.readFile(legacyPath, 'utf-8'));
+      if (!ProjectRegistryManager.validateProjectRegistryData(parsed)) {
+        console.warn(`[ProjectRegistry._migrateInstallDirPrimary] Install-dir primary at ${legacyPath} is invalid — NOT migrated (inspect manually; nothing copied).`);
+        return;
       }
-
-      const buffer = await fs.readFile(legacyMemPath);
-      const entries = decode(buffer) as ContextEntry[];
-
-      // Legacy entries without project_path — extract from session_summary_latest if available
-      const summaryEntries = entries.filter(e => 
-        e.type === 'summary' && e.title?.toLowerCase().includes('session context summary')
-      );
-
-      for (const summary of summaryEntries) {
-        // Try to extract working directory path from session summary content
-        const wdMatch = summary.content.match(/working dir|working directory|path[:\s]+([A-Z]:\\[^"'\s]+)/i);
-        if (wdMatch && wdMatch[1]) {
-          const extractedPath = wdMatch[1].replace(/["']$/g, ''); // Remove trailing quote if present
-          
-          if (!registeredPaths.has(extractedPath)) {
-            console.log(`[ProjectRegistry._syncFromSessionMemory] Auto-registering legacy project: "${path.basename(extractedPath)}" at ${extractedPath}`);
-            await this.registerProject(path.basename(extractedPath), extractedPath);
-            registeredPaths.add(extractedPath);
-          }
-        }
-      }
+      await this.save(parsed);
+      console.log(`[ProjectRegistry._migrateInstallDirPrimary] ✅ Migrated ${parsed.projects.length} project(s) from install dir to persistent data dir (${this.registryPath}). Old file left untouched — safe to delete manually.`);
     } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
-      console.warn(`[ProjectRegistry._syncFromSessionMemory] Failed to sync legacy session memory: ${msg}`);
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`[ProjectRegistry._migrateInstallDirPrimary] Migration failed (non-fatal): ${message}`);
     }
   }
 
-  /** Load project registry from disk */
   async load(): Promise<ProjectRegistryData | null> {
-    function validateProjectRegistryData(obj: unknown): obj is ProjectRegistryData {
-      if (!obj || typeof obj !== 'object') return false;
-      const o = obj as Record<string, unknown>;
-      return (
-        Array.isArray(o.projects) &&
-        typeof o.lastUpdated === 'number'
-      );
-    }
-
+    // 🔹 REG-MOVE (12.09): migrate any pre-move install-dir primary into the data dir before touching it.
+    await this._migrateInstallDirPrimary();
     try {
       if (await fs.access(this.registryPath).then(() => true).catch(() => false)) {
         const raw = await fs.readFile(this.registryPath, 'utf-8');
         const parsed: unknown = JSON.parse(raw);
-        if (!validateProjectRegistryData(parsed)) throw new Error('Invalid project registry format');
+        if (!ProjectRegistryManager.validateProjectRegistryData(parsed)) throw new Error('Invalid project registry format');
         const data: ProjectRegistryData = parsed;
         console.log(`[ProjectRegistry.load] Loaded ${data.projects.length} projects.`);
         return data;
       }
     } catch (error) {
-      console.warn(`[ProjectRegistry.load] Failed to load from disk: ${String(error)}`);
+      // 🔹 FIX #28: primary exists but is corrupt — quarantine it, then attempt recovery from the backup copy.
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`[ProjectRegistry.load] ❌ Registry file corrupt or invalid (${message}). Quarantining and attempting backup restore.`);
+
+      // 1) Quarantine the corrupt primary so it can never silently poison a future write/read again.
+      try {
+        const quarantinePath = `${this.registryPath}.corrupt-${Date.now()}`;
+        await fs.rename(this.registryPath, quarantinePath);
+        console.error(`[ProjectRegistry.load] Corrupt registry moved to ${quarantinePath} (inspect + delete manually once confirmed safe).`);
+      } catch (qErr) {
+        const qMsg = qErr instanceof Error ? qErr.message : String(qErr);
+        console.error(`[ProjectRegistry.load] ⚠️ Quarantine rename FAILED: ${qMsg}. Recovery from backup may still overwrite it.`);
+      }
+
+      // 2) Restore last known-good state from the backup copy (written atomically on every save()).
+      try {
+        if (await fs.access(this.backupPath).then(() => true).catch(() => false)) {
+          const bakRaw = await fs.readFile(this.backupPath, 'utf-8');
+          const bakParsed: unknown = JSON.parse(bakRaw);
+          if (!ProjectRegistryManager.validateProjectRegistryData(bakParsed)) {
+            console.error('[ProjectRegistry.load] ⚠️ Backup copy is ALSO invalid — no recovery possible. Returning null (fresh-install state).');
+            return null;
+          }
+          // Atomic restore: write to temp, rename over the primary slot (same pattern as save()).
+          const restoreTemp = `${this.registryPath}.restore-${crypto.randomBytes(8).toString('hex')}.tmp`;
+          await fs.writeFile(restoreTemp, bakRaw, 'utf-8');
+          await fs.rename(restoreTemp, this.registryPath);
+          console.error(`[ProjectRegistry.load] ✅ Registry RESTORED from backup copy (${this.backupPath}): ${bakParsed.projects.length} project(s) recovered.`);
+          return bakParsed;
+        }
+        console.error('[ProjectRegistry.load] No backup copy available — returning null (fresh-install state).');
+      } catch (restoreErr) {
+        const rMsg = restoreErr instanceof Error ? restoreErr.message : String(restoreErr);
+        console.error(`[ProjectRegistry.load] Backup restore failed: ${rMsg}. Returning null.`);
+      }
+
+      return null;
     }
 
     console.log('[ProjectRegistry.load] No project registry found.');
     return null;
   }
 
-  /** Save project registry to disk */
+  /** Backup copy path — same plugin-dir location as the primary (`.session_context/project_registry.json.bak`) */
+  private get backupPath(): string {
+    return this.registryPath + '.bak';
+  }
+
+  /** Save project registry to disk.
+   * 🔹 FIX #28 (11.09, registry truncation incident): two hardening measures —
+   *  (a) temp file name is now unique per save (crypto.randomBytes). All saves previously shared the single
+   *      fixed `<primary>.tmp` name: two concurrent processes writing the same primary could interleave on that
+   *      one buffer, and a rename from the other process could promote a partially written buffer into the primary.
+   *  (b) after every successful primary write an identical backup copy (`project_registry.json.bak`) is written
+   *      atomically in the SAME plugin directory — this is what load()'s corruption recovery restores from.
+   *      Backup failure is non-fatal: the primary is already durable at that point; it only loses future recoverability. */
   async save(data: ProjectRegistryData): Promise<void> {
     const filePath = this.registryPath; // Primary: plugin root (shared)
     
     await this.ensureDirectory(filePath);
     
     const json = JSON.stringify(data, null, 2);
-    const tempPath = filePath + '.tmp';
+    const tempPath = `${filePath}.${crypto.randomBytes(8).toString('hex')}.tmp`;
     await fs.writeFile(tempPath, json, 'utf-8');
     await fs.rename(tempPath, filePath);
-    
-    console.log(`[ProjectRegistry.save] Saved ${data.projects.length} projects.`);
+
+    // 🔹 FIX #28: keep a backup copy in the same location (atomic tmp+rename so the .bak can never be torn)
+    try {
+      const bakTemp = `${this.backupPath}.tmp`;
+      await fs.writeFile(bakTemp, json, 'utf-8');
+      await fs.rename(bakTemp, this.backupPath);
+    } catch (bakError) {
+      // Non-fatal — primary is already durable; backup only serves corruption recovery on next load().
+      const message = bakError instanceof Error ? bakError.message : String(bakError);
+      console.error(`[ProjectRegistry.save] ⚠️ Backup copy write failed (primary IS saved): ${message}`);
+    }
+
+    console.log(`[ProjectRegistry.save] Saved ${data.projects.length} projects. (backup: ${this.backupPath})`);
+  }
+
+  /** 🔹 F1 (10.09): Canonical lookup key for a project path — path.resolve() normalizes structure
+   * (separators, '..', trailing slashes) and win32 case-folding handles Windows' case-insensitive paths.
+   * Used ONLY as a comparison key; entries preserve their original display casing ("preserve original" per spec). */
+  private static canonicalProjectPath(p: string): string {
+    const resolved = path.resolve(p);
+    return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+  }
+
+  /** 🔹 F1 (10.09): Consolidate entries that resolve to the same canonical path — keep the entry with the
+   * newest lastAccessed as the display record, sum sessionCount, prefer non-empty sourceDirs.
+   * Returns a new array (input untouched); malformed legacy rows are skipped, not fatal. */
+  private static consolidateProjects(projects: RegisteredProject[]): RegisteredProject[] {
+    const best = new Map<string, RegisteredProject>();
+    for (const p of projects) {
+      if (!p || typeof p.path !== 'string' || !p.path) continue;
+      const key = ProjectRegistryManager.canonicalProjectPath(p.path);
+      const existing = best.get(key);
+      if (!existing) {
+        best.set(key, p);
+        continue;
+      }
+      const mergedSessionCount = (existing.sessionCount || 0) + (p.sessionCount || 0);
+      const keptLastAccessed = Math.max(existing.lastAccessed ?? 0, p.lastAccessed ?? 0);
+      if ((p.lastAccessed ?? 0) > (existing.lastAccessed ?? 0)) {
+        best.set(key, { ...p, lastAccessed: keptLastAccessed, sessionCount: mergedSessionCount, sourceDirs: p.sourceDirs?.length ? p.sourceDirs : existing.sourceDirs });
+      } else {
+        best.set(key, { ...existing, lastAccessed: keptLastAccessed, sessionCount: mergedSessionCount, sourceDirs: existing.sourceDirs?.length ? existing.sourceDirs : p.sourceDirs });
+      }
+    }
+    return Array.from(best.values());
   }
 
   /** Register or update a project in the registry */
   async registerProject(projectName: string, workingDirPath: string, sourceDirs?: string[]): Promise<void> {
     let data = await this.load() || { projects: [], lastUpdated: Date.now() };
-    
-    // Check if project already exists (match by path)
-    const existingIdx = data.projects.findIndex(p => p.path === workingDirPath);
+
+    // 🔹 F1: canonicalize — first consolidate legacy duplicates (same resolved path, different strings),
+    // then dedup by canonical key instead of exact-string equality (root cause A2).
+    data.projects = ProjectRegistryManager.consolidateProjects(data.projects);
+    const newKey = ProjectRegistryManager.canonicalProjectPath(workingDirPath);
+
+    // Check if project already exists (match by canonical path)
+    const existingIdx = data.projects.findIndex(p => ProjectRegistryManager.canonicalProjectPath(p.path) === newKey);
     
     if (existingIdx !== -1) {
       // Update existing project
@@ -1031,6 +1214,11 @@ export class ProjectRegistryManager {
       console.log(`[ProjectRegistry.register] Registered new project: ${projectName}`);
     }
     
+    // 🔹 MANAGE (12.09): explicit (re-)registration clears any tombstone for this path — user intent wins over a prior removal.
+    if (data.unregistered?.length) {
+      data.unregistered = data.unregistered.filter(t => t !== newKey);
+    }
+
     data.lastUpdated = Date.now();
     
     // Prune oldest entries if exceeding limit
@@ -1041,37 +1229,110 @@ export class ProjectRegistryManager {
     await this.save(data);
   }
 
-  /** Get project info by working directory path. ===
-   * Falls back to .session_index.json if primary registry is empty/missing. */
-  async getProjectByPath(workingDirPath: string): Promise<RegisteredProject | null> {
-    const data = await this.load();
-    
-    // Primary: project_registry.json
-    const found = data?.projects.find(p => p.path === workingDirPath);
-    if (found) return found;
-    
-    // Fallback: .session_index.json
-    const fallback = await this._loadFromSessionIndex();
-    return fallback.find(p => p.path === workingDirPath) || null;
+  /** 🔹 MANAGE (12.09): Remove a project from the registry, matched by canonical working-dir path (F1 pattern).
+   * Also records the canonical path in the bounded `unregistered` tombstone list so _syncFromSessionMemory()
+   * cannot resurrect it via stale cross-stamped session-memory entries. Re-registering the same path later
+   * clears its tombstone (explicit user intent wins over a prior removal). */
+  async unregisterProject(workingDirPath: string): Promise<{ removed: boolean; project?: RegisteredProject }> {
+    let data = await this.load() || { projects: [], lastUpdated: Date.now() };
+
+    const key = ProjectRegistryManager.canonicalProjectPath(workingDirPath);
+    const existingIdx = data.projects.findIndex(p => ProjectRegistryManager.canonicalProjectPath(p.path) === key);
+
+    if (existingIdx === -1) {
+      return { removed: false };
+    }
+
+    const [removed] = data.projects.splice(existingIdx, 1);
+
+    // Tombstone with newest-at-end ordering; bounded so the list can never grow unbounded.
+    const tombstones = data.unregistered ? [...data.unregistered] : [];
+    const prevIdx = tombstones.indexOf(key);
+    if (prevIdx !== -1) tombstones.splice(prevIdx, 1); // re-add at end = most recent removal wins
+    tombstones.push(key);
+    if (tombstones.length > UNREGISTERED_TOMBSTONE_MAX) tombstones.shift(); // drop oldest
+
+    data.unregistered = tombstones;
+    data.lastUpdated = Date.now();
+    await this.save(data);
+    console.log(`[ProjectRegistry.unregister] Unregistered project: ${removed.name} (${workingDirPath})`);
+    return { removed: true, project: removed };
   }
 
-  /** Get all registered projects sorted by last access (newest first). ===
+  /** 🔹 MANAGE (12.09): Update an existing registration — rename and/or replace sourceDirs, anchored by canonical
+   * working-dir path (F1 pattern). Unlike registerProject(), it NEVER creates a new entry: updating a
+   * non-existent project returns { updated: false } so the caller can surface "not registered" to the user. */
+  async updateProject(
+    workingDirPath: string,
+    updates: { name?: string; sourceDirs?: string[] }
+  ): Promise<{ updated: boolean; project?: RegisteredProject }> {
+    let data = await this.load() || { projects: [], lastUpdated: Date.now() };
+
+    const key = ProjectRegistryManager.canonicalProjectPath(workingDirPath);
+    const existingIdx = data.projects.findIndex(p => ProjectRegistryManager.canonicalProjectPath(p.path) === key);
+
+    if (existingIdx === -1) {
+      return { updated: false };
+    }
+
+    const target = data.projects[existingIdx];
+    if (updates.name) target.name = updates.name;
+    if (updates.sourceDirs !== undefined) target.sourceDirs = updates.sourceDirs;
+
+    data.lastUpdated = Date.now();
+    await this.save(data);
+    console.log(`[ProjectRegistry.update] Updated project: ${target.name} (${workingDirPath})`);
+    return { updated: true, project: target };
+  }
+
+  /** Get project info by working directory path. ===
    * Falls back to .session_index.json if primary registry is empty/missing.
-   * 🔹 FIX: Auto-syncs from session memory files before returning results. */
+   * 🔹 F1 (10.09): lookup is canonical (resolve + win32 case-fold), so callers may pass any equivalent
+   * spelling of the same directory; legacy duplicates are consolidated on read before matching. */
+  async getProjectByPath(workingDirPath: string): Promise<RegisteredProject | null> {
+    const data = await this.load();
+
+    // Primary: project_registry.json (canonical match, de-duplicated)
+    const projects = ProjectRegistryManager.consolidateProjects(data?.projects || []);
+    const key = ProjectRegistryManager.canonicalProjectPath(workingDirPath);
+    const found = projects.find(p => ProjectRegistryManager.canonicalProjectPath(p.path) === key);
+    if (found) return found;
+
+    // Fallback: .session_index.json — same canonical matching on its paths too
+    const fallback = ProjectRegistryManager.consolidateProjects(await this._loadFromSessionIndex());
+    return fallback.find(p => ProjectRegistryManager.canonicalProjectPath(p.path) === key) || null;
+  }
+
+  /** 🔹 F1' (11.09): Machine-visible "why is this empty" signal for list_projects/search_projects — wraps getRegistryFileStatus(). */
+  async getRegistryDiagnostics(): Promise<{ status: 'missing' | 'empty' | 'has_projects'; path: string; note?: string }> {
+    const s = await this.getRegistryFileStatus();
+    if (s.status === 'missing') {
+      return { ...s, note: `No project registry file exists at ${s.path}. If the user refers to a known project here, ask whether it is a NEW project and where its working directory is located — then register it with manage_projects(action="register"). Do NOT guess paths from file searches.` };
+    }
+    if (s.status === 'empty') {
+      return { ...s, note: `Registry file exists at ${s.path} but holds 0 projects. If the user refers to a known project here, ask whether it is a NEW project and where its working directory is located — then register it with manage_projects(action="register").` };
+    }
+    return s;
+  }
+
   async getAllProjects(): Promise<RegisteredProject[]> {
+    // 🔹 G3 (11.09): one-time legacy migration BEFORE any read — older builds wrote .session_index.json only; without this, their registrations die silently once a primary-writing build boots and that file is gone or ignored.
+    await this._migrateLegacySessionIndex();
+
     // 🔹 FIX: Lazy auto-sync — scan for projects with persisted session memory and register them
     await this._syncFromSessionMemory();
 
     const data = await this.load();
-    
-    // Primary: project_registry.json
+
+    // Primary: project_registry.json — 🔹 F1: consolidate case/dup variants before returning
     if (data && data.projects.length > 0) {
-      console.log(`[ProjectRegistry.getAllProjects] Loaded ${data.projects.length} project(s) from primary registry.`);
-      return data.projects;
+      const consolidated = ProjectRegistryManager.consolidateProjects(data.projects);
+      console.log(`[ProjectRegistry.getAllProjects] Loaded ${consolidated.length} project(s) from primary registry.`);
+      return consolidated;
     }
-    
-    // Fallback: .session_index.json (StateManager legacy format)
-    const fallback = await this._loadFromSessionIndex();
+
+    // Fallback: .session_index.json (StateManager legacy format) — same consolidation for parity
+    const fallback = ProjectRegistryManager.consolidateProjects(await this._loadFromSessionIndex());
     if (fallback.length > 0) {
       console.log(`[ProjectRegistry.getAllProjects] Primary registry empty. Loaded ${fallback.length} project(s) from session index fallback.`);
       return fallback;
@@ -1079,6 +1340,27 @@ export class ProjectRegistryManager {
     
     console.log('[ProjectRegistry.getAllProjects] No projects found in any registry.');
     return [];
+  }
+
+  /** 🔹 F1' (11.09): Self-describing registry-file status so an EMPTY list_projects/search_projects result can
+   * never be mistaken for "never registered" vs "file present but zero entries". This is the machine-visible signal
+   * that routes the LLM to the spec's step 2b — "ask the user if this is a NEW project and where it lives, THEN register"
+   * — instead of guessing. 'missing' = primary file absent (fresh install or wiped); 'empty' = file present, 0 projects;
+   * 'has_projects' = at least one entry. */
+  async getRegistryFileStatus(): Promise<{ status: 'missing' | 'empty' | 'has_projects'; path: string }> {
+    const p = this.registryPath;
+    let exists = false;
+    try { await fs.access(p); exists = true; } catch { exists = false; }
+    if (!exists) return { status: 'missing', path: p };
+    try {
+      const raw = await fs.readFile(p, 'utf-8');
+      const parsed: unknown = JSON.parse(raw);
+      if (ProjectRegistryManager.validateProjectRegistryData(parsed)) {
+        return { status: parsed.projects.length > 0 ? 'has_projects' : 'empty', path: p };
+      }
+    } catch { /* fall through */ }
+    // File exists but is unreadable/invalid — report as empty rather than throwing (load() will quarantine+restore).
+    return { status: 'empty', path: p };
   }
 
   /** Increment session count for a project */
@@ -1093,17 +1375,31 @@ export class ProjectRegistryManager {
   }
 
   /** Search projects by name or path. ===
-   * Uses getAllProjects() which already includes session index fallback + auto-sync from session memory. */
+   * Uses getAllProjects() which already includes session index fallback + auto-sync from session memory.
+   * 🔹 SEARCH-NORM (15.09): matching is case- AND word-separator-insensitive — see normalizeSearchText below. */
+  /** 🔹 SEARCH-NORM (15.09): canonical form for search matching — lowercase + drop word-separator characters
+   * (whitespace / underscore / hyphen) from BOTH the query and the candidate name/path, so human phrasings with
+   * spaces match machine-style names using underscores or hyphens ("ai toolbox" ≡ "ai_toolbox" ≡ "AI-Toolbox").
+   * Path separators (\ and /) are deliberately NOT in the class — path structure stays significant (no cross-separator matches). */
+  private static normalizeSearchText(s: string): string {
+    return s.toLowerCase().replace(/[\s_-]/g, '');
+  }
+
   async search(query: string, maxResults: number = 10): Promise<RegisteredProject[]> {
     // 🔹 FIX: getAllProjects() now calls _syncFromSessionMemory() internally — no need to call it again here
     const allProjects = await this.getAllProjects();
-    const lowerQuery = query.toLowerCase();
-    
+    // 🔹 SEARCH-NORM (15.09): compare canonical forms on both sides; a query that is empty AFTER normalization matches
+    // NOTHING (previously a whitespace-only query matched everything, because '' is a substring of any string).
+    const normQuery = ProjectRegistryManager.normalizeSearchText(query);
+
     return allProjects
-      .filter(p => 
-        p.name.toLowerCase().includes(lowerQuery) || 
-        p.path.toLowerCase().includes(lowerQuery)
-      )
+      .filter(p => {
+        if (normQuery.length === 0) return false;
+        return (
+          ProjectRegistryManager.normalizeSearchText(p.name).includes(normQuery) ||
+          ProjectRegistryManager.normalizeSearchText(p.path).includes(normQuery)
+        );
+      })
       .slice(0, maxResults);
   }
 
@@ -1129,9 +1425,11 @@ export class ProjectRegistryManager {
     }
   }
 
-  /** Clear all session index entries */
+  /** 🔹 MANAGE (12.09): Clear ALL project registrations. Tombstones are preserved on purpose — wiping the
+   * registry must not let _syncFromSessionMemory() resurrect every previously unregistered path in one sweep. */
   async clearAll(): Promise<void> {
-    await this.save({ projects: [], lastUpdated: Date.now() });
+    const data = await this.load();
+    await this.save({ projects: [], lastUpdated: Date.now(), ...(data?.unregistered ? { unregistered: data.unregistered } : {}) });
   }
 }
 
@@ -1889,10 +2187,162 @@ WHEN TO USE:
 
   const projectRegistry = new ProjectRegistryManager();
 
-  // register_project tool — REGISTER OR UPDATE A PROJECT IN THE REGISTRY ===
+  // 🔹 MANAGE (12.09): shared implementation for manage_projects + the deprecated aliases
+  // (register_project = 'register'; READS-EXTENSION 12.09: get_project_info='info', list_projects='list', search_projects='search').
+  // Flat params + per-action validation on purpose (no zod discriminated union) — keeps SDK parameter handling simple.
+  const manageProjectsImpl = async ({ action, project_name, working_dir_path, source_dirs, query, max_results, confirm }: {
+    readonly action?: string;
+    readonly project_name?: string;
+    readonly working_dir_path?: string;
+    readonly source_dirs?: string[];
+    readonly query?: string;
+    readonly max_results?: number;
+    readonly confirm?: boolean;
+  }): Promise<{ success: boolean; data?: Record<string, unknown>; error?: string }> => {
+    switch (action) {
+      case 'register': {
+        if (!project_name || !working_dir_path) {
+          return { success: false, error: "action='register' requires project_name AND working_dir_path." };
+        }
+        await projectRegistry.registerProject(project_name, working_dir_path, source_dirs);
+        return { success: true, data: { action, registered: true, project_name } };
+      }
+      case 'unregister': {
+        if (!working_dir_path) {
+          return { success: false, error: "action='unregister' requires working_dir_path (find it via action=list or action=search first)." };
+        }
+        if (!confirm) {
+          return { success: false, error: 'Confirmation required for destructive action. Set confirm=true to unregister this project.' };
+        }
+        const result = await projectRegistry.unregisterProject(working_dir_path);
+        if (!result.removed) {
+          return { success: false, error: `No registered project found at path: ${working_dir_path}` };
+        }
+        return { success: true, data: { action, unregistered: true, project_name: result.project?.name, working_dir_path } };
+      }
+      case 'update': {
+        if (!working_dir_path) {
+          return { success: false, error: "action='update' requires working_dir_path (the anchor of the registration to modify)." };
+        }
+        if (!project_name && source_dirs === undefined) {
+          return { success: false, error: "action='update' needs at least one change: project_name (rename) and/or source_dirs." };
+        }
+        const result = await projectRegistry.updateProject(working_dir_path, { name: project_name, sourceDirs: source_dirs });
+        if (!result.updated) {
+          return { success: false, error: `No registered project found at path: ${working_dir_path}` };
+        }
+        return { success: true, data: { action, updated: true, project: result.project } };
+      }
+      case 'clear_all': {
+        if (!confirm) {
+          return { success: false, error: 'Confirmation required for destructive action. Set confirm=true to clear ALL project registrations.' };
+        }
+        await projectRegistry.clearAll();
+        return { success: true, data: { action, cleared: true } };
+      }
+      case 'info': {
+        if (!working_dir_path) {
+          return { success: false, error: "action='info' requires working_dir_path." };
+        }
+        // 🔹 READS-EXTENSION (12.09): logic carried over from the former get_project_info tool — same manager call, same not-found error shape.
+        const project = await projectRegistry.getProjectByPath(working_dir_path);
+        if (!project) {
+          return { success: false, error: `Project not found for path: ${working_dir_path}` };
+        }
+        return { success: true, data: { action, project } };
+      }
+      case 'list': {
+        const projects = await projectRegistry.getAllProjects();
+        // 🔹 F1' (11.09), carried over from list_projects: self-describing empty result — an empty list must not look like a normal "no data" answer;
+        // attach the registry-file status so callers know whether to ask the user about a NEW project instead of guessing.
+        const data: Record<string, unknown> = { action, projects };
+        if (projects.length === 0) {
+          data.registry = await projectRegistry.getRegistryDiagnostics();
+        }
+        return { success: true, data };
+      }
+      case 'search': {
+        if (!query) {
+          return { success: false, error: "action='search' requires query." };
+        }
+        const results = await projectRegistry.search(query, max_results ?? 10);
+        // 🔹 F1' (11.09), carried over from search_projects: "no match" in a missing/empty registry means "nothing registered yet", not "wrong spelling".
+        const data: Record<string, unknown> = { action, projects: results };
+        if (results.length === 0) {
+          const diag = await projectRegistry.getRegistryDiagnostics();
+          if (diag.status !== 'has_projects') {
+            data.registry = diag;
+          }
+        }
+        return { success: true, data };
+      }
+      default:
+        return { success: false, error: `Unknown or missing action '${action ?? ''}'. Valid actions: register | unregister | update | clear_all | info | list | search.` };
+    }
+  };
+
+  // manage_projects tool — FULL PROJECT-REGISTRY MANAGEMENT: mutations + reads (12.09 remodel of register_project; READS-EXTENSION absorbed get_project_info / list_projects / search_projects) ===
+  tools.push(tool({
+    name: 'manage_projects',
+    description: `Manage projects in the cross-project registry — mutations AND reads (12.09 remodel of register_project; 12.09 extension absorbed get_project_info / list_projects / search_projects). This is the single tool for ALL project-registry operations.
+
+MUTATIONS:
+• register — add a new project or refresh an existing one (same canonical path updates name/sourceDirs/lastAccessed)
+• unregister — remove ONE project by working_dir_path; requires confirm=true. The path is tombstoned so auto-sync cannot resurrect it from stale session-memory stamps; re-registering the same path clears the tombstone
+• update — rename a registered project and/or replace its source_dirs, anchored by working_dir_path (at least one of project_name/source_dirs required)
+• clear_all — wipe ALL registrations; requires confirm=true
+
+READS:
+• info — full details for ONE registered project, by working_dir_path; error if not found
+• list — all registered projects (name, path, last-accessed time, session counts); an EMPTY result is self-describing via registry diagnostics — status "missing"/"empty" means nothing is registered yet → ask the user about a new project instead of guessing paths
+• search — find by name or path fragment; matching is case- AND word-separator-insensitive ("ai toolbox" ≡ "ai_toolbox"); query required, max_results optional (default 10, max 50); same self-describing empty-result behavior
+
+CONSENT CONTRACT (mandatory for register):
+• Only register AFTER the user has confirmed that this is a NEW project AND explicitly told you where its working directory is located.
+• NEVER guess, infer, or fuzzy-search for a path — if action=list/action=search return zero results with registry status "missing" or "empty", ask the user first: "Is this a new project? Where is it located?"
+• Refreshing an ALREADY-registered project (same canonical path) is fine without re-asking.
+
+WHEN TO USE:
+• User confirms a new project and provides its working directory path → action=register
+• User wants to remove/forget a registered project → action=unregister (confirm=true)
+• Renaming a project or fixing its source dirs → action=update
+• Starting from scratch with the registry → action=clear_all (confirm=true)
+• "What projects are registered?" / details for one known project → action=list / action=info
+• Locating an unknown project by name/path fragment → action=search
+
+Context switching stays switch_context.`,
+    parameters: {
+      action: z.enum(['register', 'unregister', 'update', 'clear_all', 'info', 'list', 'search']).describe('Operation to perform on the project registry'),
+      project_name: z.string().optional().describe("For register/update: human-readable project name (e.g., \"ai_toolbox\"). For update, also serves as the NEW name (rename)."),
+      working_dir_path: z.string().optional().describe('Absolute path to the project working directory — required for register/unregister/update/info'),
+      source_dirs: z.array(z.string()).optional().describe('Known source directories within the project (e.g., ["src/", "lib/"]) — register adds, update replaces'),
+      query: z.string().optional().describe('For search: name/path fragment — case- AND word-separator-insensitive (spaces, underscores and hyphens are equivalent; "ai toolbox" matches "ai_toolbox")'),
+      max_results: z.number().min(1).max(50).optional().default(10).describe('For search: maximum number of results (default 10, max 50)'),
+      confirm: z.boolean().optional().describe('Must be true for destructive actions (unregister, clear_all); ignored by read actions'),
+    },
+    implementation: async ({ action, project_name, working_dir_path, source_dirs, query, max_results, confirm }: {
+      readonly action?: string;
+      readonly project_name?: string;
+      readonly working_dir_path?: string;
+      readonly source_dirs?: string[];
+      readonly query?: string;
+      readonly max_results?: number;
+      readonly confirm?: boolean;
+    }) => {
+      try {
+        return await manageProjectsImpl({ action, project_name, working_dir_path, source_dirs, query, max_results, confirm });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(`[ContextManagement.manage_projects] ERROR: ${message}`);
+        return { success: false, error: `manage_projects failed: ${message}` };
+      }
+    },
+  }));
+
+  // register_project tool — DEPRECATED ALIAS of manage_projects(action='register'), kept for one release cycle ===
   tools.push(tool({
     name: 'register_project',
-    description: `Register or update a project in the cross-project registry. This enables switching between projects and accessing their session memory.\n\nWHEN TO USE:\n• When starting work on a new project directory\n• When user changes working directory to a different project\n• Before saving context for a specific project`,
+    description: `⚠️ DEPRECATED (12.09): use manage_projects(action="register") instead — this alias is kept for one release cycle and will be removed.\n\nRegister or update a project in the cross-project registry by name + working-dir path (+ optional source dirs). The consent contract of manage_projects applies: only register AFTER user confirmation of a NEW project + its location; never guess paths.`,
     parameters: {
       project_name: z.string().describe('Human-readable project name (e.g., "ai_toolbox", "Direct2D App")'),
       working_dir_path: z.string().describe('Absolute path to the project working directory'),
@@ -1903,10 +2353,9 @@ WHEN TO USE:
       readonly working_dir_path: string; 
       readonly source_dirs?: string[]; 
     }) => {
+      // 🔹 MANAGE (12.09): deprecated alias — delegates to the shared manage_projects implementation.
       try {
-        await projectRegistry.registerProject(project_name, working_dir_path, source_dirs);
-        
-        return { success: true, data: { registered: true, project_name } };
+        return await manageProjectsImpl({ action: 'register', project_name, working_dir_path, source_dirs });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         console.error(`[ContextManagement.register_project] ERROR: ${message}`);
@@ -1915,22 +2364,20 @@ WHEN TO USE:
     },
   }));
 
-  // get_project_info tool — GET INFO ABOUT A SPECIFIC PROJECT ===
+  // get_project_info tool — DEPRECATED ALIAS of manage_projects(action='info'), kept for one release cycle ===
   tools.push(tool({
     name: 'get_project_info',
-    description: `Get information about a specific registered project by its working directory path.`,
+    description: `⚠️ DEPRECATED (12.09): use manage_projects(action="info") instead — this alias is kept for one release cycle and will be removed.\n\nGet information about a specific registered project by its working directory path.`,
     parameters: {
       working_dir_path: z.string().describe('Absolute path to the project working directory'),
     },
     implementation: async ({ working_dir_path }: { readonly working_dir_path: string }) => {
+      // 🔹 READS-EXTENSION (12.09): deprecated alias — delegates to the shared manage_projects impl ('info').
+      // Legacy response shape preserved: on success data is the bare project object; unknown paths keep the original not-found error text.
       try {
-        const project = await projectRegistry.getProjectByPath(working_dir_path);
-        
-        if (!project) {
-          return { success: false, error: `Project not found for path: ${working_dir_path}` };
-        }
-        
-        return { success: true, data: project };
+        const res = await manageProjectsImpl({ action: 'info', working_dir_path });
+        if (!res.success || !res.data) return { success: false, error: res.error ?? 'Unknown error' };
+        return { success: true, data: res.data.project as Record<string, unknown> };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         console.error(`[ContextManagement.get_project_info] ERROR: ${message}`);
@@ -1939,16 +2386,20 @@ WHEN TO USE:
     },
   }));
 
-  // list_projects tool — LIST ALL REGISTERED PROJECTS ===
+  // list_projects tool — DEPRECATED ALIAS of manage_projects(action='list'), kept for one release cycle ===
   tools.push(tool({
     name: 'list_projects',
-    description: `List all registered projects in the cross-project registry. Shows project names, paths, last accessed time, and session counts.\n\nWHEN TO USE:\n• User asks "what projects have I worked on?"\n• Before switching to a different project's context\n• Checking which projects are tracked`,
+    description: `⚠️ DEPRECATED (12.09): use manage_projects(action="list") instead — this alias is kept for one release cycle and will be removed.\n\nList all registered projects in the cross-project registry. Shows project names, paths, last accessed time, and session counts.`,
     parameters: {},
     implementation: async () => {
+      // 🔹 READS-EXTENSION (12.09): deprecated alias — delegates to the shared manage_projects impl ('list').
+      // Legacy response shape preserved: data = { projects } (+ registry diagnostics on empty result), no `action` key.
       try {
-        const projects = await projectRegistry.getAllProjects();
-        
-        return { success: true, data: { projects } };
+        const res = await manageProjectsImpl({ action: 'list' });
+        if (!res.success || !res.data) return { success: false, error: res.error ?? 'Unknown error' };
+        const legacyData: Record<string, unknown> = { projects: res.data.projects };
+        if (res.data.registry !== undefined) legacyData.registry = res.data.registry;
+        return { success: true, data: legacyData };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         console.error(`[ContextManagement.list_projects] ERROR: ${message}`);
@@ -1957,22 +2408,26 @@ WHEN TO USE:
     },
   }));
 
-  // search_projects tool — SEARCH PROJECTS BY NAME OR PATH ===
+  // search_projects tool — DEPRECATED ALIAS of manage_projects(action='search'), kept for one release cycle ===
   tools.push(tool({
     name: 'search_projects',
-    description: `Search registered projects by name or path.`,
+    description: `⚠️ DEPRECATED (12.09): use manage_projects(action="search") instead — this alias is kept for one release cycle and will be removed.\n\nSearch registered projects by name or path.`,
     parameters: {
       query: z.string().describe('Search query to match against project names or paths'),
       max_results: z.number().min(1).max(50).optional().default(10).describe('Maximum number of results to return'),
     },
-    implementation: async ({ query, max_results = 10 }: { 
+    implementation: async ({ query, max_results }: { 
       readonly query: string; 
       readonly max_results?: number; 
     }) => {
+      // 🔹 READS-EXTENSION (12.09): deprecated alias — delegates to the shared manage_projects impl ('search').
+      // Legacy response shape preserved: data = { projects } (+ registry diagnostics when empty in a non-has_projects registry), no `action` key.
       try {
-        const results = await projectRegistry.search(query, max_results);
-        
-        return { success: true, data: { projects: results } };
+        const res = await manageProjectsImpl({ action: 'search', query, max_results });
+        if (!res.success || !res.data) return { success: false, error: res.error ?? 'Unknown error' };
+        const legacyData: Record<string, unknown> = { projects: res.data.projects };
+        if (res.data.registry !== undefined) legacyData.registry = res.data.registry;
+        return { success: true, data: legacyData };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         console.error(`[ContextManagement.search_projects] ERROR: ${message}`);
