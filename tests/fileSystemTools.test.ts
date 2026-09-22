@@ -311,4 +311,98 @@ describe('File System Tools', () => {
       expect((result as any).success).toBe(true);
     });
   });
+
+  // ==================== 21.09 EOL-FIX ====================
+  describe('detectLineEndings (unit)', () => {
+    const { detectLineEndings } = require('../src/tools/fileSystemTools');
+    test("classifies uniform CRLF", () => expect(detectLineEndings('a\r\nb\r\nc')).toBe('crlf'));
+    test("classifies pure LF (incl. empty string)", () => {
+      expect(detectLineEndings('a\nb\nc')).toBe('lf');
+      expect(detectLineEndings('')).toBe('lf');
+    });
+    test('classifies mixed endings', () => {
+      expect(detectLineEndings('a\r\nb\nc')).toBe('mixed');
+      expect(detectLineEndings('a\nb\r\nc')).toBe('mixed');
+    });
+  });
+
+  describe('replace_text_in_file — EOL round-trip (21.09 EOL-FIX)', () => {
+    /** Content actually handed to atomicWriteFile (writeFile call for the '.tmp' path). */
+    function writtenContent(): string {
+      const writeSpy = mockFs.promises.writeFile as jest.Mock;
+      const call = writeSpy.mock.calls.find((c) => String(c[0]).endsWith('.tmp'));
+      return call ? String(call[1]) : '<nothing written>';
+    }
+
+    test('uniform CRLF file: replacement keeps every line ending CRLF', async () => {
+      const tool = tools?.find(t => t.name === 'replace_text_in_file');
+      (mockFs.promises.readFile as jest.Mock).mockResolvedValueOnce(Buffer.from('alpha\r\nbeta\r\ngamma'));
+      const result: any = await tool?.implementation({ file_name: 'eol1.txt', old_string: 'beta', new_string: 'BETA' });
+      expect(result.success).toBe(true);
+      expect(writtenContent()).toBe('alpha\r\nBETA\r\ngamma');
+    });
+
+    test('mixed-EOL file: bare-LF lines are NOT flipped to CRLF (regression for silent corruption)', async () => {
+      const tool = tools?.find(t => t.name === 'replace_text_in_file');
+      // 'beta' sits on a bare-LF line; the old boolean logic (any-CRLF-in-file) rewrote it to CRLF.
+      (mockFs.promises.readFile as jest.Mock).mockResolvedValueOnce(Buffer.from('alpha\r\nbeta\ngamma'));
+      const result: any = await tool?.implementation({ file_name: 'eol2.txt', old_string: 'beta', new_string: 'BETA' });
+      expect(result.success).toBe(true);
+      expect(writtenContent()).toBe('alpha\r\nBETA\ngamma'); // byte-exact outside the replaced range
+    });
+
+    test('pure LF file stays pure LF and CRLF in old/new strings still matches', async () => {
+      const tool = tools?.find(t => t.name === 'replace_text_in_file');
+      (mockFs.promises.readFile as jest.Mock).mockResolvedValueOnce(Buffer.from('alpha\nbeta\ngamma'));
+      // Model pasted a snippet with CRLF endings — normalization must still find it, output stays LF.
+      const result: any = await tool?.implementation({ file_name: 'eol3.txt', old_string: 'alpha\r\nbeta', new_string: 'X' });
+      expect(result.success).toBe(true);
+      expect(writtenContent()).toBe('X\ngamma');
+    });
+
+    test("normalize_line_endings:false stays raw (pre-existing contract)", async () => {
+      const tool = tools?.find(t => t.name === 'replace_text_in_file');
+      (mockFs.promises.readFile as jest.Mock).mockResolvedValueOnce(Buffer.from('alpha\nbeta'));
+      const result: any = await tool?.implementation({ file_name: 'eol4.txt', old_string: 'alpha\r\nbeta', new_string: 'X', normalize_line_endings: false });
+      expect(result.success).toBe(false); // raw \r\n does not exist in an LF file
+    });
+  });
+
+  describe('get_file_metadata — EOL/BOM reporting (21.09 EOL-FIX)', () => {
+    test('reports eol + bom for CRLF-with-BOM files', async () => {
+      const tool = tools?.find(t => t.name === 'get_file_metadata');
+      (mockFs.promises.readFile as jest.Mock).mockResolvedValueOnce(Buffer.from('\uFEFFalpha\r\nbeta'));
+      const result: any = await tool?.implementation({ path: 'meta1.txt' });
+      expect(result.success).toBe(true);
+      expect(result.data.eol).toBe('crlf');
+      expect(result.data.bom).toBe(true);
+    });
+
+    test('reports eol + bom:false for pure LF files without BOM', async () => {
+      const tool = tools?.find(t => t.name === 'get_file_metadata');
+      (mockFs.promises.readFile as jest.Mock).mockResolvedValueOnce(Buffer.from('alpha\nbeta'));
+      const result: any = await tool?.implementation({ path: 'meta2.txt' });
+      expect(result.success).toBe(true);
+      expect(result.data.eol).toBe('lf');
+      expect(result.data.bom).toBe(false);
+    });
+
+    test('reports eol:"mixed" for mixed-ending files', async () => {
+      const tool = tools?.find(t => t.name === 'get_file_metadata');
+      (mockFs.promises.readFile as jest.Mock).mockResolvedValueOnce(Buffer.from('alpha\r\nbeta\ngamma'));
+      const result: any = await tool?.implementation({ path: 'meta3.txt' });
+      expect(result.success).toBe(true);
+      expect(result.data.eol).toBe('mixed');
+    });
+
+    test('survives an unreadable file (stats still reported, no eol/bom keys)', async () => {
+      const tool = tools?.find(t => t.name === 'get_file_metadata');
+      (mockFs.promises.readFile as jest.Mock).mockImplementationOnce(() => Promise.reject(new Error('EACCES')));
+      const result: any = await tool?.implementation({ path: 'meta4.txt' });
+      expect(result.success).toBe(true);
+      expect(result.data.size).toBe(100);
+      expect(result.data.eol).toBeUndefined();
+      expect(result.data.bom).toBeUndefined();
+    });
+  });
 });

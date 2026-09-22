@@ -13,35 +13,29 @@
  * Every cooperative check in the caller reads guard.signal.aborted — there is exactly one abort
  * state, no secondary flags, no race promises, no orphaned timers (disarm() clears the deadline).
  *
- * ITEM-B (05.09): worker isolation RESTORED at the two incident hotspots — grep_files processWithRegex and
- * pattern_scan scanFileWithLimits now route ALL regex file evaluation through src/utils/regexWorker.ts, where a
- * watchdog terminate() preempts even an unpreemptible .test() (proven live 30.08, FIX-HANG-5c). A spinning
- * catastrophic-backtracking pattern therefore dies in an isolated worker instead of starving this thread; the cap
- * above remains the cross-file wall-clock budget + host-abort forwarding layer (and terminates in-flight evals via
- * externalSignal). Residual inline exposure: find_replace_all's whole-file .match()/.replace() segments still run
- * under pre-call cooperative gates only (out of ITEM-B scope — that tool modifies files and keeps its 15 s budget).
- */
+ * DE-STRAngle (16.09): pattern_scan no longer routes regex eval through src/utils/regexWorker.ts — it now evaluates
+ * gate-surviving patterns INLINE on the host thread: an ungated ReDoS-capable pattern cannot reach eval by construction
+ * (isSafeRegex demotes unsafe/invalid regexes to escaped literal BEFORE any I/O; see src/tools/patternScan.ts), so the
+ * former per-eval worker watchdog protected a class that is structurally unreachable while costing one IPC round-trip +
+ * pool spawn pacing per file. The worker module and its watchdog are retained for other/future consumers (still tested).
+ * Residual inline exposure: find_replace_all’s whole-file .match()/.replace() segments still run under pre-call cooperative
+ * gates only — that tool modifies files and keeps its FIND_REPLACE_ALL_MAX_RUN_MS wall budget as a mid-batch cut point.
 
 /** Default wall-clock cap for ONE grep_files call (ms). Set by user order 04.09: keep it tunable in one place. */
 export const GREP_MAX_RUN_MS = 500;
 
-/**
- * Wall-clock cap for ONE pattern_scan call (ms) — 13.09 FIX-34a follow-up (user GO 13.2x): the tool now runs a fully
- * async, abortable full-JS pipeline (the sync rg-WASM B' segment that justified inheriting grep_files' sync-era
- * constant is removed), so GREP_MAX_RUN_MS=500 chronically truncated recursive scans at ~17 files with partial results.
- * Same single-source-of-truth philosophy (one tunable place per tool class in this file), sized for multi-file trees:
- * the cap still bounds any runaway walk/eval burst; ReDoS containment remains the per-eval worker watchdog (250ms).
- */
-export const PATTERN_SCAN_MAX_RUN_MS = 3000;
+// DE-STRAngle (16.09): the former PATTERN_SCAN_MAX_RUN_MS wall cap for pattern_scan was REMOVED — its threat model
+// (a sync segment starving this thread) has been gone since FIX-34a (13.09). A fully async pipeline cannot
+// self-starve, so the cap’s only remaining effect was chronic `aborted: true` partial results on larger trees.
+// Cancellation is host-signal-only now; see createGrepGuard signal-only mode (deadlineMs <= 0) below.
 
 /** find_replace_all keeps its historical full-scan budget — it modifies files, so a short cap would cut batches mid-apply. */
 export const FIND_REPLACE_ALL_MAX_RUN_MS = 15_000;
 
 /**
- * Wall-clock cap for ONE grep_files call (ms) — 13.09 FIX-34b: grep_files now runs a full-JS async, abortable
- * pipeline (rg candidate prefilter isolated in a worker + per-eval regex-worker isolation), so the sync-era
- * GREP_MAX_RUN_MS=500 would again chronically truncate recursive scans at ~17 files. Mirrors PATTERN_SCAN_MAX_RUN_MS:
- * one tunable constant per tool class in this file; ReDoS containment remains the per-eval worker watchdog (250ms).
+ * Wall-clock cap for ONE ripgrep-engine call (ms) — constant name kept from the removed grep_files tool (14.09 TOOL SWAP):
+ * a wedged rg worker is terminated at this budget, so results are PARTIAL and reported as such. One tunable constant per
+ * tool class in this file; the pattern_scan equivalent was REMOVED by DE-STRAngle (16.09) — see the note above.
  */
 export const GREP_FILES_MAX_RUN_MS = 3000;
 

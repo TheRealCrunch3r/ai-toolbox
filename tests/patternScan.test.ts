@@ -310,12 +310,11 @@ describe('globs and traversal', () => {
     const FALLBACK_ONLY_SKIP = { file: 'skip.bin', reason: 'binary' as const };
 
     // Leg b (concurrency=8) — DETERMINISM CONTRACT: a scan that COMPLETES un-aborted equals the pinned set, regardless of
-    // concurrency/scheduling. SLOW-HOST RELAXATION (the path this comment always prescribed): pool overhead on a contended host —
-    // one-time startup probe (~5 spawns × ≥120ms pacing — tuned 06.09, was ≥250ms), ≥120ms spawn rate-limit + ~43-67ms cold boot per eval after the DRAIN rule
-    // kills idles between calls — can push even an 8-way scan past the pattern_scan wall (PATTERN_SCAN_MAX_RUN_MS=3000 since 13.09 FIX-34a follow-up; was user-ordered GREP_MAX_RUN_MS=500). A cap-abort is then a
-    // HOST-LOAD fact, not a determinism violation, so on abort we drop to subset assertions HERE — never by touching the cap constant
-    // or weakening the dedicated cap test below. (Note, updated 13.09: with the wall raised 500→3000 this leg completes un-aborted in
-    // virtually all regimes and hits the EXACT pin; the relaxed branch remains for contended hosts.)
+    // concurrency/scheduling. DE-STRAngle (16.09): there is NO wall cap and no worker pool in this pipeline anymore (inline host eval),
+    // so completion un-aborted is the expected outcome on every sane host — the exact pin is the primary contract here. `aborted` can
+    // only mean a HOST signal now, and none is passed to this scan: the subset branch below stays purely as a defensive contract class
+    // for future pipeline changes. (Historical: 05.09–13.09 this leg needed the relaxed branch — pool pacing + PATTERN_SCAN_MAX_RUN_MS
+    // could abort under host load; that class no longer exists for this tool.)
     const tB = Date.now();
     const b = await patternScan({ pattern: 'NEEDLE', root, concurrency: 8 });
     // DIAGNOSTIC (test-only): surface elapsed + wall outcome — jest swallows patternScan's own phase-1 status console.log.
@@ -336,10 +335,10 @@ describe('globs and traversal', () => {
       }
     }
 
-    // Leg a (concurrency=1): sequential — cold pool spawn + pacing cost per eval (the pool DRAINS idles between calls). 13.09 FIX-34a follow-up:
-    // with PATTERN_SCAN_MAX_RUN_MS=3000 the full scan now normally COMPLETES un-aborted even at concurrency=1 on sane hosts — so this leg is
-    // regime-tolerant (same contract class as leg b): complete → EXACT pin; only extreme host load still fires the wall mid-scan, and then the
-    // partial results labeled `aborted` remain structurally sound. The EXACT cutoff file is scheduling-dependent when aborted (see dedicated test below).
+    // Leg a (concurrency=1): sequential over all targets — DE-STRAngle (16.09) removed both the wall cap and the per-file worker dispatch, so
+    // this leg COMPLETES un-aborted on any sane host (inline eval; fs awaits between files keep the event loop turning). The regime-tolerant
+    // structure (complete → EXACT pin / aborted → structurally sound partials) is kept as a defensive contract: `aborted` can only mean a HOST
+    // signal now, and none is passed here — exact-pin equality is therefore the expected outcome for this leg too.
     const a = await patternScan({ pattern: 'NEEDLE', root, concurrency: 1 });
     expect(a.ok).toBe(true);
 
@@ -355,7 +354,7 @@ describe('globs and traversal', () => {
       } // end else — cap-trimmed regime (aborted=true), added with the 13.09 regime split above
   });
 
-  it('concurrency=1 scans are structurally sound in ANY regime — complete or cap-trimmed partial (consistent prefix; wall raised to 3000ms 13.09)', async () => {
+  it('concurrency=1 scans are structurally sound in ANY regime — complete, or host-aborted partials with a consistent prefix (DE-STRAngle 16.09 removed the wall cap)', async () => {
     // REGRESSION PIN — worker-pool rework follow-up (05.09); UPDATED 13.09 FIX-34a follow-up: with PATTERN_SCAN_MAX_RUN_MS=3000
     // the sequential scan now COMPLETES on sane hosts → r.aborted=false and matches equal the authoritative complete pin; only
     // extreme host load still fires the wall mid-scan, and then the partial result must stay structurally consistent. The invariants
@@ -420,5 +419,57 @@ describe('globs and traversal', () => {
     // …plus at most { big.txt's bump when passed, lit/skip.bin bumps that produced no match (B' pre-worker gates or fallback cursor), one stop file bumped-but-never-completed }:
     // Bound width = non-matching candidates that can be bumped without producing a match (big size-gate, lit/skip.bin pattern-absent, depthfix mid/floor — added with the isolated-sub-root correction) + one stop file:
     expect(r.stats.filesScanned).toBeLessThanOrEqual(present.size + 6);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Long-line eval bound (DE-STRAngle 16.09 — deterministic size bound replacing the worker-era time watchdog)
+// ---------------------------------------------------------------------------
+
+describe('long-line size bound (DE-STRAngle 16.09)', () => {
+  let llRoot: string; // isolated tmp dir — deliberately OUTSIDE the shared `root` tree above so it cannot leak into PINNED_COMPLETE
+  const PROBE = 'LONGLINE_PROBE_42';
+
+  beforeAll(() => {
+    llRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ps-longline-'));
+    // a.txt: line 2 is 11_017 chars (> default bound 10_000) yet carries the probe; line 3 sits under the bound.
+    const overA = 'a'.repeat(5_000) + PROBE + 'b'.repeat(6_000);
+    fs.writeFileSync(path.join(llRoot, 'a.txt'), `${PROBE} head\n${overA}\n${PROBE} tail ${'c'.repeat(9_400)}\n`);
+    // b.txt: line 2 is 24_035 chars — beyond the default bound but within the raised bound used in test 2.
+    const overB = 'x'.repeat(12_000) + PROBE + 'y'.repeat(12_000);
+    fs.writeFileSync(path.join(llRoot, 'b.txt'), `${PROBE} head\n${overB}\n${PROBE} tail\n`);
+  });
+
+  afterAll(() => {
+    fs.rmSync(llRoot, { recursive: true, force: true });
+  });
+
+  it('excludes lines longer than the default maxEvalLineLength (10_000) from eval — one long-line record per affected file', async () => {
+    const r = await patternScan({ pattern: PROBE, root: llRoot });
+    expect(r.ok).toBe(true);
+    expect((r.aborted ?? false)).toBe(false);
+    // Both files match on their short lines only — line 2 of EACH carries the probe but is deterministically excluded by length:
+    const inA = r.matches.filter((m) => m.file === 'a.txt').map((m) => m.line);
+    const inB = r.matches.filter((m) => m.file === 'b.txt').map((m) => m.line);
+    expect(inA).toEqual([1, 3]); // a.txt line 3 is under the bound → still evaluated + matched (per-line decision, not whole-file)
+    expect(inB).toEqual([1, 3]); // b.txt line 2 = 24_035 chars > bound → its probe is NEVER matched
+    expect(r.skipped).toEqual([
+      { file: 'a.txt', reason: 'long-line' }, // ONE record per affected file — not one per over-long line
+      { file: 'b.txt', reason: 'long-line' },
+    ]);
+  });
+
+  it('raising maxEvalLineLength re-includes previously excluded long lines (bound is a tool parameter, deterministic)', async () => {
+    const raised = await patternScan({ pattern: PROBE, root: llRoot, maxEvalLineLength: 30_000 });
+    expect(raised.ok).toBe(true);
+    const inA = raised.matches.filter((m) => m.file === 'a.txt').map((m) => m.line);
+    const inB = raised.matches.filter((m) => m.file === 'b.txt').map((m) => m.line);
+    expect(inA).toEqual([1, 2, 3]); // bound lifted → both over-long lines are evaluated + matched now
+    expect(inB).toEqual([1, 2, 3]);
+    expect(raised.skipped).toEqual([]); // no over-long line remains under the raised bound
+    // Reported content of a matched long line is still truncated to matchLineLength (orthogonal bound):
+    const m2 = raised.matches.find((m) => m.file === 'a.txt' && m.line === 2)!;
+    expect(m2.content.length).toBeLessThanOrEqual(301); // cap-1 chars + '…'
+    expect(m2.content.endsWith('…')).toBe(true);
   });
 });

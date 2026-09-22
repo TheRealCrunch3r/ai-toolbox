@@ -48,8 +48,27 @@ import { TokenStatsManager } from './tokenStatsManager.js';
 // OOM attribution (crashes 2026-08-24 ~20:24/21:10): pre-call heap probe so the next crash names its suspect tool.
 import { checkHeapPressure } from './performanceUtils.js';
 
+// Cluster-aware tool ordering (18.09): wires src/tools/toolPriority.ts into production — see CHANGELOG_v2 18.09 entry.
+import type { HubExclusionResult } from './utils/hubExclusionClustering.js';
+import { analyzeAiToolboxDependencies } from './utils/hubExclusionClustering.js';
+import { sortToolsByClusterAwarePriority } from './tools/toolPriority.js';
+
 let stateManager: StateManager;
 let backgroundCommandManager: BackgroundCommandManager;
+
+
+// Cluster-aware tool ordering (18.09): analyzeAiToolboxDependencies() is pure and static — it builds a
+// ~25-node graph from the hardcoded ARCHITECTURE.md edge list (no fs I/O), so compute it exactly once per
+// process lifetime and reuse for every provider run. Kept separate from ContextGuard's 5-minute cache on
+// purpose: tool ordering wants one stable result, not a periodically re-computed one.
+let cachedToolsClustering: HubExclusionResult | null = null;
+
+function getClusteringForToolOrder(): HubExclusionResult {
+  if (!cachedToolsClustering) {
+    cachedToolsClustering = analyzeAiToolboxDependencies();
+  }
+  return cachedToolsClustering;
+}
 
 // --- Registry Pattern for Declarative Tool Registration ---
 type ToolRegisterFn = () => Tool[];
@@ -120,6 +139,7 @@ export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[
     autoTrackErrors: pluginConfig.get('autoTrackErrors'),
     autoSummaryInterval: pluginConfig.get('autoSummaryInterval'),
     taskPlanning: pluginConfig.get('taskPlanning'),
+    clusterAwareToolOrder: pluginConfig.get('clusterAwareToolOrder'),
   };
 
 
@@ -218,12 +238,21 @@ export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[
     }
   }
 
-  // Sort alphabetically for consistent ordering
-  tools.sort((a, b) => a.name.localeCompare(b.name));
+  // Cluster-aware tool send-order (18.09 — wires src/tools/toolPriority.ts into production; the tier table
+  // and cluster-aware ranking existed and were unit-tested since 21.08 but were never called from this provider).
+  // Order = priority tier -> module centrality (static ARCHITECTURE.md graph) -> alphabetical name.
+  // Toggle: config.clusterAwareToolOrder (default true); OFF restores the legacy alphabetical order exactly.
+  const ordered = config.clusterAwareToolOrder
+    ? sortToolsByClusterAwarePriority(tools, getClusteringForToolOrder())
+    : [...tools].sort((a, b) => a.name.localeCompare(b.name));
+
+  if (config.clusterAwareToolOrder) {
+    console.log('[AI Toolbox] [CLUSTER-AWARE] Tool send-order = tier + module centrality (disable via clusterAwareToolOrder toggle).');
+  }
 
   // Minify schemas to prevent llama.cpp EBNF grammar parser crashes
   // PR #17381 enforces a hard limit of 2000 on repetition bounds
-  const minified = minifyTools(tools);
+  const minified = minifyTools(ordered);
 
   // Report the final tool set so ContextGuard's token estimate includes the serialized definitions (see toolOverhead.ts)
   reportToolSchemas(minified);

@@ -49,6 +49,10 @@ export const ConfigSchema = z.object({
   // ── 📋 TASK PLANNING TOOLS ───────────────────────────────────────
   taskPlanning: z.boolean().default(true).describe('Enable structured multi-step workflow tools (create_plan, update_plan_step, get_plan)'),
 
+  // ── 🧭 TOOL ORDERING (cluster-aware, wired 18.09) ───────────────────────
+
+  clusterAwareToolOrder: z.boolean().default(true).describe('Sort exposed tools by priority tier + module centrality instead of alphabetically'),
+
 
   // ── ⚠️ GOD MODE (Enable ALL tools at once) ──────────────────────
 
@@ -120,7 +124,8 @@ export const ConfigSchema = z.object({
 
   statePersistenceEnabled: z.boolean().default(true),
 
-  stateMaxSize: z.number().min(1024).max(1048576).default(51200),
+  // 🔹 SPEC-C (20.09, memory-store incident): default raised 51200 → 262144 (256 KiB) — the old value left ~3.5 KB headroom after a normal session and one more write poisoned the store permanently.
+    stateMaxSize: z.number().min(1024).max(1048576).default(262144),
 
 
 
@@ -244,7 +249,8 @@ export const DEFAULT_CONFIG: PluginConfig = {
 
   statePersistenceEnabled: true,
 
-  stateMaxSize: 51200,
+  // 🔹 SPEC-C (20.09): matches the zod default above — 262144 (was 51200). See spec C / memory-store incident.
+stateMaxSize: 262144,
 
   language: 'en',
 
@@ -279,6 +285,8 @@ export const DEFAULT_CONFIG: PluginConfig = {
   autoSummaryInterval: 50,
 
   taskPlanning: true,
+
+  clusterAwareToolOrder: true,
 
 };
 
@@ -495,6 +503,18 @@ export const configSchematics = createConfigSchematics()
     hint: 'Enable create_plan, update_plan_step, and get_plan tools for structured task execution.',
 
   }, DEFAULT_CONFIG.taskPlanning)
+
+  // ── 🧭 CLUSTER-AWARE TOOL ORDERING (18.09) ───────────────────────
+
+  .field('clusterAwareToolOrder', 'boolean', {
+
+    displayName: '🧭 Cluster-Aware Tool Ordering',
+
+    subtitle: 'Sort exposed tools by priority tier + module centrality instead of alphabetically.',
+
+    hint: 'Uses the static ARCHITECTURE.md dependency graph (no fs I/O). Disable to restore legacy alphabetical order.',
+
+  }, DEFAULT_CONFIG.clusterAwareToolOrder)
 
 
 

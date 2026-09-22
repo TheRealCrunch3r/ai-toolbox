@@ -1,16 +1,16 @@
 # Documentation Update Summary — AI Toolbox Plugin
 
-**Date**: 2026-09-04  
-**Version**: v1.9.17 (manifest revision 29)  
+**Date**: 2026-09-19  
+**Version**: v1.9.17 (manifest revision 31 — pending publish; rev 30 published 15.09)  
 **Status**: ✅ Complete
 
 ---
 
-## 📋 Version Status Overview (current: **v1.9.17 / manifest revision 29** — version header synced 08.09 for the Tool Gating Profile release; content last refreshed 04.09.2026 against live code; full release history in CHANGELOG_v2.md, most recent before this state: v1.9.12 released 31.08 with the `pattern_scan` tool)
+## 📋 Version Status Overview (current: **v1.9.17 / manifest revision 32** — pending publish; rev 30 published 15.09, version header synced 08.09 for the Tool Gating Profile release; content last refreshed **19.09.2026** against live code (cluster-aware tool ordering + F4 CWD state relocation window); changelog chain: CHANGELOG_v3.md (active) ← CHANGELOG_v2.md (archived 20.09) ← CHANGELOG.md (legacy), plus RELEASE_NOTES.md)
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| **Tool Count** | ✅ Re-audited against code 05.09: **~131 live tool definitions across the 22 registration modules in `src/tools/`** (exposure toggle-dependent; GOD MODE max ≈ 130 after `read_document` dedup). Legacy locale figure: 129 entries / 127 distinct names in `src/locales/en.ts`, parity-verified across all 5 locales (`read_document` and `rag_web_content` appear in two categories each — see ARCHITECTURE.md drift note for the 3 ghost entries / 2 missing tools) | All registered via declarative pattern (v1.8.2+) |
+| **Tool Count** | ✅ Re-audited against code 15.09 (authoritative — supersedes the 05.09 ~131 estimate): i18n locale reference `src/locales/en.ts` carries exactly **130 toolName entries, parity-verified across all 5 locales** → **128 distinct tool names** (`read_document` and `rag_web_content` appear in two categories each); code registration matches — **130 live tool definitions across the 22 registered modules** (re-audit 15.09, ARCHITECTURE.md § "Tool Registration Summary"; per-category counts incl. cross-category duplicates: TOOLS_REFERENCE.md Overview) | All registered via declarative pattern (v1.8.2+) |
 | **Context Management** | ✅ Scoping + Heuristic Scoring + TTL Pruning | v1.9.1+ improvements active |
 | **Token Counting** | ✅ Native History API × 0.24 ratio | Matches LM Studio sidebar <0.3% deviation |
 | **Graphify Intelligence Suite** | ✅ Fully Implemented (v1.9.5) | Confidence tags, hub-exclusion clustering, project auto-detection, tier provenance, cluster-aware priority |

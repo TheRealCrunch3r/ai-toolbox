@@ -1,12 +1,19 @@
-# AI Toolbox — All-in-One AI Agent Toolkit for LM Studio
+# AI Toolbox — All-in-One Autonomous AI Agent & Tool Plugin for Local LLMs in LM Studio
 
-**Give your local LLM real hands.** This is an [LM Studio plugin](https://lmstudio.ai/) that turns any local model into a capable autonomous agent: safe file editing, hang-proof codebase search, background builds, headless browser automation, Git & GitHub workflows, OCR, charting, semantic RAG — and **self-managing context** so marathon sessions never die. One plugin, zero glue code, fully offline by default.
+**AI agent toolkit for LM Studio** — 130+ local-LLM tools: file editing, codebase search, RAG, browser automation, Git & GitHub.
 
-> `v1.9.17` · `130+ ready-made tools` · `761 tests green (46 suites)` · `5 locales` · `MIT` · `Node 20+`
+## Contents
 
+[Why AI Toolbox (vs other plugins)](#why-ai-toolbox-vs-other-lm-studio-plugins) · [Head-to-head comparison](#head-to-head-comparison-vs-beledarians-lm-studio-tools) · [Feature overview](#feature-overview) · [Quick start (2 minutes)](#quick-start-2-minutes) · [Configuration & tool toggles](#configuration--tool-toggles--total-control-zero-code) · [Security posture](#security-posture--built-like-it-matters) · [Architecture](#architecture-under-the-hood-for-the-curious) · [Tool arsenal (130+ tools)](#the-tool-arsenal-130-tools-across-every-family-all-yours-to-toggle) · [Release highlights](#release-highlights-full-history--changelog_v3md--active-v2-archived--legacy-changelogmd)
+
+**Give your local LLM real hands.** The most complete LM Studio Hub plugin — turns any local model into a capable, self-managing AI agent with safe file editing, hang-proof codebase search, background builds, headless browser automation, Git & GitHub workflows, OCR, charting and semantic RAG; **self-managing context** keeps marathon sessions alive. One plugin, zero glue code, fully offline by default.
+
+> `v1.9.18` · `130+ ready-made tools` · `770 tests green (47 suites)` · `5 locales` · `MIT` · `Node 20+`
+
+[!IMPORTANT] LM Studio does NOT support automatic updates. If you encounter issues, update manually first: remove the current version and re-download from the plugin website. Note that LM Studio may show an "already installed" tooltip even if your version is outdated.
 ---
 
-## Why AI Toolbox — Standout Capabilities You Won't Find in Other LM Studio Plugins
+## Why AI Toolbox (vs Other LM Studio Plugins)
 
 *Compared against an Aug 2026 survey of ~115 LM Studio Hub plugins (~40 toolboxes, only 9 with real file tools).*
 **Legend:** 🥇 unique across the entire field · ⭐ rare (≤ a handful) · 🛡️ standout safety engineering
@@ -37,7 +44,7 @@ The closest direct competitor on the Hub: same job (tools for local LLMs), very 
 | ✅ **AST-level refactoring** (rename, move functions, dead-import cleanup) — syntax-safe transforms with auto-rollback, not string edits |
 | ✅ **Real RAG:** local vector index over PDF / DOCX / XLSX with page-level provenance — not just keyword search |
 | ✅ **Image & data viz:** OCR on screenshots and captures, image metadata + comparison, chart generation |
-| ✅ **130+ tools** vs ~49 — backed by 761 passing tests across 46 suites |
+| ✅ **130+ tools** vs ~49 — backed by 770 passing tests across 47 suites |
 | ✅ **Crash-resilient writes + rollback on failure:** a botched edit can never corrupt your file |
 
 Our previous i18n gap is closed: **we now ship 5 locales** (en · de · es · zh-CN · zh-TW), each a full translation set — and anti-stub tests guard the suite so alias/fallback languages can never silently regress. We'd rather tell you than pretend it doesn't exist.
@@ -52,7 +59,7 @@ Our previous i18n gap is closed: **we now ship 5 locales** (en · de · es · zh
 
 ---
 
-## Feature Overview — What You Get
+## Feature Overview
 
 ### Safe File Editing & Search
 In-place replace · line-anchored inserts · chunked reads on huge files · diffs · directory trees — and **every write is backed up first** (`.bak`, one-call restore). Project-wide search that physically cannot hang (`ripgrep`: worker-isolated native scan with a 3 s wall-clock watchdog, default-pruned dirs such as `node_modules`) plus dry-run multi-file replace.
@@ -92,7 +99,7 @@ Charts rendered to image files from raw data (bar/line/pie/doughnut/scatter/rada
 ```bash
 # Developing instead of using?
 npm install && npm run build   # ESM + CJS via tsup
-npm test                        # full suite: 46 suites / 761 tests green (~45 s)
+npm test                        # full suite: 47 suites / 770 tests green (~45 s)
 ```
 
 ---
@@ -126,7 +133,7 @@ Deep dive → [ARCHITECTURE.md](ARCHITECTURE.md) · Dev guide in this file below
 
 ---
 
-## The Tool Arsenal — 130+ Tools Across Every Family, All Yours to Toggle
+## The Tool Arsenal: 130+ Tools Across Every Family, All Yours to Toggle
 
 One plugin replaces an entire shelf. Here's every family, what it covers, and its default state:
 
@@ -157,15 +164,16 @@ One plugin replaces an entire shelf. Here's every family, what it covers, and it
 
 ---
 
-## Release Highlights (full history → CHANGELOG_v2.md)
+## Release Highlights (full history → CHANGELOG_v3.md — active; v2 archived ← legacy CHANGELOG.md)
 
 | Version | Headline |
 |---|---|
-| **v1.9.17** | 💾 Tool Gating Profile — user tool-toggle choices persist across new chats (auto-capture + sticky overlay, sparse user-level store) · rev 29 |
+| **v1.9.18** | 🔒 Suite D shared-file lost-write fix — per-path in-process lock on the snap→rename critical section (new `sharedFileLock.ts`, wired into both writers) · 🧾 EOL-FIX v4 — byte-exact line-ending round-trip for `replace_text_in_file` on mixed/CRLF files + pre-edit eol/bom visibility via `get_file_metadata` reporting (TS7022 tsc gate blocker closed in the same arc) |
+| **v1.9.17** | 💾 Tool Gating Profile — persistent tool toggles (rev 29, published 14.09) · 🔍 ripgrep TOOL SWAP + unified project registry + worker-pool thrash fix (rev 30, last GitHub publish on 15.09) — all rev-31 work (DE-STRAngle, AutoTracker F1+F2, cluster-aware tool ordering, CWD state relocation, SPEC-C) shipped in v1.9.18; ⏳ v1.9.18 / rev 33 publish pending (owner decision) |
 | **v1.9.16** | 🔍 `web_search` zero-result fallback fix — dead/empty engine no longer stops the chain · rev 28: reinstall + restart live-verified same day (blocked `ddg-api` skipped → `ddg-fetch` returned results) |
 | **v1.9.15** | ⚡ B' ripgrep phase-1 prefilter for `pattern_scan` (byte-identical JS fallback guarantee) · rev 27: `ripgrep` promoted to runtime dependency, fixing silent fast-path loss on Hub installs — live-verified on the user machine |
 | **v1.9.14** | 🧠 `get_memory` local-file parse guard — keyless auto-context records no longer abort reads (hotfix) |
-| **v1.9.13** | 🔍 ripgrep-backed regex engine for `grep_files` (in-process WASM prefilter, transparent fallback keeps every hang guard) · `executedTool` ground-truth stamp on all tool results · Tier-1 dead-code removal (~90 KB) |
+| **v1.9.13** | 🔍 ripgrep-backed regex engine for `grep_files` (in-process WASM prefilter, transparent fallback keeps every hang guard; tool removed in the 14.09 TOOL SWAP → standalone native `ripgrep`) · `executedTool` ground-truth stamp on all tool results · Tier-1 dead-code removal (~90 KB) |
 | **v1.9.12** | 🆕 `pattern_scan` recursive content search (unsafe regex auto-demotes to literal; 256 KB / 10k-line hard caps) · puppeteer `connected` property-read fix · dead-file removal — full MD docs sync |
 | **v1.9.10** | 🔧 OOM-hardening suite: bounded web/RAG reads, chunking fixed-point termination, `rag_web_content` dedup — plugin-host heap is now safe under poison payloads |
 | **v1.9.9** | ⏱️ Deadline-capped `grep_files` (partial results + `aborted` flag) · AutoTracker token deltas fire thresholds *inside* long tool chains · live `chat used ≈ N tok` DELTA log |

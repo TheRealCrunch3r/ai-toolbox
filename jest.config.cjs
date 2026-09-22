@@ -3,6 +3,11 @@
 module.exports = {
   preset: 'ts-jest',
   testEnvironment: 'node',
+  // 🔹 REPO-STORE GUARD (20.09 PM): under jest, THROW on any fs/promises write/rename/mkdir/unlink/rm targeting
+  // this repo's own live store (<rootDir>/.session_context) — the 19:20–19:24 clobber incident proved a single
+  // unpinned manager in one suite destroys the plugin's real memory file. MUST be setupFiles (runs BEFORE each
+  // test file's imports) so its fs/promises require-hook wraps every non-mocked resolution per registry.
+  setupFiles: ['<rootDir>/tests/jestRepoStoreGuard.ts'],
   roots: ['<rootDir>/tests'],
   testMatch: ['**/*.test.ts'],
   // grep_files_size_limit.test.ts has been converted to Jest-compatible format (19.08.2026)
@@ -91,6 +96,8 @@ module.exports = {
     '^\\.\\/tools/executionTools\\.js$': '<rootDir>/tests/__mocks__/executionTools.ts',
     '^\\.\\/tools/utilityTools\\.js$': '<rootDir>/tests/__mocks__/utilityTools.ts',
 
+    // CLUSTER-ORDER fix 19.09: src/toolsProvider.ts statically imports './tools/toolPriority.js'; declared BEFORE the tools-fallback below because in jest-resolve (v30) the FIRST matching mapper wins, and no tests/__mocks__/toolPriority.ts exists - must resolve to the real src module
+    '^\\.\\/tools/toolPriority\\.js$': '<rootDir>/src/tools/toolPriority.ts',
     // ── Fallback: catch any other ./tools/*.js dynamic imports not explicitly mapped ──
     '^\\.\\/tools/(.*)\\.js$': '<rootDir>/tests/__mocks__/$1.ts',
 
@@ -107,6 +114,11 @@ module.exports = {
     // ── FIX #19 (19.08.2026): single-dot same-dir form — src/stateManager.ts imports './contextTiers.js'; no mapper entry existed → "Cannot find module './contextTiers.js'" crashed 4 suites (RC#4) ──
     '^\\./contextTiers\\.js$': '<rootDir>/src/contextTiers.ts',
 
+    // ── D-LOST-WRITE fix (21.09): src/tools/contextManagementTools.ts imports '../sharedFileLock.js' — same RC#4 class as the entries above
+    // (new .js-suffixed relative import without a mapper entry → "Cannot find module"). stateManager's extensionless './sharedFileLock' form
+    // resolves via ts-jest moduleFileExtensions and needs no entry. ──
+    '^\\.\\./sharedFileLock\\.js$': '<rootDir>/src/sharedFileLock.ts',
+
     // ── Source file .js rewrites for utils/ directory — PER-FILE entries only (NOT generic).
     // G9 round-2 regression (01.09.2026): the generic rule installed in round 1 ('^\\.\\./utils/(.*)\\.js$') matched ANY
     // '../utils/<name>.js' specifier anywhere in the module graph — including inside node_modules: @babel/types@7.29.7 ships CJS with
@@ -121,6 +133,8 @@ module.exports = {
     '^\\.\\./utils/regexWorker\\.js$': '<rootDir>/src/utils/regexWorker.ts',
     '^\\.\\./utils/atomicWrite\\.js$': '<rootDir>/src/utils/atomicWrite.ts',
     '^\\.\\./utils/ripgrepEngine\\.js$': '<rootDir>/src/utils/ripgrepEngine.ts',
+    // CLUSTER-ORDER fix 19.09: src/toolsProvider.ts statically imports './utils/hubExclusionClustering.js' - no mapper entry (RC#4 class); per-file form only (G9 round-2)
+    '^\\./utils/hubExclusionClustering\\.js$': '<rootDir>/src/utils/hubExclusionClustering.ts',
 
     // ── Package-level mock redirects (ESM-only deps) ──
     '^archiver$': '<rootDir>/tests/__mocks__/archiver.ts',

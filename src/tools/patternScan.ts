@@ -6,15 +6,17 @@
  *     Unsafe or syntactically-invalid regexes are auto-demoted to literal mode;
  *     the result reports which (`demotedToLiteral`). A call therefore always
  *     yields signal instead of hanging or throwing.
- *  2. Never block the event loop: fully async I/O, bounded file-read concurrency, and regex evaluation isolated in
- *     worker_threads (ITEM-B 05.09 — src/utils/regexWorker.ts): a spinning catastrophic-backtracking .test() dies in
- *     an isolated worker under a watchdog budget instead of starving the host thread (the 05.09 wedge incident class).
- *     FIX-34a (13.09) additionally removed the one remaining unbounded sync segment: the former optional ripgrep B' phase-1
- *     prefilter ran rg-WASM synchronously on THIS thread (`await wasi.start()` — all WASI syscalls are sync fs), so while it
- *     ran no event-loop turn occurred, HANG-GUARD caps could never fire and abort signals were inert (live wedge repro 13.09).
+ *  2. Never block the event loop: fully async I/O with bounded file-read concurrency, and regex evaluation running INLINE
+ *     on this thread — but ONLY over patterns that survived the isSafeRegex gate (escaped literals + gated-safe regexes).
+ *     An ungated ReDoS-capable pattern cannot reach eval by construction, so a catastrophic-backtracking spin is excluded
+ *     at the source instead of being policed after the fact. DE-STRAngle (16.09) retired the former per-file worker dispatch
+ *     (src/utils/regexWorker.ts): its 250ms watchdog protected exactly this already-impossible class while costing one IPC
+ *     round-trip + pool spawn pacing per file; fs awaits between files keep the event loop turning throughout. The sync
+ *     rg-WASM B' segment that once made wall caps mandatory was removed earlier by FIX-34a (13.09) — wedge repro in git history.
  *  3. Hard resource ceilings with explicit reporting: oversized files ('size'),
- *     line-capped files ('line-cap') and binary files ('binary') land in `skipped` —
- *     they are never silently stalled on or truncated.
+ *     line-capped files ('line-cap'), over-long lines excluded from eval ('long-line') and binary files ('binary') land in
+ *     `skipped` — they are never silently stalled on or truncated. DE-STRAngle (16.09) replaced time-based watchdogs with
+ *     deterministic SIZE bounds: what is bounded is the input, not the clock.
  *  4. Deterministic ordering: BFS by depth, then name; final matches sorted by
  *     (file, line) regardless of worker scheduling.
  *  5. Lean deps: node builtins + shared isSafeRegex only — no ripgrepEngine dependency since FIX-34a (13.09); the full-JS
@@ -27,12 +29,11 @@ import path from 'path';
 import type { Dirent } from 'fs';
 import { isSafeRegex } from '../security';
 // FIX-34a (13.09): the ripgrep B' phase-1 import was removed with its prefilter block — see header principles 2/5 for why.
-// HANG-GUARD (05.09): shared wall-clock cap + host-abort forwarding, same primitive grep_files uses — see src/utils/grepGuard.ts.
-// 13.09 FIX-34a follow-up: pattern_scan gets its OWN cap constant (PATTERN_SCAN_MAX_RUN_MS) — the full-JS pipeline is fully
-// async/abortable since B' removal, so inheriting grep_files' sync-era 500ms chronicized partial results on recursive scans.
-import { createGrepGuard, PATTERN_SCAN_MAX_RUN_MS } from '../utils/grepGuard.js';
-// ITEM-B (05.09): worker-isolated regex evaluation — a spinning .test() can no longer starve the host event loop. See src/utils/regexWorker.ts.
-import { evaluateLinesInWorker, REGEX_WORKER_BUDGET_MS } from '../utils/regexWorker.js';
+// HANG-GUARD (05.09) → DE-STRAngle (16.09): shared host-abort forwarding via grepGuard's SIGNAL-ONLY mode (deadlineMs=0, no
+// wall-clock timer). The former PATTERN_SCAN_MAX_RUN_MS cap is REMOVED: since FIX-34a (13.09) the pipeline has been fully
+// async/abortable — no sync segment can self-starve this thread, so the cap's only remaining effect was chronic `aborted: true`
+// partial results on larger trees. User cancel / host timeout still aborts cooperatively at every file boundary.
+import { createGrepGuard } from '../utils/grepGuard.js';
 
 // ---------------------------------------------------------------------------
 // Defaults (frozen; every field overridable per-call via options)
@@ -48,6 +49,7 @@ export const SCAN_DEFAULTS = Object.freeze({
   maxTotalMatches: 200, // global cap — `stats.truncated` is true when hit
   matchLineLength: 300, // reported line content truncated beyond this ('…' appended)
   concurrency: 4, // files read in parallel (clamped to 1..16)
+  maxEvalLineLength: 10_000, // DE-STRAngle (16.09): lines longer than this are excluded from regex eval + reported as 'long-line' — deterministic size bound for inline host eval
 });
 
 export type ScanMode = 'regex' | 'literal';
@@ -66,11 +68,12 @@ export interface PatternScanOptions {
   maxTotalMatches?: number;
   matchLineLength?: number;
   concurrency?: number; // clamped to 1..16
-  abortSignal?: AbortSignal; // HANG-GUARD (05.09): host one-way signal (ToolCallContext.signal) forwarded into the internal cap guard — user cancel / host timeout
+  maxEvalLineLength?: number; // DE-STRAngle (16.09): per-line eval length bound in chars; longer lines are excluded from matching + recorded as 'long-line'
+  abortSignal?: AbortSignal; // host one-way signal (ToolCallContext.signal) forwarded into the shared abort guard — user cancel / host timeout
 }
 
 export interface ScanMatch { file: string; line: number; content: string; }
-export interface SkippedEntry { file: string; reason: 'size' | 'line-cap' | 'binary' | 'regex-timeout'; } // ITEM-B (05.09): isolated regex eval hit its watchdog budget — ReDoS containment record
+export interface SkippedEntry { file: string; reason: 'size' | 'line-cap' | 'binary' | 'long-line'; } // DE-STRAngle (16.09): 'regex-timeout' retired with the worker watchdog (no producer remains); 'long-line' = over-long line excluded from eval
 
 export interface PatternScanResult {
   ok: boolean;
@@ -78,7 +81,7 @@ export interface PatternScanResult {
   skipped: SkippedEntry[]; // files touched but not fully scanned — with why
   excludedDirs: string[]; // directory names pruned via DEFAULT_EXCLUDE_DIRS / excludeGlobs (deduped, sorted)
   stats: { filesScanned: number; totalMatches: number; durationMs: number; truncated: boolean };
-  aborted?: boolean; // HANG-GUARD (05.09): wall-clock cap or host abort fired during the scan — matches/skipped are PARTIAL
+  aborted?: boolean; // DE-STRAngle (16.09): HOST signal only now (user cancel / host timeout) — no wall clock exists; matches/skipped are PARTIAL
   demotedToLiteral?: 'unsafe-regex' | 'invalid-regex';
   error?: string; // only when ok === false
 }
@@ -140,63 +143,52 @@ function looksBinary(buf: Buffer, sampleBytes: number): boolean {
   return suspicious / n > 0.05;
 }
 
-interface ScanLimits { maxLines: number; perFileCap: number; lineLenCap: number; sizeLimit: number; totalCap: number; }
+interface ScanLimits { maxLines: number; perFileCap: number; lineLenCap: number; sizeLimit: number; totalCap: number; evalLineLen: number; } // DE-STRAngle (16.09): +evalLineLen — deterministic long-line bound replacing time-based watchdogs
 
 export interface FileScanOutcome {
   matches: ScanMatch[];
   skipReason?: 'line-cap' | 'binary'; // 'size' is decided by caller from stat, before read
-  workerTimeout?: boolean; // ITEM-B (05.09): isolated regex eval hit its watchdog budget → caller records skipped('regex-timeout')
+  longLines?: number; // DE-STRAngle (16.09): over-long lines excluded from eval — caller records ONE skipped('long-line') per affected file
 }
 
 /**
  * Reads one file and collects matching lines.
- * ITEM-B (05.09): the per-line .test() loop no longer runs on the host thread — regex evaluation is dispatched to an
- * isolated worker_threads worker (src/utils/regexWorker.ts) with a REGEX_WORKER_BUDGET_MS watchdog, so a spinning
- * catastrophic-backtracking .test() can never starve the event loop again. The worker preserves first-match-per-line
- * semantics; `rx` is used only for its source+flags (reconstructed inside the worker). Quota/cap shaping stays on the
- * host below. `_remaining` = best-effort global quota (early stop; the authoritative cap is enforced by patternScan via
- * sort+slice after all files complete) — it also bounds the evaluated line window, same racy early-stop semantics as before.
+ * DE-STRAngle (16.09): the per-line .test() loop now runs INLINE on this thread instead of in an isolated worker — only
+ * gate-surviving patterns reach it (escaped literals or isSafeRegex-cleared regexes), so the catastrophic-backtracking
+ * class is excluded at the source and no watchdog budget is needed; fs I/O around each file keeps the event loop turning.
+ * The former per-eval worker round-trip (IPC + pool spawn pacing) was pure overhead against an already-impossible input
+ * class — see module header principle 2. Over-long lines are excluded by a DETERMINISTIC LENGTH BOUND instead of being
+ * policed on a clock: lim.evalLineLen, reported via `longLines` → skipped('long-line'). First-match-per-line and per-file
+ * cap semantics are unchanged from the worker era (the authoritative global cap is enforced post-scan by patternScan's
+ * sort+slice, as before).
  */
-async function scanFileWithLimits(absolutePath: string, relPath: string, rx: RegExp, lim: ScanLimits, _remaining: number): Promise<FileScanOutcome> { // _remaining: retained for dispatch-context visibility; FIX-QUOTA-WINDOW (06.09) stopped using it for the eval window — see below (underscore = intentional eslint no-unused-vars exemption)
+async function scanFileWithLimits(absolutePath: string, relPath: string, rx: RegExp, lim: ScanLimits): Promise<FileScanOutcome> {
   const buf = await fs.readFile(absolutePath);
   if (looksBinary(buf, Math.min(8192, buf.length))) return { matches: [], skipReason: 'binary' };
 
   const lines = buf.toString('utf-8').split(/\r?\n/); // split FIRST — line-cap works even on unbounded-line files
   const scanned = Math.min(lines.length, lim.maxLines);
   const out: ScanMatch[] = [];
-  let workerTimeout = false;
+  let longLines = 0;
 
   if (scanned > 0) {
-    // FIX-QUOTA-WINDOW (06.09): evaluate the FULL line window — the pre-fix "best-effort quota" sliced to
-    // `_remaining` MATCHES, conflating matches with lines: a file dispatched after ~totalCap prior matches lost every
-    // match beyond line #remaining silently (no skip record) — proven unreachable pin long.txt:501 under conc=8.
-    // Shaping is authoritative post-scan only (perFileCap below + sort/slice in the caller); `_remaining` param retained
-    // for dispatch-context visibility, intentionally unused here.
-    const outcome = await evaluateLinesInWorker(
-      [{ source: rx.source, flags: rx.flags }],
-      lines.slice(0, scanned),
-    );
-    // 'ok' narrows the discriminated union: only the success arm carries it; failure arms (budget/error/aborted) have 'kind'.
-    if ('ok' in outcome) {
-      for (const i of outcome.matchedLineIndices) {
-        let content = lines[i].trim();
+    // Stateless eval copy without the 'g' flag — a global .test() would carry lastIndex across lines and drop matches.
+    const evalRx = new RegExp(rx.source, rx.flags.replace(/g/g, ''));
+    for (let i = 0; i < scanned && out.length < lim.perFileCap; i++) {
+      const line = lines[i];
+      if (line.length > lim.evalLineLen) { longLines++; continue; } // deterministic size bound — no timer (DE-STRAngle 16.09)
+      if (evalRx.test(line)) {
+        let content = line.trim();
         if (content.length > lim.lineLenCap) content = content.slice(0, Math.max(0, lim.lineLenCap - 1)) + '…';
         out.push({ file: relPath, line: i + 1, content });
-        if (out.length >= lim.perFileCap) break; // per-file cap — takes priority once hit
       }
-    } else if (outcome.kind === 'budget') {
-      console.warn(`[pattern_scan] FIX-HANG-5: worker exceeded ${REGEX_WORKER_BUDGET_MS}ms budget — terminated (possible ReDoS)`);
-      return { matches: [], workerTimeout: true }; // containment record wins over line-cap for this file
-    } else if (outcome.kind === 'error') {
-      // Rare post-5c path (boot/eval failure): warn for forensics, no skip record — the file counts as scanned-empty.
-      console.warn(`[pattern_scan] regex worker error on ${relPath}: ${outcome.detail}`);
-    } else {
-      // kind:'aborted' is unreachable here: scanFileWithLimits takes no signal; guard aborts are handled at the
-      // worker-loop boundary (guard.signal.aborted in the while condition) before any eval is dispatched.
     }
   }
 
-  return scanned < lines.length ? { matches: out, skipReason: 'line-cap', workerTimeout } : { matches: out, workerTimeout };
+  const result: FileScanOutcome = { matches: out };
+  if (scanned < lines.length) result.skipReason = 'line-cap';
+  if (longLines > 0) result.longLines = longLines;
+  return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -284,13 +276,12 @@ export async function patternScan(options: PatternScanOptions): Promise<PatternS
   const pattern = options.pattern.trim(); // intentional: search patterns are not whitespace-anchored by user intent
   const rootRaw = String(options.root ?? '.').trim() || '.';
 
-  // HANG-GUARD (05.09): ONE shared cancellation primitive for the whole scan — see src/utils/grepGuard.ts
-  // (same contract as grep_files de-bloat: host-signal forwarding + single PATTERN_SCAN_MAX_RUN_MS cap timer, one abort state;
-  //  13.09 FIX-34a follow-up — pattern_scan-specific constant, see import note above).
-  // Created after pattern validation; the few early-validation returns below are microsecond-scale, so a stray-cap warn in
-  // that impossible window is the only theoretical cost of not disarming there (it self-clears on fire). The binding
-  // disarm() lives in the finally block around the worker await — EVERY real completion path.
-  const guard = createGrepGuard(options.abortSignal, PATTERN_SCAN_MAX_RUN_MS, 'pattern_scan');
+  // DE-STRAngle (16.09): ONE shared CANCELLATION primitive for the whole scan — SIGNAL-ONLY mode (deadlineMs=0 → no
+  // wall-clock timer; see src/utils/grepGuard.ts). The former PATTERN_SCAN_MAX_RUN_MS cap was removed with its threat model:
+  // a fully async pipeline cannot self-starve, so only a HOST signal (user cancel / host timeout via ToolCallContext.signal)
+  // can abort — cooperatively checked at every file boundary below. disarm() in the finally block releases any listener on
+  // EVERY completion path (healthy or aborted).
+  const guard = createGrepGuard(options.abortSignal, 0, 'pattern_scan');
 
   let rootAbs: string;
   try { rootAbs = path.resolve(process.cwd(), rootRaw); } catch { return { ok: false, matches: [], skipped: [], excludedDirs: [], ...base(), error: `invalid root path: ${rootRaw}` }; }
@@ -330,6 +321,7 @@ export async function patternScan(options: PatternScanOptions): Promise<PatternS
     lineLenCap: Math.max(8, Math.floor(options.matchLineLength ?? SCAN_DEFAULTS.matchLineLength)),
     sizeLimit: Math.max(1024, Math.floor(options.maxFileSizeBytes ?? SCAN_DEFAULTS.maxFileSizeBytes)),
     totalCap: Math.max(1, Math.floor(options.maxTotalMatches ?? SCAN_DEFAULTS.maxTotalMatches)),
+    evalLineLen: Math.max(8, Math.floor(options.maxEvalLineLength ?? SCAN_DEFAULTS.maxEvalLineLength)), // DE-STRAngle (16.09): deterministic long-line bound
   };
 
   // FIX-34a (13.09): the RIPGREP PHASE-1 candidate prefilter (B') that lived here was REMOVED — its rg-WASM search ran
@@ -346,8 +338,7 @@ export async function patternScan(options: PatternScanOptions): Promise<PatternS
   // --- Scan with bounded concurrency ---------------------------------------------
 
   async function worker(): Promise<void> {
-    // ABORT/CAP CHECK — one cooperative gate per file boundary; the guard covers host abort AND the
-    // PATTERN_SCAN_MAX_RUN_MS wall-clock cap (single source of truth, mirrors grep_files de-bloat).
+    // ABORT CHECK — one cooperative gate per file boundary (host signal only since DE-STRAngle 16.09 — no wall clock exists).
     while (!truncated && !guard.signal.aborted && cursor < targets.length) {
       const t = targets[cursor++];
       try {
@@ -355,16 +346,16 @@ export async function patternScan(options: PatternScanOptions): Promise<PatternS
         if (!fst.isFile()) continue; // vanished / raced — skip
         filesScanned++;
         if (fst.size > lim.sizeLimit) { skipped.push({ file: t.rel, reason: 'size' }); continue; }
-        // remaining-quota is a BEST-EFFORT early stop (concurrent workers snapshot the shared counter at dispatch —
-        // inherently racy). The AUTHORITATIVE cap is enforced below by sort+slice after all workers finish.
-        const outcome = await scanFileWithLimits(t.abs, t.rel, built.rx, lim, Math.max(0, lim.totalCap - matches.length));
+        // DE-STRAngle (16.09): inline host-thread eval inside scanFileWithLimits — no worker dispatch round-trip; the
+        // AUTHORITATIVE global cap stays post-scan sort+slice below (unchanged semantics).
+        const outcome = await scanFileWithLimits(t.abs, t.rel, built.rx, lim);
         for (const m of outcome.matches) {
           matches.push(m);
           if (matches.length >= lim.totalCap) { truncated = true; break; }
         }
-        // ITEM-B (05.09): watchdog-terminated evals get their own skip record (ReDoS containment — the important event).
-        if (!truncated && outcome.workerTimeout) skipped.push({ file: t.rel, reason: 'regex-timeout' });
-        else if (!truncated && outcome.skipReason) skipped.push({ file: t.rel, reason: outcome.skipReason });
+        // Over-long lines were excluded from eval deterministically — one explicit record per affected file.
+        if (!truncated && outcome.longLines) skipped.push({ file: t.rel, reason: 'long-line' });
+        if (!truncated && outcome.skipReason) skipped.push({ file: t.rel, reason: outcome.skipReason });
       } catch { /* unreadable file — skip silently */ }
     }
   }

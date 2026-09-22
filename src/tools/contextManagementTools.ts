@@ -10,6 +10,8 @@ import type { PluginConfig } from '../config.js';
 import type { StateManager } from '../stateManager.js';
 import type { BackgroundCommandManager } from '../backgroundCommands.js';
 import { getWorkingDir } from '../workingDir.js';
+// 🔹 D-LOST-WRITE (20.09): per-path in-process lock for the shared state store — see src/sharedFileLock.ts
+import { withSharedFileLock } from '../sharedFileLock.js';
 import { getDataDir } from '../dataDir.js'; // 🔹 REG-MOVE (12.09): persistent data-dir root for the project registry
 import type { ContextOrigin, ContextNode } from '../contextTiers.js';
 import { replaceTier, createContextNode } from '../contextTiers.js';
@@ -157,44 +159,91 @@ export class ContextStorageManager {
 
   /** Save context entries to disk — Primary W.D., NO fallback sync */
   async save(entries: ContextEntry[], targetPath?: string): Promise<void> {
+    const filePath = targetPath || this.workingDirPath; // Default to working dir for writes
+    // 🔹 D-LOST-WRITE fix (20.09, csmSharedFileRegression Suite D): hold the per-path in-process lock across the WHOLE
+    // save (snapshot → merge → rename → verify). The body below contains early `return`s (FIX #23 abort on uninspectable
+    // store; success after intact verification) — those must remain returns of THIS method, so the lock wraps a
+    // delegation to the private core rather than inlining a closure around the loop (a closure would swallow them).
+    return withSharedFileLock(filePath, () => this.saveCore(entries, filePath));
+  }
+
+  /** Body of save() — unchanged except it now runs under the per-path lock acquired by save() (see sharedFileLock.ts). */
+  private async saveCore(entries: ContextEntry[], filePath: string): Promise<void> {
     try {
-      const filePath = targetPath || this.workingDirPath; // Default to working dir for writes
-      
+
       await this.ensureDirectory(filePath);
       
+      // 🔹 D-RACE / merge-on-write retry (20.09 PM): symmetric mirror of StateManager.saveMemoryFile's bounded loop — same
+      // shared file, same hazard: our read-snapshot predating StateManager's rename means OUR rename discards the new state
+      // records (stale-read last-writer-wins; pinned by csmSharedFileRegression Suite D). Re-snapshot + re-merge on every
+      // attempt; post-rename self-integrity check verifies all of OUR context entries survived, a clobber heals with one
+      // fresh merge. Bounded (3) — production serializes tool calls; after the bound log loudly (intent intact; next save
+      // re-merges). FIX #23's "refuse on unparseable store" guard is preserved inside the loop (abort the WHOLE save, no retry).
+      const MAX_WRITE_ATTEMPTS = 3;
+      for (let attempt = 1; attempt <= MAX_WRITE_ATTEMPTS; attempt++) {
       // 🔹 FIX #23 (30.08, shared-memory-file wipe class — 3rd occurrence): the .msgpack file is SHARED with
       // StateManager records ({key,value,timestamp}: memory_*, session_summary_latest). load() filters to context
       // entries only; the previous write-back persisted ONLY that filtered list and silently DELETED every foreign
       // record — one track_important_event() wiped all facts + the latest summary (observed live 30.08 ~11:10, file
       // reduced from 7 records to the single tracked event). Preserve any existing non-context record on write-back.
-      const preservedForeign: Array<Record<string, unknown>> = [];
-      if (await fs.access(filePath).then(() => true).catch(() => false)) {
-        try {
-          // 🔹 TS FIX (30.08): decode() is typed to return `unknown` in this @msgpack/msgpack version —
-          // validate the array shape explicitly instead of an invalid direct cast (same pattern as getStoreDiagnostics).
-          const records = decode(await fs.readFile(filePath));
-          if (!Array.isArray(records)) {
-            throw new Error('existing store is not a record array; refusing to overwrite uninspected data');
+        const preservedForeign: Array<Record<string, unknown>> = [];
+        if (await fs.access(filePath).then(() => true).catch(() => false)) {
+          try {
+            // 🔹 TS FIX (30.08): decode() is typed to return `unknown` in this @msgpack/msgpack version —
+            // validate the array shape explicitly instead of an invalid direct cast (same pattern as getStoreDiagnostics).
+            const records = decode(await fs.readFile(filePath));
+            if (!Array.isArray(records)) {
+              throw new Error('existing store is not a record array; refusing to overwrite uninspected data');
+            }
+            for (const r of records) {
+              if (!this.isContextEntry(r)) {
+                preservedForeign.push(r as Record<string, unknown>); // foreign shape (StateManager / legacy) — keep it
+              }
+            }
+          } catch (readErr) {
+            // Unreadable existing store: refuse to overwrite rather than risk deleting data we cannot inspect.
+            const message = readErr instanceof Error ? readErr.message : String(readErr);
+            console.error(`[ContextStorage.save] Refusing to save — existing file could not be parsed (${message}). Aborting write to prevent data loss.`);
+            return; // FIX #23 contract: abort the WHOLE save (not just this attempt) on an uninspectable store
           }
-          for (const r of records) {
-            if (!this.isContextEntry(r)) {
-              preservedForeign.push(r as Record<string, unknown>); // foreign shape (StateManager / legacy) — keep it
+        }
+
+        // Write atomically (temp file + rename) — ASYNC ===
+        // 🔹 SPEC-C (20.09): the temp name is UNIQUE PER WRITE (per ATTEMPT here) — this store is SHARED with StateManager.saveMemoryFile()
+        // (stateManager.ts). Both writers previously used the same fixed <file>.tmp in this directory, so interleaved saves could
+        // corrupt each other's buffers and StateManager's rename-failure fallback would unlink() OUR pending temp. The unique
+        // name removes that cross-writer hazard at the root (20.09 incident: two .corrupt-* quarantines on disk as evidence).
+        const tempPath = `${filePath}.tmp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+        const encoded = encode([...entries, ...preservedForeign]);  // context entries + preserved foreign records
+        await fs.writeFile(tempPath, encoded);  // ASYNC write (Buffer format)
+        await fs.rename(tempPath, filePath);  // ASYNC rename
+
+        // 🔹 D-RACE: post-rename self-integrity check — if the shared file no longer carries ALL of our context entries,
+        // StateManager renamed over us after our snapshot; heal with one fresh merge (its records enter preservedForeign).
+        let intact = true;
+        try {
+          // 🔹 TS FIX (20.09, gate-1): the .then() callback must be async — it awaits readFile inside; a plain arrow is a TS1308 violation. Chain semantics unchanged: any access/read/decode failure → .catch(() => null) → verify=null → clobber path below.
+          const verify: unknown = await fs.access(filePath).then(async () => decode(await fs.readFile(filePath))).catch(() => null);
+          if (!Array.isArray(verify)) {
+            intact = false;
+          } else {
+            for (const e of entries) {
+              const hit = (verify as Array<Record<string, unknown>>).find(r => !!r && typeof r === 'object' && !Array.isArray(r)
+                // 🔹 LINT FIX (20.09, gate-2): r is already inferred as Record<string, unknown> from the .find() element type — cast removed (no-op assert).
+                && r.id === e.id);
+              if (!hit || JSON.stringify(hit) !== JSON.stringify(e)) { intact = false; break; }
             }
           }
-        } catch (readErr) {
-          // Unreadable existing store: refuse to overwrite rather than risk deleting data we cannot inspect.
-          const message = readErr instanceof Error ? readErr.message : String(readErr);
-          console.error(`[ContextStorage.save] Refusing to save — existing file could not be parsed (${message}). Aborting write to prevent data loss.`);
-          return;
-        }
+        } catch { /* verify read failed — treat as intact to preserve old behavior (rename itself succeeded) */ }
+
+        if (intact) return; // success — exactly the old observable behavior (nothing else ran after the rename before)
+
+        console.error(`[ContextStorage.save] Clobber detected after rename on ${filePath} (attempt ${attempt}/${MAX_WRITE_ATTEMPTS}) — concurrent StateManager write landed between our snapshot and rename; re-merging from fresh disk content.`);
       }
 
-      // Write atomically (temp file + rename) — ASYNC ===
-      const tempPath = filePath + '.tmp';
-      const encoded = encode([...entries, ...preservedForeign]);  // context entries + preserved foreign records
-      await fs.writeFile(tempPath, encoded);  // ASYNC write (Buffer format)
-      await fs.rename(tempPath, filePath);  // ASYNC rename
-      
+      // 🔹 D-RACE: bound exhausted with a clobber on every attempt — the entries are not durably written this save; log loudly.
+      console.error(`[ContextStorage.save] ${MAX_WRITE_ATTEMPTS} write attempts all clobbered by concurrent StateManager writes on ${filePath} — context entries not durably written; next save re-merges from disk.`);
+
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.error(`[ContextStorage.save] Failed to save context storage: ${message}`);
@@ -832,7 +881,7 @@ interface LegacySessionIndexEntry {
 }
 
 export class ProjectRegistryManager {
-  private registryPath: string;  // Stored in plugin root (shared across all projects)
+  private registryPath: string;  // Stored in the PERSISTENT LM Studio data dir since REG-MOVE (12.09); shared across all projects
 
   /** 🔹 G3 (11.09): hermetic-test override for the legacy .session_index.json location (undefined = production path). */
   static _sessionIndexPathOverride?: string;
@@ -1113,7 +1162,7 @@ export class ProjectRegistryManager {
     return null;
   }
 
-  /** Backup copy path — same plugin-dir location as the primary (`.session_context/project_registry.json.bak`) */
+  /** Backup copy path — directly next to the primary (<primary>.bak). REG-MOVE (12.09): both live in the persistent data dir; pre-move they sat under <install>/.session_context/. */
   private get backupPath(): string {
     return this.registryPath + '.bak';
   }
@@ -1124,10 +1173,10 @@ export class ProjectRegistryManager {
    *      fixed `<primary>.tmp` name: two concurrent processes writing the same primary could interleave on that
    *      one buffer, and a rename from the other process could promote a partially written buffer into the primary.
    *  (b) after every successful primary write an identical backup copy (`project_registry.json.bak`) is written
-   *      atomically in the SAME plugin directory — this is what load()'s corruption recovery restores from.
+   *      atomically next to it, in the same location (persistent data dir since REG-MOVE 12.09) — this is what load()'s corruption recovery restores from.
    *      Backup failure is non-fatal: the primary is already durable at that point; it only loses future recoverability. */
   async save(data: ProjectRegistryData): Promise<void> {
-    const filePath = this.registryPath; // Primary: plugin root (shared)
+    const filePath = this.registryPath; // Primary: persistent data dir (REG-MOVE 12.09), shared across projects
     
     await this.ensureDirectory(filePath);
     
@@ -1716,13 +1765,13 @@ WHEN TO USE:
   // save_session_summary tool — PERSIST SESSION DATA TO MEMORY + DISK (working dir → plugin root) ===
   tools.push(tool({
     name: 'save_session_summary',
-    description: `Save a structured session summary for cross-session continuity. Includes accomplishments, pending tasks, decisions made, and context for the next session.\n\nPERSISTENCE BEHAVIOR:\n• Saves to internal state manager (RAM)\n• ALWAYS writes atomic copy to working dir (.ai_toolbox_memory.msgpack)\n• Falls back to plugin root if working dir is invalid/stale`,
+    description: `Save a structured session summary for cross-session continuity. Includes accomplishments, pending tasks, decisions made, and context for the next session.\n\nSIZE DISCIPLINE — KEEP IT SHORT (KISS):\n• Every field has a hard limit of 2500 chars (storage trims at ~2 KB and reports the trim in truncatedFields). Do NOT paste long logs or dumps — write essentials only, as short bullets.\n• Target ≤ ~700 chars per field (≤ ~10 bullets). The next session needs a pointer, not a transcript: key facts + file paths + what to do next.\n• If it does not fit, cut content — never stretch the limit.\n\nPERSISTENCE BEHAVIOR:\n• Saves to internal state manager (RAM)\n• ALWAYS writes atomic copy to working dir (.ai_toolbox_memory.msgpack)\n• Falls back to plugin root if working dir is invalid/stale`,
     parameters: {
-      task_description: z.string().min(1).max(2500).describe('Brief description of what was being worked on (max 2.5KB)'),
-      accomplishments: z.string().max(2500).optional().describe('List key accomplishments or completed tasks (max 2.5KB)'),
-      pending_tasks: z.string().max(2500).optional().describe('List remaining work that needs to continue in the next session (max 2.5KB)'),
-      decisions_made: z.string().max(2500).optional().describe('Key architectural or implementation decisions made during this session (max 2.5KB)'),
-      context_for_next_session: z.string().max(2500).optional().describe('Important context, file locations, or setup steps needed for the next session (max 2.5KB)'),
+      task_description: z.string().min(1).describe('Brief description of what was being worked on. Hard limit 2500 chars (storage trims at ~2 KB) — keep it to one or two sentences (~≤ 300 chars); anything longer gets trimmed and reported.'),
+      accomplishments: z.string().optional().describe('Key accomplishments as short bullets, essentials only. HARD cap 2500 chars; target ≤ ~700 chars (≤ ~10 bullets).'),
+      pending_tasks: z.string().optional().describe('Remaining work for the next session as short bullets, essentials only. HARD cap 2500 chars; target ≤ ~700 chars.'),
+      decisions_made: z.string().optional().describe('Key architectural/implementation decisions with one-line rationale each. HARD cap 2500 chars; target ≤ ~700 chars.'),
+      context_for_next_session: z.string().optional().describe('Pointers only: exact file paths, anchors, and next steps the next session needs — no transcripts or pasted logs. Hard limit 2500 chars (storage trims at ~2 KB); target ≤ ~700 chars; anything longer gets trimmed and reported.'),
     },
     implementation: async ({ task_description, accomplishments, pending_tasks, decisions_made, context_for_next_session }: { 
       readonly task_description: string; 
@@ -1819,7 +1868,9 @@ WHEN TO USE:
         }
 
         // 🔹 FIX #3 (continued): Use cached truncate results for truncatedFields calculation
+        // 🔹 KISS-GATE (21.09): task_description included — with the schema cap removed, its truncation is reachable too and must be reported like any other field.
         const truncatedFields = [
+          ...(taskDesc.truncated ? ['task_description'] : []),
           ...(accomplishmentsTrunc.truncated ? ['accomplishments'] : []),
           ...(pendingTasksTrunc.truncated ? ['pending_tasks'] : []),
           ...(decisionsMadeTrunc.truncated ? ['decisions_made'] : []),

@@ -38,7 +38,12 @@ describe('Utility Tools', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    const stateManager = new StateManager(DEFAULT_CONFIG);
+    // 🔹 LEAK FIX (20.09 PM): persistence DISABLED — this suite never asserts disk state, but a REAL persistent
+    // manager with no working-dir pinning resolves getWorkingDir() to the DEV REPO ROOT under jest, so
+    // save_memory's forceSave() wrote straight into <repo>/.session_context/.ai_toolbox_memory.msgpack and
+    // clobbered the live plugin store (observed 20.09 ~19:21: "Important fact" bare-string record). The RAM
+    // behavior this suite actually tests is unaffected by persistenceEnabled:false (set() skips only the disk flush).
+    const stateManager = new StateManager({ ...DEFAULT_CONFIG, statePersistenceEnabled: false });
     // ✅ FIX: Pass getEnabledTools callback so tool returns success instead of error
     const getEnabledTools = () => ['save_memory', 'get_system_info', 'read_clipboard'];
     tools = registerUtilityTools(DEFAULT_CONFIG, stateManager, getEnabledTools);

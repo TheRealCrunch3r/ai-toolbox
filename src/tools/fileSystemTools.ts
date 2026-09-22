@@ -15,7 +15,7 @@ import { patternScan } from './patternScan.js';
 // The 13.09 wedge class stays structurally gone: rg's native walk runs off-thread and its budget watchdog terminates it on
 // the GREP_FILES_MAX_RUN_MS cap. Dialect parse errors auto-retry as fixed strings (-F); invalid patterns surface typed.
 import { runRipgrepEngine } from '../utils/ripgrepEngine.js';
-import { createGrepGuard, FIND_REPLACE_ALL_MAX_RUN_MS, GREP_FILES_MAX_RUN_MS, PATTERN_SCAN_MAX_RUN_MS } from '../utils/grepGuard.js';
+import { createGrepGuard, FIND_REPLACE_ALL_MAX_RUN_MS, GREP_FILES_MAX_RUN_MS } from '../utils/grepGuard.js';
 import { getWorkingDir, setWorkingDir, resolvePath } from '../workingDir.js';
 import {
   levenshteinSimilarity,
@@ -144,6 +144,22 @@ async function _readFileWithChunks(
     const message = error instanceof Error ? error.message : String(error);
     return { success: false, error: message };
   }
+}
+
+// ==================== 21.09 EOL-FIX: Line Ending Classification ====================
+/**
+ * Classify the line-ending style of raw file content (byte-exact input, no normalization).
+ * - 'crlf': every \n is part of a \r\n (uniform CRLF) — safe to restore wholesale on write-back.
+ * - 'mixed': at least one bare-LF and at least one CRLF line — restoring wholesale would flip
+ *   EVERY bare-LF line to CRLF (silent whole-file corruption); such files must round-trip
+ *   byte-exact outside the edited range instead.
+ * - 'lf': no \r\n present at all (includes ancient bare-\r, which is left untouched).
+ */
+export function detectLineEndings(content: string): 'crlf' | 'lf' | 'mixed' {
+  const crlfCount = (content.match(/\r\n/g) || []).length;
+  if (crlfCount === 0) return 'lf';
+  const totalNewlines = content.split('\n').length - 1;
+  return crlfCount === totalNewlines ? 'crlf' : 'mixed';
 }
 
 export function registerFileSystemTools(config: PluginConfig, _stateManager: StateManager): Tool[] {
@@ -464,15 +480,17 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
         const content = buffer.toString('utf-8');
 
         // ========== P1 FIX: Line Ending Normalization (Bug #9) ==========
-        // Detect original line ending style to preserve it
-        const hasCRLF = content.includes('\r\n');
+        // 21.09 EOL-FIX: classify the ACTUAL style — P1's single boolean (content.includes CRLF) was unsafe:
+        // any file with even one CRLF line took the wholesale restore below, flipping EVERY bare-LF line to
+        // CRLF (silent whole-file corruption). Only a UNIFORM CRLF file may be restored wholesale.
+        const eolStyle = detectLineEndings(content);
 
 
         // Normalize both file content and search string for matching
         let normalizedContent = content;
         let normalizedOld = old_string;
         // FIX P0: Also normalize the replacement string to prevent \r\r\n corruption
-        // When hasCRLF=true, the restore step converts ALL \n to \r\n.
+        // When eolStyle === 'crlf', the restore step converts ALL \n to \r\n.
         // If new_string already had \r\n, those become \r\r\n → double carriage return.
         let normalizedNew = new_string;
         if (normalize_line_endings) {
@@ -487,20 +505,76 @@ export function registerFileSystemTools(config: PluginConfig, _stateManager: Sta
           return { success: false, error: `String not found in file: '${old_string}'` };
         }
 
-        // ========== P0 FIX: Global Replace Option (Bug #1) ==========
+        // ========== P0 FIX / 21.09 EOL-FIX v2: Global Replace Option (Bug #1) with byte-exact write-back ==========
         let newContent: string;
-        if (global) {
-          // Replace ALL occurrences using split/join on normalized content
-          newContent = normalizedContent.split(normalizedOld).join(normalizedNew);
-        } else {
-          // Replace only FIRST occurrence (firstIndex already computed above)
-          newContent = normalizedContent.substring(0, firstIndex) + normalizedNew + normalizedContent.substring(firstIndex + normalizedOld.length);
-        }
-
-        // ========== P1 FIX: Restore original line ending style ==========
-        // Convert result back to the file's original line ending format
-        if (hasCRLF) {
+        if (eolStyle === 'crlf') {
+          // Uniform CRLF: normalized space and raw space differ ONLY by the \r before every \n, so a wholesale
+          // restore after replacing is exactly equivalent to splicing into raw — cheapest correct path.
+          if (global) {
+            newContent = normalizedContent.split(normalizedOld).join(normalizedNew);
+          } else {
+            newContent = normalizedContent.substring(0, firstIndex) + normalizedNew + normalizedContent.substring(firstIndex + normalizedOld.length);
+          }
+          // Restore uniform CRLF line endings (every \n maps to a former CRLF or inserted text).
           newContent = newContent.replace(/\n/g, '\r\n');
+        } else {
+          // 'lf' and 'mixed': raw content is authoritative. Map each normalized-space match range back to RAW
+          // offsets (crBefore[i] = # of \r removed before normalized index i) so untouched lines round-trip
+          // byte-exact — v1's normalize-then-write silently stripped the CR from every CRLF line in mixed files,
+          // exactly mirroring the old bare-LF→CRLF corruption in the other direction.
+          const normLen = normalizedContent.length;
+          // eolMap[n] (mixed files only) = number of CRLF pairs whose \n sits at a normalized slot <= n. A pair's CR was
+          // removed immediately BEFORE its \n slot, so it shifts every raw offset from that slot onward: for any match [ns, ne)
+          // the exact RAW range is [ns + eolMap[ns], ne + eolMap[ne−1]) — derived entirely in normalized space (21.09 EOL-FIX v4;
+          // verified 21.09 against an independent raw-space idx-map oracle: 21 hand boundary cases + 3-seed LCG stress, incl.
+          // identity no-ops and matches spanning CRLF pairs). The earlier ≤-fill mixed RAW offsets with normalized positions
+          // (correct only by accident up to the second pair rank) — see session notes for the trace evidence.
+          let eolMap: Int32Array | null = eolStyle === 'mixed' ? new Int32Array(normLen + 1) : null;
+          if (eolMap !== null) {
+            // One entry per CRLF pair, sorted ascending by construction; k-th pair's \n occupies normalized slot crlfs[k] − k.
+            const crlfs: number[] = [];
+            for (let i = 0; i + 1 < content.length; i++) {
+              if (content.charCodeAt(i) === 13 && content.charCodeAt(i + 1) === 10) crlfs.push(i);
+            }
+            let j = 0; // number of pairs whose \n slot is <= pos
+            for (let pos = 0; pos <= normLen; pos++) {
+              while (j < crlfs.length && crlfs[j] - j <= pos) j++; // closed form: the pair's own CR plus all earlier ones were removed before its \n, so slot = raw CR offset − rank
+              eolMap[pos] = j;
+            }
+          }
+          let out: string | null = null;
+          const splices: Array<[number, number]> = []; // normalized-space ranges to replace
+          if (global) {
+            for (let s = 0; ; ) {
+              const idx = normalizedContent.indexOf(normalizedOld, s);
+              if (idx === -1) break;
+              splices.push([idx, idx + normalizedOld.length]);
+              s = idx + 1; // avoid zero-length/overlapping re-matches at the same position
+            }
+          } else {
+            splices.push([firstIndex, firstIndex + normalizedOld.length]);
+          }
+          // EOL-FIX v2 (corrected): splice LAST-TO-FIRST so each raw offset is measured against the original
+          // `content` region — earlier splices only touch positions AFTER this one, leaving [0, oe) byte-stable.
+          // Forward order here would apply stale offsets: an earlier insert shifts every later os/oe right by
+          // (newLen − spliceLen), but the stored values are raw-space constants. The per-iteration `src` also
+          // removes the v1 paren flaw where the first pass emitted the ENTIRE file as its own prefix.
+          // 21.09 EOL-FIX v4: for an IDENTITY splice (normalizedOld === normalizedNew — a no-op edit) the RAW matched text
+          // must come back verbatim, CRLFs and all; re-inserting the NORMALIZED form would silently drop every \r inside the
+          // match range on mixed files. Real replacements insert the normalized new string exactly as before (their range
+          // legitimately consumes any interior CRs). In 'lf' style (eolMap === null) raw space IS normalized space: os = ns, oe = ne.
+          const identitySplice = normalizedNew === normalizedOld;
+          for (let si = splices.length - 1; si >= 0; si--) {
+            const [ns, ne] = splices[si];
+            // Raw range of the match: every removed CR before slot ns shifts its start; every one on/before slot ne−1 shifts "one past the last char".
+            const os = eolMap === null ? ns : ns + eolMap[ns];
+            const oe = eolMap === null ? ne : ne + eolMap[ne - 1]; // ne ≥ 1 always (old_string is non-empty)
+            // 21.09: explicit annotation required — without it, TS infers a circular dependency
+            // (src -> out <- assignment on the next line references src) and falls back to implicit any (TS7022).
+            const src: string = out === null ? content : out;
+            out = src.substring(0, os) + (identitySplice ? old_string : normalizedNew) + src.substring(oe);
+          }
+          newContent = out === null ? content : out;
         }
 
         // ========== P1 FIX: Create Backup if requested (Bug #5) ==========
@@ -1245,7 +1319,7 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
   // get_file_metadata tool — ASYNC stat
   tools.push(tool({
     name: 'get_file_metadata',
-    description: 'Get metadata (size, dates) for a specific file.',
+    description: 'Get metadata (size, dates; and for files: line-ending style eol="crlf"|"lf"|"mixed" plus bom=true|false). Check eol/bom BEFORE editing a file to avoid line-ending/encoding mismatches — e.g. mixed-EOL files must not be re-saved with converted endings.',
     parameters: {
       path: z.string().describe('The file path'),
     },
@@ -1256,7 +1330,21 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
         }
         const fullPath = resolvePath(filePath);
         const stats = await fs.stat(fullPath);  // ASYNC
-        
+
+        // 21.09 EOL-FIX: report line-ending style + BOM for FILES so the model knows encoding facts BEFORE
+        // editing — kills the "guess LF vs CRLF, edit fails, re-verify" loop and makes mixed-EOL files discoverable upfront.
+        let eol: 'crlf' | 'lf' | 'mixed' | null = null;
+        let bom: boolean | null = null;
+        if (stats.isFile()) {
+          try {
+            const buf = await fs.readFile(fullPath);
+            bom = buf.length >= 3 && buf[0] === 0xEF && buf[1] === 0xBB && buf[2] === 0xBF;
+            eol = detectLineEndings(buf.toString('utf-8'));
+          } catch {
+            // Unreadable content (race/permissions): report stats only — never fail the metadata call over it.
+          }
+        }
+
         return {
           success: true,
           data: {
@@ -1267,6 +1355,8 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
             accessedAt: stats.atime,
             isDirectory: stats.isDirectory(),
             isFile: stats.isFile(),
+            ...(eol !== null && { eol }),
+            ...(bom !== null && { bom }),
           },
         };
       } catch (error) {
@@ -1924,17 +2014,6 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
   }));
 
 
-  // ==================== HANG-GUARD LIVE INDICATOR (28.08.2026; v3 text 04.09; pattern_scan cap clause added 13.09; identity-only slim 15.09) ====================
-  // Emitted ONCE per plugin load so the LM Studio console proves which build is actually running in memory:
-  // if a hung session's logs lack this line, the process is executing a STALE pre-fix bundle — i.e., the shared
-  // grepGuard (src/utils/grepGuard.ts) with its single cap timer was NOT loaded. This converts "is the fix live?"
-  // from inference to a log fact. Owner decision 15.09: marker stays identity-only; wall-clock caps referenced here
-  // BY CONSTANT NAME — literal values in comments rot (stale "500ms" banner incident, 14.09):
-  //   ripgrep tool       -> GREP_FILES_MAX_RUN_MS      (src/utils/grepGuard.ts)
-  //   find_replace_all   -> FIND_REPLACE_ALL_MAX_RUN_MS (src/utils/grepGuard.ts; shared abort guard)
-  //   pattern_scan       -> PATTERN_SCAN_MAX_RUN_MS     (src/utils/grepGuard.ts)
-  console.log('[ai_toolbox] BUILD MARKER (14.09 TOOL SWAP) — grep_files REMOVED; standalone ripgrep tool = worker-isolated rg engine off the host thread');
-
 
   // ripgrep tool — standalone recursive content search (14.09 TOOL SWAP, owner directive). Replaces the removed
   // grep_files: file walk AND pattern matching run natively inside ONE worker-isolated ripgrep process
@@ -2279,7 +2358,7 @@ Pattern handling: mode "regex" compiles via Rust regex first; if compilation fai
     name: 'pattern_scan',
     description: `Recursively search file contents under a directory (or within a single file) for a pattern, returning matching lines as {file, line, content}.
 
-Positioning vs ripgrep: pattern_scan is the bounded JS engine — fails fast on unsafe or syntactically invalid regexes by auto-demoting to literal mode (reported via demotedToLiteral), fully async with bounded concurrency, hard per-file and total match caps (stats.truncated when hit), explicit skipped[] reporting for oversized/line-capped/binary/regex-timeout files, deterministic ordering (file, then line); use ripgrep for unbounded native full-coverage scans.
+Positioning vs ripgrep: pattern_scan is the bounded JS engine — fails fast on unsafe or syntactically invalid regexes by auto-demoting to literal mode (reported via demotedToLiteral), fully async with bounded concurrency, hard per-file and total match caps (stats.truncated when hit), explicit skipped[] reporting for oversized/line-capped/binary files and over-long lines excluded from matching deterministically (maxEvalLineLength), deterministic ordering (file, then line); use ripgrep for unbounded native full-coverage scans.
 Directories node_modules/.git/dist/build/out/.next/.nuxt/__pycache__/.venv/coverage are always pruned. Relative roots resolve against the current working directory.`,
     parameters: {
       pattern: z.string().min(1).describe('Non-empty search pattern (regex by default; use mode "literal" for plain text)'),
@@ -2295,8 +2374,9 @@ Directories node_modules/.git/dist/build/out/.next/.nuxt/__pycache__/.venv/cover
       maxTotalMatches: z.number().int().min(1).max(5000).optional().describe('Global cap on returned matches; stats.truncated is true when hit (default 200)'),
       matchLineLength: z.number().int().min(10).max(2000).optional().describe('Truncate matched line content beyond this many chars with an ellipsis (default 300)'),
       concurrency: z.number().int().min(1).max(16).optional().describe('Files read in parallel, clamped to 1-16 (default 4)'),
+      maxEvalLineLength: z.number().int().min(100).max(500000).optional().describe('Lines longer than this many chars are excluded from matching and reported as long-line skips in skipped[] (default 10000)'),
     },
-    implementation: async ({ pattern, root, mode, caseSensitive, includeGlobs, excludeGlobs, maxDepth, maxFileSizeBytes, maxFileLines, maxMatchesPerFile, maxTotalMatches, matchLineLength, concurrency }: {
+    implementation: async ({ pattern, root, mode, caseSensitive, includeGlobs, excludeGlobs, maxDepth, maxFileSizeBytes, maxFileLines, maxMatchesPerFile, maxTotalMatches, matchLineLength, concurrency, maxEvalLineLength }: {
       pattern: string;
       root?: string;
       mode?: 'regex' | 'literal';
@@ -2310,6 +2390,7 @@ Directories node_modules/.git/dist/build/out/.next/.nuxt/__pycache__/.venv/cover
       maxTotalMatches?: number;
       matchLineLength?: number;
       concurrency?: number;
+      maxEvalLineLength?: number;
     }, ctx?: { signal?: AbortSignal }) => { // HANG-GUARD (05.09): host abort signal — same ctx contract as grep_files above
       // FORENSICS (05.09): make host-originated pre-aborts observable in main.log (same invisible-abort gap as grep_files).
       if (ctx?.signal?.aborted) console.log(`[pattern_scan] aborted-in 0ms (host signal already fired before scan start)`);
@@ -2331,6 +2412,7 @@ Directories node_modules/.git/dist/build/out/.next/.nuxt/__pycache__/.venv/cover
           maxTotalMatches,
           matchLineLength,
           concurrency,
+          maxEvalLineLength,
           // HANG-GUARD (05.09): forward the host abort signal into the scan's shared cap guard.
           abortSignal: ctx?.signal,
         });
@@ -2344,9 +2426,9 @@ Directories node_modules/.git/dist/build/out/.next/.nuxt/__pycache__/.venv/cover
             skipped: result.skipped,
             excluded_dirs: result.excludedDirs,
             stats: result.stats,
-            // HANG-GUARD (05.09) forensics: cap/host aborts leave a host-log line + explicit partial-results fields.
+            // DE-STRAngle (16.09): `aborted` can now only mean a HOST signal (user cancel / host timeout) — no wall clock exists.
             ...(result.aborted
-              ? { aborted: true, hint: `Scan was cut short at the ${PATTERN_SCAN_MAX_RUN_MS}ms wall-clock cap or by a host abort — results are PARTIAL; re-run with narrower scope (smaller root/includeGlobs) for full coverage.` }
+              ? { aborted: true, hint: 'Scan aborted by host signal (user cancel or host timeout) before completion — results are PARTIAL; re-run with the same scope for full coverage.' }
               : {}),
             ...(result.demotedToLiteral ? { demoted_to_literal: result.demotedToLiteral } : {}),
           },

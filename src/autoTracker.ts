@@ -18,6 +18,12 @@ import { z } from 'zod';
 
 /** Fixed token overhead added by ContextGuard.countTokens() for BOS/system structure */
 const CONTEXT_GUARD_OVERHEAD = 8;
+// 🔹 F2 (17.09 D-1 fix): re-fire hysteresis floor for guardMidLoopThreshold() — after a mid-loop save, only re-fire
+// once usage has grown by at least this much SINCE that save. Previously ANY growth past the guarded level
+// re-fired (~14 full checkpoint saves in one 17.09 session; each = disk write + new persistent context entry).
+// Floor = the LARGER of the two bounds below; the FIRST threshold crossing after a reset still fires immediately.
+const MID_LOOP_HYSTERESIS_MIN_TOKENS = 4096; // est tokens — absolute floor for any model context size
+const MID_LOOP_HYSTERESIS_CTX_FRACTION = 0.05; // or 5% of the model context window, whichever is larger
 
 /** Maximum buffer size before forced auto-flush (safety cap) */
 const MAX_BUFFER_SIZE = 50;
@@ -393,7 +399,8 @@ export class AutoTracker {
    *
    * Deliberately does NOT touch the FSM: the next turn's checkAndGeneratePrompt() evaluates usage on
    * the natively-recalculated count and drives the normal YES/NO prompt flow as if this never happened.
-   * Re-fires within the same loop only if usage grows beyond the level already guarded at.
+   * Within a cycle it re-fires only once growth since the last save reaches the hysteresis floor (F2, 17.09 D-1 fix);
+   * the FIRST threshold crossing after a reset still fires immediately.
    */
   async guardMidLoopThreshold(
     baselineTokens: number,
@@ -420,9 +427,14 @@ export class AutoTracker {
       return { fired: false };
     }
 
-    // De-dupe within the turn: only re-fire if usage climbed beyond a previous mid-loop save.
-    if (cumulative <= this._midLoopGuardedAt) {
-      debugLog('[MIDLOOP]', `Already guarded at ${this._midLoopGuardedAt} tok ≥ current ${cumulative} — skipping`);
+    // 🔹 F2 (17.09 D-1 fix) re-fire hysteresis: after a mid-loop save, fire again only once usage has grown by at
+    // least the floor below since that save — previously ANY growth past _midLoopGuardedAt re-fired (~14 full
+    // checkpoint saves in one 17.09 session). The FIRST threshold crossing (guard not yet fired this cycle,
+    // i.e. _midLoopGuardedAt === 0) still fires immediately; the baseline resets to 0 on compression / new
+    // session (onContextCompressed / resetCounter), so every cycle's first crossing stays immediate.
+    const hysteresisFloor = Math.max(MID_LOOP_HYSTERESIS_MIN_TOKENS, Math.round(maxTokens * MID_LOOP_HYSTERESIS_CTX_FRACTION));
+    if (this._midLoopGuardedAt > 0 && cumulative - this._midLoopGuardedAt < hysteresisFloor) {
+      debugLog('[MIDLOOP]', `Within hysteresis floor: guarded at ${this._midLoopGuardedAt}, current ${cumulative} (+${cumulative - this._midLoopGuardedAt} < floor ${hysteresisFloor}) — skipping`);
       return { fired: false };
     }
 
@@ -441,9 +453,9 @@ export class AutoTracker {
       return { fired: true, saved: true, sessionId: saveResult.sessionId };
     }
 
-    // Save failed — roll back the guard so a later (larger) payload retry can still fire this turn.
-    console.error('[AutoTracker] [CHECKPOINT] Mid-loop snapshot FAILED — will retry on further growth');
-    this._midLoopGuardedAt = Math.max(0, baselineTokens - 1);
+    // Save failed — roll the guard back to "not yet guarded" (0): an immediate retry must behave like the FIRST crossing. F2 note: rolling back only to baselineTokens−1 would leave _midLoopGuardedAt > 0 and let the hysteresis floor swallow the retry until further +4k-tok growth — defeating the rollback's purpose.
+    console.error('[AutoTracker] [CHECKPOINT] Mid-loop snapshot FAILED — will retry on next evaluation (guard reset to first-crossing)');
+    this._midLoopGuardedAt = 0;
     return { fired: true, saved: false };
   }
 

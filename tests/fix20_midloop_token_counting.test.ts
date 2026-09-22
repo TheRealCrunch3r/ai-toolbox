@@ -196,20 +196,20 @@ describe('FIX #20 A2 — mid-loop proactive checkpoint (guardMidLoopThreshold)',
     expect(savedEntries().length).toBe(0);
   });
 
-  it('re-fires only if usage grows beyond the level already guarded (dedupe within a turn)', async () => {
-    // First return crosses: est(4500) = ceil(1237.5) = 1238 → cumulative 8238, guard armed at 8238.
+  it('re-fires only after growth since the last save reaches the hysteresis floor (F2, 17.09 — supersedes legacy any-growth dedupe)', async () => {
+    // First return crosses: est(4500) = ceil(1237.5) = 1238 → cumulative 8238; first crossing fires immediately, guard armed at 8238.
     TokenStatsManager.setTurnEvaluation(7000, 10000);
     const first = await runToolReturn('x'.repeat(4500));
     expect(first.fired).toBe(true);
 
-    // Second evaluation: usage still above the threshold but NOT beyond the guarded level → deduped.
+    // Second evaluation: growth since the last save is negative → within floor (max(4096, 5%·10k=500) = 4096) → suppressed.
     TokenStatsManager.resetMidLoopDelta();
-    const noReFire = await tracker.guardMidLoopThreshold(7000, 1233, 10000); // cumulative 8233 ≤ 8238
+    const noReFire = await tracker.guardMidLoopThreshold(7000, 1233, 10000); // cumulative 8233 → growth −5 < floor
     expect(noReFire.fired).toBe(false);
 
-    // Third evaluation: usage climbed beyond the guarded level → re-fires.
+    // Third evaluation: growth since the guarded level reaches EXACTLY the floor → boundary re-fire (growth >= floor fires).
     TokenStatsManager.resetMidLoopDelta();
-    const bigger = await tracker.guardMidLoopThreshold(7000, 1500, 10000); // cumulative 8500 > 8238
+    const bigger = await tracker.guardMidLoopThreshold(7000, 5334, 10000); // cumulative 12334 → growth +4096 == floor 4096
     expect(bigger.fired).toBe(true);
     const checkpoints = savedEntries().filter(e => (e as { tags?: string[] })?.tags?.includes('auto_checkpoint'));
     expect(checkpoints.length).toBe(2);
@@ -247,8 +247,8 @@ describe('FIX #20 A2 — mid-loop proactive checkpoint (guardMidLoopThreshold)',
     expect(failed.saved).toBe(false);
 
     TokenStatsManager.resetMidLoopDelta();
-    const retry = await tracker.guardMidLoopThreshold(7000, 1240, 10000); // cumulative 8240 > rolled-back level (6999)
-    expect(retry.fired).toBe(true); // guard was rolled back on failure → crossing still active → fires again
+    const retry = await tracker.guardMidLoopThreshold(7000, 1240, 10000); // cumulative 8240 ≥ threshold; the failed save reset the guard to "not yet guarded" (0)
+    expect(retry.fired).toBe(true); // rollback-to-zero makes the retry a FIRST crossing — F2 hysteresis floor must not swallow it
     expect(retry.saved).toBe(true);
     expect(savedEntries().filter(e => (e as { tags?: string[] })?.tags?.includes('auto_checkpoint')).length).toBe(1);
   });

@@ -32,6 +32,34 @@ interface LLMModelWithOptionalFields {
   id?: string;
 }
 
+// 🔹 F1 (17.09 G-B fix): PURE decision/formatting helper for the one-shot "auto-checkpoint saved before
+// compression" notice. Extracted out of preprocess() PART B so it is jest-testable without SDK mocks.
+// Origin: 17.09 log verdict (memory_1789659390790) — the threshold prompt generated at 17:16:31 was consumed
+// by consumePendingConfirmation() in the same run with ZERO user-visible acknowledgement.
+export interface CheckpointNoticeInput {
+  /** The pre-compression snapshot save succeeded this turn. */
+  snapshotSaved: boolean;
+  /** A checkpoint warning was live during the same preprocess run (generated here, or pending from a prior turn). */
+  warningWasLive: boolean;
+  /** Pre-compression usage in percent of the model context window (tokenCount/maxTokens*100); null when unknown. */
+  usagePercent: number | null;
+  /** Saved snapshot id, when available. */
+  sessionId?: string;
+}
+
+export function buildCheckpointSavedNotice(input: CheckpointNoticeInput): string | null {
+  if (!input.snapshotSaved || !input.warningWasLive) {
+    return null; // warning path (PART B-2 last-chance note) or plain compression — unchanged behavior
+  }
+  const pct = typeof input.usagePercent === 'number' && Number.isFinite(input.usagePercent)
+    ? ` at ~${(Math.round(input.usagePercent * 10) / 10)}% of context` // one-decimal rounding (matches toFixed(1) percent convention elsewhere); outer Math.round(x*10/10) was a no-op that printed integers
+    : '';
+  const idPart = input.sessionId ? ` (checkpoint ${input.sessionId})` : '';
+  return '\n\n✅ AUTO-CHECKPOINT SAVED BEFORE COMPRESSION (one-shot notice — not a prompt):\n' +
+    'An automatic session-memory snapshot was saved' + pct + idPart + ' in place of the token-limit warning for this turn.\n' +
+    "Briefly acknowledge to the user that their session memory was auto-saved; no YES/NO reply or further action is required.";
+}
+
 // --- Temporal Awareness Helpers (merged from up_to_date) ---
 interface DateTimeCache {
   compact: string;
@@ -793,22 +821,41 @@ export async function preprocess(
       // Capture message count for later use in Step 0.6
       messageCount = history?.getLength() ?? 0;
 
+      // 🔹 F1 (17.09 G-B fix): one-shot notice text produced inside PART B below; appended to userPrompt after the
+      // compression block (see there). Lives only in this preprocess() run → never re-injected on later turns.
+      let checkpointSavedNotice = '';
+
       if (tokenCount > threshold) {
         console.log(`[ContextGuard] Token count ${tokenCount} exceeds compression threshold ${threshold}, compressing...`);
 
         // 🔹 PART B — PRE-COMPRESSION CHECKPOINT (awaited BEFORE history is destroyed). Non-fatal by design:
         // any failure only logs; compression must still run (parity with the Part A / YES-reply save paths).
         let snapshotSaved = false;
+        let snapshotSessionId: string | undefined; // 🔹 F1 — id for the one-shot user-visible notice below
         try {
           const saveResult = await autoTracker.autoSaveSessionMemory(tokenCount, maxTokens, messageCount);
           snapshotSaved = !!saveResult?.saved;
           if (snapshotSaved) {
+            snapshotSessionId = saveResult.sessionId; // 🔹 F1
             console.log(`[AutoTracker] ✅ Pre-compression checkpoint saved: ${saveResult.sessionId}`);
           } else {
             console.warn('[AutoTracker] ⚠️ Pre-compression checkpoint NOT saved — compressing without a clean checkpoint');
           }
         } catch (e) {
           console.warn(`[AutoTracker] ⚠️ Pre-compression snapshot failed (non-fatal): ${e instanceof Error ? e.message : String(e)}`);
+        }
+
+        // 🔹 F1 (17.09 G-B fix): the checkpoint SAVED while a warning was live in this same run — the old flow
+        // consumed that warning below with zero user-visible acknowledgement. Queue exactly one notice for this
+        // turn's model input (consumed by PART B-2 right after, so hasPendingWarning() here is the pre-consume state).
+        const f1Notice = buildCheckpointSavedNotice({
+          snapshotSaved,
+          warningWasLive: pendingWarning !== undefined || autoTracker.hasPendingWarning(),
+          usagePercent: maxTokens > 0 ? (tokenCount / maxTokens) * 100 : null,
+          sessionId: snapshotSessionId,
+        });
+        if (f1Notice) {
+          checkpointSavedNotice = f1Notice;
         }
 
         // 🔹 PART B-2: settle any pending YES/NO prompt — the context it referred to is about to be replaced, so a
@@ -847,6 +894,15 @@ export async function preprocess(
           // Non-fatal — worst case the guard keeps a stale-HIGH baseline (conservative direction: may snapshot early).
           console.warn('[FIX #20 A2] Post-compression recount failed; keeping pre-compression baseline:', countErr);
         }
+      }
+
+      // 🔹 F1 (17.09 G-B fix): surface the saved checkpoint to this turn's model input. Deliberately appended
+      // straight onto userPrompt rather than routed through checkpointSuffix — several return paths gate that suffix
+      // on hasPendingWarning() (false here by construction: PART B-2 consumed it above), which would silently drop
+      // this notice exactly like the original G-B bug. One-shot: the variable dies with this preprocess() run.
+      if (checkpointSavedNotice) {
+        userPrompt += checkpointSavedNotice;
+        console.log("[AutoTracker] ✅ Checkpoint-saved notice appended to this turn's model input (F1 one-shot)");
       }
 
       // 🔹 FIX #20 (A2): single publish point — AFTER any same-turn compression. The tool wrapper's mid-loop

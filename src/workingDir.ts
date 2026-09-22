@@ -160,7 +160,10 @@ function bootstrapRegistryFromSessionMemory(baseDir: string): number {
 // utilityTools → workingDir = "TypeError: os.tmpdir is not a function" at suite setup), and a fixed path broke
 // cwdConsistency's on-disk persistence assertion. Lazy resolution skips suites that never persist state; the
 // try/catch keeps any mock-shaped 'os' from breaking import/use. Production (no JEST_WORKER_ID) = unchanged path.
-const PRODUCTION_STATE_FILE = path.join(BASE_DIR, '.ai_toolbox_state.json');
+// 🔹 F4 (19.09): CWD state now lives in the PERSISTENT data dir (survives `lms dev --install` wipes — same
+// move as 12.09 REG-MOVE for project_registry.json). The old BASE_DIR location is a one-time migration source
+// ONLY (see migrateLegacyStateFile below) and is never written to again after the first boot post-upgrade.
+const LEGACY_PRODUCTION_STATE_FILE = path.join(BASE_DIR, '.ai_toolbox_state.json'); // pre-F4 location; adopted once at boot
 let jestStateFile: string | null = null;
 
 function resolveJestStateFile(): string {
@@ -176,9 +179,40 @@ function resolveJestStateFile(): string {
   return loc;
 }
 
-/** 🔹 FIX #31b: single source of truth for the state-file location — tests assert against this, not a re-derived path. */
+/** 🔹 FIX #31b / F4 (19.09): single source of truth for the state-file location — tests assert against this, not a re-derived path.
+ * Production: `<dataDir>/.ai_toolbox_state.json` in LM Studio's persistent data dir (survives reinstalls).
+ * Jest: per-run temp dir (FIX #31) — unchanged by F4. */
 export function getStateFilePath(): string {
-  return process.env.JEST_WORKER_ID ? resolveJestStateFile() : PRODUCTION_STATE_FILE;
+  if (process.env.JEST_WORKER_ID) return resolveJestStateFile();
+  try {
+    // getDataDir() is sync, jest-guarded internally (dataDir.ts), already imported at module top.
+    return path.join(getDataDir(), '.ai_toolbox_state.json');
+  } catch {
+    return LEGACY_PRODUCTION_STATE_FILE; // non-fatal fallback — never break CWD resolution on a data-dir hiccup
+  }
+}
+
+/** F4 (19.09): one-time, jest-excluded adoption of the pre-F4 state file into the persistent data dir.
+ * Latched per process; invoked from loadState(). Copies only when the target is absent AND the legacy file
+ * carries a workingDir that still exists on disk — stale/invalid legacy content is deliberately NOT adopted,
+ * so restoreLastActiveProjectCwd() keeps handling that case exactly as before. */
+let legacyMigrationDone = false;
+function migrateLegacyStateFile(): void {
+  if (legacyMigrationDone || process.env.JEST_WORKER_ID) return; // jest: never touch the real dev-repo state file (FIX #31 hazard class)
+  legacyMigrationDone = true;
+  try {
+    const target = getStateFilePath();
+    if (fs.existsSync(target)) return; // already migrated, or fresh install that already has data-dir state
+    if (!fs.existsSync(LEGACY_PRODUCTION_STATE_FILE)) return; // nothing to adopt
+    const legacy = JSON.parse(fs.readFileSync(LEGACY_PRODUCTION_STATE_FILE, 'utf-8')) as { workingDir?: string };
+    if (typeof legacy.workingDir === 'string' && path.isAbsolute(path.resolve(legacy.workingDir)) && fs.existsSync(path.resolve(legacy.workingDir))) {
+      fs.writeFileSync(target, JSON.stringify({ workingDir: legacy.workingDir }, null, 2));
+      console.log(`[WorkingDir] F4 migration: adopted persisted CWD from legacy location into ${target}`);
+    } // invalid/stale legacy content — intentionally not adopted (see doc comment)
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.warn(`[WorkingDir] F4 legacy state migration skipped (non-fatal): ${msg}`);
+  }
 }
 
 // Verbose [WorkingDir] traces follow the project convention (contextGuard.ts DEBUG_MODE).
@@ -190,6 +224,7 @@ function debugLog(message: string): void {
 
 /** Load persisted state from disk (🔹 FIX #31b: path via getStateFilePath — jest-safe + single source of truth) */
 function loadState(): { workingDir?: string } {
+  migrateLegacyStateFile(); // F4 (19.09): one-time adoption of the pre-F4 BASE_DIR copy (latched per process, jest-excluded)
   try {
     const stateFile = getStateFilePath();
     if (fs.existsSync(stateFile)) {

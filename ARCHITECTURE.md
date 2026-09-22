@@ -124,7 +124,7 @@ export function main(context: PluginContext) {
 }
 ```
 
-### 2. Tool Registration Flow (Current State — v1.9.17 / manifest rev 29)
+### 2. Tool Registration Flow (Current State — v1.9.17 / manifest rev 31)
 
 ```
 toolsProvider() called by LM Studio SDK
@@ -617,23 +617,23 @@ Heavy dependencies loaded on first use:
 - **Tesseract.js** — OCR engine
 - **SQLite** — Database engine (Node 23+)
 - **pdf-parse / mammoth** — Document parsing
-- **ripgrep** — scan engine behind the standalone `ripgrep` tool AND `pattern_scan`'s B' phase-1 prefilter (WASM build of rg; lazy dynamic import on first use, see §5 below)
+- **ripgrep** — worker-isolated scan engine behind the standalone `ripgrep` tool ONLY (WASM build of rg; lazy dynamic import on first use, see §5 below). `pattern_scan` no longer consumes it — B' phase-1 prefilter removed FIX-34a 13.09
 
-### 5. Ripgrep engine (`src/utils/ripgrepEngine.ts`) — current state post 14.09 TOOL SWAP (v1.9.17 / manifest rev 29)
+### 5. Ripgrep engine (`src/utils/ripgrepEngine.ts`) — current state post 14.09 TOOL SWAP (v1.9.17 / manifest rev 31)
 
-The engine is a self-contained, worker-isolated ripgrep runner. Two consumers:
+The engine is a self-contained, worker-isolated ripgrep runner with ONE live consumer (its former second consumer — `pattern_scan`'s B' prefilter — was removed in FIX-34a 13.09):
 
 1. **Standalone `ripgrep` tool** (new 14.09 TOOL SWAP — owner directive: full replacement of the removed `grep_files`, AST mode included). The ENTIRE walk + match runs inside ONE worker-isolated rg process off the host thread; there is no JS fallback for this tool.
-2. **`pattern_scan` B' phase-1 prefilter** (unchanged since v1.9.15) — regex-mode directory scans first ask the engine which files *can* match, then run only those through the worker pipeline; any non-'ok' outcome falls back to the full-JS walk byte-for-byte with every cap and skip-record contract intact.
+~~**`pattern_scan` B' phase-1 prefilter** (unchanged since v1.9.15) — regex-mode directory scans first ask the engine which files *can* match, then run only those through the worker pipeline; any non-'ok' outcome falls back to the full-JS walk byte-for-byte with every cap and skip-record contract intact.~~ **REMOVED (FIX-34a 13.09)** — its rg-WASM search ran synchronously on the host thread (the 13.09 wedge class); `pattern_scan` is now a pure full-JS walk whose per-line regex eval runs INLINE on this thread, gated by `isSafeRegex` BEFORE any disk I/O (DE-STRAngle 16.09) with deterministic SIZE bounds (`maxFileSizeBytes`, `maxFileLines`, `maxEvalLineLength`) replacing wall caps; host abort-signal only — no engine call remains in that path.
 
 Design points (full contracts in the module header):
 
-- **Boot-safe lazy dependency** — `ripgrep` (pithings/ripgrep-node 0.3.1, ESM-only WASM build of rg) is dynamically imported on first use only; a missing or broken package degrades gracefully (the standalone tool reports the failure as a clean result; pattern_scan falls back to JS) and never breaks plugin boot.
+- **Boot-safe lazy dependency** — `ripgrep` (pithings/ripgrep-node 0.3.1, ESM-only WASM build of rg) is dynamically imported on first use only; a missing or broken package degrades gracefully (the standalone tool reports the failure as a clean result) and never breaks plugin boot.
 - **Single wall-clock cap: 3 s watchdog** (`GREP_FILES_MAX_RUN_MS = 3000`, shared constant in `src/utils/grepGuard.ts`) — the engine's budget terminates a wedged worker off-thread → clean timeout result; host aborts are forwarded straight into the engine (pre-aborted settles immediately).
 - **Dialect-restricted regexes auto-demote** — Rust-regex parse errors (lookarounds/backreferences) trigger an automatic fixed-string (-F) re-run, disclosed via `pattern_mode: 'fixed-strings'` + hint in the tool result.
 - **No result limits on the standalone tool** (owner directive 14.09): every match found in scope is returned; default-pruned dirs are the engine's 12-dir exclusion set (pass `include_glob` to scan them).
 - **Depth parity quirk preserved** — `--max-depth` offset +1 inside the engine (rg WASM boundary semantics); omitted = unbounded.
-- **pattern_scan fallback unchanged** — any non-'ok' outcome for that consumer leaves the candidate set null → full-JS walk, byte-for-byte.
+- ~~**pattern_scan fallback unchanged**~~ (obsolete with B') — `pattern_scan` no longer calls this engine at all; its sole live consumer is the standalone `ripgrep` tool.
 
 ---
 
@@ -1135,7 +1135,7 @@ src/
     ├── node-notifier.d.ts      # Node.js notifier type declarations
     └── types.d.ts              # Core shared type definitions
 
-tests/                          # Jest test suite (46 suites / 761 tests, verified green on 08.09 via npm test — see README meta line; per-file list below is abbreviated)
+tests/                          # Jest test suite (45 suites / 745 tests, verified green on 19.09 via owner-run npm test — see README meta line; per-file list below is abbreviated)
 ├── security.test.ts            # Core security validation tests
 ├── security.edge-cases.test.ts # Security boundary & edge case testing
 ├── config.test.ts              # Zod schema + UI schematics validation

@@ -15,7 +15,7 @@
  * 5. Happy path unchanged: valid primary loads normally and leaves the backup untouched.
  *
  * Conventions: hermetic via the F4 registryPathOverride constructor hook (temp dir only — never touches
- * the live plugin-dir registry); temp root cleaned in afterAll. Run with the default jest suite or:
+ * the live data-dir registry); temp root cleaned in afterAll. Run with the default jest suite or:
  *   npx jest tests/registryCorruptionRecovery.test.ts
  */
 
@@ -28,11 +28,13 @@ import { ProjectRegistryManager } from '../src/tools/contextManagementTools';
 const REGISTRY_NAME = 'project_registry.json';
 
 let tempRoot: string; // scratch "plugin dir" for registry fixtures
-let baseDir: string; // <tempRoot>/.session_context parent — mimics plugin root layout
+let errSpy: jest.SpyInstance;
+let baseDir: string; // <tempRoot>/.session_context parent — fixture layout intentionally MIMICS the pre-REG-MOVE install-dir layout (provenance note, 20.09); production lives in the persistent data dir since REG-MOVE (12.09)
 let primaryPath: string;
 let bakPath: string;
 
 beforeAll(async () => {
+  // Provenance (20.09): fixture layout intentionally mimics the pre-REG-MOVE install-dir layout; production registry lives in the persistent data dir since REG-MOVE (12.09) — this suite targets path-parameterized semantics only.
   tempRoot = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'ai-toolbox-registry-fix28-'));
   baseDir = path.join(tempRoot, '.session_context');
   await fs.promises.mkdir(baseDir, { recursive: true });
@@ -41,12 +43,15 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  errSpy.mockRestore();
   if (fs.existsSync(tempRoot)) {
     await fs.promises.rm(tempRoot, { recursive: true, force: true });
   }
 });
 
 beforeEach(() => {
+  // Option B (20.09): this suite's corruption scenarios deliberately emit console.error — suppress the expected noise.
+  errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
   // Clean slate per test — no leftover quarantine/tmp/bak artifacts between cases
   for (const f of fs.readdirSync(baseDir)) {
     fs.rmSync(path.join(baseDir, f), { force: true });

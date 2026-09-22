@@ -1,5 +1,6 @@
 /**
  * Tool Priority System
+ * WIRED (18.09): sortToolsByClusterAwarePriority() orders tool exposure in src/toolsProvider.ts.
  * 
  * Defines priority tiers for tools to enable intelligent filtering when the
  * tool count exceeds the configured limit. Tools are sorted by priority (highest first)
@@ -160,7 +161,7 @@ export function getToolPriority(toolName: string): ToolPriority | undefined {
 /**
  * Sort tools by priority (highest first), then alphabetically within each tier
  */
-export function sortToolsByPriority(tools: { name: string }[]): typeof tools {
+export function sortToolsByPriority<T extends { name: string }>(tools: T[]): T[] {
   return [...tools].sort((a, b) => {
     const priorityA = getToolPriority(a.name);
     const priorityB = getToolPriority(b.name);
@@ -353,10 +354,10 @@ export function computeCentralityScores(
  * 1. Centrality score (descending) — more connected modules first
  * 2. Alphabetical name (ascending) — for deterministic ordering
  */
-export function sortToolsByClusterAwarePriority(
-  tools: { name: string }[],
+export function sortToolsByClusterAwarePriority<T extends { name: string }>(
+  tools: T[],
   clusteringResult?: HubExclusionResult
-): typeof tools {
+): T[] {
   if (!clusteringResult || clusteringResult.nodes.length === 0) {
     // Fallback to standard priority sorting if no clustering data available
     return sortToolsByPriority(tools);

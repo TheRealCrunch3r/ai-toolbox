@@ -1,68 +1,49 @@
-# Changelog — ai_toolbox (active)
+# Changelog — ai_toolbox (archived v2)
 
-> **This file supersedes `CHANGELOG.md`.** The old changelog is preserved as archived history only.
-> New entries are added at the top of this file. Details below were compiled from verified session records and bundle-level verification (`dist/index.js` + `index.mjs` are unminified, so shipped content was confirmed byte-exact).
+> ⚠️ **Superseded by [`CHANGELOG_v3.md`](CHANGELOG_v3.md)** on 20.09.2026 (file-size rotation, same house pattern as the v1 → v2 hand-off). This file is preserved as history — no new entries are added here; the newest 8 entries below were **moved verbatim** into `CHANGELOG_v3.md` at rotation time.
+> Older entries (`[12.09 READS-EXTENSION]` and earlier, plus the mid-file release-history paragraph) remain in this file unchanged.
 
-**Current release: v1.9.17** (`package.json` + `manifest.json`, revision 29; version + revision bumped 08.09 ~21:5x): Tool Gating Profile — persistent user tool-toggle memory across new chats (entry below). **Previous release v1.9.16** (`package.json` + `manifest.json`, revision 28; version + revision bumped 08.09): `web_search` zero-result fallback fix — a dead or empty engine no longer stops the multi-engine search chain. **Earlier release v1.9.15** (`package.json` + `manifest.json`, revision 27; version bumped 02.09, rev re-bumped 03.09 for the Hub-dependency hotfix): `pattern_scan` ripgrep phase-1 candidate prefilter (B', Option A port from grep_files v1.9.13+) with guaranteed full-JS fallback. **Previous release v1.9.14** (`package.json` + `manifest.json`, revision 25; bumped 02.09): `get_memory` local-file parse guard — mixed-shape memory file no longer aborts the PRIORITY-1 read (top entry). **Previous release v1.9.13** (revision 24, bumped 02.09): `grep_files` ripgrep-backed regex engine with JS fallback. **Previous release v1.9.12** (revision 23, bumped 31.08): `pattern_scan` tool + puppeteer `connected` fix + dead-file removal (entry below). **Previous release v1.9.11** (revision 22) — contained the consolidated maintenance work of the v1.9.10 window: duplicate-tool-removal + grep_files log-level hotfixes (24.08), the OOM-hardening suite (web-fetch guards, search-fallback & HTTP-client caps, heap watchdog), the rag_web_content fix suite, the chunking fixed-point OOM termination (25.08), the StateManager B1/B2/B3 data-loss fixes (28.08), and REV-24 bare-& false-positive fix for `grep_files` (hotfix deployed via direct src-sync + full restart 28.08; installed copy runs from `src/`). **Version bumped v1.9.10 → v1.9.11 on 28.08 (~20:45)** — user-directed release decision supersedes the "no bump" policy of 25.08.
-## [15.09.2026 ~19:0x] — DRAIN-GRACE: `pattern_scan`/`grep_files` worker-pool thrash fix — delayed idle-drain (REGEX_WORKER_DRAIN_GRACE_MS = 500) with cancel-on-acquire + shutdown cleanup
+### Moved to CHANGELOG_v3.md (20.09 rotation — content identical there)
+| Entry | Date |
+|---|---|
+| SPEC-C (memory-store data-loss arc; dual-writer interleave root fix) | 20.09 |
+| F4: CWD state file relocated to persistent data dir | 19.09 ~14:3x |
+| Cluster-aware tool ordering wired into toolsProvider | 18.09 ~15:5x |
+| AutoTracker F1+F2: mid-loop checkpoint hysteresis + pre-compression notice | 17.09 ~18:4x |
+| DE-STRAngle: pattern_scan wall-clock cap removed; deterministic size bounds | 16.-17.09 ~19:3x |
+| DRAIN-GRACE: worker-pool thrash fix (delayed idle-drain, 500 ms) | 15.09 ~19:0x |
+| SEARCH-NORM: search case- AND word-separator-insensitive | 15.09 ~17:4x |
+| RIPGREP TOOL SWAP: grep_files removed -> standalone ripgrep tool | 14.09 ~18:0x |
 
-**Context:** Proven root cause of the 15.09 pattern_scan stall incident (owner GO 18:16, both decisions in one pass): `releaseWorker()` drained ALL idle pool workers IMMEDIATELY on every release — between back-to-back per-file evals inside a scan burst, warm workers were killed and EVERY re-acquire paid a fresh spawn (~43-67 ms process creation on this host) + ≥120 ms spawn pacing. Live log (2026-09-15.1.log @17:14): ~97 files in 3 s ≈ predicted thrash throughput, spawned→drained→rate-limit cycles visible per burst. The same GO recorded standing H1 rule — never batch two search-tool calls concurrently against this repo (the concurrent-call pattern was what exposed the thrash); persisted at session level only because `save_memory` hit the ~51,200 B state cap that evening (owner housekeeping pending).
-
-**Changes (`src/utils/regexWorker.ts`):**
-- New exported constant `REGEX_WORKER_DRAIN_GRACE_MS = 500` + module-level `drainGraceTimer`; new helpers `cancelDrainGrace()` / `scheduleDrainGrace()`. The sweep RE-ARMS on EVERY release (clear + fresh timer) so it fires only after a FULL quiet window, never mid-burst.
-- `releaseWorker()`: no waiters → `scheduleDrainGrace()` (delayed sweep replaces the immediate drain-all-idles); with waiters pending → `cancelDrainGrace()` + `notifyWaiter()` as before (queued demand outranks any drain). Quarantine and lifetime retirement remain IMMEDIATE — untouched branch.
-- `acquireWorker()`: first line = `cancelDrainGrace()` — an acquire IS demand; a pending sweep must not drain the warm pool we are about to draw from.
-- Sweep body on expiry: identical semantics to the old immediate drain (terminates idle workers only, one `[worker-pool] grace expired with no demand — drained N idle worker(s)` line via `console.log` → [INFO], per logging-channel policy).
-- `shutdownRegexWorkerPool()`: first line = `cancelDrainGrace()` — a pending sweep must never fire after teardown.
-- Accepted trade-off (owner, 15.09): ≤`REGEX_WORKER_POOL_SIZE` warm workers (~≤200 MB RSS) may survive up to one quiet window after demand ends — bounded by construction, cleared at teardown; documented in the constant doc block and `releaseWorker`'s DRAIN rule comment.
-
-**Tests (`tests/regexWorker.test.ts`, +3 → 15 total in file):** new real-timer describe block `DRAIN-GRACE (15.09) — delayed idle-drace` (real timers on purpose — the grace window is a real-time guarantee; per-test `shutdownRegexWorkerPool()` + console.log spy, and probe logs use different wording so re-probes after beforeEach cannot inflate spawn counts): ① 'reuse within the grace window: back-to-back evals pay exactly ONE spawn (zero-spawn reuse)' · ② 'quiet-window expiry drains idle workers; next eval pays exactly one fresh spawn' · ③ 'shutdown clears a pending grace sweep - no stray drain activity after teardown'. No pre-existing assertion touched.
-
-**Verification:** ✅ CLOSED 15.09 ~19:35 — owner confirmed "all tests PASS": `npx tsc --noEmit` clean · targeted `npx jest tests/regexWorker.test.ts` all **15 green** (incl. one same-evening self-repair of my own test-block EOF defect TS1005 @234:1 — the DRAIN-GRACE describe closed its arrow body but dropped the call's `);`; +2 B, identity read-back green) · full `npm test` = EXACTLY **730 passed / 44 suites** (reconciled arithmetic: 715 other + this file's 15 [7+3+2+3]) · tsup build green. LIVE CHECK pending owner rebuild+reload: recursive `pattern_scan src/` → `stats.filesScanned ≫ 97` or clean completion, no per-burst spawned→drained cycles in the server log.
-
-**Versioning:** No bump — folds into the pending v1.9.18 proposal (rev 30) alongside SEARCH-NORM + MANAGE + READS-EXTENSION + FIX #32 + RIPGREP tool swap; release GO remains a carried user-pending decision.
-
----
-## [15.09.2026 ~17:4x] — SEARCH-NORM: `search_projects` / `manage_projects(action="search")` now case- AND word-separator-insensitive
-
-**Context:** owner request (15.09, 17:41) "go to ai toolbox and read session mem" surfaced a recurring miss class: the query `ai toolbox` found nothing although the project is registered as `ai_toolbox`. Root cause pinned in `ProjectRegistryManager.search()` (`src/tools/contextManagementTools.ts`): plain `toLowerCase().includes()` on the RAW stored name/path compared the query's space literally against the stored underscore — case was already normalized, word separators were not (path matches failed analogously).
-
-**Change:**
-- **New private static helper `normalizeSearchText(s)`** in `ProjectRegistryManager`: canonical form = lowercase + strip of word-separator chars (`[\s_-]`), applied to BOTH the query and every candidate name AND path before `.includes()`. "ai toolbox" ≡ "ai_toolbox" ≡ "AI-Toolbox". Path separators (`\`, `/`) are deliberately NOT in the class — no matching across path structure; only word separators are equivalent.
-- **Behavior change (documented):** a query that is empty after normalization (whitespace-only or all-separators) now matches NOTHING. The old code matched every registered entry for such queries because `''` is a substring of any string — latent bug fixed in the same pass.
-- **Tool docs synced (same file):** `manage_projects` description search bullet + `query` param schema description now advertise the separator-insensitive contract (they previously said "substring"), so the LLM-facing surface no longer teaches queries that silently miss.
-
-**Tests:** 3 new cases in the READS-EXTENSION block of `tests/manageProjects.test.ts` — NAME match via space/uppercase/hyphen variants, PATH match via separator variants, whitespace-only query → `[]`. Hermetic tmp registries per test; no existing assertion modified.
-
-**Verification:** ✅ CLOSED 15.09 ~19:35 — owner confirmed "all tests PASS" (typecheck clean · targeted `npx jest tests/regexWorker.test.ts` 15/15 green · full `npm test` all green, reconciled EXACTLY at the expected baseline **730 passed / 44 suites**). Analyzer tsc integration inert in this environment, per house precedent.
-
-**Versioning:** no bump — folds into the pending v1.9.18 proposal (rev 30) alongside MANAGE + READS-EXTENSION + FIX #32; release GO remains a carried user-pending decision.
-
----
-
-
-## [14.09.2026 ~18:0x] — RIPGREP TOOL SWAP: `grep_files` REMOVED → standalone `ripgrep` wired to `runRipgrepEngine`
-
-**Context:** owner directive (14.09) replacing the long-lived combined JS/AST search tool with a standalone native-ripgrep tool — file walk AND pattern matching run natively inside ONE worker-isolated ripgrep process (`src/utils/ripgrepEngine.ts`) off the host thread, so the 13.09 main-thread wedge class stays structurally dead: only an engine watchdog can terminate the worker, never a missing event-loop turn.
-
-**Changes:**
-- **`src/tools/fileSystemTools.ts`:** `grep_files` tool object + AST search helpers + `matchGlob` deleted; standalone `ripgrep` registered — params `pattern` / `path` (dir or single file) / `mode` (`regex`|`literal`) / `case_insensitive` (**default true**, legacy `-i` contract) / `include_glob` / `exclude_globs` / `max_depth`; dialect parse errors auto-retry ONCE as fixed strings (`pattern_mode="fixed-strings"` + hint); NO result limits (`maxMatches = Number.MAX_SAFE_INTEGER`, owner directive) — long scans settle at the 3 s watchdog with `aborted: true` + partial-coverage hint; host abort signal forwarded (pre-abort forensics log). Default-exclusion set hoisted to exported `DEFAULT_EXCLUDED_DIRS` (12 dirs, unchanged from old grep_files walker; applied only when no `include_glob`).
-- **`src/utils/grepGuard.ts`:** new shared budget constant `GREP_FILES_MAX_RUN_MS = 3000` ("3 s engine budget kept per owner directive" — mirrors `PATTERN_SCAN_MAX_RUN_MS`; the old 500 ms per-regex constant is obsolete for the native path).
-- **Registry/locales:** `toolPriority.ts` entry renamed grep_files→ripgrep; stale pattern_scan descriptions refreshed; all 5 locales (en/de/es/zh-CN/zh-TW) updated.
-- **Tests:** obsolete grep_files suites deleted (hang-backstop, size-limit, matchglob, ast-smoke, parity + stray `.bak`); new REAL-timer suite `tests/ripgrepTools.test.ts` (ok / no-matches / demotion / single-file / globs / pre-aborted / mid-scan abort / spawn-failure).
-- **Docs:** TOOLS_REFERENCE.md — grep_files row replaced with the standalone ripgrep section.
-
-**Gate-fix arc landed this session (all user-gated):** de.ts locale reconstruction (L30) · `fileSystemTools` success-union narrowing via the `"ok" in outcome` guard · `RgFrame` cast against the engine result type · cross-realm `instanceof Error` stat-catch fix in the engine · **patternScanHangBackstop deterministic-hang root cause + fix**: jest `useFakeTimers()` fakes the full sinon map (incl. `Date`, `nextTick`, microtask queue) and `advanceTimersByTimeAsync` drains jobs only at tick boundaries, so the old 3060 ms loop ceiling stranded pending fake timers — rewritten as Phase-1 deterministic cap-crossing + NEW Phase-2 settle-drain (`advanceTimersByTimeAsync(1)` until settled; bounded by REAL wall time via `NativeDate`/`realStartMs` anchors captured BEFORE fake-timer install, plus a 40 k-step backstop).
-
-**Post-gate follow-up (live smoke-test findings, second owner-directed pass ~18:5x):** the on-tree live ripgrep smoke test surfaced four cosmetic response-shape/doc items — all fixed in one pattern-based pass over `src/tools/fileSystemTools.ts` (rolling `.bak`; prior-session backup preserved as `.bak2`): **(a)** success branch now echoes the requested mode (`mode ?? 'regex'`) instead of hardcoded `'regex'`; **(b)** demotion hint fires only when an actual -F demotion happened — explicit `mode:"literal"` requests no longer get "was not a valid Rust regex" wording; **(c)** no-match branch reports `pattern_mode` best-effort (`'fixed-strings'` for explicit literal, `'regex-or-demotion'` for regex mode — the engine discards `effectiveMode` on zero matches, so the honest lower bound is reported instead of guessing); **(d)** tool-description exclusion list corrected to the live 12-dir `DEFAULT_EXCLUDED_DIRS` set (stray `out` removed — it belongs only to pattern_scan's own pruning list). No test changes: pinned assertions were verified compatible pre-write (`toMatchObject` tolerates the added field; the dialect-reject probe runs without an explicit mode, so its hint pin is untouched; the description pin = "3s wall-clock watchdog" string was not modified).
-
-**Tests:** new real-timer ripgrep suite + full jest gate: **724/724** green (typecheck + lint clean in the same cycle).
-
-**Verification:** ✅ CLOSED 14.09 ~18:28 — user confirmed "everything passes" (tsc / eslint / full jest all green, including the former deterministic hang-backstop suite).
-
-**Verification (follow-up pass):** ✅ CLOSED 14.09 ~18:58 — user confirmed "all tests PASS" after the four cosmetic fixes (typecheck / eslint / targeted ripgrep suite / full jest all green; no pinned assertion required updating).
-
-**Versioning:** no bump — this work folds into the pending v1.9.18 proposal (rev 30); release GO remains a carried user-pending decision.
+### Remaining entries in this file (top → bottom)
+- ] [12.09.2026 ~23:xx] — READS-EXTENSION: `manage_projects` absorbs registry reads (`info` / `list
+- ] [12.09.2026 ~22:35] — FIX #32: `updateSessionIndex` silent skip for orphaned per-copy legacy in
+- ] [12.09.2026 ~21:4x] — MANAGE feature (Option B): `register_project` → `manage_projects`, with u
+- ] [12.09.2026] — Post-reinstall registry survival arc: FIX #29 (bootstrap reorder) + REG-MOVE (re
+- ] [08.09.2026 ~21:5x] — v1.9.17 rev 29: Tool Gating Profile (persistent user tool-toggle memory a
+- ] [08.09.2026 ~17:40] — v1.9.16 rev 28: `web_search` zero-result fallback fix (dead engine no lon
+- ] [03.09.2026 ~17:25] — v1.9.15 rev 27 hotfix re-publish: `ripgrep` promoted to runtime dependenc
+- ] [v1.9.15] — 02.09.2026: `pattern_scan` ripgrep phase-1 candidate prefilter (B')
+- ] [v1.9.14] — 02.09.2026: `get_memory` local-file parse guard (hotfix)
+- ] [v1.9.13] — 02.09.2026: New `grep_files` ripgrep-backed regex engine with JS fallback (Option A
+- ] [01.09.2026 ~18:30] — Tier-1 dead-code removal (~90 KB / 1739 LOC; user-GO-gated phases with be
+- ] [01.09.2026 ~17:05] — `executedTool` transparency stamp in the toolsProvider wrapper (silent-su
+- ] [v1.9.12] — 31.08.2026: New `pattern_scan` tool + puppeteer `connected` property-read fix + dea
+- ] [30.08.2026 ~17:45] — `grep_files` completion telemetry (live-verified same day; closed counter
+- ] [29.08.2026] — FIX-HANG-5: worker-isolated regex evaluation for ReDoS-prone patterns (+ 5b tria
+- ] [28.08.2026 ~21:15] — Docs sync: README "Standout Tools" highlight + TOOLS_REFERENCE `grep_file
+- ] [28.08.2026 ~20:15] — REV-24: bare-& false-positive fix for `grep_files` (code-verified + LIVE
+- ] [28.08.2026] — StateManager B1/B2/B3 data-loss fixes + rev 21 rebuild & live re-deploy (user-ve
+- ] [25.08.2026 ~00:15] — Chunking fixed-point OOM termination + test-suite isolation fixes (full s
+- ] [24.08.2026 ~22:10] — rag_web_content fix suite: dead-code removal + soft cap + markup strippin
+- ] [24.08.2026 ~21:50] — OOM part 2: bound the search fallbacks + HTTP client, add heap-pressure w
+- ] [24.08.2026] — OOM guard for web-fetch tools (implemented + live-probed; version bump pending r
+- ] [v1.9.10] — 24.08.2026: duplicate tool removal + log-level fix (live-accepted & bundle-verified
+- ] [23.08.2026] — evening: grep_files hang fix (shipped & bundle-verified)
+- ] [23.08.2026] — evening: DELTA "chat used" log enhancement (shipped & bundle-verified)
+- ] [23.08.2026] — earlier wind-down (same day)
+- ] [22.08.2026] — grep_files contract fixes & sibling-defect audit (all user-verified)
+- ] [21.–22.08.2026] — FIX #19 verification & cleanup (pointers)
 
 ---
 ## [12.09.2026 ~23:xx] — READS-EXTENSION: `manage_projects` absorbs registry reads (`info` / `list` / `search`)

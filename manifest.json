@@ -3,6 +3,6 @@
   "runner": "node",
   "owner": "crunch3r",
   "name": "ai-toolbox",
-  "version": "v1.9.17",
-  "revision": 30
+  "version": "v1.9.18",
+  "revision": 33
 }

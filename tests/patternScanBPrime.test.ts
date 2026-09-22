@@ -111,12 +111,11 @@ describe('patternScan full-JS pipeline — guard rails (post-FIX-34a)', () => {
   }, 10_000);
 
   test('concurrency does not change results (deterministic survivor set)', async () => {
-    // SLOW-HOST RELAXATION (same premise class as the patternScan.test.ts determinism leg, corrected 05.09): on a contended
-    // host the pool pays ≥250ms spawn pacing + ~43-67ms cold boot PER EVAL after the DRAIN rule kills idles between calls — so
-    // the sequential conc=1 leg hits the user-ordered GREP_MAX_RUN_MS=500 wall at file ~3 of 7 while the 8-way leg still
-    // completes (observed: a.filesScanned=3 aborted, b.filesScanned=7). A cap-abort is then a HOST-LOAD fact, not a
-    // determinism violation. Exact cross-leg equality stays the contract when BOTH legs complete; on any abort we drop to
-    // structural invariants HERE — never by touching GREP_MAX_RUN_MS or the pool pacing caps.
+    // DETERMINISM CONTRACT (DE-STRAngle 16.09): no wall cap and no worker pool exist in this pipeline anymore (inline host eval,
+    // fully async) — both legs are expected to COMPLETE on any sane host, so exact cross-leg equality is the primary contract.
+    // `aborted` can only mean a HOST signal now (none passed here); the defensive else branch with its cutoff-independent structural
+    // invariants stays as a safety net for future pipeline changes. (Historical: 05.09–13.09 the conc=1 leg could hit the then-existing
+    // GREP-era wall under host load — that relaxation class no longer applies to this tool.)
     const tA = Date.now();
     const a = await patternScan({ pattern: T_ALPHA, root, concurrency: 1 });
     console.log(`[DIAG] B' determinism leg-a (conc=1): elapsed=${Date.now() - tA}ms aborted=${String(a.aborted)} filesScanned=${a.stats.filesScanned}`);
@@ -126,13 +125,13 @@ describe('patternScan full-JS pipeline — guard rails (post-FIX-34a)', () => {
     expect(a.ok).toBe(true);
     expect(b.ok).toBe(true);
 
-    // Both legs completed inside the wall → the original exact contract: identical results regardless of worker scheduling.
+    // Both legs completed un-aborted (the expected case — no cap exists since DE-STRAngle) → the original exact contract: identical results regardless of scheduling.
     if (!a.aborted && !b.aborted) {
       expect(b.matches).toEqual(a.matches); // matches[] is sorted (file,line) — deterministic regardless of worker scheduling
       expect(b.stats.filesScanned).toBe(a.stats.filesScanned);
       expect(a.stats.filesScanned).toBe(TARGET_COUNT); // both legs saw every target — no silent walk divergence
     } else {
-      // At least one leg was cap-aborted → its survivor set is a SCHEDULE-DEPENDING prefix of the same deterministic
+      // One leg was aborted (HOST signal only, since DE-STRAngle) → its survivor set is a SCHEDULE-DEPENDING prefix of the same deterministic
       // (file,line) ordering. Sound invariants at ANY cutoff:
 
       for (const m of a.matches) { // field-wise compare on purpose — Array.includes() would be reference identity;
@@ -143,8 +142,8 @@ describe('patternScan full-JS pipeline — guard rails (post-FIX-34a)', () => {
         expect(p.file.localeCompare(c.file) < 0 || (p.file === c.file && p.line <= c.line)).toBe(true);
       }
 
-      // filesScanned — INEQUALITY ONLY at any cutoff (same correction as the patternScan.test.ts cap test): exact equality across
-      // legs is unsound when one leg aborted, because each stat bump precedes its gate/eval and the wall can land between files.
+      // filesScanned — INEQUALITY ONLY at any cutoff (same correction as the patternScan.test.ts regime test): exact equality across
+      // legs is unsound when one leg aborted, because each stat bump precedes its gate/eval and an abort can land between files.
       // Presence-based bound: every file that returned a match was stat'd before eval → bumped…
       for (const leg of [a, b]) {
         const matchedFiles = new Set(leg.matches.map((m) => m.file));

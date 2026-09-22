@@ -20,8 +20,18 @@ import * as path from 'path';
 import { encode, decode } from '@msgpack/msgpack';
 
 import { getWorkingDir } from './workingDir';
+// 🔹 D-LOST-WRITE (20.09): per-path in-process lock for the shared state store — see src/sharedFileLock.ts
+import { withSharedFileLock } from './sharedFileLock';
 import type { ContextOrigin } from './contextTiers.js';
 import { replaceTier, createContextNode } from './contextTiers.js';
+
+/** 🔹 SPEC-C (20.09, memory-store incident): default byte cap for the per-project state store
+ * (was a hardcoded 10240 inline in the constructor). The 20.09 incident proved that with the old
+ * default a single active session exhausts the budget and set() throws on EVERY subsequent write —
+ * the "poisoned store" failure mode (save_memory / save_session_summary fail permanently until manual
+ * data repair). Raised to 256 KiB; bounded memory_* eviction in set()/setWithTier() is the second line
+ * of defense so even this larger budget can never hard-fail again while evictable records exist. */
+const DEFAULT_MAX_STATE_SIZE_BYTES = 262144;
 
 interface StateEntry {
   key: string;
@@ -143,10 +153,10 @@ function resolveProjectName(): string {
   return path.basename(cwd).toLowerCase().replace(/[^a-z0-9]/g, '_');
 }
 
-/** Plugin-level memory file path (global baseline — kept for backward compatibility) */
-function getPluginMemoryFilePath(): string {
-  return path.join(PLUGIN_ROOT, '.session_context', '.ai_toolbox_memory.msgpack');
-}
+// 🔹 SPEC-C follow-up (20.09 PM): getPluginMemoryFilePath() REMOVED — its only consumer was the
+// constructor field pluginMemoryFile, which fed getMemoryFilePath()'s stale "Legacy compat" return value
+// (PLUGIN_ROOT-based path frozen at construction while real I/O is working-dir-based). Removing both kills
+// the wrong-location contract at the root; per-project resolution lives in getProjectMemoryFilePath().
 
 /**
  * Load a single msgpack memory file and merge entries into the provided map.
@@ -161,25 +171,97 @@ async function loadMemoryFile(filePath: string, state: Map<string, StateEntry>, 
 
     const buffer = await fs.readFile(filePath);
 
+    // 🔹 SPEC-C follow-up (20.09 PM): a torn/partial write can decode "successfully" to a NON-ARRAY single
+    // value — msgpack is self-delimiting, so a truncated or interleaved buffer may yield one valid scalar
+    // while the trailing bytes are ignored by strict decoders' partial reads / accepted as complete values.
+    // The old code then hit `for (const entry of data)` TypeError, which the OUTER catch swallowed as
+    // "Failed to load memory file": no quarantine, no recovery, silent empty store — the exact failure
+    // signature observed in csmSharedFileRegression Suites B/D (0 quarantines for a corrupt primary).
+    // Route non-array decodes into the SAME recovery/quarantine branch below.
     let data: StateEntry[];
     try {
-      data = decode(buffer) as StateEntry[];
+      const decoded: unknown = decode(buffer);
+      if (!Array.isArray(decoded)) {
+        throw new Error(`decoded value is not an array (torn write, got ${typeof decoded})`);
+      }
+      data = decoded as StateEntry[];
     } catch (decodeErr: unknown) {
       // 🔹 F3 (10.09): QUARANTINE, never delete — an undecodable file may be a torn/partial write
       // from the non-atomic fallback below, not logically corrupted data. Renaming to .corrupt-*
       // preserves it for inspection/restore and stops the destroy-and-recreate cycle (old behavior:
       // fs.unlink + empty state → next save wrote an empty file over the destroyed one).
       const reason = decodeErr instanceof Error ? decodeErr.message : String(decodeErr);
-      logger.error(`[StateManager.loadMemoryFile] Corrupted/unreadable memory file at ${filePath} — quarantining (NO DELETE). Reason: ${reason}`);
+
+      // 🔹 SPEC-C Primary 1 (20.09, bug #3): this store is SHARED with ContextStorageManager (context
+      // entries {id,type,title,content…} — see FIX #23/#25 in contextManagementTools.ts). Quarantining a
+      // corrupted shared file destroys BOTH layers at once (observed live 20.09 incident: two .corrupt-*
+      // quarantines, store left with no usable records after). saveMemoryFile() writes a last-known-good
+      // mirror (<filePath>.backup.json) after every successful save — recover from it BEFORE the plain
+      // quarantine so the shared file is never left destroyed. Strict gate: only a NON-EMPTY array where
+      // EVERY record is state-shaped (string key + number timestamp) or context-shaped (id+type+content
+      // strings) qualifies; anything else falls through to the old quarantine-only path below.
+      let recoveredState: StateEntry[] | null = null;
       try {
-        await fs.rename(filePath, `${filePath}.corrupt-${Date.now()}`);
-        logger.info(`[StateManager.loadMemoryFile] Quarantined as ${filePath}.corrupt-*`);
-      } catch (quarantineErr: unknown) {
-        // Rename can fail while the file is locked — do NOT fall back to unlink. Start empty; original preserved on disk.
-        const qMsg = quarantineErr instanceof Error ? quarantineErr.message : String(quarantineErr);
-        logger.error(`[StateManager.loadMemoryFile] QUARANTINE FAILED (file left in place, NO DELETE): ${qMsg}`);
+        const backupPath = `${filePath}.backup.json`;
+        if (await fs.access(backupPath).then(() => true).catch(() => false)) {
+          const rawBackup: unknown = JSON.parse(await fs.readFile(backupPath, 'utf-8'));
+          const isRecoverableRecord = (r: unknown): boolean => {
+            if (!r || typeof r !== 'object' || Array.isArray(r)) return false;
+            const o = r as Record<string, unknown>;
+            const stateShape = typeof o.key === 'string' && typeof o.timestamp === 'number';
+            const contextShape = typeof o.id === 'string' && typeof o.type === 'string' && typeof o.content === 'string';
+            return stateShape || contextShape;
+          };
+          if (Array.isArray(rawBackup) && rawBackup.length > 0 && rawBackup.every(isRecoverableRecord)) {
+            // Step 1: quarantine the corrupt bytes FIRST — preserves evidence AND frees the primary slot.
+            let quarantinedAs: string | null = null;
+            try {
+              const corruptPath = `${filePath}.corrupt-${Date.now()}`;
+              await fs.rename(filePath, corruptPath);
+              quarantinedAs = corruptPath;
+            } catch (qErr: unknown) {
+              // Locked file that cannot be renamed → abort recovery entirely; the plain path below handles it.
+              const qMsg = qErr instanceof Error ? qErr.message : String(qErr);
+              logger.error(`[StateManager.loadMemoryFile] Corrupt at ${filePath} (${reason}); quarantine rename failed — recovery aborted: ${qMsg}`);
+            }
+            if (quarantinedAs) {
+              // Step 2: restore the last-known-good mirror into the freed slot. The primary is a msgpack
+              // file, so re-encode to msgpack (the .backup.json mirror is JSON — inspection format only).
+              const tempFile = `${filePath}.restore-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}.tmp`;
+              try {
+                await fs.writeFile(tempFile, encode(rawBackup as StateEntry[]));
+                await fs.rename(tempFile, filePath);
+                recoveredState = rawBackup.filter((r): r is StateEntry => (r as StateEntry) && typeof (r as StateEntry).key === 'string' && typeof (r as StateEntry).timestamp === 'number');
+                logger.info(`[StateManager.loadMemoryFile] ✅ RECOVERED ${recoveredState.length} state record(s) (+ context records) from last-known-good mirror; corrupt bytes preserved at ${quarantinedAs}.`);
+              } catch (restoreErr: unknown) {
+                const rMsg = restoreErr instanceof Error ? restoreErr.message : String(restoreErr);
+                try { await fs.unlink(tempFile); } catch { /* keep fallbacks clean */ }
+                logger.error(`[StateManager.loadMemoryFile] Restore of mirror FAILED (${rMsg}) — starting empty; both files preserved (corrupt + .backup.json).`);
+              }
+            }
+          } else {
+            logger.warn(`[StateManager.loadMemoryFile] Last-known-good mirror at ${backupPath} failed validation — quarantine only.`);
+          }
+        }
+      } catch (recoverErr: unknown) {
+        // Mirror missing/unparseable — NOT an error state by itself; continue with plain quarantine.
+        const recMsg = recoverErr instanceof Error ? recoverErr.message : String(recoverErr);
+        logger.warn(`[StateManager.loadMemoryFile] No usable last-known-good mirror (${recMsg}) — quarantining without recovery.`);
       }
-      data = [];
+
+      if (recoveredState === null) {
+        // Plain F3 path: no recovery performed (no/invalid mirror, or recovery aborted).
+        logger.error(`[StateManager.loadMemoryFile] Corrupted/unreadable memory file at ${filePath} — quarantining (NO DELETE). Reason: ${reason}`);
+        try {
+          await fs.rename(filePath, `${filePath}.corrupt-${Date.now()}`);
+          logger.info(`[StateManager.loadMemoryFile] Quarantined as ${filePath}.corrupt-*`);
+        } catch (quarantineErr: unknown) {
+          // Rename can fail while the file is locked — do NOT fall back to unlink. Start empty; original preserved on disk.
+          const qMsg = quarantineErr instanceof Error ? quarantineErr.message : String(quarantineErr);
+          logger.error(`[StateManager.loadMemoryFile] QUARANTINE FAILED (file left in place, NO DELETE): ${qMsg}`);
+        }
+      }
+      data = recoveredState ?? [];
     }
 
     let loaded = 0;
@@ -217,31 +299,6 @@ async function saveMemoryFile(filePath: string, state: Map<string, StateEntry>):
       return result;
     });
 
-    // 🔹 FIX #25 (30.08): Preserve foreign (non-State) records on write-back — mirrors FIX #23 in ContextStorageManager.save().
-    // Previously this function encoded ONLY its own state map, so every debounced State save wiped all context-layer
-    // entries ({ id, type, title, content… }) from the shared file until a later CSM write. Proven live 30.08 ~15:30/~15:34
-    // (save_session_summary and save_memory flushes each erased a tracked event within seconds). The inverse of FIX #23's
-    // bug class, same shared file — both writers must now preserve the other writer's record shapes on write-back.
-    const preservedForeign: unknown[] = [];
-    try {
-      if (await fs.access(filePath).then(() => true).catch(() => false)) {
-        let existing: unknown;
-        try {
-          existing = decode(await fs.readFile(filePath));
-        } catch {
-          existing = null; // corrupted → nothing preservable (same drop semantics as loadMemoryFile)
-        }
-        if (Array.isArray(existing)) {
-          for (const r of existing) {
-            const isStateShape = !!r && typeof r === 'object' && !Array.isArray(r)
-              && typeof (r as { key?: unknown }).key === 'string'
-              && typeof (r as { timestamp?: unknown }).timestamp === 'number';
-            if (!isStateShape) preservedForeign.push(r); // context shape (or unknown legacy shape) — keep it
-          }
-        }
-      }
-    } catch { /* best-effort — a read error must never block the save */ }
-
     const dir = path.dirname(filePath);
     try {
       await fs.mkdir(dir, { recursive: true });
@@ -250,43 +307,129 @@ async function saveMemoryFile(filePath: string, state: Map<string, StateEntry>):
       return;
     }
 
-    // 🔹 FIX #25: encode state + preserved foreign records so the .backup.json mirror below reflects the real file contents.
-    const finalRecords = [...data, ...preservedForeign];
-    const encodedData = encode(finalRecords);
-    
-    // Use atomic write pattern: write to temp file, then rename.
-    // On Windows, rename may fail due to file locks/antivirus — fall back to direct write.
-    try {
-      const tempFile = filePath + '.tmp';
-      await fs.writeFile(tempFile, encodedData);
-      await fs.rename(tempFile, filePath);
-      
-      // Create JSON backup for manual inspection (best-effort)
+    // 🔹 D-RACE / merge-on-write retry (20.09 PM): this file is shared with ContextStorageManager.save() — both writers run
+    // read-snapshot → merge-foreign → writeTemp → rename, and a snapshot taken BEFORE the other writer's rename means OUR
+    // rename silently discards their new records (stale-read last-writer-wins; pinned by csmSharedFileRegression Suite D:
+    // final file held both state records + zero context entries). Reordering alone cannot close the window — any gap between
+    // "last disk read" and "our rename" still loses a concurrent write. Bounded merge-on-write loop instead: on EVERY attempt
+    // re-snapshot, re-merge, unique-temp, rename; then VERIFY our own records survived (post-rename self-integrity check). A
+    // clobber is detected by the missing/changed RAM record and healed with ONE fresh merge (the other writer's contribution
+    // is now in the snapshot, so it enters preservedForeign); a lost RACE is undetectable on disk (no content signal), so we
+    // rely on CSM's symmetric loop — two writers each retry once ⇒ union. Bounded (3) because production serializes tool calls;
+    // after the bound we log loudly and keep last state. Mirrored in ContextStorageManager.save() (same file, same hazard).
+    // 🔹 D-LOST-WRITE fix (20.09, csmSharedFileRegression Suite D): the loop above only heals "the other writer renamed
+    // AFTER us" — a stale-snapshot commit where WE are the last renamer is undetectable by content (our own records pass
+    // verification; the lost record belongs to the other layer and was simply never in our snapshot). Serialize the whole
+    // snap→rename critical section per resolved file path so every snapshot sees all prior commits of in-process writers.
+    const MAX_WRITE_ATTEMPTS = 3;
+    let writeSucceeded = false;
+    await withSharedFileLock(filePath, async () => {
+    for (let attempt = 1; attempt <= MAX_WRITE_ATTEMPTS && !writeSucceeded; attempt++) {
+      // 🔹 FIX #25 (30.08): Preserve foreign (non-State) records on write-back — mirrors FIX #23 in ContextStorageManager.save().
+      // Previously this function encoded ONLY its own state map, so every debounced State save wiped all context-layer
+      // entries ({ id, type, title, content… }) from the shared file until a later CSM write. Proven live 30.08 ~15:30/~15:34
+      // (save_session_summary and save_memory flushes each erased a tracked event within seconds). The inverse of FIX #23's
+      // bug class, same shared file — both writers must now preserve the other writer's record shapes on write-back.
+      // Snapshot is re-taken INSIDE the loop so attempt 2+ merges the freshest disk content (D-RACE heal).
+      const preservedForeign: unknown[] = [];
       try {
-        await fs.writeFile(filePath + '.backup.json', JSON.stringify(finalRecords), 'utf-8'); // 🔹 FIX #25: mirror the REAL file contents (state + preserved foreign)
-      } catch { /* Non-critical — skip if backup fails */ }
-    } catch (renameErr: unknown) {
-      // 🔹 F3 (10.09): Non-atomic direct overwrite of an EXISTING file is the torn-write hazard that fed
-      // loadMemoryFile's old destroy cycle — a partial write leaves undecodable bytes, and concurrent readers
-      // may observe the truncation window. Behavior split:
-      //  - target already exists → ABORT this save (RAM state intact; next debounced save retries). The complete,
-      //    current file is never at risk from a non-atomic write.
-      //  - target missing (first-ever save) → direct write is acceptable: no prior data can be torn or destroyed.
-      const rMsg = renameErr instanceof Error ? renameErr.message : String(renameErr);
-      const tempFile = filePath + '.tmp';
-      try { await fs.unlink(tempFile); } catch { /* not needed — keep fallbacks clean */ }
-      if (await fs.access(filePath).then(() => true).catch(() => false)) {
-        logger.error(`[StateManager.saveMemoryFile] RENAME FAILED (${rMsg}) and target EXISTS — aborting save to avoid non-atomic overwrite of ${filePath}. RAM state preserved; next save will retry.`);
-      } else {
+        if (await fs.access(filePath).then(() => true).catch(() => false)) {
+          let existing: unknown;
+          try {
+            existing = decode(await fs.readFile(filePath));
+          } catch {
+            existing = null; // corrupted → nothing preservable (same drop semantics as loadMemoryFile)
+          }
+          if (Array.isArray(existing)) {
+            for (const r of existing) {
+              const isStateShape = !!r && typeof r === 'object' && !Array.isArray(r)
+                && typeof (r as { key?: unknown }).key === 'string'
+                && typeof (r as { timestamp?: unknown }).timestamp === 'number';
+              if (!isStateShape) preservedForeign.push(r); // context shape (or unknown legacy shape) — keep it
+            }
+          }
+        }
+      } catch { /* best-effort — a read error must never block the save */ }
+
+      // 🔹 FIX #25: encode state + preserved foreign records so the .backup.json mirror below reflects the real file contents.
+      const finalRecords = [...data, ...preservedForeign];
+      const encodedData = encode(finalRecords);
+
+      // 🔹 SPEC-C (20.09): the temp name is UNIQUE PER WRITE (per ATTEMPT here). This file is shared with
+      // ContextStorageManager.save() (contextManagementTools.ts) — both writers previously used the SAME fixed
+      // <file>.tmp in this same directory, so interleaved saves could corrupt each other's buffers and this
+      // function's rename-failure fallback would unlink() the OTHER writer's pending temp. The per-write unique
+      // name removes that cross-writer hazard at the root (20.09 incident: two .corrupt-* quarantines on record).
+      const tempFile = `${filePath}.tmp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+
+      // Use atomic write pattern: write to temp file, then rename.
+      // On Windows, rename may fail due to file locks/antivirus — fall back to direct write.
+      try {
+        await fs.writeFile(tempFile, encodedData);
+        await fs.rename(tempFile, filePath);
+
+        // 🔹 D-RACE: post-rename self-integrity check — if the shared file no longer carries ALL of our state records,
+        // another writer renamed over us after our snapshot; do NOT report success (their content is already merged into
+        // the next attempt's preservedForeign).
+        let intact = true;
         try {
-          await fs.writeFile(filePath, encodedData);
-          logger.warn(`[StateManager.saveMemoryFile] RENAME FAILED (${rMsg}); target was missing → direct write completed (non-atomic, first-save path).`);
-        } catch (writeErr: unknown) {
-          const wMsg = writeErr instanceof Error ? writeErr.message : String(writeErr);
-          logger.error(`[StateManager.saveMemoryFile] RENAME FAILED (${rMsg}) AND fallback direct write FAILED for ${filePath}: ${wMsg}`);
+          // 🔹 TS FIX (20.09, gate-1): the .then() callback must be async — it awaits readFile inside; a plain arrow is a TS1308 violation. Chain semantics unchanged: any access/read/decode failure → .catch(() => null) → verify=null → clobber path below.
+          const verify: unknown = await fs.access(filePath).then(async () => decode(await fs.readFile(filePath))).catch(() => null);
+          if (!Array.isArray(verify)) {
+            intact = false;
+          } else {
+            for (const rec of data) {
+              const hit = (verify as Array<Record<string, unknown>>).find(r => !!r && typeof r === 'object' && !Array.isArray(r)
+                // 🔹 LINT FIX (20.09, gate-2): r/hit are already inferred as Record<string, unknown> from the .find() element type — casts removed (no-op asserts).
+                && r.key === rec.key);
+              if (!hit || JSON.stringify(hit.value) !== JSON.stringify(rec.value)) { intact = false; break; }
+            }
+          }
+        } catch { /* verify read failed — treat as intact to preserve old behavior (rename itself succeeded) */ }
+
+        if (intact) {
+          writeSucceeded = true;
+          // Create JSON backup for manual inspection (best-effort)
+          try {
+            await fs.writeFile(filePath + '.backup.json', JSON.stringify(finalRecords), 'utf-8'); // 🔹 FIX #25: mirror the REAL file contents (state + preserved foreign)
+          } catch { /* Non-critical — skip if backup fails */ }
+        } else {
+          logger.warn(`[StateManager.saveMemoryFile] Clobber detected after rename on ${filePath} (attempt ${attempt}/${MAX_WRITE_ATTEMPTS}) — concurrent shared-file writer landed between our snapshot and rename; re-merging from fresh disk content.`);
+        }
+      } catch (renameErr: unknown) {
+        // 🔹 D-RACE: a rename FAILURE is not retryable here (lock/antivirus won't clear within the bounded loop;
+        // the fallback semantics below are the terminal ones for this save attempt) — stop the retry loop.
+        writeSucceeded = true; // loop-terminator only: success is NOT asserted — see outcome logs
+        // 🔹 F3 (10.09): Non-atomic direct overwrite of an EXISTING file is the torn-write hazard that fed
+        // loadMemoryFile's old destroy cycle — a partial write leaves undecodable bytes, and concurrent readers
+        // may observe the truncation window. Behavior split:
+        //  - target already exists → ABORT this save (RAM state intact; next debounced save retries). The complete,
+        //    current file is never at risk from a non-atomic write.
+        //  - target missing (first-ever save) → direct write is acceptable: no prior data can be torn or destroyed.
+        const rMsg = renameErr instanceof Error ? renameErr.message : String(renameErr);
+        // 🔹 SPEC-C (20.09): tempFile above is the UNIQUE per-write name — unlinking it can never touch another writer's buffer.
+        try { await fs.unlink(tempFile); } catch { /* not needed — keep fallbacks clean */ }
+        if (await fs.access(filePath).then(() => true).catch(() => false)) {
+          logger.error(`[StateManager.saveMemoryFile] RENAME FAILED (${rMsg}) and target EXISTS — aborting save to avoid non-atomic overwrite of ${filePath}. RAM state preserved; next save will retry.`);
+        } else {
+          try {
+            await fs.writeFile(filePath, encodedData);
+            logger.warn(`[StateManager.saveMemoryFile] RENAME FAILED (${rMsg}); target was missing → direct write completed (non-atomic, first-save path).`);
+          } catch (writeErr: unknown) {
+            const wMsg = writeErr instanceof Error ? writeErr.message : String(writeErr);
+            logger.error(`[StateManager.saveMemoryFile] RENAME FAILED (${rMsg}) AND fallback direct write FAILED for ${filePath}: ${wMsg}`);
+          }
         }
       }
     }
+
+    if (!writeSucceeded) {
+      // 🔹 D-RACE: bound exhausted with clobber detected on every attempt — RAM state is intact; the next
+      // debounced/forced save re-merges from disk. Logged LOUDLY (error level): a record may still be missing
+      // from the shared file until that retry lands.
+      logger.error(`[StateManager.saveMemoryFile] ${MAX_WRITE_ATTEMPTS} write attempts all clobbered by concurrent shared-file writers on ${filePath} — RAM state intact, next save retries; inspect .session_context for lost context records.`);
+    }
+    }); // end withSharedFileLock — critical section spans every attempt's snap→rename (D-LOST-WRITE)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     logger.error(`[StateManager.saveMemoryFile] FAILED for ${filePath}: ${message}`);
@@ -297,8 +440,8 @@ export class StateManager {
   private state: Map<string, StateEntry>;
   private maxSize: number;
   private persistenceEnabled: boolean;
-  /** Plugin-level memory file path (global baseline — kept for backward compatibility) */
-  private pluginMemoryFile: string = getPluginMemoryFilePath();
+  // 🔹 SPEC-C follow-up (20.09 PM): former field `pluginMemoryFile` REMOVED — it was the frozen-at-construction
+  // PLUGIN_ROOT path returned by getMemoryFilePath(); see removal note at getPluginMemoryFilePath() above.
   /** Project-specific session context directory root */
   private projectContextDir: string | null = null;
   /** Current active project name resolved from working dir or explicit registration */
@@ -328,7 +471,9 @@ export class StateManager {
     const defaults = typeof DEFAULT_CONFIG !== 'undefined' ? DEFAULT_CONFIG : {};
     const effectiveConfig = { ...defaults, ...(config || {}) };
 
-    this.maxSize = effectiveConfig.stateMaxSize ?? 10240;
+    // 🔹 SPEC-C (20.09, memory-store incident): default cap raised — see DEFAULT_MAX_STATE_SIZE_BYTES above.
+    // PluginConfig.stateMaxSize still overrides when explicitly set by the host config.
+    this.maxSize = effectiveConfig.stateMaxSize ?? DEFAULT_MAX_STATE_SIZE_BYTES;
     this.persistenceEnabled = effectiveConfig.statePersistenceEnabled !== undefined
       ? effectiveConfig.statePersistenceEnabled
       : true;
@@ -426,8 +571,24 @@ export class StateManager {
     const newValueSize = this.getSizeOfValue(value);
     const oldValueSize = this.getExistingValueSize(key);
 
-    if (this.runningSize - oldValueSize + newValueSize > this.maxSize) {
-      throw new Error(`State size exceeds maximum (${this.maxSize} bytes)`);
+    // 🔹 SPEC-C (20.09, memory-store incident) — TWO-PHASE overflow contract:
+    // 1) PLAN bounded eviction of the OLDEST EVICTABLE records (memory_* only — never session_summary_latest,
+    //    id-shaped ctx_*/id_* records, or any other named key); nothing is mutated yet.
+    // 2) Re-check fit on the PROJECTED size; if it still doesn't fit → throw with state untouched
+    //    (the last resort stays an honest failure for tool callers — no partial write). Only when the check
+    //    passes are evictions + the new value committed together. Pre-fix this ran eviction EAGERLY before
+    //    the post-check, so a failing overflow had already deleted records ("poisoned store" amplification).
+    const planned = this._planOldestEvictable(key, newValueSize - oldValueSize);
+    // Last-resort check on the PROJECTED size (current minus everything the plan would remove), using the
+    // SAME predicate as the planning loop — a throw here means no evictable record could make it fit.
+    const projectedRunning = this.runningSize - planned.reduce((sum, v) => sum + this.getSizeOfValue(v.value), 0);
+    if (projectedRunning + Math.max(0, newValueSize - oldValueSize) > this.maxSize) {
+      throw new Error(`State size exceeds maximum (${this.maxSize} bytes) even after evicting evictable records.`);
+    }
+
+    this._commitPlannedEvictions(planned);
+    if (planned.length > 0) {
+      logger.warn(`[StateManager] Store near cap (${this.maxSize} bytes): evicted ${planned.length} oldest evictable record(s) to make room for '${key}'.`);
     }
 
     this.runningSize = this.runningSize - oldValueSize + newValueSize;
@@ -547,8 +708,19 @@ export class StateManager {
     const newValueSize = this.getSizeOfValue(value);
     const oldValueSize = this.getExistingValueSize(key);
 
-    if (this.runningSize - oldValueSize + newValueSize > this.maxSize) {
-      throw new Error(`State size exceeds maximum (${this.maxSize} bytes)`);
+    // 🔹 SPEC-C (20.09): same two-phase overflow contract as set() — eviction is PLANNED first and
+    // committed ONLY if the projected size fits; last-resort throw leaves state untouched.
+    // (Tier-provenanced writes share the cap.) See _planOldestEvictable().
+    const planned = this._planOldestEvictable(key, newValueSize - oldValueSize);
+    // Last-resort check mirrors the planning loop predicate exactly (see set()).
+    const projectedRunning = this.runningSize - planned.reduce((sum, v) => sum + this.getSizeOfValue(v.value), 0);
+    if (projectedRunning + Math.max(0, newValueSize - oldValueSize) > this.maxSize) {
+      throw new Error(`State size exceeds maximum (${this.maxSize} bytes) even after evicting evictable records.`);
+    }
+
+    this._commitPlannedEvictions(planned);
+    if (planned.length > 0) {
+      logger.warn(`[StateManager] Store near cap (${this.maxSize} bytes): evicted ${planned.length} oldest evictable record(s) to make room for '${key}'.`);
     }
 
     this.runningSize = this.runningSize - oldValueSize + newValueSize;
@@ -620,6 +792,58 @@ export class StateManager {
   /**
    * Get size of existing value for a key (for incremental updates).
    */
+  /**
+   * 🔹 SPEC-C (20.09, memory-store incident) — TWO-PHASE bounded eviction: PLANS the oldest evictable
+   * records that must drop for an incoming write of `netDeltaBytes` to fit under maxSize. MUTATES NOTHING —
+   * returns the victim list as a plan; the caller (set()/setWithTier()) commits it ONLY if the write then
+   * provably fits, otherwise discards the plan and throws with state byte-for-byte untouched ("no partial
+   * write" contract — verified by tests/stateManagerEviction.test.ts "last resort … THROWS"). The 20.09
+   * pre-fix implementation deleted victims eagerly before its post-check, so a last-resort throw had already
+   * mutated the store (silent data loss on every failed overflow).
+   *
+   * Eviction contract:
+   * - ONLY keys starting with 'memory_' are evictable (the unique-keyed save_memory/checkpoint class —
+   *   the monotonic-growth source of the poisoned-store incident).
+   * - NEVER evicted: session_summary_latest, context/id-shaped records (keys like ctx_ or id_), and every other non-memory_*
+   *   key (plan state, tier records, anything a specific consumer reads back by name).
+   * - The incoming write's own key is excluded when it already exists (replacing in place is not "making room").
+   * Oldest-by-timestamp order; ties break toward the lexicographically smaller key for determinism.
+   */
+  private _planOldestEvictable(excludeKey: string, netDeltaBytes: number): StateEntry[] {
+    const victims: StateEntry[] = [];
+    const plannedKeys = new Set<string>(); // each key is planned at most ONCE — the live state map is not
+                                            // mutated during planning, so already-planned keys must be excluded
+                                            // from later candidate passes (re-planning the same victim would drive
+                                            // the projection unboundedly negative and mask a true last-resort throw).
+    let projectedRunning = this.runningSize;
+    while (projectedRunning + Math.max(0, netDeltaBytes) > this.maxSize) {
+      const candidates = Array.from(this.state.values())
+        .filter(e => e.key.startsWith('memory_') && e.key !== excludeKey && !plannedKeys.has(e.key));
+      if (candidates.length === 0) break; // nothing evictable left — caller's post-check throws (last resort) or fits
+      candidates.sort((a, b) => a.timestamp - b.timestamp || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+      const victim = candidates[0];
+      plannedKeys.add(victim.key);
+      projectedRunning -= this.getSizeOfValue(victim.value);
+      victims.push(victim);
+    }
+    return victims;
+  }
+
+  /** Commit a previously planned eviction (only reached after the caller's fit-check succeeded). */
+  private _commitPlannedEvictions(victims: StateEntry[]): void {
+    let applied = 0;
+    for (const victim of victims) {
+      const current = this.state.get(victim.key);
+      if (!current || current !== victim) continue; // defensive: entry changed between plan and commit — skip, never double-free size
+      this.state.delete(victim.key);
+      this.runningSize -= this.getSizeOfValue(current.value);
+      applied++;
+    }
+    if (applied > 0) {
+      this._keysCacheInvalidated = true; // eviction mutates the key set — cache must rebuild
+    }
+  }
+
   private getExistingValueSize(key: string): number {
     const entry = this.state.get(key);
     return entry ? this.getSizeOfValue(entry.value) : 0;
@@ -672,6 +896,12 @@ export class StateManager {
    * Save state to project-specific memory file ONLY. No double-write.
    */
   private async saveToFile(): Promise<void> {
+    // 🔹 SPEC-C follow-up (20.09 PM): settle the constructor's async load BEFORE any save path serializes
+    // RAM — forceSave()/debounced flushes that raced ahead of _ready would write a snapshot MISSING every
+    // disk record, clobbering the shared file's other layer mid-interleave (the hazard pinned by
+    // csmSharedFileRegression Suite D). ensureReady() is idempotent; _queueSave already awaits it too.
+    await this.ensureReady();
+
     if (!this.projectContextDir || !this.persistenceEnabled) return;
 
     const projectMemoryFile = await getProjectMemoryFilePath(this.currentProjectName);
@@ -738,8 +968,14 @@ export class StateManager {
    * Get the current session memory path and project name.
    */
   getMemoryFilePath(): { filePath: string; projectName: string; indexPath: string | null } {
-    return { 
-      filePath: this.pluginMemoryFile, // Legacy compat — primary path for now
+    // 🔹 SPEC-C follow-up (20.09 PM): previously returned this.pluginMemoryFile — a PLUGIN_ROOT-based field frozen AT
+    // CONSTRUCTION ("Legacy compat"). Every real load/save path instead re-resolves getWorkingDir() at CALL time via
+    // getProjectMemoryFilePath(), so the getter reported a location no code ever writes to (under jest: <repo>/.session_context/…;
+    // csmSharedFileRegression Suite B/D path-pins exposed the drift as 4 failures while unpinned consumer suites passed).
+    // Now reports the same contract load/save use — computed live, I/O-free (callers that need existence validation keep using
+    // getProjectMemoryFilePath()). ARCHITECTURE.md L319/358 documents exactly this resolution.
+    return {
+      filePath: path.join(getWorkingDir(), '.session_context', `.${this.currentProjectName}_memory.msgpack`),
       projectName: this.currentProjectName,
       indexPath: SESSION_INDEX_FILE,
     };

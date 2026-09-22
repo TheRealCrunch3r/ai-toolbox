@@ -661,4 +661,50 @@ describe('Fix C — transitionTo() no longer clears pending warnings on any stat
     expect(tracker.getState()).toBe(AutoTrackState.IDLE); // DECLINED → IDLE
     expect(tracker.hasPendingWarning()).toBe(false);
   });
+
+  // ==================== F2 (17.09 D-1 fix) — MID-LOOP GUARD RE-FIRE HYSTERESIS ====================
+
+  describe('F2 (17.09 D-1 fix) — guardMidLoopThreshold re-fire hysteresis', () => {
+    let tracker: AutoTracker;
+
+    beforeEach(() => {
+      const { ContextStorageManager } = require('../src/tools/contextManagementTools');
+      tracker = new AutoTracker({ autoTrackingEnabled: true }, ContextStorageManager);
+    });
+
+    it('first threshold crossing fires immediately (no floor applied to a fresh guard)', async () => {
+      // max 10_000 → 75% threshold; cumulative 7_600 comfortably above (CONTEXT_GUARD_OVERHEAD=8 irrelevant at this margin)
+      const res = await tracker.guardMidLoopThreshold(7_400, 200, 10_000);
+      expect(res.fired).toBe(true);
+      expect(res.saved).toBe(true);
+    });
+
+    it('re-fire is suppressed while growth since the last save stays below the floor', async () => {
+      await tracker.guardMidLoopThreshold(7_400, 200, 10_000); // fires at cumulative 7_600
+      // growth +309 < max(4096, 5%·10_000=500) → must NOT save again (D-1 spam case was: +59 tok re-fired a full save)
+      const res = await tracker.guardMidLoopThreshold(7_400, 509, 10_000); // cumulative 7_909
+      expect(res.fired).toBe(false);
+      expect(res.saved).toBeUndefined();
+    });
+
+    it('re-fire is allowed once growth reaches the floor (min-token branch: 4096 dominates at small ctx)', async () => {
+      await tracker.guardMidLoopThreshold(7_400, 200, 10_000); // fires at cumulative 7_600
+      const justBelow = await tracker.guardMidLoopThreshold(3_500, 8_195, 10_000); // cum 11_695 → growth +4095 < 4096
+      expect(justBelow.fired).toBe(false);
+      const atFloor = await tracker.guardMidLoopThreshold(3_500, 8_200, 10_000); // cum 11_700 → growth +4100 >= 4096
+      expect(atFloor.fired).toBe(true);
+    });
+
+    it('floor scales with the model context window (5% branch at large ctx)', async () => {
+      await tracker.guardMidLoopThreshold(149_000, 1_500, 200_000); // first crossing fires; cumulative 150_500
+      const res = await tracker.guardMidLoopThreshold(150_000, 9_500, 200_000); // cum 159_500 → growth +9_000 < 10_000 (5%·200k)
+      expect(res.fired).toBe(false);
+    });
+
+    it('re-fire at exactly the fractional floor fires (boundary: growth >= floor)', async () => {
+      await tracker.guardMidLoopThreshold(149_000, 1_500, 200_000); // first crossing fires; cumulative 150_500
+      const res = await tracker.guardMidLoopThreshold(150_000, 10_500, 200_000); // cum 160_500 → growth +10_000 == floor 10_000
+      expect(res.fired).toBe(true);
+    });
+  });
 });

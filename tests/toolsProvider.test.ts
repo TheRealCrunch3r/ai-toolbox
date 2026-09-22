@@ -122,3 +122,34 @@ describe('toolsProvider', () => {
     expect(Array.isArray(tools)).toBe(true);
   });
 });
+
+// ==================== Cluster-aware tool ordering (18.09 wiring of src/tools/toolPriority.ts) ====================
+
+describe('cluster-aware tool ordering', () => {
+  test('orders by priority tier when clusterAwareToolOrder is true (default)', async () => {
+    const ctl = createMockController({ ...DEFAULT_CONFIG, fileSystem: true });
+    const tools = await toolsProvider(ctl);
+    const names = tools.map((t: any) => t.name);
+
+    // critical-tier (tier 1) fileSystem tool must precede optional-tier (tier 4) context-management tool;
+    // under the legacy alphabetical order get_context_memory would sort well BEFORE list_directory.
+    expect(names.indexOf('list_directory')).toBeLessThan(names.indexOf('get_context_memory'));
+  });
+
+  test('keeps exact alphabetical order when clusterAwareToolOrder is false', async () => {
+    const ctl = createMockController({ ...DEFAULT_CONFIG, fileSystem: true, clusterAwareToolOrder: false });
+    const tools = await toolsProvider(ctl);
+    const names = tools.map((t: any) => t.name);
+
+    for (let i = 1; i < names.length; i++) {
+      expect(names[i - 1].localeCompare(names[i])).toBeLessThanOrEqual(0);
+    }
+  });
+
+  test('is deterministic across consecutive provider runs', async () => {
+    const a = (await toolsProvider(createMockController({ ...DEFAULT_CONFIG, fileSystem: true }))).map((t: any) => t.name);
+    const b = (await toolsProvider(createMockController({ ...DEFAULT_CONFIG, fileSystem: true }))).map((t: any) => t.name);
+
+    expect(a).toEqual(b);
+  });
+});
