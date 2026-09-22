@@ -2,15 +2,16 @@
 
 **AI agent toolkit for LM Studio** — 130+ local-LLM tools: file editing, codebase search, RAG, browser automation, Git & GitHub.
 
-## Contents
-
-[Why AI Toolbox (vs other plugins)](#why-ai-toolbox-vs-other-lm-studio-plugins) · [Head-to-head comparison](#head-to-head-comparison-vs-beledarians-lm-studio-tools) · [Feature overview](#feature-overview) · [Quick start (2 minutes)](#quick-start-2-minutes) · [Configuration & tool toggles](#configuration--tool-toggles--total-control-zero-code) · [Security posture](#security-posture--built-like-it-matters) · [Architecture](#architecture-under-the-hood-for-the-curious) · [Tool arsenal (130+ tools)](#the-tool-arsenal-130-tools-across-every-family-all-yours-to-toggle) · [Release highlights](#release-highlights-full-history--changelog_v3md--active-v2-archived--legacy-changelogmd)
-
 **Give your local LLM real hands.** The most complete LM Studio Hub plugin — turns any local model into a capable, self-managing AI agent with safe file editing, hang-proof codebase search, background builds, headless browser automation, Git & GitHub workflows, OCR, charting and semantic RAG; **self-managing context** keeps marathon sessions alive. One plugin, zero glue code, fully offline by default.
 
 > `v1.9.18` · `130+ ready-made tools` · `770 tests green (47 suites)` · `5 locales` · `MIT` · `Node 20+`
 
 [!IMPORTANT] LM Studio does NOT support automatic updates. If you encounter issues, update manually first: remove the current version and re-download from the plugin website. Note that LM Studio may show an "already installed" tooltip even if your version is outdated.
+
+## Contents
+
+[Why AI Toolbox (vs other plugins)](#why-ai-toolbox-vs-other-lm-studio-plugins) · [Head-to-head comparison](#head-to-head-comparison-vs-beledarians-lm-studio-tools) · [Feature overview](#feature-overview) · [Quick start (2 minutes)](#quick-start-2-minutes) · [Configuration & tool toggles](#configuration--tool-toggles--total-control-zero-code) · [Security posture](#security-posture--built-like-it-matters) · [Architecture](#architecture-under-the-hood-for-the-curious) · [Tool arsenal (130+ tools)](#the-tool-arsenal-130-tools-across-every-family-all-yours-to-toggle) · [Release highlights](#release-highlights-full-history--changelog_v3md--active-v2-archived--legacy-changelogmd)
+
 ---
 
 ## Why AI Toolbox (vs Other LM Studio Plugins)
@@ -39,7 +40,7 @@
 
 The closest direct competitor on the Hub: same job (tools for local LLMs), very different build. Where AI Toolbox pulls ahead:
 
-| You get here that they don't have |
+| What AI Toolbox has that they don't |
 |---|
 | ✅ **AST-level refactoring** (rename, move functions, dead-import cleanup) — syntax-safe transforms with auto-rollback, not string edits |
 | ✅ **Real RAG:** local vector index over PDF / DOCX / XLSX with page-level provenance — not just keyword search |
