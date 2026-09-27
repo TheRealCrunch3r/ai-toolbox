@@ -9,8 +9,6 @@
 
 ### [24.09.2026] — v1.9.18 rev 3x: pattern_scan wall cap RE-ARMED (`PATTERN_SCAN_MAX_RUN_MS = 3_000`, owner order "abort after 3 seconds")
 
-### [24.09.2026] — v1.9.18 rev 3x: pattern_scan wall cap RE-ARMED (`PATTERN_SCAN_MAX_RUN_MS = 3_000`, owner order "abort after 3 seconds")
-
 **The >60 s zero-payload scan class is closed.** After the DE-STRAngle arc removed the budget (host-signal-only), a >60-second `pattern_scan` on slow FS returned nothing — an unbounded walk over slow I/O proved worse than bounded partials. Owner order of the day re-armed it: pattern_scan now runs under ONE shared grep guard with TWO abort sources — the **3-second wall deadline** and any **host signal** (user cancel / host timeout) — converging on one cooperative `guard.signal`, checked at every file boundary. A fired deadline returns a successful PARTIAL result (`aborted: true` + exactly one cap warn), never a hang or throw; `disarm()` in finally releases the timer AND the listener on EVERY completion path, so no stray warn can fire after settle (FIX-HANG-3 class).
 
 - **What changed:** `src/utils/grepGuard.ts` — history note on `PATTERN_SCAN_MAX_RUN_MS = 3_000` documents the full arc (set by user order 04.09 at 500 → raised to 3000 on 13.09 → removed/host-signal-only by DE-STRAngle 16.09 → re-armed 24.09 per owner order) + the `GREP_FILES_MAX_RUN_MS` doc cross-reference fixed (was "REMOVED … — see note above"). `src/tools/patternScan.ts` — guard creation arms both sources: `createGrepGuard(options.abortSignal, PATTERN_SCAN_MAX_RUN_MS, 'pattern_scan')` (previously signal-only / `deadlineMs=0`); module header + `aborted?` result-type comments updated; the tool description carries the wall-clock hint again.
