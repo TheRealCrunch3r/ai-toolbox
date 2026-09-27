@@ -110,7 +110,7 @@ export const DEFAULT_TOOL_PRIORITIES: ToolPriority[] = [
   { name: 'unusedImports', tier: 'standard', category: 'refactorCode', description: 'Clean unused imports' },
   { name: 'text_transform', tier: 'standard', category: 'textProcessing', description: 'Transform text' },
   { name: 'text_extract', tier: 'standard', category: 'textProcessing', description: 'Extract text fields' },
-  // 23.09 Q6: module home moved to fileSystemTools.ts (fold from textProcessing) — category repointed accordingly; tier INTENTIONALLY kept 'standard' (owner review flag).
+  // 23.09 Q6: module home moved to fileSystemTools.ts (fold from textProcessing) — category repointed accordingly; tier intentionally 'standard' — FLAG CLOSED by owner decision 27.09: keep 'standard' despite critical family siblings (specialist awk-style tool; docs steer models to the critical line tools first; no observed exposure defect).
   { name: 'line_operations', tier: 'standard', category: 'fileSystem', description: 'Line operations' },
   { name: 'markdown_table_gen', tier: 'standard', category: 'textProcessing', description: 'Generate markdown table' },
   { name: 'generate_ui_component', tier: 'standard', category: 'uiGeneration', description: 'Generate UI component' },
