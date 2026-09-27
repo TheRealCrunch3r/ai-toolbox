@@ -65,7 +65,7 @@
   "license": "MIT",
   "allowScripts": {
     "puppeteer@24.43.1": true,
-    "sharp@0.33.5": true,
+    "sharp@0.35.4": true,
     "tesseract.js@7.0.0": true,
     "unrs-resolver@1.12.2": true,
     "esbuild@0.27.2": true
