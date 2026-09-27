@@ -24,10 +24,13 @@
 /** Default wall-clock cap for ONE grep_files call (ms). Set by user order 04.09: keep it tunable in one place. */
 export const GREP_MAX_RUN_MS = 500;
 
-// DE-STRAngle (16.09): the former PATTERN_SCAN_MAX_RUN_MS wall cap for pattern_scan was REMOVED — its threat model
-// (a sync segment starving this thread) has been gone since FIX-34a (13.09). A fully async pipeline cannot
-// self-starve, so the cap’s only remaining effect was chronic `aborted: true` partial results on larger trees.
-// Cancellation is host-signal-only now; see createGrepGuard signal-only mode (deadlineMs <= 0) below.
+// Wall-clock cap for ONE pattern_scan call (ms). History: set by user order 04.09 (500), raised to 3000 on 13.09, REMOVED by
+// DE-STRAngle (16.09) — the async pipeline cannot self-starve (since FIX-34a, 13.09) and a live clock produced chronic
+// `aborted: true` partials on larger trees, so cancellation went host-signal-only. RE-ARMED 24.09 per owner order ("pattern_scan
+// shall be aborted after 3 seconds") after the >60 s zero-payload incident (slow-FS IO, re-attributed to pattern_scan): an
+// unbounded walk over slow IO proved worse than bounded partials. Firing is cooperative at file boundaries → PARTIAL results +
+// `aborted: true`; disarm() in the caller's finally still releases the timer on every completion path (no orphan warns).
+export const PATTERN_SCAN_MAX_RUN_MS = 3_000;
 
 /** find_replace_all keeps its historical full-scan budget — it modifies files, so a short cap would cut batches mid-apply. */
 export const FIND_REPLACE_ALL_MAX_RUN_MS = 15_000;
@@ -35,7 +38,8 @@ export const FIND_REPLACE_ALL_MAX_RUN_MS = 15_000;
 /**
  * Wall-clock cap for ONE ripgrep-engine call (ms) — constant name kept from the removed grep_files tool (14.09 TOOL SWAP):
  * a wedged rg worker is terminated at this budget, so results are PARTIAL and reported as such. One tunable constant per
- * tool class in this file; the pattern_scan equivalent was REMOVED by DE-STRAngle (16.09) — see the note above.
+ * tool class in this file; the pattern_scan equivalent lives above as PATTERN_SCAN_MAX_RUN_MS (REMOVED by DE-STRAngle 16.09,
+ * RE-ARMED 24.09 per owner order — see its note).
  */
 export const GREP_FILES_MAX_RUN_MS = 3000;
 

@@ -151,6 +151,10 @@ export const ConfigSchema = z.object({
   contextGuardTerminalFilterEnabled: z.boolean().default(true).describe('Enable terminal output filtering'),
   contextGuardTerminalFilterLength: z.number().min(100).max(20000).default(2000).describe('Max chars before terminal output is filtered'),
 
+  // ── C COMPACTION FAMILY (24.09): pre-summarization pruning of oversized tool payloads ──
+  compactionEnabled: z.boolean().default(true).describe('Prune oversized tool payloads BEFORE history summarization; verbatim copies are stored in .ai_toolbox/compaction/'),
+  compactionMaxResultBytes: z.number().min(1024).max(1048576).default(16384).describe('Byte budget per tool-result payload before pre-summarization pruning (default 16 KiB)'),
+
   // ── 🤖 AUTO-TRACKING SETTINGS ────────────────────────────────────
   autoTrackingEnabled: z.boolean().default(true).describe('Automatically tracks decisions, completions, and bug fixes in the background.'),
   autoTrackTokenThreshold: z.number().min(10).max(100).default(75).describe('Trigger session memory save when token usage reaches this percentage (default: 75%)'),
@@ -271,6 +275,9 @@ stateMaxSize: 262144,
   contextGuardTerminalFilterEnabled: true,
 
   contextGuardTerminalFilterLength: 2000,
+
+  compactionEnabled: true,
+  compactionMaxResultBytes: 16384,
 
   autoTrackingEnabled: true,
 
@@ -488,7 +495,7 @@ export const configSchematics = createConfigSchematics()
   .field('utility', 'boolean', {
     displayName: '🛠️ Utility & Maintenance Tools',
     subtitle: 'Backup, chart generation, markdown preview, line operations',
-    hint: 'Enable utility tools (create_backup, list_backups, restore_backup, delete_backup, cleanup_backups, generate_chart, markdown_preview, delete_lines).',
+    hint: 'Enable utility tools (create_backup, list_backups, restore_backup, delete_backup, cleanup_backups, generate_chart, markdown_preview).',
     }, DEFAULT_CONFIG.utility)
 
 
@@ -757,6 +764,20 @@ export const configSchematics = createConfigSchematics()
     min: 100, max: 20000, int: true,
     hint: 'Maximum characters before terminal output is truncated and summarized.',
   }, DEFAULT_CONFIG.contextGuardTerminalFilterLength)
+
+  // ── C COMPACTION FAMILY (24.09): pre-summarization pruning of oversized tool payloads ──
+  .field('compactionEnabled', 'boolean', {
+    displayName: '✂️ Compaction Pre-Summarization Pruning',
+    subtitle: '⚙️ C Compaction Family (24.09)',
+    hint: 'Before history is summarized, tool payloads above the byte budget are replaced by a head/tail preview plus an opaque locator; the full result stays stored verbatim in .ai_toolbox/compaction/.',
+  }, DEFAULT_CONFIG.compactionEnabled)
+
+  .field('compactionMaxResultBytes', 'numeric', {
+    displayName: '📏 Max Tool Result Before Pruning (bytes)',
+    subtitle: '⚙️ C Compaction Family (24.09)',
+    min: 1024, max: 1048576, int: true,
+    hint: 'Byte budget per tool-result payload in chat history. Results above this are pruned to preview + locator before summarization (verbatim copy stored on disk).',
+  }, DEFAULT_CONFIG.compactionMaxResultBytes)
 
   // ── 🤖 AUTO-TRACKING SETTINGS ───────────────────────────────────
   .field('autoTrackingEnabled', 'boolean', {

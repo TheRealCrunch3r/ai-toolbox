@@ -91,13 +91,19 @@ module.exports = {
     '^\\.\\/tools/uiGenerationTools\\.js$': '<rootDir>/tests/__mocks__/uiGenerationTools.ts',
 
     // ── Always-loaded tool modules (no config toggle) ──
-    '^\\.\\/tools/lineOperations\\.js$': '<rootDir>/tests/__mocks__/lineOperations.ts',
     '^\\.\\/tools/backupTools\\.js$': '<rootDir>/tests/__mocks__/backupTools.ts',
     '^\\.\\/tools/executionTools\\.js$': '<rootDir>/tests/__mocks__/executionTools.ts',
-    '^\\.\\/tools/utilityTools\\.js$': '<rootDir>/tests/__mocks__/utilityTools.ts',
 
     // CLUSTER-ORDER fix 19.09: src/toolsProvider.ts statically imports './tools/toolPriority.js'; declared BEFORE the tools-fallback below because in jest-resolve (v30) the FIRST matching mapper wins, and no tests/__mocks__/toolPriority.ts exists - must resolve to the real src module
     '^\\.\\/tools/toolPriority\\.js$': '<rootDir>/src/tools/toolPriority.ts',
+    // REPEAT-TOOL-REMINDER (25.09): toolsProvider imports './tools/repeatToolReminderTools.js' – must resolve to real src, not mock fallback
+    '^\\.\\/tools/repeatToolReminderTools\\.js$': '<rootDir>/src/tools/repeatToolReminderTools.ts',
+    // RESTORE-SESSION-CONTEXT (25.09): toolsProvider statically imports './tools/restoreSessionContextTool.js' — same RC#4 class as repeatToolReminder; real src (module is read-only, no mock needed)
+    '^\\./tools/restoreSessionContextTool\\.js$': '<rootDir>/src/tools/restoreSessionContextTool.ts',
+    // RESTORE-SESSION-CONTEXT (25.09): FIRST tools→tools sibling import in the codebase ('./contextManagementTools.js' / './taskPlanningTools.js' from within src/tools/). Exact per-file single-dot entries only — G9 round-2 rule: never a generic single-dot form (would hijack unrelated specifiers). Emitters verified unique via grep 25.09; real-src targets because the mock stubs export ONLY register functions, not the classes my module imports.
+    '^\\./contextManagementTools\\.js$': '<rootDir>/src/tools/contextManagementTools.ts',
+    '^\\./taskPlanningTools\\.js$': '<rootDir>/src/tools/taskPlanningTools.ts',
+
     // ── Fallback: catch any other ./tools/*.js dynamic imports not explicitly mapped ──
     '^\\.\\/tools/(.*)\\.js$': '<rootDir>/tests/__mocks__/$1.ts',
 
@@ -129,6 +135,10 @@ module.exports = {
     '^\\.\\./utils/hubExclusionClustering\\.js$': '<rootDir>/src/utils/hubExclusionClustering.ts',
     // FIX-DEBLOAT (04.09): src/tools/fileSystemTools.ts imports '../utils/grepGuard.js' — same RC#4 class as the entries above; per-file form only (G9 round-2: generic rule hijacks node_modules requires)
     '^\\.\\./utils/grepGuard\\.js$': '<rootDir>/src/utils/grepGuard.ts',
+    // C compaction family (24.09): SINGLE-DOT .js import forms — promptPreprocessor.ts './utils/toolPayload{Compaction,Storage}.js' and toolPayloadStorage.ts internal './toolPayloadCompaction.js'; same RC#4 class as the patternScan entry above. (The two-dot '../utils/…' variants that preceded this block were removed 24.09 after a full import-site audit found zero emitters — tests use extensionless '../src/utils/…' specifiers, which need no mapper.)
+    '^\\./utils/toolPayloadCompaction\\.js$': '<rootDir>/src/utils/toolPayloadCompaction.ts',
+    '^\\./utils/toolPayloadStorage\\.js$': '<rootDir>/src/utils/toolPayloadStorage.ts',
+    '^\\./toolPayloadCompaction\\.js$': '<rootDir>/src/utils/toolPayloadCompaction.ts',
     // ITEM-B (05.09): src/tools/fileSystemTools.ts + src/tools/patternScan.ts import '../utils/regexWorker.js' — same RC#4 class as grepGuard above; per-file form only (G9 round-2)
     '^\\.\\./utils/regexWorker\\.js$': '<rootDir>/src/utils/regexWorker.ts',
     '^\\.\\./utils/atomicWrite\\.js$': '<rootDir>/src/utils/atomicWrite.ts',
@@ -136,6 +146,11 @@ module.exports = {
     // CLUSTER-ORDER fix 19.09: src/toolsProvider.ts statically imports './utils/hubExclusionClustering.js' - no mapper entry (RC#4 class); per-file form only (G9 round-2)
     '^\\./utils/hubExclusionClustering\\.js$': '<rootDir>/src/utils/hubExclusionClustering.ts',
 
+    // PIPELINE-D (25.09): src/toolsProvider.ts statically imports './utils/withPipeline.js' for resetToolGuard - same RC#4 class as the hubExclusionClustering entry above; per-file form only (G9 round-2)
+    '^\\./utils/withPipeline\\.js$': '<rootDir>/src/utils/withPipeline.ts',
+    // REPEAT-TOOL-REMINDER (25.09): src/toolsProvider.ts statically imports './utils/repeatToolReminder.js' — same RC#4 class as withPipeline
+    '^\\./utils/repeatToolReminder\\.js$': '<rootDir>/src/utils/repeatToolReminder.ts',
+    '^\\.\\./utils/repeatToolReminder\\.js$': '<rootDir>/src/utils/repeatToolReminder.ts',
     // ── Package-level mock redirects (ESM-only deps) ──
     '^archiver$': '<rootDir>/tests/__mocks__/archiver.ts',
     '^unzipper$': '<rootDir>/tests/__mocks__/unzipper.ts',

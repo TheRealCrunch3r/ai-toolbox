@@ -110,7 +110,8 @@ export const DEFAULT_TOOL_PRIORITIES: ToolPriority[] = [
   { name: 'unusedImports', tier: 'standard', category: 'refactorCode', description: 'Clean unused imports' },
   { name: 'text_transform', tier: 'standard', category: 'textProcessing', description: 'Transform text' },
   { name: 'text_extract', tier: 'standard', category: 'textProcessing', description: 'Extract text fields' },
-  { name: 'line_operations', tier: 'standard', category: 'textProcessing', description: 'Line operations' },
+  // 23.09 Q6: module home moved to fileSystemTools.ts (fold from textProcessing) — category repointed accordingly; tier INTENTIONALLY kept 'standard' (owner review flag).
+  { name: 'line_operations', tier: 'standard', category: 'fileSystem', description: 'Line operations' },
   { name: 'markdown_table_gen', tier: 'standard', category: 'textProcessing', description: 'Generate markdown table' },
   { name: 'generate_ui_component', tier: 'standard', category: 'uiGeneration', description: 'Generate UI component' },
   { name: 'render_and_preview_ui', tier: 'standard', category: 'uiGeneration', description: 'Render UI preview' },
@@ -137,7 +138,6 @@ export const DEFAULT_TOOL_PRIORITIES: ToolPriority[] = [
   { name: 'delete_backup', tier: 'background', category: 'backup', description: 'Delete backup' },
   { name: 'cleanup_backups', tier: 'background', category: 'backup', description: 'Cleanup backups' },
   { name: 'markdown_preview', tier: 'background', category: 'markdownPreview', description: 'Preview markdown' },
-  { name: 'delete_lines', tier: 'background', category: 'lineOperations', description: 'Delete lines' },
 ];
 
 /**
@@ -283,7 +283,6 @@ const CATEGORY_TO_MODULE: Record<string, string | readonly string[]> = {
   dataVisualization: ['dataVisualizationTools.ts', 'tools/dataVisualizationTools.ts'],
   backup: ['backupTools.ts', 'tools/backupTools.ts'],
   markdownPreview: ['markdownPreviewTools.ts', 'tools/markdownPreviewTools.ts'],
-  lineOperations: ['lineOperations.ts', 'tools/lineOperations.ts'],
 };
 
 /**

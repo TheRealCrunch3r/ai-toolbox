@@ -25,7 +25,8 @@ interface PlanStep {
   note?: string;
 }
 
-interface ActivePlan {
+/** Exported (25.09): read-only reuse by restoreSessionContextTool.ts — single source of truth for the persisted plan shape. */
+export interface ActivePlan {
   goal: string;
   steps: PlanStep[];
   createdAt: number;
@@ -61,7 +62,8 @@ const ActivePlanSchema = z.object({
  * Manages plan persistence to disk with atomic writes.
  * Uses the same pattern as contextManagementTools (temp file + rename).
  */
-class PlanStorageManager {
+/** Exported (25.09): read-only reuse by restoreSessionContextTool.ts — load() stays the single source of truth for plan file paths + Zod validation (working dir primary, plugin root fallback). */
+export class PlanStorageManager {
   private pluginRootPath: string;
 
   constructor() {

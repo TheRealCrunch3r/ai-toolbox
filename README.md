@@ -4,7 +4,7 @@
 
 **Give your local LLM real hands.** The most complete LM Studio Hub plugin — turns any local model into a capable, self-managing AI agent with safe file editing, hang-proof codebase search, background builds, headless browser automation, Git & GitHub workflows, OCR, charting and semantic RAG; **self-managing context** keeps marathon sessions alive. One plugin, zero glue code, fully offline by default.
 
-> `v1.9.18` · `130+ ready-made tools` · `770 tests green (47 suites)` · `5 locales` · `MIT` · `Node 20+`
+> `v1.9.18` · `130+ ready-made tools` · `850 tests green (53 suites)` · `5 locales` · `MIT` · `Node 20+`
 
 [!IMPORTANT] LM Studio does NOT support automatic updates. If you encounter issues, update manually first: remove the current version and re-download from the plugin website. Note that LM Studio may show an "already installed" tooltip even if your version is outdated.
 
@@ -45,7 +45,7 @@ The closest direct competitor on the Hub: same job (tools for local LLMs), very 
 | ✅ **AST-level refactoring** (rename, move functions, dead-import cleanup) — syntax-safe transforms with auto-rollback, not string edits |
 | ✅ **Real RAG:** local vector index over PDF / DOCX / XLSX with page-level provenance — not just keyword search |
 | ✅ **Image & data viz:** OCR on screenshots and captures, image metadata + comparison, chart generation |
-| ✅ **130+ tools** vs ~49 — backed by 770 passing tests across 47 suites |
+| ✅ **130+ tools** vs ~49 — backed by 850 passing tests across 53 suites |
 | ✅ **Crash-resilient writes + rollback on failure:** a botched edit can never corrupt your file |
 
 Our previous i18n gap is closed: **we now ship 5 locales** (en · de · es · zh-CN · zh-TW), each a full translation set — and anti-stub tests guard the suite so alias/fallback languages can never silently regress. We'd rather tell you than pretend it doesn't exist.
@@ -100,7 +100,7 @@ Charts rendered to image files from raw data (bar/line/pie/doughnut/scatter/rada
 ```bash
 # Developing instead of using?
 npm install && npm run build   # ESM + CJS via tsup
-npm test                        # full suite: 47 suites / 770 tests green (~45 s)
+npm test                        # full suite: 53 suites / 850 tests green (~45 s)
 ```
 
 ---
@@ -140,12 +140,12 @@ One plugin replaces an entire shelf. Here's every family, what it covers, and it
 
 | Family | Count | What it gives your agent | Default |
 |---|---|---|---|
-| 📁 **File System** | 23 | Read/write/edit/search — path-validated, backed up, chunked reads on huge files, diffs, project trees, worker-isolated `ripgrep` search (3 s watchdog) + structured content scanning (`pattern_scan`) | ✅ |
+| 📁 **File System** | 24 | Read/write/edit/search — path-validated, backed up, chunked reads on huge files, diffs, project trees, worker-isolated `ripgrep` search (3 s watchdog) + structured content scanning (`pattern_scan`) + line surgery with fingerprint guards (`line_operations`, folded in 23.09 Q6) | ✅ |
 | 🧬 **Refactoring & Recode engine** | `refactor_code` + rules | AST rename · move-function · extract · dead-import cleanup — plus a pluggable rule engine (dead-code hints, type inference, async modernizer) with dry-run diffs | ✅ |
-| 🔍 **Text Processing** | 4 | Regex transforms (`sed`-class), structured extraction (`awk`-class), line surgery with fingerprint guards, instant Markdown tables | ✅ |
+| 🔍 **Text Processing** | 3 | Regex transforms (`sed`-class), structured extraction (`awk`-class), instant Markdown tables (line surgery moved to File System, 23.09 Q6) | ✅ |
 | 📋 **Task Planning** | 3 | Goal + step plans through a real state machine with live completion metrics — blocked steps retry cleanly | ✅ |
 | ⚡ **Execution** | 5 | Sandboxed JS & Python (eval/require blocked) · full shell & native terminal (opt-in) · **auto-runs your project's test suite** (Jest/Mocha/Vitest detected) | mixed |
-| 🧠 **Context & Memory** | 20 | Auto-summarization, typed memory with TTL pruning & heuristic recall, event tracking — **plus cross-project**: register/search/switch between projects, session index browser | ✅ |
+| 🧠 **Context & Memory** | 21 | Auto-summarization, typed memory with TTL pruning & heuristic recall, event tracking — **plus cross-project**: register/search/switch between projects, session index browser + one-call read-only resume bootstrap (`restore_session_context`, 25.09) | ✅ |
 | 📊 **Vector RAG** | 7 | Semantic search over your codebase *and* PDFs · Word docs · spreadsheets + query-relevant web extraction — local, bounded, OOM-proof | ✅ |
 | 💾 **Backup & Restore** | 5 | Full-directory ZIP snapshots (`create_backup`/`restore_backup`), listing, cleanup — plus the per-edit `.bak` system underneath everything | ✅ |
 | 📈 **Data Visualization** | 1 | `generate_chart`: bar / line / pie / doughnut / scatter / radar → image file with HTML fallback | ✅ |
@@ -159,7 +159,7 @@ One plugin replaces an entire shelf. Here's every family, what it covers, and it
 | 🎨 **UI Generation** | 3 | Build & preview live HTML/CSS/JS components in-browser · extract data back out | ✗ opt-in |
 | 🗃️ **Database** | 1 | Read-only SQLite with injection-proof parameterized queries | ✗ opt-in |
 
-> *Counts are code-verified (source-of-truth audit, Sep 2026); exposed tool count is always toggle-dependent. The `utilityTools` module (~27 tools incl. `secret_scan`, `json_query`, safe `.env` editing) ships with full test coverage but is **not yet registered** — wiring it live is on the roadmap.*
+> *Counts are code-verified (source-of-truth audit, Sep 2026); exposed tool count is always toggle-dependent.*
 
 > *Per-tool parameters, defaults and examples → [TOOLS_REFERENCE.md](TOOLS_REFERENCE.md) (audited against source). Walkthroughs: [DOCUMENTATION.md](DOCUMENTATION.md) · [QUICK_START.md](QUICK_START.md)*
 
@@ -169,7 +169,7 @@ One plugin replaces an entire shelf. Here's every family, what it covers, and it
 
 | Version | Headline |
 |---|---|
-| **v1.9.18** | 🔒 Suite D shared-file lost-write fix — per-path in-process lock on the snap→rename critical section (new `sharedFileLock.ts`, wired into both writers) · 🧾 EOL-FIX v4 — byte-exact line-ending round-trip for `replace_text_in_file` on mixed/CRLF files + pre-edit eol/bom visibility via `get_file_metadata` reporting (TS7022 tsc gate blocker closed in the same arc) |
+| **v1.9.18** | 🔒 Suite D shared-file lost-write fix — per-path in-process lock on the snap→rename critical section (new `sharedFileLock.ts`, wired into both writers) · 🧾 EOL-FIX v4 — byte-exact line-ending round-trip for `replace_text_in_file` on mixed/CRLF files + pre-edit eol/bom visibility via `get_file_metadata` reporting (TS7022 tsc gate blocker closed in the same arc) · 🧯 PIPELINE HYGIENE D 25.09 — Tool Execution Pipeline unified outcome taxonomy + finalizeContent invariant, per-turn toolsProvider guard reset, describeError lint clean, jest RC#4 mapper; full suite 836/51 green + eslint clean; docs CHANGELOG_v3 + ARCHITECTURE updated |
 | **v1.9.17** | 💾 Tool Gating Profile — persistent tool toggles (rev 29, published 14.09) · 🔍 ripgrep TOOL SWAP + unified project registry + worker-pool thrash fix (rev 30, last GitHub publish on 15.09) — all rev-31 work (DE-STRAngle, AutoTracker F1+F2, cluster-aware tool ordering, CWD state relocation, SPEC-C) shipped in v1.9.18; ⏳ v1.9.18 / rev 33 publish pending (owner decision) |
 | **v1.9.16** | 🔍 `web_search` zero-result fallback fix — dead/empty engine no longer stops the chain · rev 28: reinstall + restart live-verified same day (blocked `ddg-api` skipped → `ddg-fetch` returned results) |
 | **v1.9.15** | ⚡ B' ripgrep phase-1 prefilter for `pattern_scan` (byte-identical JS fallback guarantee) · rev 27: `ripgrep` promoted to runtime dependency, fixing silent fast-path loss on Hub installs — live-verified on the user machine |

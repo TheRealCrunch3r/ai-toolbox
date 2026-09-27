@@ -1,23 +1,25 @@
 /**
- * patternScanHangBackstop.test.ts — HANG-GUARD backstops for pattern_scan's cooperative abort contract (05.09; DE-STRAngle 16.09).
+ * patternScanHangBackstop.test.ts — HANG-GUARD backstops for pattern_scan's cooperative abort contract (05.09; cap RE-ARMED 24.09).
  *
- * Mirrors the grep_files hang-backstop contract in its post-DE-STRAngle form: the former PATTERN_SCAN_MAX_RUN_MS wall cap is
- * REMOVED — since FIX-34a (13.09) the pipeline is fully async with inline host eval, so no wall clock exists at all and
- * Cancellation = HOST SIGNAL only (createGrepGuard signal-only mode, deadlineMs=0 → NO timer armed). What this suite pins:
+ * Contract under test: createGrepGuard(hostSignal, PATTERN_SCAN_MAX_RUN_MS=3_000) — ONE guard with TWO abort sources: the wall-clock
+ * deadline and any HOST signal (user cancel / host timeout via ToolCallContext.signal), converging on guard.signal. History: DE-STRAngle
+ * (16.09) removed the cap (deadlineMs=0, signal-only); owner order 24.09 ("abort after 3 seconds") re-armed it after the >60 s
+ * zero-payload incident on slow FS — an unbounded walk proved worse than bounded partials. What this suite pins:
  *   - every cooperative boundary (worker file-loop condition) reads guard.signal.aborted;
- *   - disarm() in finally releases the host-signal listener on EVERY completion path — a healthy scan must never leak it or let
- *     any stray warn fire AFTER it returned (orphan-timer regression class of FIX-HANG-3, kept as the general contract);
- *   - NO wall-clock behavior remains: advancing a fake clock far past every former cap value still yields FULL un-aborted
- *     completion — a re-introduced timer/cap would abort early and fail this suite.
+ *   - disarm() in finally releases the deadline timer AND the host-signal listener on EVERY completion path — a healthy scan must
+ *     never leak either or let any stray warn fire AFTER it returned (orphan-timer regression class of FIX-HANG-3, kept as the general contract);
+ *   - THE wall cap fires: advancing the fake clock past PATTERN_SCAN_MAX_RUN_MS yields an aborted=true PARTIAL result with genuine
+ *     survivors; a fast scan settling well before the deadline stays un-aborted (regime-tolerant — host-speed dependent).
  *
- * The no-cap tests use jest fake timers + advanceTimersByTimeAsync so the clock advancement is deterministic; real fs I/O still
- * completes between advances (same recipe as the grep_files suite, green on user host).
+ * The clock-dependent legs use jest fake timers + advanceTimersByTimeAsync so the clock advancement is deterministic; real fs I/O
+ * still completes between advances (same recipe as the grep_files suite, green on user host).
  */
 
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
 import { patternScan } from '../src/tools/patternScan';
+import { PATTERN_SCAN_MAX_RUN_MS } from '../src/utils/grepGuard'; // RE-ARM 24.09: leg A fires the deadline at exactly this fake-time offset
 
 const FIXTURE_FILE_COUNT = 400; // full-coverage fixture for the no-cap contract — every file MUST be scanned to completion un-aborted
 let fixtureDir: string;
@@ -42,14 +44,14 @@ afterAll(async () => {
   await fs.rm(miniDir, { recursive: true, force: true }).catch(() => undefined);
 });
 
-describe('pattern_scan HANG-GUARD abort contract (05.09; no wall cap since DE-STRAngle 16.09)', () => {
+describe('pattern_scan HANG-GUARD abort contract (05.09; wall cap RE-ARMED at PATTERN_SCAN_MAX_RUN_MS, owner order 24.09)', () => {
   afterEach(() => {
     jest.useRealTimers();
   });
 
   test('fast small scan resolves cleanly under the guard — no aborted flag, no stray cap warn', async () => {
-    // Real timers: a 2-file fixture finishes fast. DE-STRAngle (16.09) removed pattern_scan's wall cap entirely — signal-only
-    // mode arms NO timer, so there is nothing to fire; disarm() in finally releases the host-signal listener on every path.
+    // Real timers: a 2-file fixture settles far inside the armed PATTERN_SCAN_MAX_RUN_MS deadline — nothing may fire before return;
+    // disarm() in finally then releases the timer + host-signal listener on every path, so NO cap warn may leak after settle.
     // (This suite does NOT set fakeTimers.enableGlobally, so this test runs with REAL timers.)
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
     try {
@@ -57,10 +59,10 @@ describe('pattern_scan HANG-GUARD abort contract (05.09; no wall cap since DE-ST
       expect(result.ok).toBe(true);
       expect(result.matches.length).toBe(1); // a.txt only — b.txt has no needle
       expect((result.aborted ?? false)).toBe(false); // healthy scan must NOT report itself aborted
-      // No ORPHANED GUARD warn (the FIX-HANG-3 class): pattern_scan arms no wall-clock timer since DE-STRAngle (16.09) — with
-      // deadlineMs=0 the guard's cap-warn line can never fire — and it no longer dispatches to the regex worker pool, so NO
-      // '[pattern_scan]' warn is expected from this tool on a healthy scan: any match below means a stray timer/listener fired
-      // after settle. Pins leakage of THIS tool, not global silence of unrelated suites.
+      // No ORPHANED GUARD warn (the FIX-HANG-3 class): the guard DOES arm a 3 s wall deadline since RE-ARM 24.09 — but on this healthy
+      // fast scan it never fires, and disarm() in finally must cancel it after settle; any '[pattern_scan] wall-clock cap' line here
+      // means an orphaned timer/listener survived past return (no regex-worker pool is involved, so nothing else can emit that warn).
+      // Pins leakage of THIS tool, not global silence of unrelated suites.
       const strayCapWarns = warnSpy.mock.calls.filter((c) => typeof c[0] === 'string' && /\[pattern_scan\] wall-clock cap/.test(c[0]));
       expect(strayCapWarns).toEqual([]);
     } finally {
@@ -68,10 +70,11 @@ describe('pattern_scan HANG-GUARD abort contract (05.09; no wall cap since DE-ST
     }
   });
 
-  // Explicit real-time budget (25 s vs global testTimeout 10 s, jest.config.cjs): the FAKE clock makes the advancement deterministic,
-  // but this test's REAL cost is host-dependent — each advanceTimersByTimeAsync round flushes real fs I/O over the 400-file fixture,
-  // which on a loaded/AV-scanned host can exceed 10 s (incident 14.09 ~17:48: suite failed at exactly the global timeout).
-  test('NO wall cap exists (DE-STRAngle 16.09): fake clock far past every former cap value → full fixture completes un-aborted', async () => {
+  // Explicit real-time budgets (30 s vs global testTimeout 10 s, jest.config.cjs): the FAKE clock makes advancement deterministic,
+  // but each advanceTimersByTimeAsync round flushes REAL fs I/O over the fixture — on a loaded/AV-scanned host that is slow
+  // (incident 14.09 ~17:48: suite failed at exactly the global timeout). afterEach restores real timers for every test here.
+
+  test('wall cap RE-ARMED 24.09: fake clock past PATTERN_SCAN_MAX_RUN_MS → cooperative abort, PARTIAL result, cap warn fired', async () => {
     // Real-time anchor captured BEFORE fake install (Phase 2's wall guard): default useFakeTimers() also fakes Date, so any
     // post-install read of the GLOBAL Date is FAKE time. Capture both a timestamp and a reference to the NATIVE constructor —
     // a closure that merely calls `Date.now()` would resolve the swapped (fake) global at call time.
@@ -80,38 +83,76 @@ describe('pattern_scan HANG-GUARD abort contract (05.09; no wall cap since DE-ST
     jest.useFakeTimers();
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined); // keep cap-fire warn out of test output
     let result: Awaited<ReturnType<typeof patternScan>> | null = null;
+    // 24.09 FIX (leg A red run): SNAPSHOT the call history INSIDE the try — jest-mock@30's mockRestore() → mockReset() →
+    // mockClear() DELETES this mock's recorded calls from its registry (node_modules/jest-mock: f.mockClear = () => _mockState.delete(f)), and
+    // any later `warnSpy.mock.calls` read recreates a FRESH empty state. Reading post-restore therefore reported 0 even though the
+    // deadline warn fired at fake t=3000ms (aborted=true proved the fire). Capturing here pins exactly what this test's own window saw.
+    let capWarnCalls: unknown[][] = [];
     try {
-      // NOTE: maxTotalMatches raised above default (200) to avoid truncation from match-cap interference with this HANG-GUARD test's contract.
-    // The resource limit `maxTotalMatches` is orthogonal to wall-clock aborts — we must scan all 400 files even when their
-    // aggregate matches exceed the default cap; otherwise a truncated result would mask the true purpose of this suite (no time-based cutoff).
-    const p = patternScan({ pattern: 'needle', root: fixtureDir, maxTotalMatches: FIXTURE_FILE_COUNT + 1 }); // start WITHOUT awaiting — signal-only mode, so NO internal deadline is armed; the probe below advances the FAKE clock instead
+      // NOTE: maxTotalMatches raised above default (200) so the ONLY stopping condition in this test is the WALL DEADLINE — not a
+      // match-cap truncation. concurrency=1 makes the survivor set deterministic for any given fire point (the exact cutoff file
+      // count is host-I/O-speed dependent, so we pin SHAPE + abort semantics here; full-coverage completeness lives in leg B below).
+      const p = patternScan({ pattern: 'needle', root: fixtureDir, concurrency: 1, maxTotalMatches: FIXTURE_FILE_COUNT + 1 }); // start WITHOUT awaiting — the probe below advances the FAKE clock (the guard's deadline is a fake timer under useFakeTimers)
       let settled = false;
       p.then((r) => { result = r; settled = true; }, () => { settled = true; });
-      // Phase 2 bounds (realStartMs + NativeDate captured at test head BEFORE install — see above): post-install global Date is fake.
-      const REAL_DEADLINE_MS = 20_000; // wall-clock bound for Phase 2 (fits under the 25 s per-test budget below with margin)
-      const wallElapsedMs = (): number => new NativeDate().getTime() - realStartMs;
 
-      // PHASE 1 — deterministic far-past-cap advancement: FORMER_CAP_SLACK_MS of fake ms in bounded 30 ms steps while real
-      // I/O flushes between advances. Nothing in this pipeline may fire at ANY of these deadlines (no wall cap since DE-STRAngle;
-      // no regex-worker pool involvement): the fake clock is a PROBE instrument here — if advancing past every legacy cap value
-      // produced an abort or early settle, that would be a re-introduced-timer regression failing this suite. The 14.09 stall
-      // lesson still shapes the structure: Phase 2 below drains to settlement rather than assuming a fixed horizon (an unbounded
-      // `await p` under faked Date/timers could sit on real time forever if anything stalled).
-      const FORMER_CAP_SLACK_MS = 3_500; // ≫ every value this tool ever had (inherited GREP-era 500 ms / PATTERN_SCAN_MAX_RUN_MS=3000) — probe window, not a deadline
-      const stepsToDeadline = Math.ceil(FORMER_CAP_SLACK_MS / 30);
-      for (let i = 0; i < stepsToDeadline && !settled; i++) {
-        if ((i + 1) * 30 > FORMER_CAP_SLACK_MS) break; // full probe window elapsed BEFORE the next flush
-        await jest.advanceTimersByTimeAsync(30); // fake clock + flush pending real I/O each step; stop early if already settled
+      // PHASE 1 — fire the deadline DETERMINISTICALLY: advance to exactly PATTERN_SCAN_MAX_RUN_MS + 100 ms of fake time in bounded
+      // steps (each step also flushes pending real fs I/O). Under fake timers the cap fires no matter how fast/slow host I/O is —
+      // this leg cannot be flipped by host load. Stop early only if the scan already settled (a 400-file fixture does not settle
+      // inside a few ms on any sane host; that regime belongs to leg B).
+      const FIRE_AT_MS = PATTERN_SCAN_MAX_RUN_MS + 100;
+      for (let fakeMs = 0; fakeMs < FIRE_AT_MS && !settled; fakeMs += 50) {
+        await jest.advanceTimersByTimeAsync(Math.min(50, FIRE_AT_MS - fakeMs)); // last step lands exactly at the cap +100 ms slack
       }
 
-      // PHASE 2 — settle-drain (14.09 root-cause fix, kept): advance until `p` settles, bounded by REAL wall time + a hard step
-      // count. Each step is one more small fake-clock advance with the same real fs flushes as Phase 1; default useFakeTimers()
-      // also fakes Date/nextTick with jobs draining only at tick boundaries, so pending fake timers/microtask-jobs get their
-      // ticks here and an unbounded wait on a stuck promise would be invisible. On any sane host settlement lands long before
-      // either bound (the wall guard exists because Date is faked).
-      const MAX_SETTLE_STEPS = 40_000; // ≫ realistic settle depth (few hundred fake timers/jobs post-abort); hard backstop only
-      for (let i = 0; !settled && i < MAX_SETTLE_STEPS && wallElapsedMs() < REAL_DEADLINE_MS; i++) {
+      // PHASE 2 — settle-drain (14.09 root-cause fix, kept): advance until `p` settles, bounded by REAL wall time (Date is faked →
+      // NativeDate anchor) + a hard step count. Post-abort there is little real work left (in-flight reads finish), so this drain
+      // is short; the bounds exist only because an unbounded wait on a stuck promise would be invisible in fake time.
+      const REAL_DEADLINE_MS = 25_000; // fits under the 30 s per-test budget below with margin
+      const wallElapsedMs = (): number => new NativeDate().getTime() - realStartMs;
+      let steps = 0;
+      while (!settled && steps < 40_000 && wallElapsedMs() < REAL_DEADLINE_MS) {
         await jest.advanceTimersByTimeAsync(1); // one fake ms + flush pending real I/O each step; stops the moment `p` settles
+        steps++;
+      }
+
+      result = await p;
+      capWarnCalls = warnSpy.mock.calls.slice(); // 24.09 FIX: capture INSIDE the try — finally's mockRestore() wipes the registry state (see declaration above)
+    } finally {
+      warnSpy.mockRestore();
+    }
+
+    expect(result!.ok).toBe(true); // cooperative abort → successful PARTIAL result, never a throw
+    expect((result!.aborted ?? false)).toBe(true); // THE assertion of the 24.09 contract — wall deadline surfaced end-to-end through the guard
+    const capWarns = capWarnCalls.filter((c) => typeof c[0] === 'string' && /\[pattern_scan\] wall-clock cap/.test(c[0]));
+    expect(capWarns.length).toBe(1); // exactly ONCE inside THIS test's spy window (pre-restore snapshot): zero = lost deadline timer, >1 = orphaned-guard contamination (FIX-HANG-3 class)
+    expect(result!.stats.filesScanned).toBeGreaterThanOrEqual(1); // ≥1 file provably passed pre-abort
+    for (const m of result!.matches) { // survivors are genuine fixture lines only — no spurious or truncated entries
+      expect(m.content.startsWith('needle here ')).toBe(true);
+    }
+  }, 30_000);
+
+  test('fast scan settling BEFORE the deadline completes un-aborted (regime-tolerant: host speed decides complete vs partial)', async () => {
+    // REGIME-TOLERANT LEG (host-speed dependent, by design — no artificial delay injected): pins what a HEALTHY fast scan must
+    // produce. The guard's 3 s deadline is a fake timer here; the loop advances tiny fake steps while flushing real I/O until the
+    // promise settles or ~20_000 ms of FAKE time has passed — far past PATTERN_SCAN_MAX_RUN_MS, so on a SLOW host this scan
+    // legitimately aborts at 3 s and the leg asserts partial shape instead of failing (the DETERMINISTIC cap-fire contract is the
+    // test above). Real-time anchor before fake install: default useFakeTimers() also fakes Date.
+    const realStartMs = Date.now();
+    const NativeDate = Date; // pre-install reference — post-install global Date is fake
+    jest.useFakeTimers();
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined); // keep a legitimate cap-fire warn (slow-host regime) out of test output — no assertion on it here; leg A pins the count
+    let result: Awaited<ReturnType<typeof patternScan>> | null = null;
+    try {
+      const p = patternScan({ pattern: 'needle', root: fixtureDir, concurrency: 4, maxTotalMatches: FIXTURE_FILE_COUNT + 1 }); // default-ish concurrency; start WITHOUT awaiting — the probe below advances the FAKE clock while real I/O flushes
+      let settled = false;
+      p.then((r) => { result = r; settled = true; }, () => { settled = true; });
+
+      const FAKE_BUDGET_MS = 20_000; // fake-time horizon for the drain (≫ the cap — a slow host lands in the aborted regime by design)
+      const REAL_DEADLINE_MS = 25_000; // real wall bound (fits under the 30 s per-test budget below with margin); Date is faked → NativeDate
+      const wallElapsedMs = (): number => new NativeDate().getTime() - realStartMs;
+      for (let fakeMs = 0; fakeMs < FAKE_BUDGET_MS && !settled && wallElapsedMs() < REAL_DEADLINE_MS; fakeMs += 25) {
+        await jest.advanceTimersByTimeAsync(25); // flush pending real I/O each step
       }
 
       result = await p;
@@ -120,15 +161,26 @@ describe('pattern_scan HANG-GUARD abort contract (05.09; no wall cap since DE-ST
     }
 
     expect(result!.ok).toBe(true);
-    expect((result!.aborted ?? false)).toBe(false); // THE assertion of the new contract — no wall clock exists; only a HOST signal (none passed here) can abort
-    expect(result!.stats.filesScanned).toBe(FIXTURE_FILE_COUNT); // FULL completion over all 400 files — any early cutoff would re-appear as a partial result
-    expect(result!.skipped).toEqual([]);
-    const needleMatches = result!.matches.filter((m) => m.content.includes('needle here'));
-    expect(needleMatches.length).toBe(FIXTURE_FILE_COUNT); // every file's line 2 matched — full deterministic coverage, not just a survivor prefix
-  }, 25_000); // explicit real-time budget (see note above the test) — fake clock stays deterministic; wall cost is host-dependent
+    for (const m of result!.matches) { // both regimes: survivors are genuine fixture lines only — no spurious or truncated entries
+      expect(m.content.startsWith('needle here ')).toBe(true);
+    }
+    if (!(result!.aborted ?? false)) {
+      // COMPLETE regime — sane host, scan settled well inside the deadline: FULL un-aborted coverage.
+      expect(result!.stats.filesScanned).toBe(FIXTURE_FILE_COUNT);
+      expect(result!.skipped).toEqual([]);
+      const needleMatches = result!.matches.filter((m) => m.content.includes('needle here'));
+      expect(needleMatches.length).toBe(FIXTURE_FILE_COUNT); // every file's line 2 matched — full deterministic coverage, not just a survivor prefix
+    } else {
+      // ABORTED regime — slow host: wall cap fired before completion (deterministic assertion for that outcome lives in leg A; here
+      // we only require shape consistency so this leg never flips green↔red on host load).
+      expect(result!.stats.filesScanned).toBeGreaterThanOrEqual(1);
+      expect(result!.stats.filesScanned).toBeLessThan(FIXTURE_FILE_COUNT);
+    }
+  }, 30_000); // explicit real-time budget (host-load dependent, same rationale as leg A) — fake clock stays deterministic
 
-  test('mid-scan HOST signal aborts cooperatively with PARTIAL results (DE-STRAngle 16.09 — now the only abort path)', async () => {
-    // Post-DE-STRAngle contract for aborted=true: a HOST signal (user cancel / host timeout) checked at every file boundary.
+  test('mid-scan HOST signal aborts cooperatively with PARTIAL results (RE-ARM 24.09: one of two abort sources, alongside the wall deadline)', async () => {
+    // Contract for aborted=true via a HOST signal (user cancel / host timeout) — checked at every file boundary; since RE-ARM 24.09 the
+    // armed wall deadline is the second, independent source (pinned in leg A above). Both converge on guard.signal.aborted.
     // Fake timers + bounded advances let the walk and a few sequential file boundaries pass before we fire the controller;
     // the drain loop then settles the scan on REAL time (same recipe as the no-cap test above). afterEach restores real timers.
     const realStartMs = Date.now();
@@ -137,7 +189,7 @@ describe('pattern_scan HANG-GUARD abort contract (05.09; no wall cap since DE-ST
 
     const ac = new AbortController();
     let result: Awaited<ReturnType<typeof patternScan>> | null = null;
-    // Raise match cap well above expected survivors so that the ONLY stopping condition in this test is the HOST signal — not a match-cap truncation.
+    // Raise match cap well above expected survivors so that the stopping condition in this test is the HOST signal (fired ≪3000 ms of fake time) — not match-cap truncation or the wall deadline.
     const p = patternScan({ pattern: 'needle', root: fixtureDir, concurrency: 1, maxTotalMatches: FIXTURE_FILE_COUNT + 1, abortSignal: ac.signal }); // sequential → predictable boundary cadence
     let settled = false;
     p.then((r) => { result = r; settled = true; }, () => { settled = true; });
@@ -145,7 +197,7 @@ describe('pattern_scan HANG-GUARD abort contract (05.09; no wall cap since DE-ST
     // Let the walk + several file boundaries complete (each advance flushes pending real fs I/O), then cancel mid-scan.
     for (let i = 0; i < 40 && !settled; i++) await jest.advanceTimersByTimeAsync(1);
     expect(settled).toBe(false); // sanity: still in flight after a few boundaries — else this test would be vacuous (fail loudly on pipeline change)
-    ac.abort(); // host cancel — the ONLY remaining abort source
+    ac.abort(); // host cancel (independent of the armed wall deadline — this scan settles far before 3000 ms of fake time elapse)
 
     const REAL_DEADLINE_MS = 20_000; // wall-clock bound for the drain (fits under the 25 s per-test budget below with margin)
     const wallElapsedMs = (): number => new NativeDate().getTime() - realStartMs;

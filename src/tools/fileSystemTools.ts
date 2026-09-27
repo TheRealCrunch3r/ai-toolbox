@@ -9,6 +9,8 @@ import type { PluginConfig } from '../config.js';
 import type { StateManager } from '../stateManager.js';
 import { validatePath, isSafeRegex } from '../security.js';
 import { recordFileModification } from './fileModTracker.js';
+// Q6 (23.09): line_operations folded in from textProcessingTools — MD5 post-write integrity check needs crypto here now.
+import { createHash } from 'crypto';
 import { patternScan } from './patternScan.js';
 // 14.09 TOOL SWAP (owner directive): grep_files is REMOVED and replaced by a standalone `ripgrep` tool — the ENTIRE search
 // (file walk AND pattern matching) runs natively inside ONE worker-isolated ripgrep process (src/utils/ripgrepEngine.ts).
@@ -160,6 +162,61 @@ export function detectLineEndings(content: string): 'crlf' | 'lf' | 'mixed' {
   if (crlfCount === 0) return 'lf';
   const totalNewlines = content.split('\n').length - 1;
   return crlfCount === totalNewlines ? 'crlf' : 'mixed';
+}
+
+// ==================== 23.09 DRIFT-FIX v2: EOL-accurate line engine (used by delete_lines_in_file; the former delete_lines alias was removed in NEXT-REV, 23.09) ====================
+/**
+ * Split raw file content into lines with each line's ORIGINAL terminator preserved as a separate segment:
+ *   parts[2i] = line text, parts[2i+1] = its terminator ('\r\n' | '\n', or '' for a final unterminated line).
+ * Line count: parts[last] === '' (trailing-terminated) → floor(parts.length/2); otherwise a no-trailing file leaves
+ * dangling TEXT (odd list) → ceil(parts.length/2). Both agree with what read_file/the model counts for EVERY EOL style.
+ * Uniform CRLF/LF files yield exactly the same lines as split('\r\n')/split('\n'); MIXED-EOL files — where the old
+ * boolean `hasCRLF` split merged every bare-LF line into its CRLF neighbor ("a\r\nb\nc" → ["a","b\nc"]) and caused
+ * systematic false drift errors + wrong-index deletions — now keep every line distinct. Joining the untouched
+ * segments is byte-exact by construction (no terminator is ever rewritten, only whole lines are removed/inserted).
+ */
+export function segmentLines(content: string): string[] {
+  const parts = content.split(/(\r\n|\n)/);
+  // An even parts.length means the final '' was produced by a trailing terminator — drop it (empty line with no text).
+  if (parts.length % 2 === 0) parts.pop();
+  return parts;
+}
+
+/** Delete lines [startLine..endLine] (1-based, inclusive) from a segmented list and rejoin byte-exact. */
+export function joinWithoutSegments(parts: string[], startLine: number, endLine: number): string {
+  const out: string[] = [];
+  for (let i = 0; i < parts.length / 2; i++) {
+    const lineNo = i + 1;
+    if (lineNo >= startLine && lineNo <= endLine) continue; // drop the whole text+terminator pair
+    out.push(parts[2 * i], parts[2 * i + 1]);
+  }
+  return out.join('');
+}
+
+/**
+ * 23.09 DRIFT-FIX v2 — windowed content verification (absorbed from the retired `delete_lines` tool, Q5=A).
+ * Searches a ±3-line band around the requested 1-based start line for the expected block (trim-compared,
+ * multi-line aware). Returns the actual 1-based hit line, or null when absent — null = genuine drift; the caller
+ * must BLOCK with context. Matching on normalized segments makes it EOL-accurate: uniform CRLF and mixed-EOL files
+ * alike verify against exactly what the model counted (the old boolean-split view was where false positives lived).
+ */
+export function findVerifyWindow(lines: string[], startLine: number, verifyBeforeDelete: string): number | null {
+  const expectedLines = verifyBeforeDelete.split(/\r?\n/);
+  const k = expectedLines.length;
+  if (k === 0 || lines.length < k) return null;
+  const scanFrom = Math.max(0, startLine - 4); // 0-based window starts: file lines [start-3 .. start+2]
+  const maxStartIdx = Math.min(lines.length - k, startLine + 1);
+  for (let i = scanFrom; i <= maxStartIdx && i >= 0; i++) {
+    let allMatch = true;
+    for (let j = 0; j < k; j++) {
+      if (lines[i + j].trim() !== expectedLines[j].trim()) {
+        allMatch = false;
+        break;
+      }
+    }
+    if (allMatch) return i + 1; // 0-based → 1-based actual hit
+  }
+  return null;
 }
 
 export function registerFileSystemTools(config: PluginConfig, _stateManager: StateManager): Tool[] {
@@ -741,9 +798,12 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
         try {
           const postWriteBuffer = await fs.readFile(fullPath);
           const postWriteContent = postWriteBuffer.toString('utf-8');
-          // Normalize both sides to the same line ending style for reliable comparison
-          const postHasCRLF = postWriteContent.includes('\r\n');
-          const normalizedPost = postHasCRLF ? postWriteContent.replace(/\r\n/g, '\n').split('\n') : postWriteContent.split('\n');
+          // 23.09 DRIFT-FIX (CRLF false-positive): ALWAYS normalize both sides of the read-back comparison to bare-LF lines.
+          // The old branch split a post-write CRLF file on '\r\n' but compared it against LF-normalized insert lines, so a
+          // MULTI-line insert could never be found contiguously in uniform-CRLF files and STRICT mode returned a false
+          // "DRIFT DETECTED: Inserted content NOT FOUND" AFTER the write had actually succeeded (single-line inserts slipped
+          // through — hence it looked random; on CRLF locale files it was systematic). One normalization basis, both sides.
+          const normalizedPost = postWriteContent.replace(/\r\n/g, '\n').split('\n');
 
           // Build the expected inserted lines (normalized to LF for comparison)
           const insertLinesList = textToInsert.replace(/\r\n/g, '\n').split('\n');
@@ -967,9 +1027,12 @@ try { await atomicWriteFile(fullPath, fullContent); } catch (err) { if (backupPa
       file_name: z.string().describe('The file to modify'),
       start_line: z.number().int().min(1).describe('Starting line number (1-indexed)'),
       end_line: z.number().int().min(1).optional().describe('Ending line number (inclusive). If omitted, only deletes start_line.'),
+      verify_before_delete: z.string().max(500).optional().describe(
+        'Content expected at the target lines before deletion. Mismatch BLOCKS the operation and shows actual context. If the content moved ≤3 lines it is re-anchored automatically (23.09 DRIFT-FIX v2 — absorbed from the retired `delete_lines` tool, Q5=A).'
+      ),
       backup: z.boolean().optional().default(true).describe('Create .bak backup before deletion. Default: true'),
     },
-    implementation: async ({ file_name, start_line, end_line, backup = true }: DeleteLinesInFileParams & { backup?: boolean }) => {
+    implementation: async ({ file_name, start_line, end_line, verify_before_delete, backup = true }: DeleteLinesInFileParams & { verify_before_delete?: string; backup?: boolean }) => {
       try {
         // ========== P2 FIX: Path Validation ==========
         if (!validatePath(file_name, getWorkingDir())) {
@@ -1000,23 +1063,51 @@ try { await atomicWriteFile(fullPath, fullContent); } catch (err) { if (backupPa
         const contentStr = buffer.toString('utf-8');
 
         // ========== P0 FIX: Validate line bounds ==========
-        // ========== P1 FIX: Detect original line ending style ==========
-        const hasCRLF_delete = contentStr.includes('\r\n');
-        let lines = hasCRLF_delete ? contentStr.split('\r\n') : contentStr.split('\n');
-        const deleteEnd = end_line || start_line;
-        
-        if (start_line > lines.length) {
-          return { success: false, error: `Start line ${start_line} exceeds file length (${lines.length})` };
+        // 23.09 DRIFT-FIX v2 (Q5=A): EOL-accurate segment engine — replaces the boolean hasCRLF split that merged bare-LF
+        // lines into their CRLF neighbors on mixed-EOL files (the systematic false-positive drift root cause). Line count
+        // now agrees with what read_file/the model counts for every EOL style; untouched segments round-trip byte-exact.
+        const parts = segmentLines(contentStr);
+        // No-trailing files leave a dangling TEXT (odd list) → ceil; trailing-terminated files end in '' → floor stays exact.
+        // A plain floor undercounts unterminated files by one (unreachable last line, wrong remainingLines/context).
+        const lineCount = parts[parts.length - 1] === '' ? Math.floor(parts.length / 2) : Math.ceil(parts.length / 2);
+
+        // Content anchor (absorbed from the retired `delete_lines` tool, Q5=A): verify expected content within a ±3-line
+        // window around start_line BEFORE deleting. Absent → genuine drift → block with context; moved ≤3 lines → re-anchor.
+        let effStartLine = start_line;
+        if (verify_before_delete) {
+          const textSegments: string[] = [];
+          for (let i = 0; i < parts.length / 2; i++) textSegments.push(parts[2 * i]);
+          const hitLine = findVerifyWindow(textSegments, start_line, verify_before_delete);
+          if (hitLine === null) {
+            const ctxStart = Math.max(1, start_line - 3);
+            const ctxEnd = Math.min(lineCount, start_line + 2);
+            const actualContext = textSegments.slice(ctxStart - 1, ctxEnd).map((l, idx) => `Line ${ctxStart + idx}: ${l}`).join('\n');
+            return {
+              success: false as const,
+              error: 'Drift detected: content at target line does not match expected.',
+              data: {
+                actualContext,
+                guidance: 'File has been modified since you calculated these line numbers. Re-read the file and retry with updated positions.',
+              },
+            };
+          }
+          effStartLine = hitLine; // re-anchored within ±3 (established 23.09 contract)
+        }
+
+        const deleteEnd = end_line || effStartLine;
+
+        if (effStartLine > lineCount) {
+          return { success: false, error: `Start line ${start_line} exceeds file length (${lineCount})` };
         }
 
         // Clamp end_line to avoid silent truncation beyond file bounds
-        const clampedEnd = Math.min(deleteEnd, lines.length);
-        
-        if (clampedEnd < start_line) {
-          return { success: false, error: `Invalid range: end line (${deleteEnd}) is before start line (${start_line})` };
+        const clampedEnd = Math.min(deleteEnd, lineCount);
+
+        if (clampedEnd < effStartLine) {
+          return { success: false, error: `Invalid range: end line (${deleteEnd}) is before start line (${effStartLine})` };
         }
 
-        const linesToDelete = clampedEnd - start_line + 1;
+        const linesToDelete = clampedEnd - effStartLine + 1;
 
         // ========== P1 FIX: Create Backup if requested (Bug #5) — DEFAULT TRUE FOR SAFETY ==========
         let backupPath: string | null = null;
@@ -1029,9 +1120,8 @@ try { await atomicWriteFile(fullPath, fullContent); } catch (err) { if (backupPa
           }
         }
 
-        // ========== P0 FIX: Delete lines ==========
-        lines.splice(start_line - 1, linesToDelete);
-        const newContent = hasCRLF_delete ? lines.join('\r\n') : lines.join('\n');
+        // ========== P0 FIX: Delete lines (23.09 DRIFT-FIX v2: segmented, byte-exact for every EOL style) ==========
+        const newContent = joinWithoutSegments(parts, effStartLine, clampedEnd);
 
         // ========== P1 FIX: Atomic Write (Bug #4) ==========
 try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPath) { try { await fs.copyFile(backupPath, fullPath); } catch {} }; return handleError(err); }
@@ -1055,12 +1145,12 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
         } = {
           success: true,
           data: {
-            deletedLines: `${start_line}-${clampedEnd}`,
+            deletedLines: `${effStartLine}-${clampedEnd}`,
             linesDeleted: linesToDelete,
             file: fullPath,
             bytesWritten: Buffer.byteLength(newContent, 'utf-8'),
             backupCreated: backupPath,
-            remainingLines: lines.length,
+            remainingLines: Math.max(0, lineCount - linesToDelete),
           },
         };
 
@@ -1082,7 +1172,335 @@ try { await atomicWriteFile(fullPath, newContent); } catch (err) { if (backupPat
       }
     },
   }));
+  // line_operations tool (awk/print equivalent for line manipulation) — Q6 fold-in from textProcessingTools.ts (23.09);
+  // logic verbatim; reads inlined to the module pattern, writes via shared atomicWriteFile; crypto import added above.
+  tools.push(tool({
+    name: 'line_operations',
+    description: `Insert, delete, or reorder lines in a file. Like awk for line-level operations without shell dependencies.
 
+⚠️ CRITICAL USAGE RULES — READ BEFORE USING:
+• ONLY use for simple, well-defined line operations (e.g., delete a single line, insert a short snippet at a known line)
+• NEVER use for complex insertions or replacements — use "replace_text_in_file" instead
+• NEVER use when you're unsure of exact line numbers — line numbers shift after every edit
+• ALWAYS verify line numbers with read_file before using this tool
+• USE verify_before_insert to prevent drift: specify content expected at target_line
+
+🚫 WHEN TO USE replace_text_in_file INSTEAD:
+• Inserting large blocks of code (functions, classes, entire sections)
+• Replacing existing code blocks
+• Adding new tools or functions to a file
+• Any operation where you don't know the exact line numbers
+
+✅ WHEN TO USE line_operations:
+• Deleting a single line by number
+• Inserting a short snippet (1-5 lines) at a known line
+• Moving a line to a new position
+• Small, targeted line-level changes
+
+🛡️ SAFETY FEATURES:
+• verify_before_insert: Content expected at target_line. If mismatch → operation blocked with actual content shown
+• insert_after_pattern / insert_before_pattern: Find insertion point by content matching instead of trusting line numbers
+• Drift protection: post-write read-back verifies exact line count + MD5 content hash after every operation — use verify_before_insert / insert_after_pattern / insert_before_pattern to anchor by content instead of stale line numbers. (23.09: the old "auto-drift length check" was removed — its formula compared new vs. insertion position and falsely rejected mid-file inserts.)
+
+EXAMPLE:
+✅ CORRECT: line_operations(file_name, operation: "delete", target_line: 42)
+✅ CORRECT: line_operations(file_name, operation: "insert", target_line: 10, content: "// short comment")
+✅ SAFE: line_operations(file_name, operation: "insert", target_line: 84, content: "// fix", verify_before_insert: "if (width <= 0 || height <= 0)")
+❌ WRONG: line_operations(file_name, operation: "insert", target_line: 395, content: "// entire function...")
+  → Use replace_text_in_file instead for this!`,
+    parameters: {
+      file_name: z.string().describe('File path'),
+      operation: z.enum(['insert', 'delete', 'move']).default('insert').describe('Operation to perform (use "lines" range for delete)'),
+      target_line: z.number().int().min(1).optional().describe('Target line number for insert/delete/move operations'),
+      lines: z.object({
+        start: z.number().int().min(1).optional(),
+        end: z.number().int().optional(),
+      }).optional().describe('Line range for delete operation (e.g., {start: 16, end: 17})'),
+      content: z.string().max(5_000).optional().describe('For insert operation - text to insert (max 5KB)'),
+      backup: z.boolean().optional().default(false).describe('Create .bak backup before modification. Default: false'),
+      move_from: z.number().int().optional().describe('Source line for move operation'),
+      move_to: z.number().int().optional().describe('Destination line for move operation'),
+      
+      // NEW SAFETY PARAMETERS
+      verify_before_insert: z.string().max(200).optional().describe('Content expected at target_line before insert. If mismatch → blocked with actual content shown.'),
+      insert_after_pattern: z.string().max(500).optional().describe('Insert after line containing this text (finds by pattern instead of trusting line number).'),
+      insert_before_pattern: z.string().max(500).optional().describe('Insert before line containing this text (finds by pattern instead of trusting line number).')
+    },
+    implementation: async (params: { 
+      file_name: string;
+      operation: 'insert' | 'delete' | 'move';
+      target_line?: number;
+      lines?: { start?: number; end?: number };
+      content?: string;
+      backup?: boolean;
+      move_from?: number;
+      move_to?: number;
+      verify_before_insert?: string;
+      insert_after_pattern?: string;
+      insert_before_pattern?: string;
+    }) => {
+      const { file_name, operation, target_line, lines, content, backup, move_from, move_to, verify_before_insert, insert_after_pattern, insert_before_pattern } = params; // C5 FIX: typed params
+      try {
+        if (!validatePath(file_name, getWorkingDir())) {
+          return { success: false, error: 'Invalid path: directory traversal detected' };
+        }
+
+        const fullPath = resolvePath(file_name);
+        let file_content: string;
+        try {
+          // Q6 (23.09): inlined from textProcessingTools readFileWithLimit — same 10MB cap + 8KB null-byte binary check as the rest of this module.
+          const stats = await fs.stat(fullPath);
+          if (stats.size > 10_000_000) {
+            return { success: false, error: `File too large (${(stats.size / 1_048_576).toFixed(2)}MB, max 10MB)` };
+          }
+          const buffer = await fs.readFile(fullPath);
+          const checkBuffer = buffer.subarray(0, Math.min(buffer.length, 8192));
+          if (checkBuffer.includes(0)) {
+            return { success: false, error: 'Binary file detected. This tool only supports text files.' };
+          }
+          file_content = buffer.toString('utf-8');
+        } catch (error) {
+          return handleError(error);
+        }
+
+        // ========== FIX: Detect original line ending style ==========
+        const hasCRLF_lo = file_content.includes('\r\n');
+        const linesArr = hasCRLF_lo ? file_content.split('\r\n') : file_content.split('\n');
+        let changes_made = 0;
+
+        // Declare insertLines here so it's accessible in the response data after the switch block
+        const insertLines: string[] = [];
+
+
+        switch (operation) {
+          case 'insert':
+            if (!content && content !== '') {
+              return { success: false, error: 'Insert operation requires "content" parameter' };
+            }
+            
+            // SAFETY: Determine actual insertion line using pattern matching or target_line
+            let insert_line: number | undefined = target_line;
+            const hasPatternContext = insert_after_pattern || insert_before_pattern;
+            
+            if (hasPatternContext) {
+              // Find line by content pattern instead of trusting user-provided number
+              const afterPattern = insert_after_pattern;
+              const beforePattern = insert_before_pattern;
+              
+              let foundLineIndex = -1;
+              
+              if (afterPattern) {
+                foundLineIndex = linesArr.findIndex(line => line.includes(afterPattern));
+                if (foundLineIndex !== -1) {
+                  insert_line = foundLineIndex + 2; // Insert AFTER this line (+1 for 0-index, +1 to be after)
+                }
+              } else if (beforePattern) {
+                foundLineIndex = linesArr.findIndex(line => line.includes(beforePattern));
+                if (foundLineIndex !== -1) {
+                  insert_line = foundLineIndex + 1; // Insert BEFORE this line (+1 for 0-index)
+                }
+              }
+              
+              if (insert_line === undefined || insert_line < 1) {
+                return { success: false, error: `Pattern matching failed — could not find line containing "${afterPattern || beforePattern}". File may have changed or pattern is incorrect.` };
+              }
+            } else if (!target_line) {
+              // No pattern context and no target_line → append to end
+              insert_line = linesArr.length + 1;
+            }
+            
+            // Type guard: ensure insert_line is definitely a number before proceeding
+            if (insert_line === undefined) {
+              return { success: false, error: 'Could not determine insertion line. Please provide target_line or use insert_after_pattern/insert_before_pattern.' };
+            }
+            
+            // Validate target_line against file length
+            if (insert_line < 1 || insert_line > linesArr.length + 1) {
+              return { success: false, error: `target_line ${insert_line} is out of bounds (valid range: 1-${linesArr.length + 1}). File may have changed — re-read with read_file and retry.` };
+            }
+            
+            // SAFETY: Verify content at target_line if verify_before_insert is provided
+            const expectedContent = verify_before_insert;
+            if (expectedContent) {
+              const actualLine = linesArr[insert_line - 1];
+              if (!actualLine || !actualLine.includes(expectedContent)) {
+                // Content mismatch — show what's actually there to prevent drift errors
+                const previewStart = Math.max(0, insert_line - 3);
+                const previewEnd = Math.min(linesArr.length, insert_line + 2);
+                const contextLines = linesArr.slice(previewStart, previewEnd)
+                  .map((l, i) => `  Line ${previewStart + i + 1}: ${l}`)
+                  .join('\n');
+                
+                return { success: false, error: 
+                  `VERIFICATION FAILED: Expected "${expectedContent}" at line ${insert_line} but found different content.\n\n` +
+                  `Context around target line:\n${contextLines}\n\n` +
+                  `File may have changed since you read it. Re-read with read_file and retry.`
+                };
+              }
+            }
+            
+            // Populate the pre-declared array
+            for (const line of (content || '').split(/\r?\n/)) {
+              insertLines.push(line);
+            }
+            
+            // FIX: Check BEFORE splice to prevent in-memory corruption
+            if (insertLines.length > 5) {
+              return { success: false, error: `Inserting ${insertLines.length} lines is discouraged. Use "replace_text_in_file" for multi-line operations to avoid line-number drift issues.` };
+            }
+            
+            linesArr.splice(insert_line - 1, 0, ...insertLines);
+            changes_made = insertLines.length;
+            
+            // 23.09 DRIFT-FIX (CRLF false-positive): removed the phantom "auto-drift" length check — it compared the NEW file
+            // length against `insert_line + insertLines.length - 1`, a formula that ignores the ORIGINAL line count, so it could
+            // only pass for end-of-file appends and rejected EVERY mid-file insert with a bogus drift error (observed
+            // systematically on CRLF locale files in the 23.09 session). The real drift guards remain: verify_before_insert
+            // above + POST-WRITE read-back verification below (line count + MD5 of written content).
+            // `break` also closes this case — without it every surviving insert fell through into 'delete' and returned that
+            // tool's validation error (second systematic false failure, same incident class).
+            break;
+
+          case 'delete':
+            if (!target_line && !lines) {
+              return { success: false, error: 'Delete operation requires either "target_line" or "lines.range" parameter' };
+            }
+
+            
+            let deleteStart = target_line ?? (lines?.start ?? 0);
+             
+            // FIX: When lines.start is provided without lines.end, default to single-line delete
+            // (not end-of-file). This prevents accidental mass deletion when LLM forgets lines.end.
+            let deleteEnd = lines?.end ?? (lines?.start ?? target_line ?? linesArr.length);
+
+            // Validate range
+            if (deleteStart < 1 || deleteEnd > linesArr.length || deleteStart > deleteEnd) {
+              return { success: false, error: `Line range ${deleteStart}-${deleteEnd} out of bounds (1-${linesArr.length})` };
+            }
+
+            // Delete from end to start to preserve indices during splicing
+            for (let i = deleteEnd - 1; i >= deleteStart - 1; i--) {
+              linesArr.splice(i, 1);
+            }
+            changes_made = deleteEnd - deleteStart + 1;
+            break;
+
+          case 'move':
+            if (!move_from || !move_to) {
+              return { success: false, error: 'Move operation requires "move_from" and "move_to" parameters' };
+            }
+            if (move_from < 1 || move_from > linesArr.length || move_to < 1 || move_to > linesArr.length) {
+              return { success: false, error: `Line numbers out of range (1-${linesArr.length})` };
+            }
+            const moved_line = linesArr.splice(move_from - 1, 1)[0];
+            // Adjust target if moving within same direction
+            let adjusted_to = move_to;
+            if (move_from < move_to) {
+              adjusted_to--;
+            }
+            linesArr.splice(adjusted_to - 1, 0, moved_line);
+            changes_made = 1;
+            break;
+
+          default:
+            return { success: false, error: `Unknown operation: ${String(operation)}` };
+        }
+
+        // ========== P1 FIX: Create Backup if requested (Bug #5) ==========
+        let backupPath: string | null = null;
+        if (backup) {
+          backupPath = fullPath + '.bak';
+          try {
+            await fs.copyFile(fullPath, backupPath);
+          } catch (e) {
+            return { success: false, error: `Failed to create backup at ${backupPath}: ${e instanceof Error ? e.message : String(e)}` };
+          }
+        }
+
+        // ========== P1 FIX: Atomic Write (Bug #4) ==========
+        let expectedContentHash: string;
+        try {
+          const finalContent = hasCRLF_lo ? linesArr.join('\r\n') : linesArr.join('\n');
+          expectedContentHash = createHash('md5').update(finalContent).digest('hex');
+          await atomicWriteFile(fullPath, finalContent); // Q6 (23.09): module's shared atomic writer (was writeFileAtomic in textProcessingTools)
+        } catch (error) {
+          return handleError(error);
+        }
+
+        // ========== Post-write verification (drift detection read-back, v2) ==========
+        const expectedLineCount = linesArr.length;
+        try {
+          const postWriteBuffer = await fs.readFile(fullPath); // Q6 (23.09): inlined read — file was just written by this tool, no size/binary gate needed
+          const postWriteContent = postWriteBuffer.toString('utf-8');
+          // FIX: Use actual CRLF escape sequence, not literal backslash-r-backslash-n
+          const postHasCRLF = postWriteContent.includes('\r\n');
+          const postWriteLines = postHasCRLF ? postWriteContent.split('\r\n') : postWriteContent.split('\n');
+
+          if (postWriteLines.length !== expectedLineCount) {
+            return { 
+              success: false, 
+              error: `POST-WRITE VERIFICATION FAILED: Expected ${expectedLineCount} lines but file contains ${postWriteLines.length}. File may have been modified externally or write corrupted. Restore from backup if available.` 
+            };
+          }
+          // ========== Fix #1 (continued): Hash-based content integrity verification ==========
+          const actualContentHash = createHash('md5').update(postWriteContent).digest('hex');
+          if (actualContentHash !== expectedContentHash) {
+            return { 
+              success: false, 
+              error: `POST-WRITE CONTENT INTEGRITY FAILED: File content hash mismatch. Expected ${expectedContentHash} but got ${actualContentHash}. File may have been modified externally or write corrupted. Restore from backup if available.` 
+            };
+          }
+        } catch (readError) {
+          return { 
+            success: false, 
+            error: `Post-write verification failed - could not re-read file for integrity check: ${readError instanceof Error ? readError.message : String(readError)}. File may be corrupted.` 
+          };
+        }
+
+
+
+        // Track consecutive modifications for drift warning
+        const modTracking = recordFileModification(fullPath, `line_operations_${operation}`);
+
+        // Announce .bak backup availability for LLM awareness during corruption recovery
+        let backupAnnouncement: string | undefined;
+        if (backupPath) {
+          const bakFilename = fullPath.split(/[/\\]/).pop() || fullPath;
+          backupAnnouncement = `📋 BACKUP AVAILABLE: A .bak file was created at '${bakFilename}.bak'. If you need to undo this change, use the 'restore_from_bak' tool with file_name='${bakFilename}'`;
+        }
+
+        const responseData: { 
+          operations_performed: string;
+          changes_applied: number;
+          total_lines_before: number;
+          total_lines_after: number;
+          lines_inserted?: number;
+          lines_deleted?: number;
+          backup_created: string | null;
+          message: string;
+          backup_message?: string;
+        } = { 
+          operations_performed: operation,
+          changes_applied: changes_made,
+          total_lines_before: file_content.split(hasCRLF_lo ? '\r\n' : '\n').length,
+          total_lines_after: linesArr.length,
+          ...(operation === 'insert' && insertLines !== undefined && { lines_inserted: insertLines.length }),
+          ...(operation === 'delete' && { lines_deleted: changes_made }),
+          backup_created: backupPath,
+          message: `${operation.charAt(0).toUpperCase() + operation.slice(1)} operation completed successfully`
+        };
+
+        // Include guidance in data if tracking detected repeated operations
+        const response = { 
+          success: true, 
+          data: { ...responseData, ...(modTracking.guidance && { guidance: modTracking.guidance }), ...(backupAnnouncement && { backup_message: backupAnnouncement }) }
+        };
+        return response;
+      } catch (error) {
+        return handleError(error);
+      }
+    },
+  }));
 
   // make_directory tool — ASYNC mkdir
   tools.push(tool({
@@ -2358,7 +2776,7 @@ Pattern handling: mode "regex" compiles via Rust regex first; if compilation fai
     name: 'pattern_scan',
     description: `Recursively search file contents under a directory (or within a single file) for a pattern, returning matching lines as {file, line, content}.
 
-Positioning vs ripgrep: pattern_scan is the bounded JS engine — fails fast on unsafe or syntactically invalid regexes by auto-demoting to literal mode (reported via demotedToLiteral), fully async with bounded concurrency, hard per-file and total match caps (stats.truncated when hit), explicit skipped[] reporting for oversized/line-capped/binary files and over-long lines excluded from matching deterministically (maxEvalLineLength), deterministic ordering (file, then line); use ripgrep for unbounded native full-coverage scans.
+Positioning vs ripgrep: pattern_scan is the bounded JS engine — fails fast on unsafe or syntactically invalid regexes by auto-demoting to literal mode (reported via demotedToLiteral), fully async with bounded concurrency, hard per-file and total match caps (stats.truncated when hit), explicit skipped[] reporting for oversized/line-capped/binary files and over-long lines excluded from matching deterministically (maxEvalLineLength), deterministic ordering (file, then line); a 3 s wall-clock cap aborts the scan cooperatively — results beyond the cutoff are PARTIAL and flagged aborted:true; use ripgrep for unbounded native full-coverage scans.
 Directories node_modules/.git/dist/build/out/.next/.nuxt/__pycache__/.venv/coverage are always pruned. Relative roots resolve against the current working directory.`,
     parameters: {
       pattern: z.string().min(1).describe('Non-empty search pattern (regex by default; use mode "literal" for plain text)'),
@@ -2426,9 +2844,9 @@ Directories node_modules/.git/dist/build/out/.next/.nuxt/__pycache__/.venv/cover
             skipped: result.skipped,
             excluded_dirs: result.excludedDirs,
             stats: result.stats,
-            // DE-STRAngle (16.09): `aborted` can now only mean a HOST signal (user cancel / host timeout) — no wall clock exists.
+            // RE-ARM 24.09: `aborted` means the 3 s PATTERN_SCAN_MAX_RUN_MS deadline OR a HOST signal (user cancel / host timeout) fired mid-scan.
             ...(result.aborted
-              ? { aborted: true, hint: 'Scan aborted by host signal (user cancel or host timeout) before completion — results are PARTIAL; re-run with the same scope for full coverage.' }
+              ? { aborted: true, hint: 'Scan aborted mid-run — wall-clock cap (3 s) reached or host signal fired (user cancel / host timeout). Results are PARTIAL; re-run with a narrower scope (root/maxDepth/includeGlobs) to cover the remainder.' }
               : {}),
             ...(result.demotedToLiteral ? { demoted_to_literal: result.demotedToLiteral } : {}),
           },

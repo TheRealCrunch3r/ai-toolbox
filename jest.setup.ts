@@ -75,18 +75,10 @@ jest.mock('../src/tools/refactorCodeTools.js', () => ({
 }));
 
 // ── Always-loaded tool modules ──
-jest.mock('../src/tools/lineOperations.js', () => ({
-  registerLineOperationsTools: jest.fn(() => []),
-}));
-
 jest.mock('../src/tools/backupTools.js', () => ({
   registerBackupTools: jest.fn(() => []),
 }));
 
 jest.mock('../src/tools/executionTools.js', () => ({
   registerExecutionTools: jest.fn(() => []),
-}));
-
-jest.mock('../src/tools/utilityTools.js', () => ({
-  registerUtilityTools: jest.fn(() => []),
 }));

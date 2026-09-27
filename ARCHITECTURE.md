@@ -141,7 +141,7 @@ createToolsProvider(config, stateManager, bgCommandManager)
             │   ├── Single for...of loop iterates all entries
             │   └── Config key gating + GOD MODE bypass
             │
-            ├── registerFileSystemTools()      ──► 23 tools (enabled by default, incl. pattern_scan)
+            ├── registerFileSystemTools()      ──► 24 tools (enabled by default, incl. pattern_scan + line_operations folded in 23.09, Q6)
             ├── registerWebResearchTools()     ──► 3 tools (enabled by default)
             ├── registerGitTools()             ──► 15 tools (disabled by default)
             ├── registerBrowserTools()         ──► 5 tools (disabled by default)
@@ -153,7 +153,7 @@ createToolsProvider(config, stateManager, bgCommandManager)
             ├── registerRagTools()             ──► 7 tools (enabled by default: rag_index_files/pdf/docx/xlsx, rag_query_vector, rag_clear_index, rag_web_content — since v1.9.2/v1.9.10)
             ├── registerUiGenerationTools()    ──► 3 tools (disabled by default)
             ├── registerContextManagementTools() ─► 12 tools (enabled by default)
-            ├── registerTextProcessingTools()  ──► 4 tools (enabled by default)
+            ├── registerTextProcessingTools()  ──► 3 tools (enabled by default; line_operations folded to fileSystemTools.ts 23.09, Q6)
             ├── registerRefactorCodeTools()    ──► 2 tools (enabled by default)
             ├── registerExecutionTools()       ──► 5 tools (mixed defaults)
             │
@@ -624,7 +624,7 @@ Heavy dependencies loaded on first use:
 The engine is a self-contained, worker-isolated ripgrep runner with ONE live consumer (its former second consumer — `pattern_scan`'s B' prefilter — was removed in FIX-34a 13.09):
 
 1. **Standalone `ripgrep` tool** (new 14.09 TOOL SWAP — owner directive: full replacement of the removed `grep_files`, AST mode included). The ENTIRE walk + match runs inside ONE worker-isolated rg process off the host thread; there is no JS fallback for this tool.
-~~**`pattern_scan` B' phase-1 prefilter** (unchanged since v1.9.15) — regex-mode directory scans first ask the engine which files *can* match, then run only those through the worker pipeline; any non-'ok' outcome falls back to the full-JS walk byte-for-byte with every cap and skip-record contract intact.~~ **REMOVED (FIX-34a 13.09)** — its rg-WASM search ran synchronously on the host thread (the 13.09 wedge class); `pattern_scan` is now a pure full-JS walk whose per-line regex eval runs INLINE on this thread, gated by `isSafeRegex` BEFORE any disk I/O (DE-STRAngle 16.09) with deterministic SIZE bounds (`maxFileSizeBytes`, `maxFileLines`, `maxEvalLineLength`) replacing wall caps; host abort-signal only — no engine call remains in that path.
+~~**`pattern_scan` B' phase-1 prefilter** (unchanged since v1.9.15) — regex-mode directory scans first ask the engine which files *can* match, then run only those through the worker pipeline; any non-'ok' outcome falls back to the full-JS walk byte-for-byte with every cap and skip-record contract intact.~~ **REMOVED (FIX-34a 13.09)** — its rg-WASM search ran synchronously on the host thread (the 13.09 wedge class); `pattern_scan` is now a pure full-JS walk whose per-line regex eval runs INLINE on this thread, gated by `isSafeRegex` BEFORE any disk I/O (DE-STRAngle 16.09) with deterministic SIZE bounds (`maxFileSizeBytes`, `maxFileLines`, `maxEvalLineLength`); the former wall cap was removed with it (host-signal-only) and RE-ARMED 24.09 per owner order ("abort after 3 seconds") — the scan now runs under ONE shared grep guard: `PATTERN_SCAN_MAX_RUN_MS = 3_000` wall deadline + host signal converging on one cooperative abort → PARTIAL results + `aborted: true` (see §5 watchdog note and CHANGELOG [24.09] RE-ARM entry). No engine call remains in that path.
 
 Design points (full contracts in the module header):
 
@@ -1097,7 +1097,7 @@ src/
 │   ├── zh-TW.ts                # Traditional Chinese
 │   └── i18n.ts                 # I18nManager (language switching + accessors)
 ├── tools/                      # Tool category modules (26 source files — audited 05.09 vs v1.9.15 rev 27: 22 live register fns; utilityTools.ts exports 2 more but neither is ever called [dead]; patternScan/fileModTracker/toolPriority = helper-only)
-│   ├── fileSystemTools.ts      # File system operations (23 tools — REGISTERED, incl. pattern_scan)
+│   ├── fileSystemTools.ts      # File system operations (24 tools — REGISTERED, incl. pattern_scan; + line_operations folded in 23.09, Q6)
 │   ├── patternScan.ts          # pattern_scan search engine (clean-room module, ReDoS-gated; tool registered in fileSystemTools.ts)
 │   ├── webResearchTools.ts     # Web research & search (3 tools — REGISTERED; rag_web_content served by vectorRagTools.ts since v1.9.10)
 │   ├── browserAutomationTools.ts # Browser automation (5 tools — REGISTERED)
@@ -1106,18 +1106,18 @@ src/
 │   ├── documentTools.ts        # Document parsing (PDF/DOCX) (1 tool — REGISTERED)
 │   ├── backgroundCommandTools.ts # Background process management (3 tools — REGISTERED)
 │   ├── executionTools.ts       # Code execution JS/Python/Terminal (5 tools — REGISTERED)
-│   ├── utilityTools.ts         # Utility tools (~25 tools — REGISTERED under 'utility' toggle)
+│   ├── # utilityTools.ts — REMOVED (flagged dead code in tool-consolidation-draft §7: unregistered registerUtilityTools aggregator + duplicate memory/session tools; its live functions now sit in the dedicated modules listed below, registered under the 'utility' toggle)
 │   ├── imageProcessingTools.ts # Image processing & OCR (4 tools — REGISTERED)
 │   ├── httpClientTools.ts      # HTTP client operations (3 tools — REGISTERED)
 │   ├── vectorRagTools.ts       # Vector RAG semantic search (7 tools — REGISTERED: rag_index_files, rag_index_pdf, rag_index_docx, rag_index_xlsx, rag_query_vector, rag_clear_index, rag_web_content)
-│   ├── textProcessingTools.ts  # Text transformation (4 tools — REGISTERED)
+│   ├── textProcessingTools.ts  # Text transformation (3 tools — REGISTERED; − line_operations folded to fileSystemTools.ts 23.09, Q6)
 │   ├── uiGenerationTools.ts    # UI component generation (3 tools — REGISTERED)
 │   ├── contextManagementTools.ts # Context management & tracking (12 tools — REGISTERED)
 │   ├── refactorCodeTools.ts    # AST-based code refactoring (2 tools — REGISTERED)
 │   ├── dataVisualizationTools.ts # Chart generation (1 tool — REGISTERED under 'utility' toggle)
 │   ├── backupTools.ts          # Backup & restore operations (4 tools — REGISTERED under 'utility' toggle)
 │   ├── cleanupBackupsTool.ts   # Cleanup backups utility (1 tool — REGISTERED under 'utility' toggle)
-│   ├── lineOperations.ts       # Line-level text operations (1 tool — REGISTERED under 'utility' toggle)
+│   ├── # lineOperations.ts — REMOVED 23.09 (NEXT-REV: deprecated `delete_lines` alias stub, registered under the `utility` key since Q5=A; module + registration deleted, see docs/tool-consolidation-draft.md §9a)
 │   ├── taskPlanningTools.ts    # Task planning & execution tracking (3 tools — REGISTERED)
 │   ├── markdownPreviewTools.ts # Markdown preview generation (1 tool — REGISTERED under 'utility' toggle)
 │   ├── fileModTracker.ts       # File modification tracker (REGISTERED)
@@ -1129,7 +1129,7 @@ src/
 │   ├── browserActions.ts       # ⚠️ lives in src/ — browser action execution & validation
 │   ├── findLMStudioHome.ts     # ⚠️ lives in src/ — LM Studio home directory detection
 │   ├── lmStudioApi.ts          # ⚠️ lives in src/ — LM Studio REST API integration layer
-│   └── tokenStatsManager.ts    # ⚠️ lives in src/ — token statistics tracking (manager, not a tool)
+│   └── tokenStatsManager.ts    # ⚠️ lives in src/ — token statistics tracking (manager, not a tool); C family 24.09: active-turn tracking + bounded drain (`drainActiveToolTurns`, poll 250 ms / cap 15 s)
 └── types/                      # Type definitions
     ├── dom-augment.d.ts        # DOM type augmentations for browser automation
     ├── node-notifier.d.ts      # Node.js notifier type declarations
@@ -1140,7 +1140,7 @@ tests/                          # Jest test suite (45 suites / 745 tests, verifi
 ├── security.edge-cases.test.ts # Security boundary & edge case testing
 ├── config.test.ts              # Zod schema + UI schematics validation
 ├── stateManager.test.ts        # Persistence, path resolution, atomic writes
-├── fileSystemTools.test.ts     # File system operation tests (23 tools, incl. pattern_scan)
+├── fileSystemTools.test.ts     # File system operation tests (module now 24 tools after line_operations fold 23.09 Q6; incl. pattern_scan — the folded tool has no dedicated suite yet)
 ├── webResearchTools.test.ts    # Multi-engine search & fetch tests
 ├── browserAutomationTools.test.ts # Puppeteer session management tests
 ├── gitGithubTools.test.ts      # Git local ops + GitHub API tests
@@ -1210,7 +1210,7 @@ All tool categories are now fully registered in `toolsProvider.ts` using the dec
 
 | Category | File(s) | Tool Count | Registered? | Default State |
 |----------|---------|------------|-------------|---------------|
-| File System | fileSystemTools.ts (+ patternScan.ts engine) | 23 | ✅ Yes | Enabled |
+| File System | fileSystemTools.ts (+ patternScan.ts engine; + line_operations folded in from textProcessingTools.ts, 23.09 Q6) | 24 | ✅ Yes | Enabled |
 | Web Research | webResearchTools.ts | 3 | ✅ Yes | Enabled (rag_web_content under Vector RAG since v1.9.10) |
 | Browser Automation | browserAutomationTools.ts | 5 | ✅ Yes | Disabled |
 | Git & GitHub | gitGithubTools.ts | 15 | ✅ Yes | Disabled |
@@ -1222,12 +1222,11 @@ All tool categories are now fully registered in `toolsProvider.ts` using the dec
 | Vector RAG | vectorRagTools.ts | 7 | ✅ Yes | Enabled |
 | UI Generation | uiGenerationTools.ts | 3 | ✅ Yes | Disabled |
 | Context Management | contextManagementTools.ts | 20 (was "12" — audited 05.09 against code) | ✅ Yes | Enabled |
-| Text Processing | textProcessingTools.ts | 4 | ✅ Yes | Enabled |
+| Text Processing | textProcessingTools.ts (− line_operations folded to fileSystemTools.ts, 23.09 Q6) | 3 | ✅ Yes | Enabled |
 | AST Refactoring | refactorCodeTools.ts | 1 (was "2" — `unusedImports` is a recode-engine rule object, not a registered tool; audited 05.09) | ✅ Yes | Enabled |
 | Execution | executionTools.ts | 5 | ✅ Yes | Mixed (JS/Python: enabled, Terminal/Shell: disabled) |
 | Backup Operations | backupTools.ts + cleanupBackupsTool.ts (typo ".js" fixed 05.09) | 5 | ✅ Yes | Utility toggle |
 | Data Visualization | dataVisualizationTools.ts | 1 | ✅ Yes | Utility toggle |
-| Line Operations | lineOperations.ts | 1 | ✅ Yes | Utility toggle |
 | Markdown Preview | markdownPreviewTools.ts | 1 | ✅ Yes | Utility toggle |
 | Task Planning | taskPlanningTools.ts | 3 | ✅ Yes | Enabled (default) |
 | **Total Registered** | | **Code-defined total: **130** live tool definitions across the 22 registered modules (re-audited 15.09 against current code, post ripgrep TOOL SWAP: File System 23 with −1 removed `grep_files` + 1 added standalone `ripgrep`; exposed set is toggle-dependent — GOD MODE max ≈ 129 (`read_document` deduped))** · legacy locale figure: 129 entries / 127 distinct names in `src/locales/en.ts` (see drift note below) | | |
@@ -1475,7 +1474,7 @@ function createSemanticNode(id: string, data: unknown, label?: string): ContextN
 export type PriorityTier = 'critical' | 'high' | 'standard' | 'optional' | 'background';
 
 const PRIORITY_TIER_VALUES: Record<PriorityTier, number> = {
-  critical: 1,      // File system tools (23 tools — core workflow)
+  critical: 1,      // File system tools (module now 24 after 23.09 Q6 fold; line_operations deliberately kept 'standard' — owner flag)
   high: 2,          // Web research, execution, git operations (30+ tools — essential workflows)
   standard: 3,      // Browser automation, image processing, RAG, HTTP client (25+ tools — useful but not essential)
   optional: 4,      // Context management tools (12 tools — specialized or low-usage)
@@ -1580,6 +1579,10 @@ promptPreprocessor() → detectProjectKeywords(message)
 ### Utility Modules (`src/utils/`)
 - `hubExclusionClustering.ts` — Hub-Exclusion Clustering algorithm (Louvain community detection, hub identification, majority-vote reattachment)
 - 🗑️ `simulation.ts` was removed 01.09.2026 (self-executing dev script; Tier-1 dead code — its clustering assertions live on in the still-live `tests/hubExclusionClustering.test.ts`)
+- `toolPayloadCompaction.ts` — C compaction family policy, NEW 24.09 (PURE: no fs/SDK/globals): pre-summarization prune of oversized role-`tool` payloads (>16384 UTF-8 bytes strict) into a head-2048 + tail-512 preview under the `[ai_toolbox compaction]` marker, opaque locator `compaction://<sha256hex>` as retrieval hint; digest-pairing fail-loud skip (never mints fake digests); in-place prune with byte-savings accounting. Full contract: docs/tool-consolidation-draft.md §9c.
+- `toolPayloadStorage.ts` — C compaction family storage backend, NEW 24.09: verbatim `<cwd>/.ai_toolbox/compaction/<sha256>.payload`, `0o600` `'wx'` exclusive create + symlink refusal on every path segment, EEXIST → byte-compare idempotent reuse (mismatched bytes throw); store-before-prune default ON in `promptPreprocessor.ts` — any store failure aborts that turn's prune.
+- `ToolExecutionPipeline.ts` — Tool Execution Pipeline Hygiene (DeepSeek-harness item D), NEW 25.09 (PURE: no fs/SDK/globals): outcome taxonomy success/error/deny/abstain, monotonic guard (deep-stable sorted-key canonical args key; identical call within a turn → abstain), legacy {success,data,error} shape normalization, finalizeContent invariant with FAIL-LOUD empty-content warn + constructor fail-loud on non-function defaultFinalizer. Full contract: section below.
+- `withPipeline.ts` — process-level pipeline wiring, NEW 25.09: lazily-created shared pipeline singleton (getPipeline()); exports withPipeline(), registerToolFinalizer(toolName, fn), resetToolGuard(). Current production consumer: toolsProvider.ts calls resetToolGuard() on EVERY provider invocation (per-turn guard semantics); per-tool adoption via withPipeline() is incremental — no tool implementation wrapped yet as of 25.09.
 
 ### Updated Module Dependencies (v1.9.8)
 ```typescript
@@ -1599,6 +1602,40 @@ hubExclusionClustering.ts → analysis utility (analyzeAiToolboxDependencies() p
 ---
 ---
 
+## 🧯 Tool Execution Pipeline Hygiene (`src/utils/`) — NEW 25.09 (DeepSeek-harness research item D)
+
+**Unified tool-execution hygiene: one pipeline enforcing the outcome taxonomy and the finalizeContent invariant, replacing ad-hoc per-tool error handling (research status A–E verified 25.09: C done 24.09, E pervasive; D is this section).**
+
+### Outcome Taxonomy & Invariants
+- Every execution settles into exactly ONE kind — `success | error | deny | abstain` (`ToolOutcome = ToolSuccess | ToolError | ToolDeny | ToolAbstain`).
+- **finalizeContent invariant** — tool-owned content is always finalized (per-tool registered finalizer > pipeline default) before surfacing; a `success` that finalizes to empty content raises a FAIL-LOUD `[ToolExecutionPipeline]` console.warn (non-blocking by design).
+- **FAIL-LOUD at load** — the constructor throws if `defaultFinalizer` is not a function.
+
+### `ToolExecutionPipeline.ts` (PURE — no fs/SDK/globals)
+```typescript
+execute(toolName, args, impl, finalizer?) → { success, data?, error?, kind }
+  ├── monotonic guard: canonical key = tool name + deep-stable sorted-key JSON of args;
+  │   identical call already seen this turn → kind "abstain" (no re-execution)
+  ├── legacy { success, data/error } return shapes normalized into the taxonomy
+  │   (error text rendered by describeError() — see below)
+  └── unhandled impl exceptions caught → kind "error" + code "UNHANDLED_EXCEPTION"
+registerFinalizer(toolName, fn) // per-tool finalizeContent hook
+resetGuard()                    // clears the monotonic seen-set (per-turn reset seam)
+// module-level helpers: deny(reason), abstain(reason)
+```
+- **`describeError()`** (25.09 lint close): safe rendering of unknown error values — string passthrough / `Error → "name: message"` / `JSON.stringify` (circular-safe fallback) / 'Unknown error'. Never relies on Object default stringification (`[object Object]` would mask real tool errors; the prior String(err ?? …) form also tripped `@typescript-eslint/no-base-to-string`).
+
+### `withPipeline.ts` (process-level wiring)
+- Lazily-created shared pipeline singleton (`getPipeline()`); exports `withPipeline()`, `registerToolFinalizer(toolName, fn)`, `resetToolGuard()`.
+- **Current production wiring (25.09):** `toolsProvider.ts` calls `resetToolGuard()` on EVERY provider invocation — the monotonic seen-set is per-turn by construction (turn = one toolsProvider call; test suites get isolation for free).
+- **Adoption status:** the pipeline is registered, unit-tested and ready; per-tool adoption via `withPipeline()` is incremental — as of 25.09 no tool implementation is wrapped yet (behavior-neutral until wired).
+- **Jest note (RC#4 class):** the static import './utils/withPipeline.js' in `toolsProvider.ts` requires a per-file `moduleNameMapper` entry in `jest.config.cjs` (PIPELINE-D, 25.09) — same convention as every other `.js`-suffixed relative import; generic rules remain banned (G9 round-2).
+
+### Verification (owner-run gates, 25.09)
+- Full jest: **836 passed / 51 suites** (baseline was 824/50 pre-D — the new dedicated suite under `tests/utils/` accounts for the +1 suite).
+- ESLint on both pipeline files: clean (0 problems) — including the `describeError()` close of `@typescript-eslint/no-base-to-string`.
+
+---
 ## 🛡️ Crash-Resilient Atomic Writes (v1.9.8+)
 
 **All file-modifying tools now use the shared `atomicWrite` utility (`src/utils/atomicWrite.ts`) for crash-resilient, async file operations.**
@@ -1710,7 +1747,7 @@ All previously synchronous file-write tools converted to async with shared `atom
 
 | Module | Tools Affected | Write Pattern | Rollback? |
 |--------|---------------|---------------|-----------|
-| `lineOperations.ts` | delete_lines, line_operations | async → atomicWrite | No |
+| `lineOperations.ts` — REMOVED 23.09 NEXT-REV | delete_lines [deleted]; line_operations already lived in textProcessingTools.ts per v1.8.9 changelog (prior attribution here was incorrect) | async → atomicWrite | No |
 | `refactorCodeTools.ts` | rename_identifier, move_function, extract_function, unused_import_cleanup | async → atomicWrite + .bak backup | ✅ Yes |
 | `utilityTools.ts` | ~25 tools (backup, chart, etc.) | All async → atomicWrite | No |
 | `dataVisualizationTools.ts` | generate_chart | async → atomicWriteBinaryFile | No |

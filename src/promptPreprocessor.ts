@@ -11,7 +11,10 @@ import pdfParse from 'pdf-parse';
 import type { ContextGuard } from './contextGuard';
 import { setAttachments, listAttachments } from './attachmentManager';
 import { autoTracker } from './autoTracker';
-import { TokenStatsManager } from './tokenStatsManager';
+import { TokenStatsManager, drainActiveToolTurns } from './tokenStatsManager';
+// C compaction family (24.09): pre-summarization pruning of oversized tool payloads (DeepSeek harness item C)
+import { DEFAULT_MAX_BYTES_PER_RESULT, pruneOversizedToolPayloads } from './utils/toolPayloadCompaction.js';
+import { collectPrunedPayloadRefs, storePrunedPayload } from './utils/toolPayloadStorage.js';
 import { getToolOverheadChars } from './toolOverhead.js';
 import { getWorkingDir, setWorkingDir, listRegisteredProjects } from './workingDir.js';
 
@@ -636,6 +639,18 @@ export async function preprocess(
   console.log(`✅ [Preprocessor] Called. Message length: ${userPrompt.length}`);
   if (!contextGuard) { console.warn('[ContextGuard] contextGuard is NULL!'); }
 
+  // 🔹 C compaction family (24.09) SERIALIZATION GUARD: a new user message can arrive while the previous
+  // turn's agentic tool loop is still executing in this process. Drain with a BOUNDED wait before any
+  // turn-level state mutation below — otherwise in-flight results would be recorded against an already-
+  // cleared baseline (resetMidLoopDelta) and auto-compression could replace history under live tools
+  // (DeepSeek harness item C: "serialize user-triggered operations against active loops"). Bounded by
+  // design: on timeout the drain logs FAIL-LOUD and proceeds; a user message must never deadlock.
+  try {
+    await drainActiveToolTurns();
+  } catch (drainErr) {
+    console.warn('[C-compact] Drain of active tool turn failed (non-fatal, proceeding):', drainErr);
+  }
+
   // 🔹 FIX #20 (A1): reset the per-turn tool-payload delta. By the time this runs, last turn's tool
   // results are part of pullHistory() and get counted natively below — keeping them in the delta
   // would double-count them on the next mid-loop guard evaluation.
@@ -827,6 +842,48 @@ export async function preprocess(
 
       if (tokenCount > threshold) {
         console.log(`[ContextGuard] Token count ${tokenCount} exceeds compression threshold ${threshold}, compressing...`);
+
+        // 🔹 C compaction family (24.09) STEP 3 — PRE-SUMMARIZATION PRUNING: prune oversized tool payloads
+        // from the message array BEFORE any summarization work starts. Why before, not after: (a)
+        // compressHistory() ships every pre-keepLast message verbatim to the summary model — one giant
+        // read_file/web_fetch payload can push THAT prompt past the summary model's own context window and
+        // force the documented fallback path ("Original content unavailable") that loses all detail; (b)
+        // keepLast messages survive verbatim in the rebuilt history, so an unpruned giant result would sit
+        // in live context forever and re-fire this threshold almost immediately. Nothing is lost: every
+        // pruned payload is stored verbatim under its SHA-256 digest in .ai_toolbox/compaction/, and the
+        // preview embeds a retrieval hint + opaque locator (C step 2). STORE-BEFORE-PRUNE ordering: if any
+        // store fails, pruning for this turn is skipped entirely — history keeps full payloads exactly as
+        // it does today (safe degradation; orphaned already-stored files are idempotency-safe).
+        if (pluginConfig.get('compactionEnabled') !== false) { // default ON; explicit false opts out entirely
+          try {
+            const cfgMaxBytes = pluginConfig.get('compactionMaxResultBytes');
+            const maxBytes = typeof cfgMaxBytes === 'number' && Number.isFinite(cfgMaxBytes) && cfgMaxBytes > 0
+              ? Math.floor(cfgMaxBytes)
+              : DEFAULT_MAX_BYTES_PER_RESULT;
+            const refs = collectPrunedPayloadRefs(safeMessages, maxBytes);
+            if (refs.length > 0) {
+              for (const ref of refs) {
+                // Exclusive 'wx' create + 0o600: never overwrites, refuses symlink targets at the path.
+                await storePrunedPayload(getWorkingDir(), ref);
+              }
+              const pruneOutcome = pruneOversizedToolPayloads(
+                safeMessages,
+                { maxBytesPerResult: maxBytes, digests: refs.map((r) => r.digestHex) },
+              );
+              if (pruneOutcome.prunedCount > 0) {
+                console.log(
+                  `[C-compact] Pruned ${pruneOutcome.prunedCount} oversized tool payload(s) before summarization — ` +
+                  `~${(pruneOutcome.bytesSaved / 1024).toFixed(1)} KiB out of context; verbatim copies in .ai_toolbox/compaction/`,
+                );
+              } else {
+                console.warn(`[C-compact] FAIL-LOUD: ${refs.length} payload(s) collected but NONE pruned (skipped=${pruneOutcome.skippedCount}) — history kept verbatim this turn`);
+              }
+            }
+          } catch (cErr) {
+            // Any store failure aborts pruning for THIS TURN (the prune pass only runs after the full store loop).
+            console.error(`[C-compact] Prune-before-summarization aborted (non-fatal — compressing with verbatim history):`, cErr);
+          }
+        }
 
         // 🔹 PART B — PRE-COMPRESSION CHECKPOINT (awaited BEFORE history is destroyed). Non-fatal by design:
         // any failure only logs; compression must still run (parity with the Part A / YES-reply save paths).

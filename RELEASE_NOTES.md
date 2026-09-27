@@ -1,3 +1,38 @@
+### [25.09.2026] — v1.9.18 rev 33: LOOP HYGIENE B Repeat Tool Reminder implemented
+
+**Research item B complete.** Loop-hygiene guard counts identical tool+args calls and nudges at thresholds [3,5,8].
+
+- `src/utils/repeatToolReminder.ts` – canonical key, per-turn counter, advisory messages
+- `src/tools/repeatToolReminderTools.ts` – new utility tool `get_repeat_tool_advice` for read-only visibility
+- Integration in `toolsProvider.ts` with console.warn nudges, executedTool transparency preserved
+- Tests green: 52 suites / 840 tests
+
+### [24.09.2026] — v1.9.18 rev 3x: pattern_scan wall cap RE-ARMED (`PATTERN_SCAN_MAX_RUN_MS = 3_000`, owner order "abort after 3 seconds")
+
+### [24.09.2026] — v1.9.18 rev 3x: pattern_scan wall cap RE-ARMED (`PATTERN_SCAN_MAX_RUN_MS = 3_000`, owner order "abort after 3 seconds")
+
+**The >60 s zero-payload scan class is closed.** After the DE-STRAngle arc removed the budget (host-signal-only), a >60-second `pattern_scan` on slow FS returned nothing — an unbounded walk over slow I/O proved worse than bounded partials. Owner order of the day re-armed it: pattern_scan now runs under ONE shared grep guard with TWO abort sources — the **3-second wall deadline** and any **host signal** (user cancel / host timeout) — converging on one cooperative `guard.signal`, checked at every file boundary. A fired deadline returns a successful PARTIAL result (`aborted: true` + exactly one cap warn), never a hang or throw; `disarm()` in finally releases the timer AND the listener on EVERY completion path, so no stray warn can fire after settle (FIX-HANG-3 class).
+
+- **What changed:** `src/utils/grepGuard.ts` — history note on `PATTERN_SCAN_MAX_RUN_MS = 3_000` documents the full arc (set by user order 04.09 at 500 → raised to 3000 on 13.09 → removed/host-signal-only by DE-STRAngle 16.09 → re-armed 24.09 per owner order) + the `GREP_FILES_MAX_RUN_MS` doc cross-reference fixed (was "REMOVED … — see note above"). `src/tools/patternScan.ts` — guard creation arms both sources: `createGrepGuard(options.abortSignal, PATTERN_SCAN_MAX_RUN_MS, 'pattern_scan')` (previously signal-only / `deadlineMs=0`); module header + `aborted?` result-type comments updated; the tool description carries the wall-clock hint again.
+- **What did NOT change:** the deterministic SIZE bounds are KEPT alongside the cap (`maxFileSizeBytes` / `maxFileLines` / `maxEvalLineLength` → size / line-cap / long-line skips — bounded input plus bounded time); ripgrep's engine watchdog (`GREP_FILES_MAX_RUN_MS = 3000`, ripgrep-engine path only) and find_replace_all's 15 s budget untouched; registration surface unchanged (still one tool, no new params).
+- **Tests:** `tests/patternScanHangBackstop.test.ts` rewritten for the two-source contract — leg A fires the deadline DETERMINISTICALLY via jest fake timers at exactly `PATTERN_SCAN_MAX_RUN_MS + 100` ms (`aborted=true`, genuine partial survivors, cap warn fired EXACTLY once; immune to host I/O speed); regime-tolerant fast-scan leg (complete-vs-partial by host speed, shape-consistent in both); mid-scan HOST-signal abort leg updated ("one of two abort sources"); pre-aborted host-signal contract unchanged. The old fake-clock no-cap pin was replaced — it asserted the retired signal-only regime.
+- **Verified:** code + tests on disk (edits 24.09 ~17:3x–17:4x); state re-verified by full read this shift; analyzer ESLint clean, tsc integration inert in this environment per house precedent. **OWNER GATE PENDING:** fresh `npx jest` (expected baseline UNCHANGED at **824 passed / 50 suites** — the RE-ARM replaced pins, did not add/remove tests) + `tsc --noEmit` + build; the ~18:35 C-compaction close predates/borders this code state.
+- **Versioning:** no bump — v1.9.18 sticky (revision churn only via Hub publish); folds into the next **rev-3x** release pile alongside C compaction + `delete_lines` NEXT-REV removals; commit pending owner design (suggested msg: `feat(search): re-arm pattern_scan 3 s wall cap per owner order 24.09 (DE-STRAngle reversal, size bounds kept)`).
+
+---
+
+### [24.09.2026] — v1.9.18 rev 3x: C compaction family — oversized tool payloads pruned BEFORE summarization (folds into next release)
+
+**One giant `read_file` no longer can eat the summarizer's context.** The C compaction family (24.09, DeepSeek-harness item C) prunes oversized role-`tool` payloads from chat history BEFORE ContextGuard summarization: a single >16 KiB tool result previously dominated the summarization prompt — pushing it toward/over the summary model's own window and into the documented "Original content unavailable" fallback that loses all detail — and then survived verbatim in `keepLast`, re-firing the compression threshold almost immediately. Now such payloads are replaced with a compact preview plus an opaque locator, while the full result is stored verbatim on disk (`<cwd>/.ai_toolbox/compaction/<sha256>.payload`) behind it — retrievable by the file-reading tools, nothing lost.
+
+- **Policy (`src/utils/toolPayloadCompaction.ts`, pure):** role-tool-only texts (string / text-object / content-block shapes — exactly what ContextGuard ships to the summarizer); prune threshold 16384 UTF-8 bytes strict-greater; preview head 2048 + tail 512 chars under the `[ai_toolbox compaction]` marker (also the idempotency guard — already-pruned text is never re-pruned); opaque locator `compaction://<sha256hex>` as retrieval hint; in-place prune with honest byte-savings accounting; a missing/malformed paired digest fails loud and leaves the message untouched (never mints a fake digest).
+- **Storage (`src/utils/toolPayloadStorage.ts`):** 0o600 exclusive create + symlink refusal; EEXIST → byte-compare idempotent reuse, mismatched bytes under an existing digest throw. Store-before-prune is default ON in `promptPreprocessor` — ANY store failure aborts that turn's prune (degrade-safe: history stays unpruned).
+- **Serialization drain (`src/tokenStatsManager.ts`, 24.09):** turn-level state mutation (delta reset / history compression) now first drains active tool turns with a bounded wait (poll 250 ms, hard cap 15 s; cap-exceeded → loud FAIL-LOUD log + deferred mutation). `toolsProvider` records the active turns — no routing change.
+- **Verified (owner-run gates, all green on final code):** full jest baseline unchanged at exactly **824 passed / 50 suites** · `tsc --noEmit` 0 errors · ESLint clean · tsup build OK. New suites: `tests/compactionPolicy.test.ts` (9) + `tests/compactionStorage.test.ts` (5) + `tests/drainGuard.test.ts` (5).
+- **Versioning:** no bump — v1.9.18 stays sticky; folds into the next **rev-3x** release pile (package.json test-count claim 805/47 already accounts for these suites; commit pending owner design).
+
+---
+
 ### [16.–19.09.2026] — v1.9.17 rev 31: pattern_scan cap removal (DE-STRAngle) + AutoTracker F1+F2 + cluster-aware tool ordering + CWD state relocation (F4)
 
 **Search no longer truncates itself on large trees, tools now reach the model in dependency order instead of alphabetically, a reinstall can no longer strand your working directory — and the token-threshold machinery finally tells you when it acts.** This revision ships four verified change sets accumulated 16.–19.09 (version number deliberately unchanged by owner decision; pure rev-bump so LM Studio detects the update).

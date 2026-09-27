@@ -528,7 +528,7 @@ This two-layer approach eliminates the clarification loop:
 All previously synchronous file-write tools converted to async with shared `atomicWrite`:
 | Module | Tools Affected | Write Pattern |
 |--------|---------------|---------------|
-| `lineOperations.ts` | delete_lines, line_operations | async → atomicWrite |
+| `lineOperations.ts` — REMOVED 23.09 NEXT-REV | delete_lines [deleted]; line_operations already lived in textProcessingTools.ts (prior attribution here was incorrect) | async → atomicWrite |
 | `refactorCodeTools.ts` | rename_identifier, move_function, extract_function, unused_import_cleanup | async → atomicWrite + rollback-on-failure |
 | `utilityTools.ts` | ~25 tools (backup, chart, etc.) | All async → atomicWrite |
 | `dataVisualizationTools.ts` | generate_chart | async → atomicWriteBinaryFile |

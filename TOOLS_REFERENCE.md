@@ -8,7 +8,7 @@
 
 | Category | Count | Default State | Status |
 |----------|-------|---------------|--------|
-| File System | 23 | ✅ Enabled | Active | (+ `pattern_scan`)
+| File System | 24 | ✅ Enabled | Active | (+ `pattern_scan`; + `line_operations` folded in from Text Processing, 23.09 Q6)
 | Code Refactoring | 1 | ✅ Enabled | Active |
 | Web Research | 3 | ✅ Enabled | Active | (+ `rag_web_content` served by Vector RAG)
 | Browser Automation | 5 | ❌ Disabled | Active |
@@ -20,8 +20,8 @@
 | Image Processing | 4 | ✅ Enabled | Active |
 | Vector RAG | 7 | ✅ Enabled | Active |
 | UI Generation | 3 | ❌ Disabled | Active |
-| Context Management | 20 (12 core + 8 session-index/project-registry tools) | ✅ Enabled | Active |
-| Text Processing | 4 | ✅ Enabled | Active |
+| Context Management | 21 (12 core + 8 session-index/project-registry + 1 composite resume, 25.09) | ✅ Enabled | Active |
+| Text Processing | 3 | ✅ Enabled | Active | (− `line_operations` folded to File System, 23.09 Q6)
 | Backup & Restore | 5 | ✅ Utility toggle | Active |
 | Data Visualization | 1 | ✅ Utility toggle | Active |
 | Document Parsing | 1 | ✅ Enabled | Active |
@@ -32,7 +32,7 @@
 
 ---
 
-## 📁 File System (23)
+## 📁 File System (24 — incl. `line_operations` folded in from Text Processing, 23.09 Q6)
 
 ### Basic Operations
 
@@ -51,6 +51,7 @@
 | `insert_at_line` | Insert content at specific 1-indexed line number; CRLF/LF detection preserves Windows line endings; async atomic write via shared utility |
 | `append_file` | Append text to file end (or create if missing); combined size limit enforcement (existing + new ≤ 10MB); async atomic write with crash resilience |
 | `delete_lines_in_file` | Delete single or range of lines; default backup=true for irreversible operations; async atomic write via shared utility |
+| `line_operations` | Insert/delete/reorder lines using awk-like operations without shell dependencies; atomic writes safety + **Three-layer guardrail system (v1.7.0+)** (pattern matching, verification, bounds validation) + MD5 post-write integrity verify — folded in from textProcessingTools.ts 23.09 (Q6); full guardrails section at the end of this category |
 
 ### Directory & File Management
 
@@ -84,7 +85,7 @@ await fs.rename(tempFile, originalPath);          // Atomic rename (survives cra
 All 9 modules converted from sync writes to async atomic pattern:
 | Module | Tools | Pattern |
 |--------|-------|---------|
-| `lineOperations.ts` | delete_lines, line_operations | async → atomicWrite |
+| `lineOperations.ts` — REMOVED 23.09 NEXT-REV | delete_lines [deleted]; line_operations already lived in textProcessingTools.ts (prior attribution here was incorrect) | async → atomicWrite |
 | `refactorCodeTools.ts` | rename_identifier, move_function, extract_function, unused_import_cleanup | async → atomicWrite + rollback-on-failure |
 | `utilityTools.ts` | ~25 tools (backup, chart, etc.) | All async → atomicWrite |
 | `dataVisualizationTools.ts` | generate_chart | async → atomicWriteBinaryFile |
@@ -110,9 +111,65 @@ All 9 modules converted from sync writes to async atomic pattern:
 | `directory_tree` | Visualize directory structure in tree format; supports max depth, optional file sizes, automatic exclusion of large directories |
 | `ripgrep` | Recursive content search (Rust-regex or literal) across files — **standalone tool, 14.09 TOOL SWAP (owner directive): replaces the removed `grep_files`**. The ENTIRE scan (file walk + pattern match) runs natively inside ONE worker-isolated ripgrep process (`src/utils/ripgrepEngine.ts`) off the host thread; a single wall-clock watchdog at **3 s** (`GREP_FILES_MAX_RUN_MS=3000`, owner directive) terminates wedged workers — `aborted: true` + partial-coverage hint returned, plugin host never freezes (13.09 main-thread wedge class dead by construction). Parameters: `pattern` (Rust regex by default; an invalid pattern auto-retries ONCE as fixed strings, reported via `pattern_mode="fixed-strings"`), `path` (directory **or single file**, default CWD — relative paths resolve against the working dir), `mode` (`regex`/`literal`), `case_insensitive` (**default `true`** — legacy `-i` contract; set `false` for exact case), `include_glob` (positive filter glob — when given, the default exclusions are NOT applied), `exclude_globs` (always appended ON TOP of the defaults), `max_depth` (1–∞; omitted = unbounded). Default directory exclusions (exactly 12: node_modules/.git/dist/build/.next/.nuxt/__pycache__/.cache/vendor/.vscode/.idea/.vs) apply only when no `include_glob` is given. **No result limits** (`maxMatches = Number.MAX_SAFE_INTEGER`) — long scans settle at the 3 s watchdog with an aborted hint rather than truncating results; matched lines are shaped by the engine default (**300** chars + ellipsis, aligned to the pattern_scan contract — F2, 18.09). Host abort signal forwarded (`aborted-in Nms` forensics on pre-abort); spawn failures surface as typed errors, never silent-empty. No AST mode (dropped with grep_files); `-i`-style case-insensitive matching is the default |
 | `find_replace_all` | Regex search & replace across multiple files with dry-run preview, `.bak` backups, file-extension filter; **`max_depth`** enforcement (default 10, range 1–50) + `MAX_LINES_PER_FILE=5000` hang prevention (v1.9.8+) |
-| `pattern_scan` | Recursive content search returning matching lines as `{file, line, content}` (post-v1.9.11, 30.–31.08 — engine in clean-room module `src/tools/patternScan.ts`, tool registered in `fileSystemTools.ts`). Regex by default; unsafe or syntactically invalid regexes fail fast and are **auto-demoted to literal mode** (reported via `demoted_to_literal`), unlike grep_files which force-escapes with a hint. Fully async with bounded concurrency (`concurrency` 1–16, default 4). Resource caps: per-file size gate `maxFileSizeBytes` (default **256 KB**), line-cap gate `maxFileLines` (default **10,000**) — oversize/over-line files reported in `skipped[]`, never scanned; per-file match cap `maxMatchesPerFile` (default 50); global cap `maxTotalMatches` (default 200) with `stats.truncated=true` when hit. Options: `root` (directory **or single file**, relative paths resolve against the plugin working directory), `mode` (`regex`/`literal`), `caseSensitive` (default true), `includeGlobs`/`excludeGlobs` (a matching exclude dir is pruned whole), `maxDepth` (1–50, default 10), `matchLineLength` truncation (default 300 chars + ellipsis). Directories `node_modules`, `.git`, `dist`, `build`, `out`, `.next`, `.nuxt`, `__pycache__`, `.venv`, `coverage` are always pruned. **Ripgrep phase-1 candidate prefilter (B', 02.09): REMOVED in FIX-34a (13.09)** — its rg-WASM search ran synchronously on the main thread (`await wasi.start()`; all WASI syscalls are sync fs), so while it ran no event-loop turn occurred and NO timer-based hang guard could fire (live host-wedge repro 13.09); `pattern_scan` now always runs the full JS walk above.** **DE-STRAngle arc completed 17.09: wall clock (`PATTERN_SCAN_MAX_RUN_MS=3000`) REMOVED — deterministic size bounds replace time-based watchdogs** (fully-async pipeline since FIX-34a; inline host-thread eval; `maxEvalLineLength` default 10,000 chars). Case-sensitivity is honored per call (`caseSensitive`, default true) |
+| `pattern_scan` | Recursive content search returning matching lines as `{file, line, content}` (post-v1.9.11, 30.–31.08 — engine in clean-room module `src/tools/patternScan.ts`, tool registered in `fileSystemTools.ts`). Regex by default; unsafe or syntactically invalid regexes fail fast and are **auto-demoted to literal mode** (reported via `demoted_to_literal`), unlike grep_files which force-escapes with a hint. Fully async with bounded concurrency (`concurrency` 1–16, default 4). Resource caps: per-file size gate `maxFileSizeBytes` (default **256 KB**), line-cap gate `maxFileLines` (default **10,000**) — oversize/over-line files reported in `skipped[]`, never scanned; per-file match cap `maxMatchesPerFile` (default 50); global cap `maxTotalMatches` (default 200) with `stats.truncated=true` when hit. Options: `root` (directory **or single file**, relative paths resolve against the plugin working directory), `mode` (`regex`/`literal`), `caseSensitive` (default true), `includeGlobs`/`excludeGlobs` (a matching exclude dir is pruned whole), `maxDepth` (1–50, default 10), `matchLineLength` truncation (default 300 chars + ellipsis). Directories `node_modules`, `.git`, `dist`, `build`, `out`, `.next`, `.nuxt`, `__pycache__`, `.venv`, `coverage` are always pruned. **Ripgrep phase-1 candidate prefilter (B', 02.09): REMOVED in FIX-34a (13.09)** — its rg-WASM search ran synchronously on the main thread (`await wasi.start()`; all WASI syscalls are sync fs), so while it ran no event-loop turn occurred and NO timer-based hang guard could fire (live host-wedge repro 13.09); `pattern_scan` now always runs the full JS walk above.** **DE-STRAngle arc completed 17.09: wall clock (`PATTERN_SCAN_MAX_RUN_MS=3000`) REMOVED (RE-ARMED 24.09 per owner order "abort after 3 seconds" — see RE-ARM note below) — deterministic size bounds replace time-based watchdogs** (fully-async pipeline since FIX-34a; inline host-thread eval; `maxEvalLineLength` default 10,000 chars); **RE-ARM 24.09 (owner order "abort after 3 seconds"): the wall clock IS armed again — `createGrepGuard(hostSignal, PATTERN_SCAN_MAX_RUN_MS=3_000)`; firing is cooperative at file boundaries → PARTIAL results + `aborted: true` + cap warn, host-signal abort unchanged** (deterministic size bounds kept alongside). Case-sensitivity is honored per call (`caseSensitive`, default true) |
 
 > **REV-24 (28.08, v1.9.10):** Prose alternations with a bare `&` (e.g. `"Backup & Restore|Git & GitHub"`) now correctly stay in **regex mode** — `&` is not a JS regex metacharacter and no longer false-positives the code-signature heuristic. Genuine code-signature patterns are still auto-escaped to literal only when an unescaped `*`, `+` or `?` pairs with a signature indicator; the response then carries `patternMode:"auto_escaped"` **with a hint string** explaining why (no more silent 0-match fallback).
+
+### 🛡️ line_operations Safety Guardrails (v1.7.0+) — now in `fileSystemTools.ts` (folded in from textProcessingTools.ts, 23.09 Q6)
+**Resolved recurring issues where LLMs inserted content at wrong lines due to stale line numbers.** Three-layer defense-in-depth:
+
+#### 1. Content-Aware Insertion (Pattern Matching)
+Find insertion point by searching file content instead of trusting line numbers — works regardless of current position.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `insert_after_pattern` | `string` | No | Line containing this text → insert AFTER it (max 500 chars) |
+| `insert_before_pattern` | `string` | No | Line containing this text → insert BEFORE it (max 500 chars) |
+
+**Example:**
+```typescript
+// Pattern-based — works regardless of current line number:
+line_operations(
+  file_name, 
+  operation: "insert", 
+  insert_after_pattern: "if (width <= 0 || height <= 0)",
+  content: "// fix"
+)
+→ Finds line containing pattern → inserts after it → works correctly even if file changed
+```
+
+#### 2. Line Fingerprinting / Verification
+Verify expected text exists at target_line before proceeding — blocks operation with error + actual context on mismatch.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `verify_before_insert` | `string` | No | Content expected at target_line; if mismatch → blocked (max 200 chars) |
+
+**Example:**
+```typescript
+// Verification-based — catches drift errors before corruption:
+line_operations(
+  file_name, 
+  operation: "insert", 
+  target_line: 84, 
+  content: "// fix",
+  verify_before_insert: "return;" // Content expected at line 84
+)
+→ Checks if line 84 contains "return;" → If no → BLOCKS with error + context shown (±3 lines)
+```
+
+#### 3. Bounds Validation & Large Insert Blocking (Auto-detection)
+- **Out-of-range rejection**: Rejects `target_line` outside valid range (1 to file length + 1)
+- **Multi-line splitting**: Splits content by `\n` into individual array elements (fixed bug where `\n` became literal characters on single line)
+- **Large insert blocking**: Blocks inserts >5 lines with suggestion to use `replace_text_in_file` instead
+
+#### 4. Hash-Based Post-Write Integrity Verification (v1.9.8+) — NEW
+**MD5 hash verification ensures file content was written correctly.** After writing content, the tool:
+1. Computes expected MD5 hash of final content before write (`crypto.createHash('md5')`)
+2. Reads back the file after write and computes actual MD5 hash
+3. Compares hashes — if mismatch → returns `success: false` with error showing both hashes
+
+**Test Results:** 9/9 test scenarios passed — zero regressions in existing delete/move operations.
 
 ---
 
@@ -378,7 +435,7 @@ The `src/tools/recodeTool/` module implements a pluggable rule engine for advanc
 
 ---
 
-## 🧠 Context Management (20)
+## 🧠 Context Management (21)
 
 **Note**: 5 additional context management tools (`save_session_summary`, `get_session_summary`, `save_memory`, `get_memory`, `delete_memory`) are also available under the Utilities category for backward compatibility.
 
@@ -422,73 +479,22 @@ The `src/tools/recodeTool/` module implements a pluggable rule engine for advanc
 - `search_projects` / `get_project_info` now call `_syncFromSessionMemory()` before lookup — auto-registers projects discovered from session memory decisions (`.ai_toolbox_memory.msgpack`) so the registry never returns stale empty results. Lazy pattern: no startup overhead.
 - `manage_projects(action="register")` is the primary explicit registration method (requires confirmed path; register_project remains a deprecated alias, 12.09). Silent auto-registration was removed in v1.9.8; Step 0.7 keyword detection in `promptPreprocessor.ts` surfaces registered projects on mention (confirm-first: banner only — the one-shot CWD switch happens exclusively after an explicit YES/JA reply).
 
+### Session Resume (added 25.09)
+
+| Tool | Description |
+|------|-------------|
+| `restore_session_context` | Composite **read-only** resume bootstrap ("read session mem", single call): latest session summary (RAM first, then file — same priority as `get_session_summary`) · newest persisted plan with per-step status (`get_plan` selection semantics) · all explicit memory facts · context entries in full (auto-checkpoint noise collapsed to ONE line: count + date range + peak usage %; expired session-scoped entries skipped locally WITHOUT pruning the store, mirroring CSM read-time TTL) · recent sessions index top-8. Output is a Markdown dossier with per-family presence/staleness header (STALE > 3 days flagged), machine `counts` block, hard `max_chars` budget (default 16000, marker + omitted-section list when truncated), self-describing absent/legacy sections on fresh or corrupt stores; no writes anywhere (store files asserted byte-identical pre/post in tests). Params: `include_sessions_index` (default true), `max_chars` (1000–50000) |
+
 ---
 
-## 📝 Text Processing (4)
+## 📝 Text Processing (3 — line_operations folded into File System, 23.09 Q6)
 
 | Tool | Description |
 |------|-------------|
 | `text_transform` | Regex substitution with capture groups ($1, $2), line ranges, global/case-insensitive modes; safer than shell sed |
-| `line_operations` | Insert/delete/reorder lines using awk-like operations without shell dependencies; atomic writes safety + **NEW v1.7.0: Three-layer guardrail system** (pattern matching, verification, bounds validation) |
 | `text_extract` | Structured data extraction from delimited text (CSV/TSV/custom) with configurable zero-based field indices |
 | `markdown_table_gen` | Generate Markdown tables from object arrays with headers, alignment, truncation, and customizable ellipsis |
-<!-- Audit 28.08: `refactor_code` removed here — it belongs to the Code Refactoring section (sole tool of refactorCodeTools.ts) -->
-
-### 🛡️ line_operations Safety Guardrails (v1.7.0+)
-**Resolved recurring issues where LLMs inserted content at wrong lines due to stale line numbers.** Three-layer defense-in-depth:
-
-#### 1. Content-Aware Insertion (Pattern Matching)
-Find insertion point by searching file content instead of trusting line numbers — works regardless of current position.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `insert_after_pattern` | `string` | No | Line containing this text → insert AFTER it (max 500 chars) |
-| `insert_before_pattern` | `string` | No | Line containing this text → insert BEFORE it (max 500 chars) |
-
-**Example:**
-```typescript
-// Pattern-based — works regardless of current line number:
-line_operations(
-  file_name, 
-  operation: "insert", 
-  insert_after_pattern: "if (width <= 0 || height <= 0)",
-  content: "// fix"
-)
-→ Finds line containing pattern → inserts after it → works correctly even if file changed
-```
-
-#### 2. Line Fingerprinting / Verification
-Verify expected text exists at target_line before proceeding — blocks operation with error + actual context on mismatch.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `verify_before_insert` | `string` | No | Content expected at target_line; if mismatch → blocked (max 200 chars) |
-
-**Example:**
-```typescript
-// Verification-based — catches drift errors before corruption:
-line_operations(
-  file_name, 
-  operation: "insert", 
-  target_line: 84, 
-  content: "// fix",
-  verify_before_insert: "return;" // Content expected at line 84
-)
-→ Checks if line 84 contains "return;" → If no → BLOCKS with error + context shown (±3 lines)
-```
-
-#### 3. Bounds Validation & Large Insert Blocking (Auto-detection)
-- **Out-of-range rejection**: Rejects `target_line` outside valid range (1 to file length + 1)
-- **Multi-line splitting**: Splits content by `\n` into individual array elements (fixed bug where `\n` became literal characters on single line)
-- **Large insert blocking**: Blocks inserts >5 lines with suggestion to use `replace_text_in_file` instead
-
-#### 4. Hash-Based Post-Write Integrity Verification (v1.9.8+) — NEW
-**MD5 hash verification ensures file content was written correctly.** After writing content, the tool:
-1. Computes expected MD5 hash of final content before write (`crypto.createHash('md5')`)
-2. Reads back the file after write and computes actual MD5 hash
-3. Compares hashes — if mismatch → returns `success: false` with error showing both hashes
-
-**Test Results:** 9/9 test scenarios passed — zero regressions in existing delete/move operations.
+<!-- Audit 28.08: `refactor_code` removed here — it belongs to the Code Refactoring section (sole tool of refactorCodeTools.ts). line_operations + its guardrails subsection moved to §File System 23.09 (Q6 fold) -->
 
 ---
 

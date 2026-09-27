@@ -29,11 +29,13 @@ import path from 'path';
 import type { Dirent } from 'fs';
 import { isSafeRegex } from '../security';
 // FIX-34a (13.09): the ripgrep B' phase-1 import was removed with its prefilter block — see header principles 2/5 for why.
-// HANG-GUARD (05.09) → DE-STRAngle (16.09): shared host-abort forwarding via grepGuard's SIGNAL-ONLY mode (deadlineMs=0, no
-// wall-clock timer). The former PATTERN_SCAN_MAX_RUN_MS cap is REMOVED: since FIX-34a (13.09) the pipeline has been fully
-// async/abortable — no sync segment can self-starve this thread, so the cap's only remaining effect was chronic `aborted: true`
-// partial results on larger trees. User cancel / host timeout still aborts cooperatively at every file boundary.
-import { createGrepGuard } from '../utils/grepGuard.js';
+// HANG-GUARD (05.09) → DE-STRAngle (16.09) → RE-ARM 24.09: the whole scan runs under ONE shared grepGuard armed with a
+// PATTERN_SCAN_MAX_RUN_MS wall-clock deadline — owner order 24.09 ("abort after 3 seconds") after the >60 s zero-payload
+// incident on slow FS, re-attributed to pattern_scan. DE-STRAngle had removed the cap (deadlineMs=0, host-signal-only): a fully
+// async pipeline cannot self-starve this thread, but an UNBOUNDED walk over slow IO proved worse than bounded partials. Both
+// abort sources — the wall deadline and any HOST signal (user cancel / host timeout via ToolCallContext.signal) — converge on
+// guard.signal and are checked cooperatively at every file boundary → PARTIAL results + `aborted: true`.
+import { createGrepGuard, PATTERN_SCAN_MAX_RUN_MS } from '../utils/grepGuard.js';
 
 // ---------------------------------------------------------------------------
 // Defaults (frozen; every field overridable per-call via options)
@@ -81,7 +83,7 @@ export interface PatternScanResult {
   skipped: SkippedEntry[]; // files touched but not fully scanned — with why
   excludedDirs: string[]; // directory names pruned via DEFAULT_EXCLUDE_DIRS / excludeGlobs (deduped, sorted)
   stats: { filesScanned: number; totalMatches: number; durationMs: number; truncated: boolean };
-  aborted?: boolean; // DE-STRAngle (16.09): HOST signal only now (user cancel / host timeout) — no wall clock exists; matches/skipped are PARTIAL
+  aborted?: boolean; // RE-ARM 24.09: true when the PATTERN_SCAN_MAX_RUN_MS deadline OR a HOST signal (user cancel / host timeout) fired mid-scan — matches/skipped are then PARTIAL
   demotedToLiteral?: 'unsafe-regex' | 'invalid-regex';
   error?: string; // only when ok === false
 }
@@ -276,12 +278,13 @@ export async function patternScan(options: PatternScanOptions): Promise<PatternS
   const pattern = options.pattern.trim(); // intentional: search patterns are not whitespace-anchored by user intent
   const rootRaw = String(options.root ?? '.').trim() || '.';
 
-  // DE-STRAngle (16.09): ONE shared CANCELLATION primitive for the whole scan — SIGNAL-ONLY mode (deadlineMs=0 → no
-  // wall-clock timer; see src/utils/grepGuard.ts). The former PATTERN_SCAN_MAX_RUN_MS cap was removed with its threat model:
-  // a fully async pipeline cannot self-starve, so only a HOST signal (user cancel / host timeout via ToolCallContext.signal)
-  // can abort — cooperatively checked at every file boundary below. disarm() in the finally block releases any listener on
-  // EVERY completion path (healthy or aborted).
-  const guard = createGrepGuard(options.abortSignal, 0, 'pattern_scan');
+  // RE-ARM 24.09 (owner order): ONE shared CANCELLATION primitive for the whole scan — wall-clock deadline
+  // PATTERN_SCAN_MAX_RUN_MS (3 s) + host-signal forwarding (see src/utils/grepGuard.ts). The deadline was removed by DE-STRAngle
+  // (16.09, deadlineMs=0) with its sync-starvation threat model and re-armed after the >60 s zero-payload incident on slow FS:
+  // a bounded partial beats an unbounded walk. Firing is cooperative at every file boundary below → PARTIAL results +
+  // `aborted: true`. disarm() in the finally block releases the timer AND any host-signal listener on EVERY completion path
+  // (healthy or aborted) so no stray cap-warn can fire after settle.
+  const guard = createGrepGuard(options.abortSignal, PATTERN_SCAN_MAX_RUN_MS, 'pattern_scan');
 
   let rootAbs: string;
   try { rootAbs = path.resolve(process.cwd(), rootRaw); } catch { return { ok: false, matches: [], skipped: [], excludedDirs: [], ...base(), error: `invalid root path: ${rootRaw}` }; }
@@ -338,7 +341,7 @@ export async function patternScan(options: PatternScanOptions): Promise<PatternS
   // --- Scan with bounded concurrency ---------------------------------------------
 
   async function worker(): Promise<void> {
-    // ABORT CHECK — one cooperative gate per file boundary (host signal only since DE-STRAngle 16.09 — no wall clock exists).
+    // ABORT CHECK — one cooperative gate per file boundary: wall deadline (PATTERN_SCAN_MAX_RUN_MS, RE-ARM 24.09) and host signal converge on guard.signal.
     while (!truncated && !guard.signal.aborted && cursor < targets.length) {
       const t = targets[cursor++];
       try {

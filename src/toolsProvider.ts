@@ -28,7 +28,6 @@ import { registerFileSystemTools } from './tools/fileSystemTools.js';
 import { registerGitTools } from './tools/gitGithubTools.js';
 import { registerHttpClientTools } from './tools/httpClientTools.js';
 import { registerImageProcessingTools } from './tools/imageProcessingTools.js';
-import { registerLineOperationsTools } from './tools/lineOperations.js';
 import { registerMarkdownPreviewTools } from './tools/markdownPreviewTools.js';
 import { registerRefactorCodeTools } from './tools/refactorCodeTools.js';
 import { registerRagTools } from './tools/vectorRagTools.js';
@@ -36,6 +35,9 @@ import { registerTaskPlanningTools } from './tools/taskPlanningTools.js';
 import { registerTextProcessingTools } from './tools/textProcessingTools.js';
 import { registerUiGenerationTools } from './tools/uiGenerationTools.js';
 import { registerWebResearchTools } from './tools/webResearchTools.js';
+import { registerRepeatToolReminderTools } from './tools/repeatToolReminderTools.js';
+// RESTORE-SESSION-CONTEXT (25.09): composite read-only "read session mem" bootstrap tool — rides the contextManagement toggle with the memory family.
+import { registerRestoreSessionContextTool } from './tools/restoreSessionContextTool.js';
 // Static import (NOT dynamic): the CJS Jest transform cannot resolve `await import(...)`
 // without --experimental-vm-modules (throws ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING_FLAG).
 // jest.config.cjs already maps './toolsSchemaMinifier.js' -> src/toolsSchemaMinifier.ts,
@@ -47,6 +49,10 @@ import { autoTracker } from './autoTracker.js';
 import { TokenStatsManager } from './tokenStatsManager.js';
 // OOM attribution (crashes 2026-08-24 ~20:24/21:10): pre-call heap probe so the next crash names its suspect tool.
 import { checkHeapPressure } from './performanceUtils.js';
+// Pipeline hygiene D — reset monotonic guard per provider invocation
+import { resetToolGuard } from './utils/withPipeline.js';
+// Loop hygiene B — repeat-tool reminder per turn
+import { repeatReminder } from './utils/repeatToolReminder.js';
 
 // Cluster-aware tool ordering (18.09): wires src/tools/toolPriority.ts into production — see CHANGELOG_v2 18.09 entry.
 import type { HubExclusionResult } from './utils/hubExclusionClustering.js';
@@ -79,6 +85,11 @@ interface ToolRegistryEntry {
 }
 
 export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[]> {
+  // Pipeline hygiene D: reset monotonic guard for new turn
+  resetToolGuard();
+  // Loop hygiene B: advance repeat-tool reminder turn counter
+  repeatReminder.nextTurn();
+
   // 1. Get current configuration (respects UI toggles) — use .get() method!
   const pluginConfig = ctl.getPluginConfig(configSchematics);
   
@@ -140,6 +151,8 @@ export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[
     autoSummaryInterval: pluginConfig.get('autoSummaryInterval'),
     taskPlanning: pluginConfig.get('taskPlanning'),
     clusterAwareToolOrder: pluginConfig.get('clusterAwareToolOrder'),
+    compactionEnabled: pluginConfig.get('compactionEnabled'), // C compaction family (24.09) — exhaustive-literal completeness after config.ts schema extension
+    compactionMaxResultBytes: pluginConfig.get('compactionMaxResultBytes'),
   };
 
 
@@ -162,6 +175,8 @@ export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[
     { key: 'backgroundCommands', register: () => registerBackgroundCommandTools(config, backgroundCommandManager) },
     { key: 'browserAutomation', register: () => registerBrowserTools(config) },
     { key: 'contextManagement', register: () => registerContextManagementTools(config, stateManager) },
+    // RESTORE-SESSION-CONTEXT (25.09): composite resume read (summary + plans + context + facts + sessions index); shares the memory-family toggle and StateManager instance.
+    { key: 'contextManagement', register: () => registerRestoreSessionContextTool(config, stateManager) },
     { key: 'databaseQueries', register: () => registerDatabaseTools(config) },
     { key: 'documentParsing', register: () => registerDocumentTools(config) },
     
@@ -170,8 +185,8 @@ export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[
     { key: 'utility', register: () => registerCleanupBackupsTool(config) },
     { key: 'utility', register: () => registerDataVisualizationTools(config) },
     { key: 'utility', register: () => registerRestoreFromBakTools(config) },
-    { key: 'utility', register: () => registerLineOperationsTools(config) },
     { key: 'utility', register: () => registerMarkdownPreviewTools(config) },
+    { key: 'utility', register: () => registerRepeatToolReminderTools(config) },
 
     // Task Planning Tools (structured multi-step workflows)
     { key: 'taskPlanning', register: () => registerTaskPlanningTools(config) },
@@ -287,7 +302,19 @@ export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[
       // OOM attribution: probe heap BEFORE the call runs. If we're already near the V8 wall when a
       // tool starts, THIS is the suspect for the next crash — the line lands in the log right before it.
       checkHeapPressure(raw.name ?? 'unknown_tool');
-      const result = await original(params, ctx);
+
+      // C compaction family (24.09): count this invocation as an active tool turn so user-triggered
+      // turn-level operations (mid-loop delta reset + history compression inside preprocess()) can be
+      // serialized against live loops via drainActiveToolTurns(). endToolCall MUST run in finally — a
+      // thrown implementation must still release the slot or every later drain would time out.
+      TokenStatsManager.beginToolCall(raw.name);
+      let result: unknown;
+      try {
+        result = await original(params, ctx);
+      } finally {
+        TokenStatsManager.endToolCall(raw.name);
+      }
+
       try {
         TokenStatsManager.recordToolResult(raw.name ?? 'unknown_tool', result);
         void autoTracker
@@ -311,6 +338,11 @@ export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[
       //    byte-identical (prototype check excludes non-plain objects so their shape never changes);
       //  - routing, side effects, timing and error propagation are untouched.
       const executedTool = raw.name ?? 'unknown_tool';
+      // Loop hygiene B — repeat tool reminder advisory
+      const advice = repeatReminder.check(executedTool, params);
+      if (advice) {
+        console.warn('[RepeatToolReminder]', advice);
+      }
       if (
         result !== null &&
         typeof result === 'object' &&

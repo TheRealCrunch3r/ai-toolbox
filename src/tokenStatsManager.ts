@@ -52,6 +52,76 @@ export function estimateTokensFromChars(chars: number): number {
   return Math.ceil(Math.max(0, chars) * CHARS_PER_TOKEN * TOKEN_BUFFER_FACTOR);
 }
 
+/** Conditional verbose log for turn-state transitions (AI_TOOLBOX_DEBUG-gated; contextGuard convention). */
+function debugDeltaLog(msg: string): void {
+  if (process.env.AI_TOOLBOX_DEBUG) console.log(`[TokenStatsManager] [TURN]${msg}`);
+}
+
+// ==================== C compaction family (24.09): active tool-turn tracking + serialization drain ====================
+//
+// LM Studio calls preprocess() on user messages — and a new user message can arrive WHILE the previous
+// turn's agentic tool loop is still executing (tool implementations run in this process; single-threaded
+// event-loop interleaving). Without coordination, preprocess()'s resetMidLoopDelta() wipes the in-flight
+// loop's payload delta and auto-compression may replace history underneath live tools. This counter is
+// incremented/decremented by the toolsProvider instrumentation wrapper around EVERY tool implementation;
+// a value > 0 means at least one tool call has started but not settled, so turn-level operations that
+// mutate shared state (delta reset, history compression) must first DRAIN with a bounded wait.
+
+/** Number of tool invocations currently in flight (started, not yet settled — success or throw). */
+let activeToolCalls = 0;
+
+export interface DrainWaitOptions {
+  /** Poll interval in ms (default 250). */
+  pollMs?: number;
+  /** Hard wall-clock cap for the whole wait in ms (default 15000 — see docs on why bounded is mandatory). */
+  maxWaitMs?: number;
+  /** Injectable sampler (tests); defaults to TokenStatsManager.getActiveToolCalls. */
+  sampleActive?: () => number;
+  /** Injectable sleeper (tests); defaults to a real setTimeout promise. */
+  sleep?: (ms: number) => Promise<void>;
+}
+
+/** Default drain cap: one polling cycle per tool call is typical; 15s covers slow web/file tools without
+ * ever being able to block a user message indefinitely (fail-loud on timeout, documented below). */
+export const DEFAULT_DRAIN_MAX_WAIT_MS = 15_000;
+
+/** Pure decision: should a turn-level state mutation wait? (active > 0 → yes.) Exported for tests. */
+export function shouldDeferForActiveTools(activeToolCalls: number): boolean {
+  return activeToolCalls > 0;
+}
+
+/**
+ * Bounded drain: polls until no tool calls are in flight, then resolves true; if the cap is reached with
+ * work still running, it logs LOUD and resolves false (caller proceeds — compression must never deadlock
+ * a user message; the race is recorded in the log per fail-loud house rule). Injectable clock/sampler make
+ * this testable without SDK mocks (F1-helper style).
+ */
+export async function drainActiveToolTurns(options: DrainWaitOptions = {}): Promise<boolean> {
+  const pollMs = options.pollMs ?? 250;
+  const maxWaitMs = options.maxWaitMs ?? DEFAULT_DRAIN_MAX_WAIT_MS;
+  const sampleActive = options.sampleActive ?? (() => TokenStatsManager.getActiveToolCalls());
+  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+
+  if (!shouldDeferForActiveTools(sampleActive())) return true; // fast path — nothing in flight
+
+  const startedAt = Date.now();
+  console.warn(`[TokenStatsManager] [DRAIN] tool turn(s) still active (${sampleActive()}) — deferring turn-level state mutation (bounded wait ≤ ${maxWaitMs}ms)`);
+  for (;;) {
+    if (!shouldDeferForActiveTools(sampleActive())) {
+      console.log('[TokenStatsManager] [DRAIN] tool loop drained cleanly before compression/reset');
+      return true;
+    }
+    if (Date.now() - startedAt >= maxWaitMs) {
+      console.error(
+        `[TokenStatsManager] [DRAIN] FAIL-LOUD: cap (${maxWaitMs}ms) reached with ${sampleActive()} tool call(s) STILL in flight — ` +
+        'proceeding anyway; history/delta state for this turn may race. Inspect logs and consider raising compactionDrainMaxWaitMs.',
+      );
+      return false; // fail loud, degrade safe — NEVER block the user's message forever
+    }
+    await sleep(pollMs);
+  }
+}
+
 /** Measure the character size of an arbitrary tool result payload (string | string[] | object → JSON). */
 function measurePayloadChars(payload: unknown): number {
   if (typeof payload === 'string') return payload.length;
@@ -209,6 +279,30 @@ export class TokenStatsManager {
     return midLoopDeltaChars;
   }
 
+  // --- C compaction family: active tool-turn tracking (serialization guard) ---
+
+  /** Mark a tool call as in flight. Called by the toolsProvider wrapper BEFORE the implementation runs. */
+  static beginToolCall(toolName?: string): void {
+    activeToolCalls += 1;
+    debugDeltaLog(`[BEGIN] ${toolName ?? 'unknown_tool'} (active=${activeToolCalls})`);
+  }
+
+  /** Mark a tool call as settled (success OR throw — MUST run in the wrapper's finally). */
+  static endToolCall(toolName?: string): void {
+    activeToolCalls = Math.max(0, activeToolCalls - 1);
+    debugDeltaLog(`[END] ${toolName ?? 'unknown_tool'} (active=${activeToolCalls})`);
+  }
+
+  /** True while at least one tool call is executing — the serialization guard's turn-state signal. */
+  static getActiveToolCalls(): number {
+    return activeToolCalls;
+  }
+
+  /** Test/teardown hook: forget any in-flight calls (mirrors resetMidLoopDelta semantics). */
+  static clearActiveToolCallsForTests(): void {
+    activeToolCalls = 0;
+  }
+
   /**
    * Reset per-turn evaluation state. MUST be called at the start of every preprocess() run: by that point
    * the previous turn's tool results are part of pullHistory() and counted natively — keeping the old
@@ -256,6 +350,7 @@ export class TokenStatsManager {
     midLoopEstTokens = 0;
     turnBaselineTokens = 0; // FIX #20 A2 — baseline/limit republished at next preprocess()
     maxContextTokens = 0;
+    activeToolCalls = 0; // C compaction (24.09) — fresh session ⇒ no in-flight tool loop
   }
 
   /**
