@@ -38,8 +38,6 @@
 
 ## [25.09.2026] — PIPELINE HYGIENE D: unified tool-execution pipeline (outcome taxonomy + finalizeContent invariant) wired into toolsProvider; RC#4 mapper entry + no-base-to-string close
 
-## [25.09.2026] — PIPELINE HYGIENE D: unified tool-execution pipeline (outcome taxonomy + finalizeContent invariant) wired into toolsProvider; RC#4 mapper entry + no-base-to-string close
-
 **Context:** DeepSeek-harness research item D, re-verified 25.09 against the live error paths (`RESEARCH_implementation_status.md`): tool error handling was AD-HOC per-tool with no unified pipeline invariant, while items C (compaction, 24.09) and E (fail-loud pervasive) were already done and B (repeat-tool-reminder) remains a known gap. The D item lands the unified seam: one pipeline that every tool execution can settle through — distinct monotonic-guard outcomes (success/error/deny/abstain), the finalizeContent invariant (tool-owned content always finalized before surface), and fail-loud guards at load + runtime.
 
 **Changes:**
