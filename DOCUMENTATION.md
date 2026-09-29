@@ -1,16 +1,16 @@
 # Documentation Update Summary — AI Toolbox Plugin
 
 **Date**: 2026-09-19  
-**Version**: v1.9.17 (manifest revision 31 — pending publish; rev 30 published 15.09)  
+**Version**: v1.9.18 (manifest revision 33 — pending publish; rev 30 was the last published to GitHub, 15.09)  
 **Status**: ✅ Complete
 
 ---
 
-## 📋 Version Status Overview (current: **v1.9.17 / manifest revision 32** — pending publish; rev 30 published 15.09, version header synced 08.09 for the Tool Gating Profile release; content last refreshed **19.09.2026** against live code (cluster-aware tool ordering + F4 CWD state relocation window); changelog chain: CHANGELOG_v3.md (active) ← CHANGELOG_v2.md (archived 20.09) ← CHANGELOG.md (legacy), plus RELEASE_NOTES.md)
+## 📋 Version Status Overview (current: **v1.9.18 / manifest revision 33** — pending publish; rev 30 was the last published to GitHub, 15.09, version header synced 08.09 for the Tool Gating Profile release; content last refreshed **28.09.2026** against live code (WALK-ABORT docs sync + full per-module re-audit); changelog chain: CHANGELOG_v3.md (active) ← CHANGELOG_v2.md (archived 20.09) ← CHANGELOG.md (legacy), plus RELEASE_NOTES.md)
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| **Tool Count** | ✅ Re-audited against code 15.09 (authoritative — supersedes the 05.09 ~131 estimate): i18n locale reference `src/locales/en.ts` carries exactly **130 toolName entries, parity-verified across all 5 locales** → **128 distinct tool names** (`read_document` and `rag_web_content` appear in two categories each); code registration matches — **130 live tool definitions across the 22 registered modules** (re-audit 15.09, ARCHITECTURE.md § "Tool Registration Summary"; per-category counts incl. cross-category duplicates: TOOLS_REFERENCE.md Overview) | All registered via declarative pattern (v1.8.2+) |
+| **Tool Count** | ✅ Re-audited against live code 28.09 (authoritative — supersedes the 15.09 re-count and the 05.09 ~131 estimate): i18n locale reference `src/locales/en.ts` carries exactly **115 toolName entries / 113 distinct names per locale set, parity-verified across all 5 locales** (locale↔code drift fully closed 29.09: 4 ghost-only entries purged + 4 unlisted utility tools added; `read_document` and `rag_web_content` appear in two categories each); code registration matches — **113 live tool definitions across the 22 registered module files** (re-audit 28.09, supersedes the 15.09 figures 130/128; ARCHITECTURE.md § "Tool Registration Summary"; per-category counts incl. cross-category duplicates: TOOLS_REFERENCE.md Overview) | All registered via declarative pattern (v1.8.2+) |
 | **Context Management** | ✅ Scoping + Heuristic Scoring + TTL Pruning | v1.9.1+ improvements active |
 | **Token Counting** | ✅ Native History API × 0.24 ratio | Matches LM Studio sidebar <0.3% deviation |
 | **Graphify Intelligence Suite** | ✅ Fully Implemented (v1.9.5) | Confidence tags, hub-exclusion clustering, project auto-detection, tier provenance, cluster-aware priority |
@@ -269,9 +269,9 @@ The following corrections reflect the v1.8.2 implementation (historical):
 ## 🔒 Security Hardening
 
 ### ReDoS Protection & Pattern Transparency
-The `isSafeRegex()` function in `src/security.ts` performs precise pattern analysis:
+The `isSafeRegex()` function in `src/security.ts` performs precise pattern analysis — every check is linear-time by construction (FIX-35c, 28.09; the pre-fix clause-1 meta-regex could itself catastrophically backtrack on patterns containing a lone unescaped `(`):
 - Targets genuinely dangerous structures: nested repetition (`(.+)+`, `(a*)*`), alternating groups with quantifiers (`((a|b)+)+`)
-- Safe patterns like `(a|b)+`, `[a-z]+`, `^import\s+` are correctly accepted
+- Patterns with alternation inside a repeated group (e.g. `(a|b)+`) are rejected and demoted to literal; safe patterns like `[a-z]+`, `^import\s+` and bounded repeats (`(a*){50}`) are accepted
 - Unsafe patterns are converted to literal matching (not silently dropped)
 - Transparency: `grep_files` returns a `patternMode` field — `'regex'`, `'literal'` or `'auto_escaped'` (forced-literal decisions include an explanatory hint string, REV-24)
 
@@ -350,7 +350,7 @@ All dangerous tool categories are **disabled by default**:
 
 | File | Changes Made |
 |------|-------------|
-| `README.md` | Rewritten 05.09.2026 (v1.9.15): SEO restructure + code-verified figures — **747 tests / 45 suites** (live npm test), **130+ tools**; unverified "24 modules" convention dropped; `utilityTools` (~27 incl. secret_scan) footnoted as not yet registered |
+| `README.md` | Rewritten 05.09.2026 (v1.9.15): SEO restructure + code-verified figures — **747 tests / 45 suites at the time of that rewrite** (live npm test 05.09 — current count per README badge, verified 28.09: 860/56; the same file's Security Hardening bullet below was corrected in the 29.09 doc sweep for current `isSafeRegex` behavior), **130+ tools**; unverified "24 modules" convention dropped; `utilityTools` (~27 incl. secret_scan) footnoted as not yet registered |
 | `ARCHITECTURE.md` | Gateway Pattern marked as ABANDONED; tool counts corrected to 20 modules |
 | `TOOLS_REFERENCE.md` | Up-to-date (~132 tools documented) |
 | `DOCUMENTATION.md` | Deprecated features clearly marked; tool count corrections applied |

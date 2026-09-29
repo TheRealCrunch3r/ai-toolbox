@@ -101,6 +101,44 @@ describe('isSafeRegex', () => {
     expect(isSafeRegex('std::vector<int>*')).toBe(false); // :: alternative (pre-pinned REV-24)
     expect(isSafeRegex('ptr->val*')).toBe(false);        // -> alternative
   });
+
+  // ===== FIX-35c (28.09): isSafeRegex itself must never hang — self-DoS regression class =====
+  // Pre-fix clause 1 (/((?:[^()]*|\([^()]*\))*[+*]\)[+*]/) catastrophically backtracked on ordinary patterns with a lone raw
+  // "(" (e.g. escaped-literal prose), blocking the event loop so NO wall cap, demotion or host abort could react — this is what
+  // locked LM Studio at 18:22 and 19:15 on 28.09. These pins keep both sides honest: incident shapes are rejected AND the gate
+  // settles in milliseconds (a hang would fail via jest's per-test timeout, exactly like the original incident).
+  test('FIX-35c: 28.09 incident patterns are rejected by the gate', () => {
+    // 18:22 screenshot pattern (malformed alternation, one unbalanced group) and its balanced variant — both contained a lone
+    // raw "(" that spun clause 1 for >5 min in production; the gate must now reject them in O(n).
+    expect(isSafeRegex('contextManagementTools\\.ts # Context management \\(12\\|(12 tools|129 entries / 127|total: 130|Code-defined total: 130|\\*130\\)*')).toBe(false);
+    expect(isSafeRegex('contextManagementTools\\.ts # Context management \\(12\\|(12 tools|129 entries / 127|total: 130|Code-defined total: 130|\\*130)*')).toBe(false);
+    // Adjacent-quantified-token incident class — previously PASSED the gate, then spun at inline eval (rule 2 coverage).
+    expect(isSafeRegex('\\d+\\s*\\d+')).toBe(false);
+    expect(isSafeRegex('\\d+\\s*\\d+\\s*\\d+')).toBe(false);
+    // Nested repetition stays rejected by the linear rule-1 scan (the class clause 1 was MEANT to catch).
+    expect(isSafeRegex('(a+)+')).toBe(false);
+    expect(isSafeRegex('(a*)*')).toBe(false);
+    expect(isSafeRegex('([x]{2,})+')).toBe(false);
+  });
+
+  test('FIX-35c: the patterns that locked LM Studio at 19:15 stay SAFE (no new false positives)', () => {
+    // The exact aborted call of 28.09 19:15 — a benign alternation containing escaped parens in prose — must be accepted, and fast.
+    expect(isSafeRegex('Only flag genuinely dangerous|dangerousStructures|for \\(const structure of|CRITICAL FIX: Detect multiple consecutive quantified groups')).toBe(true);
+    expect(isSafeRegex('management \\(93 tools|total: 130')).toBe(true);
+    // Bounded repeats stay safe (D2 contract) even after the rule-1 rewrite.
+    expect(isSafeRegex('(a*){50}')).toBe(true);
+  });
+
+  test('FIX-35c: gate is LINEAR — adversarial max-length patterns settle in milliseconds', () => {
+    // Pre-fix, a single clause-1 .test() on the trigger shape (lone raw "(" per branch) needed >3 s (budgeted repro);
+    // post-fix it is one O(n) scan. Budget 200 calls at ~500 chars — generous for any host; an old-code regression fails loud.
+    const adversarial = 'x \\( a b c d '.repeat(19).slice(0, 500) + '|y \\( z'; // lone raw "(" per alternation branch
+    const t0 = Date.now();
+    for (let i = 0; i < 200; i++) {
+      expect(typeof isSafeRegex(adversarial)).toBe('boolean');
+    }
+    expect(Date.now() - t0).toBeLessThan(50); // 200 full gate runs — the old meta-regex exceeded this budget on ONE call
+  });
 });
 
 describe('applySecurityChecks', () => {

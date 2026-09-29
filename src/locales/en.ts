@@ -42,7 +42,6 @@ export const enTranslations: FullTranslationSet = {
       { toolName: 'wikipedia_search', description: 'Search Wikipedia for page summaries', parameters: ['query, lang (optional)'] },
       { toolName: 'fetch_web_content', description: 'Fetch webpage clean text content', parameters: ['url'] },
       { toolName: 'rag_web_content', description: 'RAG-based semantic web search', parameters: ['url, query'] },
-      { toolName: 'browser_session_open', description: 'Open persistent browser session', parameters: ['url, wait_for_selector (optional)'] },
       { toolName: 'browser_session_control', description: 'Control browser actions (click, type, etc.)', parameters: ['actions array, read_page flag'] },
     ],
   },
@@ -64,7 +63,6 @@ export const enTranslations: FullTranslationSet = {
       { toolName: 'git_log', description: 'View commit history', parameters: ['max_count (optional)'] },
       { toolName: 'git_add', description: 'Stage specific files or all changes', parameters: ['paths (optional)'] },
       { toolName: 'git_checkout', description: 'Switch to existing or create new branch', parameters: ['branch_name, create_new (optional)'] },
-      { toolName: 'gh_auth', description: 'Check GitHub authentication status', parameters: [] },
       { toolName: 'gh_create_issue', description: 'Create new GitHub issue', parameters: ['title, body (optional), labels (optional)'] },
       { toolName: 'gh_list_issues', description: 'List issues in repository', parameters: ['state (optional), labels (optional), limit (optional)'] },
       { toolName: 'gh_view_comments', description: 'View comments on issue or PR', parameters: ['number, type (optional)'] },
@@ -186,7 +184,8 @@ export const enTranslations: FullTranslationSet = {
   utilities: {
     categoryTitle: '🔧 Utility Tools',
     tools: [
-      { toolName: 'findLMStudioHome', description: 'Locate the LM Studio installation directory across platforms, returning the model storage path', parameters: [] },
+    { toolName: 'markdown_preview', description: 'Render a Markdown file to HTML and open it in the default browser', parameters: ['file_path'] },
+    { toolName: 'get_repeat_tool_advice', description: 'Returns current repeat-tool reminder state and any active nudges; use to check if the model is in a repetition loop', parameters: ['toolName, args (optional)'] },
     ],
   },
   imageProcessing: {
@@ -196,7 +195,6 @@ export const enTranslations: FullTranslationSet = {
       { toolName: 'describe_image', description: 'Get image metadata: dimensions, format, size and timestamps for PNG/JPG/BMP/GIF/WebP/TIFF', parameters: ['imagePath'] },
       { toolName: 'screenshot_desktop', description: 'Capture a desktop screenshot cross-platform (GDI+/screencapture/ImageMagick)', parameters: ['outputPath/format/quality (optional)'] },
       { toolName: 'compare_images', description: 'Byte-level and dimension comparison of two images; exact-match status for identical encodings', parameters: ['image1Path, image2Path'] },
-      { toolName: 'analyze_image', description: 'Send an image to a loaded vision-capable LM Studio model with an optional prompt; returns textual analysis + metadata (⚠️ requires a vision model)', parameters: ['imagePath, prompt (optional)'] },
     ],
   },
   backupRestore: {
@@ -207,6 +205,8 @@ export const enTranslations: FullTranslationSet = {
       { toolName: 'restore_backup', description: 'Restore the working directory from a backup archive (⚠️ overwrites all files; requires confirm=true)', parameters: ['backupFile, confirm'] },
       { toolName: 'delete_backup', description: 'Remove one specific backup file (⚠️ irreversible; validates existence first)', parameters: ['backupFile, confirm'] },
       { toolName: 'cleanup_backups', description: 'List and optionally delete .bak edit backups — dry-run by default, confirm required to delete', parameters: ['confirm (optional)'] },
+      { toolName: 'restore_from_bak', description: 'Restore a file from its .bak backup created by file-modifying tools (replace_text_in_file, insert_at_line, append_file, delete_lines_in_file)', parameters: ['file_name'] },
+      { toolName: 'list_available_bak_backups', description: 'Scan the current working directory for all .bak backup files created by file-modifying tools; use before restoring to see what is available', parameters: [] },
     ],
   },
   dataVisualization: {

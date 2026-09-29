@@ -42,7 +42,6 @@ export const deTranslations: FullTranslationSet = {
       { toolName: 'wikipedia_search', description: 'Wikipedia für Seiten-Zusammenfassungen suchen', parameters: ['query, lang (optional)'] },
       { toolName: 'fetch_web_content', description: 'Webpage clean Text-Inhalt fetchen', parameters: ['url'] },
       { toolName: 'rag_web_content', description: 'RAG-basierte semantische Websuche', parameters: ['url, query'] },
-      { toolName: 'browser_session_open', description: 'Persistente Browser-Session öffnen', parameters: ['url, wait_for_selector (optional)'] },
       { toolName: 'browser_session_control', description: 'Browser-Aktionen steuern (click, type, etc.)', parameters: ['actions array, read_page flag'] },
     ],
   },
@@ -64,7 +63,6 @@ export const deTranslations: FullTranslationSet = {
       { toolName: 'git_log', description: 'Commit-History anzeigen', parameters: ['max_count (optional)'] },
       { toolName: 'git_add', description: 'Spezifische Dateien oder alle Changes stage', parameters: ['paths (optional)'] },
       { toolName: 'git_checkout', description: 'Zu bestehender oder neuer Branch wechseln', parameters: ['branch_name, create_new (optional)'] },
-      { toolName: 'gh_auth', description: 'GitHub-Authentifizierungsstatus prüfen', parameters: [] },
       { toolName: 'gh_create_issue', description: 'Neues GitHub-Issue erstellen', parameters: ['title, body (optional), labels (optional)'] },
       { toolName: 'gh_list_issues', description: 'Issues im Repository auflisten', parameters: ['state (optional), labels (optional), limit (optional)'] },
       { toolName: 'gh_view_comments', description: 'Comments auf Issue oder PR anzeigen', parameters: ['number, type (optional)'] },
@@ -186,7 +184,8 @@ export const deTranslations: FullTranslationSet = {
   utilities: {
     categoryTitle: '🔧 Utility-Tools',
     tools: [
-      { toolName: 'findLMStudioHome', description: 'LM Studio Installationsverzeichnis plattformübergreifend lokalisieren, gibt den Modell-Speicherpfad zurück', parameters: [] },
+    { toolName: 'markdown_preview', description: 'Markdown-Datei als HTML rendern und im Standardbrowser öffnen', parameters: ['file_path'] },
+    { toolName: 'get_repeat_tool_advice', description: 'Gibt den aktuellen Zustand der Wiederholungs-Werkzeug-Erinnerung inkl. aktiver Hinweise aus; prüft, ob das Modell in einer Wiederholungsschleife steckt', parameters: ['toolName, args (optional)'] },
     ],
   },
   imageProcessing: {
@@ -196,7 +195,6 @@ export const deTranslations: FullTranslationSet = {
       { toolName: 'describe_image', description: 'Bild-Metadaten erhalten: Dimensionen, Format, Größe und Zeitstempel für PNG/JPG/BMP/GIF/WebP/TIFF', parameters: ['imagePath'] },
       { toolName: 'screenshot_desktop', description: 'Desktop-Screenshot plattformübergreifend aufnehmen (GDI+/screencapture/ImageMagick)', parameters: ['outputPath/format/quality (optional)'] },
       { toolName: 'compare_images', description: 'Byte- und Dimensionsvergleich zweier Bilder; exakter Match-Status für identische Encodings', parameters: ['image1Path, image2Path'] },
-      { toolName: 'analyze_image', description: 'Bild an geladenes vision-fähiges LM Studio Modell mit optionalem Prompt senden; gibt textuelle Analyse + Metadaten zurück (⚠️ erfordert ein Vision-Modell)', parameters: ['imagePath, prompt (optional)'] },
     ],
   },
   backupRestore: {
@@ -207,6 +205,8 @@ export const deTranslations: FullTranslationSet = {
       { toolName: 'restore_backup', description: 'Working Directory aus einem Backup-Archiv wiederherstellen (⚠️ überschreibt alle Dateien; erfordert confirm=true)', parameters: ['backupFile, confirm'] },
       { toolName: 'delete_backup', description: 'Eine spezifische Backup-Datei entfernen (⚠️ irreversibel; prüft Existenz zuerst)', parameters: ['backupFile, confirm'] },
       { toolName: 'cleanup_backups', description: '.bak Edit-Backups auflisten und optional löschen — Dry-Run standardmäßig, Bestätigung zum Löschen erforderlich', parameters: ['confirm (optional)'] },
+      { toolName: 'restore_from_bak', description: 'Stellt eine Datei aus ihrer .bak-Sicherung wieder her, die von Dateibearbeitungswerkzeugen erstellt wurde (replace_text_in_file, insert_at_line, append_file, delete_lines_in_file)', parameters: ['file_name'] },
+      { toolName: 'list_available_bak_backups', description: 'Durchsucht das aktuelle Arbeitsverzeichnis nach allen .bak-Sicherungsdateien der Dateibearbeitungswerkzeuge; vor dem Wiederherstellen prüfen, welche Backups vorhanden sind', parameters: [] },
     ],
   },
   dataVisualization: {

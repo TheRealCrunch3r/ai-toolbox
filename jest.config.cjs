@@ -138,7 +138,9 @@ module.exports = {
     // C compaction family (24.09): SINGLE-DOT .js import forms — promptPreprocessor.ts './utils/toolPayload{Compaction,Storage}.js' and toolPayloadStorage.ts internal './toolPayloadCompaction.js'; same RC#4 class as the patternScan entry above. (The two-dot '../utils/…' variants that preceded this block were removed 24.09 after a full import-site audit found zero emitters — tests use extensionless '../src/utils/…' specifiers, which need no mapper.)
     '^\\./utils/toolPayloadCompaction\\.js$': '<rootDir>/src/utils/toolPayloadCompaction.ts',
     '^\\./utils/toolPayloadStorage\\.js$': '<rootDir>/src/utils/toolPayloadStorage.ts',
+    '^\\./utils/toolPayloadSpill\\.js$': '<rootDir>/src/utils/toolPayloadSpill.ts',
     '^\\./toolPayloadCompaction\\.js$': '<rootDir>/src/utils/toolPayloadCompaction.ts',
+'^\\./toolPayloadStorage\\.js$': '<rootDir>/src/utils/toolPayloadStorage.ts',
     // ITEM-B (05.09): src/tools/fileSystemTools.ts + src/tools/patternScan.ts import '../utils/regexWorker.js' — same RC#4 class as grepGuard above; per-file form only (G9 round-2)
     '^\\.\\./utils/regexWorker\\.js$': '<rootDir>/src/utils/regexWorker.ts',
     '^\\.\\./utils/atomicWrite\\.js$': '<rootDir>/src/utils/atomicWrite.ts',

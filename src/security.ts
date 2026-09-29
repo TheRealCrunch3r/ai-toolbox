@@ -47,16 +47,98 @@ export function isBinaryFile(content: string): boolean {
  * Protect against ReDoS (Regular Expression Denial of Service).
  * Uses precise pattern analysis to detect genuinely dangerous structures.
  * 
- * Safe patterns include: alternation with quantifiers (a|b)+, character classes [a-z]+, etc.
- * Dangerous patterns include: nested repetition ((a+)+), overlapping quantifiers ((.*)*).
+ * Safe patterns include: simple quantifiers, character classes [a-z]+, unquantified groups ((a|b)), bounded
+ * repeats like (a*){50}. Dangerous patterns include: nested repetition ((a+)+), overlapping quantifiers ((.*)*),
+ * alternation inside a repeated group ((a|b)+) and adjacent quantified sequences over overlapping spans.
+ * FIX-35c (28.09): every check below is LINEAR-TIME by construction — no meta-pattern may itself contain a nested
+ * or ambiguous quantifier: the pre-fix clause 1 (/((?:[^()]*|\([^()]*\))*[+*]\)[+*]/) catastrophically backtracked on
+ * ordinary patterns containing one lone raw "(" (e.g. escaped-literal prose searches like "x \(93 tools|y"), blocking
+ * the event loop so no wall cap, demotion or abort could react (28.09 18:22 + 19:15 lockups; repro pinned in
+ * tests/security.test.ts — a security check that can itself hang is worse than none).
  */
+
+/**
+ * FIX-35c (28.09): linear-time replacement for the catastrophic clause-1 meta-regex (see function doc above).
+ * One O(n) pass over the pattern source, tracking paren depth while skipping escape sequences:
+ *   1. nested repetition — an unescaped group whose body contains an unescaped quantifier (+, *, ?, {n[,m]}) and
+ *      which is itself followed by an unescaped quantifier: (a+)+, ((x))* — exponential backtracking in NFA engines;
+ *   2. incident class the old regex missed — a top-level sequence of two or more adjacent unescaped-quantified
+ *      tokens (e.g. \d+\s*\d+, [0-9]*[0-9]*) where each token can match overlapping spans: on lines that do not
+ *      fully satisfy the pattern the NFA enumerates exponentially many decompositions of the run before failing
+ *      (this is what spun for >5 min in the 28.09 18:22 incident once clause 1 was removed from the equation).
+ * Both checks are pure scanning — no regex meta-patterns, so they cannot hang on any input.
+ */
+function hasAmbiguousRepetition(pattern: string): boolean {
+  // Rule 1 — nested repetition, single O(n) pass. groupHasQuant tracks whether the innermost open group's body
+  // contains an unescaped quantifier; escaped chars are skipped wholesale so \+ \( etc. never count as structure.
+  let depth = 0;
+  const groupHasQuant: boolean[] = [];
+  for (let i = 0; i < pattern.length; i++) {
+    if (pattern[i] === '\\') { i++; continue; } // escape sequence — literal, never structural
+    const c = pattern[i];
+    if (c === '(') { depth++; groupHasQuant.push(false); continue; }
+    if (depth > 0) {
+      if ('+*?{'.includes(c)) groupHasQuant[groupHasQuant.length - 1] = true; // quantifier inside innermost open group
+      else if (c === ')') {
+        depth--;
+        const hadInnerQuantifier = groupHasQuant.pop() ?? false;
+        // Quantified group with a quantified body: (a+)+, ([x]*)*, ((ab)*)+ — exponential backtracking in NFA engines.
+        // Bounded repeats ({n[,m]}) deliberately NOT flagged — D2 (30.08) pins '(a*){50}' as SAFE so grep_files can
+        // route it to its killable worker instead of silently literal-demoting it (tests/security.test.ts).
+        if (hadInnerQuantifier && i + 1 < pattern.length && '+*?'.includes(pattern[i + 1])) return true;
+      }
+    }
+    // depth === 0: nothing to track here — top-level adjacency is rule-2's job (separate pass below).
+  }
+  return hasAdjacentQuantifiedTokens(pattern);
+}
+
+/** FIX-35c: second O(n) pass — rule 2. A token = maximal run of non-structural chars at depth 0, terminated by a
+ * quantifier (+, *, ? or a real {n[,m]} repeat). Two such tokens with only unescaped whitespace between them can
+ * each match overlapping spans of the same character run; on input that does not fully satisfy the pattern the NFA
+ * enumerates exponentially many decompositions before failing (the 28.09 18:22 incident class, e.g. \d+\s*\d*). */
+function hasAdjacentQuantifiedTokens(pattern: string): boolean {
+  let depth = 0;
+  let prevQuantEnd = -1; // index of the quantifier char ending the previous top-level token, else -1
+  for (let i = 0; i < pattern.length; i++) {
+    if (pattern[i] === '\\') {
+      // Escape pair: the escaped char is NEVER structural — but it IS plain token-body content, so we must not
+      // `continue` past a would-be token start (that silently dropped '\d+' as a quantified token in 28.09 rule-2
+      // verification). Escaped STRUCTURAL chars (\( \) \| \+ ...) are literal prose: they break the adjacency run.
+      const e = pattern[i + 1] ?? '';
+      if ('+*?|(){}'.includes(e)) { i++; prevQuantEnd = -1; continue; }
+      // plain escaped char: fall through — it starts/extends a token body exactly like any other content char
+    }
+    const c = pattern[i];
+    if (c === '(') depth++;
+    else if (c === ')') depth--;
+    if (depth !== 0 || '|+*?({'.includes(c)) { prevQuantEnd = -1; continue; } // group content or structural char breaks any adjacency run
+    // Consume the token body: plain chars only — stop at ANY structural character so depth tracking stays exact.
+    while (i + 1 < pattern.length && '+*?|(){}'.includes(pattern[i + 1]) === false) i++;
+    const q = pattern[i + 1]; // first char right after the token body
+    let quantEnd = -1;
+    // Only unbounded quantifiers create the ambiguity. Bounded repeats {n[,m]} fix their span count (linear cost) —
+    // they deliberately do NOT continue a dangerous adjacency run (and literal prose braces can never flag).
+    if (q === '+' || q === '*' || q === '?') quantEnd = i + 1;
+    if (quantEnd !== -1) {
+      // adjacency: only unescaped whitespace may sit between two quantified top-level tokens
+      let gap = prevQuantEnd + 1;
+      while (gap <= i && ' \t'.includes(pattern[gap])) gap++;
+      if (prevQuantEnd !== -1 && gap <= i) return true; // e.g. \d+\s*\d+, [0-9]*[0-9], a+b+c+ runs
+      prevQuantEnd = quantEnd;
+      i++; // the for-increment must not RE-VISIT this token's own terminating quantifier — that char is structural and would reset prevQuantEnd (lost '\d+\s*\d+' in 28.09 verification)
+    } else {
+      prevQuantEnd = -1; // unquantified token (or false brace) resets the run
+    }
+  }
+  return false;
+}
+
 export function isSafeRegex(pattern: string): boolean {
   if (!pattern || pattern.length > 500) return false;
 
   // Only flag genuinely dangerous ReDoS structures — not safe alternation or simple quantifiers.
   const dangerousStructures = [
-    // Nested repetition: (.+)+, (a*)*, ((ab)+)+ — exponential backtracking risk
-    /\((?:[^()]*|\([^()]*\))*[+*]\)[+*]/,
     // Alternation inside group with quantifier: (a|b)+, ([a-z]+)+, etc.
     /\([^)]*\|[^)]*\)[+*]/,
   ];
@@ -64,6 +146,9 @@ export function isSafeRegex(pattern: string): boolean {
   for (const structure of dangerousStructures) {
     if (structure.test(pattern)) return false;
   }
+  // FIX-35c: linear structural scan — replaces the removed catastrophic clause-1 meta-regex AND covers the
+  // adjacent-quantified-token incident class that no prior clause caught.
+  if (hasAmbiguousRepetition(pattern)) return false;
 
   // Fallback: check for known canonical ReDoS patterns as exact substrings.
   const dangerousPatterns = [

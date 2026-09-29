@@ -46,10 +46,10 @@ Deep dive into the AI Toolbox plugin's system architecture, design patterns, and
 │  │  │  └───────────┼───────────────────────────────────────┘  │  │  │
 │  │  │              │                                         │  │  │
 │  │  │  ┌───────────┴─────────────────────────────────────┐  │  │  │
-│  │  │  │              Tool Modules (19 registered files)      │  │  │  │
+│  │  │  │              Tool Modules (22 registered files)      │  │  │  │
 │  │  │  │  ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ │  │  │  │
 │  │  │  │  │fileSys │ │webRes  │ │browser │ │  git   │ │  │  │  │
-│  │  │  │  │ (22)   │ │ (4)    │ │  (5)   │ │ (15)   │ │  │  │  │
+│  │  │  │  │ (24)   │ │ (3)    │ │  (5)   │ │ (15)   │ │  │  │  │
 │  │  │  │  └────────┘ └────────┘ └────────┘ └────────┘ │  │  │  │
 │  │  │  │  ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ │  │  │  │
 │  │  │  │  │ datab  │ │backgnd │ │exec    │ │ docParse│ │  │  │  │
@@ -57,11 +57,11 @@ Deep dive into the AI Toolbox plugin's system architecture, design patterns, and
 │  │  │  │  └────────┘ └────────┘ └────────┘ └────────┘ │  │  │  │
 │  │  │  │  ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ │  │  │  │
 │  │  │  │  │ image  │ │ http   │ │ vector │ │   UI   │ │  │  │  │
-│  │  │  │  │ (4)    │ │ (3)    │ │ RAG(4) │ │ Gen(3) │ │  │  │  │
+│  │  │  │  │ (4)    │ │ (3)    │ │ RAG(7) │ │ Gen(3) │ │  │  │  │
 │  │  │  │  └────────┘ └────────┘ └────────┘ └────────┘ │  │  │  │
 │  │  │  │  ┌────────┐ ┌────────┐ ┌────────┐            │  │  │  │
 │  │  │  │  │ Context │ │textProc│ │AST Ref │ │bgndCmds│ │  │  │  │
-│  │  │  │  │ Mgmt(12)│ │ (4)    │ │ factor│ │ (3)    │ │  │  │  │
+│  │  │  │  │ Mgmt(22)│ │ (3)    │ │ factor│ │ (3)    │ │  │  │  │
 │  │  │  │  └────────┘ └────────┘ │ (2)     │            │  │  │  │
 │  │  │  │                        └─────────┘             │  │  │  │
 │  │  │  └─────────────────────────────────────────────┘  │  │  │
@@ -124,7 +124,7 @@ export function main(context: PluginContext) {
 }
 ```
 
-### 2. Tool Registration Flow (Current State — v1.9.17 / manifest rev 31)
+### 2. Tool Registration Flow (Current State — full re-audit **28.09** against live `toolsProvider.ts`; version stamp v1.9.18 / manifest rev 33)
 
 ```
 toolsProvider() called by LM Studio SDK
@@ -136,7 +136,7 @@ createToolsProvider(config, stateManager, bgCommandManager)
     ├── BackgroundCommandManager ──► Initialize process tracker
     └── Declarative Registry Pattern (v1.8.2+):
             │
-            ├── TOOL_REGISTRIES array (21 entries, closure-based; execution tools registered separately after the loop — audited 05.09)
+            ├── TOOL_REGISTRIES array (21 in-array `{ key: }` entries per live scan, re-audit 28.09 — incl. `contextManagement` + `utility`; execution tools still registered separately AFTER the loop)
             │   ├── Each entry captures dependencies at definition time
             │   ├── Single for...of loop iterates all entries
             │   └── Config key gating + GOD MODE bypass
@@ -152,13 +152,13 @@ createToolsProvider(config, stateManager, bgCommandManager)
             ├── registerHttpClientTools()      ──► 3 tools (disabled by default)
             ├── registerRagTools()             ──► 7 tools (enabled by default: rag_index_files/pdf/docx/xlsx, rag_query_vector, rag_clear_index, rag_web_content — since v1.9.2/v1.9.10)
             ├── registerUiGenerationTools()    ──► 3 tools (disabled by default)
-            ├── registerContextManagementTools() ─► 12 tools (enabled by default)
+            ├── registerContextManagementTools() ─► **22 tools** (re-counted in the 28.09 re-audit: 12 core memory/session + session-index & project-registry 9 + composite `restore_session_context`; enabled by default)
             ├── registerTextProcessingTools()  ──► 3 tools (enabled by default; line_operations folded to fileSystemTools.ts 23.09, Q6)
-            ├── registerRefactorCodeTools()    ──► 2 tools (enabled by default)
+            ├── registerRefactorCodeTools()    ──► **1 tool** (`refactor_code`; the former second entry, `unused_import_cleanup`, is a recode-engine rule object, not a registered tool — audited 05.09, confirmed in the 28.09 re-audit; enabled by default)
             ├── registerExecutionTools()       ──► 5 tools (mixed defaults)
             │
             ▼
-        Return Tool[] to SDK ──► **129 registration entries / 127 distinct tool names** from `src/tools/` — 26 source files, 23 exporting register functions (`pattern_scan` registered via `fileSystemTools.ts`; locale-verified v1.9.15, see TOOLS_REFERENCE.md)
+        Return Tool[] to SDK ──► **Code-registered total: 113 live tool definitions across the 22 registering module files** (full re-audit 28.09 — `src/toolsProvider.ts` registry + per-module `name:` scan; exposed set is toggle-dependent, GOD MODE max ≈ 113) · **locale data: 115 entries / 113 distinct names in all five locales** (29.09: ghost purge + unlisted-tool entries added → full parity with live code) — `src/locales/en.ts` reference (`pattern_scan` registered via `fileSystemTools.ts`; gap note at the top of TOOLS_REFERENCE.md)
 ```
 
 ### ✅ Gateway Pattern Status (v1.8.2+) — ⚠️ ABANDONED
@@ -166,7 +166,7 @@ createToolsProvider(config, stateManager, bgCommandManager)
 **Status**: The gateway pattern (formerly `src/tools/gatewayTools.ts`, introduced in v1.6.0) was **abandoned in favor of direct SDK registration**; the file has been fully removed from the codebase (v1.9.10 session, 24.08). No gateway tool definitions remain anywhere under `src/`.
 
 **Why Abandoned**:
-- Direct registration proved more effective — LLMs handle 130 tools fine when schemas are properly minified
+- Direct registration proved more effective — LLMs handle the full ~113-tool set fine when schemas are properly minified (re-audited 28.09; GOD MODE max ≈ 113 exposed names)
 - Grammar parser crashes resolved via `toolsSchemaMinifier.ts` (description truncation, constraint capping) rather than tool count gating
 - Gateway indirection added unnecessary complexity without solving the underlying issue
 
@@ -624,7 +624,7 @@ Heavy dependencies loaded on first use:
 The engine is a self-contained, worker-isolated ripgrep runner with ONE live consumer (its former second consumer — `pattern_scan`'s B' prefilter — was removed in FIX-34a 13.09):
 
 1. **Standalone `ripgrep` tool** (new 14.09 TOOL SWAP — owner directive: full replacement of the removed `grep_files`, AST mode included). The ENTIRE walk + match runs inside ONE worker-isolated rg process off the host thread; there is no JS fallback for this tool.
-~~**`pattern_scan` B' phase-1 prefilter** (unchanged since v1.9.15) — regex-mode directory scans first ask the engine which files *can* match, then run only those through the worker pipeline; any non-'ok' outcome falls back to the full-JS walk byte-for-byte with every cap and skip-record contract intact.~~ **REMOVED (FIX-34a 13.09)** — its rg-WASM search ran synchronously on the host thread (the 13.09 wedge class); `pattern_scan` is now a pure full-JS walk whose per-line regex eval runs INLINE on this thread, gated by `isSafeRegex` BEFORE any disk I/O (DE-STRAngle 16.09) with deterministic SIZE bounds (`maxFileSizeBytes`, `maxFileLines`, `maxEvalLineLength`); the former wall cap was removed with it (host-signal-only) and RE-ARMED 24.09 per owner order ("abort after 3 seconds") — the scan now runs under ONE shared grep guard: `PATTERN_SCAN_MAX_RUN_MS = 3_000` wall deadline + host signal converging on one cooperative abort → PARTIAL results + `aborted: true` (see §5 watchdog note and CHANGELOG [24.09] RE-ARM entry). No engine call remains in that path.
+~~**`pattern_scan` B' phase-1 prefilter** (unchanged since v1.9.15) — regex-mode directory scans first ask the engine which files *can* match, then run only those through the worker pipeline; any non-'ok' outcome falls back to the full-JS walk byte-for-byte with every cap and skip-record contract intact.~~ **REMOVED (FIX-34a 13.09)** — its rg-WASM search ran synchronously on the host thread (the 13.09 wedge class); `pattern_scan` is now a pure full-JS walk whose per-line regex eval runs INLINE on this thread, gated by `isSafeRegex` BEFORE any disk I/O (DE-STRAngle 16.09) with deterministic SIZE bounds (`maxFileSizeBytes`, `maxFileLines`, `maxEvalLineLength`); the former wall cap was removed with it (host-signal-only) and RE-ARMED 24.09 per owner order ("abort after 3 seconds") — the scan now runs under ONE shared grep guard: `PATTERN_SCAN_MAX_RUN_MS = 3_000` wall deadline + host signal converging on one cooperative abort → PARTIAL results + `aborted: true` (**WALK-ABORT 28.09:** the BFS walk phase itself now checks this same guard at every directory boundary — before, only file boundaries were checked, so a slow-FS / deep-tree walk ran unbounded past the deadline; an aborted walk returns a PARTIAL target set); see §5 watchdog note + CHANGELOG entries [24.09] RE-ARM and [28.09] WALK-ABORT. No engine call remains in that path.
 
 Design points (full contracts in the module header):
 
@@ -1135,7 +1135,7 @@ src/
     ├── node-notifier.d.ts      # Node.js notifier type declarations
     └── types.d.ts              # Core shared type definitions
 
-tests/                          # Jest test suite (45 suites / 745 tests, verified green on 19.09 via owner-run npm test — see README meta line; per-file list below is abbreviated)
+tests/                          # Jest test suite (56 suites / 860 tests, verified green 28.09 via owner-run npm test — 857 at ~17:0x ×2, +3 FIX-35c pins later same evening; see README meta line; per-file list below is abbreviated)
 ├── security.test.ts            # Core security validation tests
 ├── security.edge-cases.test.ts # Security boundary & edge case testing
 ├── config.test.ts              # Zod schema + UI schematics validation
@@ -1221,7 +1221,7 @@ All tool categories are now fully registered in `toolsProvider.ts` using the dec
 | HTTP Client | httpClientTools.ts | 3 | ✅ Yes | Disabled |
 | Vector RAG | vectorRagTools.ts | 7 | ✅ Yes | Enabled |
 | UI Generation | uiGenerationTools.ts | 3 | ✅ Yes | Disabled |
-| Context Management | contextManagementTools.ts | 20 (was "12" — audited 05.09 against code) | ✅ Yes | Enabled |
+| Context Management | contextManagementTools.ts | **22** (re-audited 28.09 vs live registry: 12 core memory/session + session-index & project-registry 9 + composite `restore_session_context`; was "12" → "20" at the 05.09 audit) | ✅ Yes | Enabled |
 | Text Processing | textProcessingTools.ts (− line_operations folded to fileSystemTools.ts, 23.09 Q6) | 3 | ✅ Yes | Enabled |
 | AST Refactoring | refactorCodeTools.ts | 1 (was "2" — `unusedImports` is a recode-engine rule object, not a registered tool; audited 05.09) | ✅ Yes | Enabled |
 | Execution | executionTools.ts | 5 | ✅ Yes | Mixed (JS/Python: enabled, Terminal/Shell: disabled) |
@@ -1229,9 +1229,9 @@ All tool categories are now fully registered in `toolsProvider.ts` using the dec
 | Data Visualization | dataVisualizationTools.ts | 1 | ✅ Yes | Utility toggle |
 | Markdown Preview | markdownPreviewTools.ts | 1 | ✅ Yes | Utility toggle |
 | Task Planning | taskPlanningTools.ts | 3 | ✅ Yes | Enabled (default) |
-| **Total Registered** | | **Code-defined total: **130** live tool definitions across the 22 registered modules (re-audited 15.09 against current code, post ripgrep TOOL SWAP: File System 23 with −1 removed `grep_files` + 1 added standalone `ripgrep`; exposed set is toggle-dependent — GOD MODE max ≈ 129 (`read_document` deduped))** · legacy locale figure: 129 entries / 127 distinct names in `src/locales/en.ts` (see drift note below) | | |
+| **Total Registered** | | **Code-defined total (full re-audit 28.09): **113** live tool definitions across the 22 registered module files; exposed set is toggle-dependent — GOD MODE max ≈ 113 (`read_document`, `rag_web_content` are each served by two categories)** · locale data: **115 entries / 113 distinct names in all five locales** (29.09 ghost purge + unlisted-tool entries — full parity with live code; see drift note below) | | |
 
-> **⚠️ Locale vs code drift (audited 05.09 against `src/tools/` + `toolsProvider.ts`; fix decision pending):** the locale sets (`src/locales/*.ts`, all five locales) carry **3 ghost entries with no tool definition in code**: `browser_session_open` (real tool: `browser_open_page`), `gh_auth` (no such registered tool; even `check_gh_auth` exists only as data in `toolPriority.ts`), and `analyze_image` (no image-analysis module). Conversely, **2 registered tools have no locale entry**: `delete_lines`, `markdown_preview`. So "129/127" counts *locale data*, not code; the per-category counts above are code-based.
+> **⚠️ Locale vs code drift — re-audited 28.09 against live `src/tools/*.ts` + `toolsProvider.ts` (supersedes the 05.09 note): parity restored; 29.09 update: gap (a) CLOSED.** The locale sets (`src/locales/*.ts`, all five locales) now carry **115 entries / 113 distinct names** each vs a code-registered total of ≈113 live tool definitions across the 22 registered module files: `read_document` + `rag_web_content` are each served by two categories (File System+Document Parsing, Web Research+Vector RAG) — i.e. locale and code agree on every live tool name (**gap fully closed 29.09**). Closure details: the four former ghost entries with no tool definition in code (`gh_auth`, `browser_session_open` — real tool: `browser_open_page`; `findLMStudioHome` — src/ helper, never a tool; `analyze_image`) were **purged from all five locales 29.09** on owner directive ("no ghosts"); the four registered utility-family tools lacking locale entries (`restore_from_bak`, `list_available_bak_backups`, `markdown_preview`, `get_repeat_tool_advice`) **gained translated entries in all five sets the same day**. Erratum: an earlier draft of this note listed a fifth unlisted name, `auto_checkpoint_collapse` — that is an internal section label inside the `restore_session_context` output (src/tools/restoreSessionContextTool.ts), NOT a registered tool. Locale entries are data, not behavior — no runtime impact; the per-category counts above and in TOOLS_REFERENCE.md are code-based.
 
 > **Note**: All previously "unregistered" utility tool categories (backup, data visualization, line operations, markdown preview) are now properly registered in `toolsProvider.ts` under the `utility` config key. The former gateway file (`gatewayTools.ts`) has been removed from the codebase (v1.9.10 session, 24.08) — direct SDK registration with schema minification handles grammar parser compatibility.
 
@@ -1776,7 +1776,7 @@ The plugin carries a localization subsystem under `src/locales/` providing tool 
 | File | Role |
 |------|------|
 | `src/locales/types.ts` | Shared types: `LanguageCode = 'en' \| 'de' \| 'es' \| 'zh-CN' \| 'zh-TW'`; `Translation { toolName, description, parameters[], example? }`; `ToolCategoryTranslations { categoryTitle, tools[] }`; `FullTranslationSet` — **19 per-category blocks** (audited 05.09 — was "20"; lineOperations & markdownPreview have no category of their own) + a `general` block (`pluginName`, `enabledTools`, `disabledTools`, `errorPrefix`, `successPrefix`). Since the Tier-2 completion (04.09) all 19 categories are REQUIRED in every locale set. |
-| `src/locales/en.ts` / `de.ts` / `es.ts` / `zh-CN.ts` / `zh-TW.ts` | One complete translation set per language (`enTranslations`, …). Coverage: **locale data re-audited 15.09 post ripgrep TOOL SWAP**: the former per-category counts (129 entries / 127 distinct names) predate the `grep_files`→`ripgrep` rename in all five locale sets — exact current figures pending owner re-run of `npm test` (`tests/i18n.test.ts` parity guards); order + coverage remain parity-verified against `en`. |
+| `src/locales/en.ts` / `de.ts` / `es.ts` / `zh-CN.ts` / `zh-TW.ts` | One complete translation set per language (`enTranslations`, …). Coverage: **locale data re-audited 28.09 against live code; ghosts purged + unlisted tools added 29.09 → full parity**: each locale set carries exactly **115** toolName entries (**113** distinct names — `read_document` and `rag_web_content` are each served by two categories); order + coverage remain parity-verified against `en` via the `tests/i18n.test.ts` guards; locale↔code drift fully closed 29.09 (see drift note in § Tool Registration Summary). |
 | `src/locales/i18n.ts` | The `I18nManager` class (API below). |
 
 ### I18nManager (`src/locales/i18n.ts`)
@@ -1803,5 +1803,5 @@ Translation-file loading + formatting suite including the four parity guard test
 
 ### Integration status (honest state as of this refresh)
 
-- ✅ **Complete & guarded**: locale data (5 sets × 129 entries), `I18nManager`, Zod config field, settings-panel entry, parity test guards — all committed (`90f7a66` zh Tier-1, `6ddb7a8` es + Tier-2 full coverage).
+- ✅ **Complete & guarded**: locale data (5 sets × 115 entries / 113 distinct names each — re-audited 28.09; ghosts purged + unlisted tools added 29.09 → full parity with live code), `I18nManager`, Zod config field, settings-panel entry, parity test guards — all committed (`90f7a66` zh Tier-1, `6ddb7a8` es + Tier-2 full coverage).
 - ⏳ **Pending**: runtime application at registration. As of this audit no production source file imports from `src/locales/` (verified by repo-wide scan — only `tests/i18n.test.ts` does) and `config.language` is persisted but not yet consumed: tool descriptions registered via `toolsProvider.ts` still use the in-code English strings, which remain canonical. The natural hook point is description construction during the declarative-registry loop (apply the active locale's `description`, falling back to the code string on missing key); until that lands, changing 🌐 Language persists the preference without altering registered descriptions.

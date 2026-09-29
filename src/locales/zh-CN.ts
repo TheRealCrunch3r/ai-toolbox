@@ -42,7 +42,6 @@ export const zhCNTranslations: FullTranslationSet = {
       { toolName: 'wikipedia_search', description: '在维基百科中搜索页面摘要', parameters: ['query, lang（可选）'] },
       { toolName: 'fetch_web_content', description: '获取网页的纯文本内容', parameters: ['url'] },
       { toolName: 'rag_web_content', description: '基于 RAG 的语义化网页提取', parameters: ['url, query'] },
-      { toolName: 'browser_session_open', description: '打开持久化浏览器会话', parameters: ['url, wait_for_selector（可选）'] },
       { toolName: 'browser_session_control', description: '控制浏览器操作（点击、输入等）', parameters: ['actions 数组, read_page 标志'] },
     ],
   },
@@ -64,7 +63,6 @@ export const zhCNTranslations: FullTranslationSet = {
       { toolName: 'git_log', description: '查看提交历史', parameters: ['max_count（可选）'] },
       { toolName: 'git_add', description: '暂存指定文件或全部更改', parameters: ['paths（可选）'] },
       { toolName: 'git_checkout', description: '切换到已有分支或创建新分支', parameters: ['branch_name, create_new（可选）'] },
-      { toolName: 'gh_auth', description: '检查 GitHub 认证状态', parameters: [] },
       { toolName: 'gh_create_issue', description: '创建新的 GitHub issue', parameters: ['title, body（可选）, labels（可选）'] },
       { toolName: 'gh_list_issues', description: '列出仓库中的 issues', parameters: ['state（可选）, labels（可选）, limit（可选）'] },
       { toolName: 'gh_view_comments', description: '查看 issue 或 PR 的评论', parameters: ['number, type（可选）'] },
@@ -186,7 +184,8 @@ export const zhCNTranslations: FullTranslationSet = {
   utilities: {
     categoryTitle: '🔧 实用工具',
     tools: [
-      { toolName: 'findLMStudioHome', description: '跨平台定位 LM Studio 安装目录，返回模型存储路径', parameters: [] },
+    { toolName: 'markdown_preview', description: '将 Markdown 文件渲染为 HTML，并在默认浏览器中打开', parameters: ['file_path'] },
+    { toolName: 'get_repeat_tool_advice', description: '返回重复工具提醒的当前状态与活动提示；用于检查模型是否陷入重复循环', parameters: ['toolName, args (optional)'] },
     ],
   },
   imageProcessing: {
@@ -196,7 +195,6 @@ export const zhCNTranslations: FullTranslationSet = {
       { toolName: 'describe_image', description: '获取图像元数据：PNG/JPG/BMP/GIF/WebP/TIFF 的尺寸、格式、大小与时间戳', parameters: ['imagePath'] },
       { toolName: 'screenshot_desktop', description: '跨平台截取桌面屏幕截图（GDI+/screencapture/ImageMagick）', parameters: ['outputPath/format/quality（可选）'] },
       { toolName: 'compare_images', description: '对两张图像进行字节级与尺寸比较；相同编码时给出精确匹配状态', parameters: ['image1Path, image2Path'] },
-      { toolName: 'analyze_image', description: '将图像发送给已加载的具备视觉能力的 LM Studio 模型，可附提示词；返回文本分析 + 元数据（⚠️ 需要视觉模型）', parameters: ['imagePath, prompt（可选）'] },
     ],
   },
   backupRestore: {
@@ -207,6 +205,8 @@ export const zhCNTranslations: FullTranslationSet = {
       { toolName: 'restore_backup', description: '从备份归档恢复工作目录（⚠️ 覆盖所有文件；需 confirm=true）', parameters: ['backupFile, confirm'] },
       { toolName: 'delete_backup', description: '删除某个特定备份文件（⚠️ 不可逆；先验证存在性）', parameters: ['backupFile, confirm'] },
       { toolName: 'cleanup_backups', description: '列出并可选删除 .bak 编辑备份——默认 dry-run，删除需确认', parameters: ['confirm（可选）'] },
+      { toolName: 'restore_from_bak', description: '从文件修改工具创建的 .bak 备份中还原指定文件（replace_text_in_file、insert_at_line、append_file、delete_lines_in_file）', parameters: ['file_name'] },
+      { toolName: 'list_available_bak_backups', description: '扫描当前工作目录中所有由文件修改工具创建的 .bak 备份文件；用于恢复前查看可用备份', parameters: [] },
     ],
   },
   dataVisualization: {

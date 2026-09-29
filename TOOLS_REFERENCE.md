@@ -1,6 +1,6 @@
 # 🛠️ AI Toolbox — Complete Tool Reference
 
-*Current state — refreshed **19.09.2026** against live code at **v1.9.17 / manifest revision 32 (pending owner publish; rev 30 shipped 15.09); changelog chain: CHANGELOG_v3.md (active) ← v2 (archived)**: the i18n locale reference (`src/locales/en.ts`, parity-verified across all 5 locales on 15.09) carries exactly **130** toolName entries — two names are served by two categories, `read_document` (File System + Document Parsing) and `rag_web_content` (Web Research + Vector RAG), so distinct tool names number **128**; the code-registered total is **130 live tool definitions across 22 registered modules** (re-audit 15.09, ARCHITECTURE.md). Tools register from `src/tools/*.ts` via the declarative registry pattern (v1.8.2+). Per-module tables below were last audited against `src/tools/*.ts` + `toolsProvider.ts` on 28.08; known deltas pending a full re-audit: the locale lists `gh_auth` inside Git & GitHub (tables show 7 `gh_*` tools) and groups `browser_session_open`/`browser_session_control` under its webSearch category block while the tables group all five browser tools together. Latest windows covered in the per-tool rows below: standalone `ripgrep` TOOL SWAP (14.09), worker-pool DRAIN-GRACE + unified project registry (15.09), and the `pattern_scan` DE-STRAngle cap removal with size-bound `maxEvalLineLength` (16.–17.09).*
+*Current state — doc sync **29.09.2026** (i18n drift closure: the four ghost locale names `gh_auth`, `browser_session_open`, `findLMStudioHome`, `analyze_image` purged AND the four unlisted utility tools `restore_from_bak`, `list_available_bak_backups`, `markdown_preview`, `get_repeat_tool_advice` added — all five locales now at full parity with live code: 115 entries / 113 distinct names) on top of **28.09.2026** (pattern_scan WALK-ABORT walk-phase abort + **full per-module re-audit COMPLETED** same evening against live code; version stamp v1.9.18 / manifest revision 33) · previous refresh 19.09.2026 against live code at **v1.9.17 / manifest revision 32 (rev 30 shipped 15.09); changelog chain: CHANGELOG_v3.md (active) ← v2 (archived)**: the i18n locale reference (`src/locales/en.ts`) carries **115** toolName entries per set after the 29.09 drift closure (interim state was 111) — two names are served by two categories, `read_document` (File System + Document Parsing) and `rag_web_content` (Web Research + Vector RAG), so distinct tool names number **113** (= live code total → full parity); the code-registered total is **113 live tool definitions across 22 registered module files** (`src/toolsProvider.ts` registry + per-module `name:` scan, full re-audit 28.09). Locale/code drift status (locale entries are data, not tools): **fully closed 29.09** — the four locale names with NO registered tool anywhere in src/ (`gh_auth`, `browser_session_open`, `findLMStudioHome`, `analyze_image`) were purged from all five locales on owner directive "no ghosts", and the four live utility-key tools that had no locale entry (`restore_from_bak`, `list_available_bak_backups`, `markdown_preview`, `get_repeat_tool_advice`) gained translated entries in all five sets; erratum: an earlier note wrongly listed a fifth unlisted name, `auto_checkpoint_collapse` — it is an internal section label of the `restore_session_context` output (src/tools/restoreSessionContextTool.ts), not a registered tool. The priority table's `check_gh_auth` row is an unreferenced name with no matching definition. Tools register from `src/tools/*.ts` via the declarative registry pattern (v1.8.2+). Per-module tables below were last audited against `src/tools/*.ts` + `toolsProvider.ts` on 28.09: the former open deltas are RESOLVED — `browser_session_open` is a locale-only ghost (the live `browser_session_control` IS registered, under browserAutomation; its locale entry merely sits in the Web-Research block), and the GitHub table's 7 `gh_*` rows match code exactly (locale adds the ghost `gh_auth`, so it lists 8). Latest windows covered in the per-tool rows below: standalone `ripgrep` TOOL SWAP (14.09), worker-pool DRAIN-GRACE + unified project registry (15.09), and the `pattern_scan` DE-STRAngle cap removal with size-bound `maxEvalLineLength` (16.–17.09).*
 
 ---
 
@@ -16,13 +16,13 @@
 | Database | 1 | ❌ Disabled | Active |
 | Background Commands | 3 | ❌ Disabled | Active |
 | Execution | 5 | ❌ Mixed (JS/Python: enabled) | Active |
-| Utilities | ~25 (+6 context-management duplicates; +`detect_os_environment`) | ✅ Utility toggle | Active | (also carries backup/restore, chart, line-ops & markdown-preview modules under the same key)
+| Utilities | 0 live tools in this section (`utilityTools.ts` removed in the 23.09 cleanup; re-audit 28.09 verified every row below dead — see its ⚠️ note) | ✅ Utility toggle | Active | (the `utility` config key hosts the LIVE modules: Backup & Restore, cleanup_backups, Data Visualization, restore_from_bak + list_available_bak_backups, markdown_preview, get_repeat_tool_advice — see their sections)
 | Image Processing | 4 | ✅ Enabled | Active |
 | Vector RAG | 7 | ✅ Enabled | Active |
 | UI Generation | 3 | ❌ Disabled | Active |
-| Context Management | 21 (12 core + 8 session-index/project-registry + 1 composite resume, 25.09) | ✅ Enabled | Active |
+| Context Management | 22 (12 core + 9 session-index/project-registry + 1 composite resume `restore_session_context`, 25.09) | ✅ Enabled | Active |
 | Text Processing | 3 | ✅ Enabled | Active | (− `line_operations` folded to File System, 23.09 Q6)
-| Backup & Restore | 5 | ✅ Utility toggle | Active |
+| Backup & Restore | 6 (incl. `restore_from_bak` — added by the 28.09 re-audit) | ✅ Utility toggle | Active |
 | Data Visualization | 1 | ✅ Utility toggle | Active |
 | Document Parsing | 1 | ✅ Enabled | Active |
 | HTTP Client | 3 | ❌ Disabled | Active |
@@ -111,7 +111,7 @@ All 9 modules converted from sync writes to async atomic pattern:
 | `directory_tree` | Visualize directory structure in tree format; supports max depth, optional file sizes, automatic exclusion of large directories |
 | `ripgrep` | Recursive content search (Rust-regex or literal) across files — **standalone tool, 14.09 TOOL SWAP (owner directive): replaces the removed `grep_files`**. The ENTIRE scan (file walk + pattern match) runs natively inside ONE worker-isolated ripgrep process (`src/utils/ripgrepEngine.ts`) off the host thread; a single wall-clock watchdog at **3 s** (`GREP_FILES_MAX_RUN_MS=3000`, owner directive) terminates wedged workers — `aborted: true` + partial-coverage hint returned, plugin host never freezes (13.09 main-thread wedge class dead by construction). Parameters: `pattern` (Rust regex by default; an invalid pattern auto-retries ONCE as fixed strings, reported via `pattern_mode="fixed-strings"`), `path` (directory **or single file**, default CWD — relative paths resolve against the working dir), `mode` (`regex`/`literal`), `case_insensitive` (**default `true`** — legacy `-i` contract; set `false` for exact case), `include_glob` (positive filter glob — when given, the default exclusions are NOT applied), `exclude_globs` (always appended ON TOP of the defaults), `max_depth` (1–∞; omitted = unbounded). Default directory exclusions (exactly 12: node_modules/.git/dist/build/.next/.nuxt/__pycache__/.cache/vendor/.vscode/.idea/.vs) apply only when no `include_glob` is given. **No result limits** (`maxMatches = Number.MAX_SAFE_INTEGER`) — long scans settle at the 3 s watchdog with an aborted hint rather than truncating results; matched lines are shaped by the engine default (**300** chars + ellipsis, aligned to the pattern_scan contract — F2, 18.09). Host abort signal forwarded (`aborted-in Nms` forensics on pre-abort); spawn failures surface as typed errors, never silent-empty. No AST mode (dropped with grep_files); `-i`-style case-insensitive matching is the default |
 | `find_replace_all` | Regex search & replace across multiple files with dry-run preview, `.bak` backups, file-extension filter; **`max_depth`** enforcement (default 10, range 1–50) + `MAX_LINES_PER_FILE=5000` hang prevention (v1.9.8+) |
-| `pattern_scan` | Recursive content search returning matching lines as `{file, line, content}` (post-v1.9.11, 30.–31.08 — engine in clean-room module `src/tools/patternScan.ts`, tool registered in `fileSystemTools.ts`). Regex by default; unsafe or syntactically invalid regexes fail fast and are **auto-demoted to literal mode** (reported via `demoted_to_literal`), unlike grep_files which force-escapes with a hint. Fully async with bounded concurrency (`concurrency` 1–16, default 4). Resource caps: per-file size gate `maxFileSizeBytes` (default **256 KB**), line-cap gate `maxFileLines` (default **10,000**) — oversize/over-line files reported in `skipped[]`, never scanned; per-file match cap `maxMatchesPerFile` (default 50); global cap `maxTotalMatches` (default 200) with `stats.truncated=true` when hit. Options: `root` (directory **or single file**, relative paths resolve against the plugin working directory), `mode` (`regex`/`literal`), `caseSensitive` (default true), `includeGlobs`/`excludeGlobs` (a matching exclude dir is pruned whole), `maxDepth` (1–50, default 10), `matchLineLength` truncation (default 300 chars + ellipsis). Directories `node_modules`, `.git`, `dist`, `build`, `out`, `.next`, `.nuxt`, `__pycache__`, `.venv`, `coverage` are always pruned. **Ripgrep phase-1 candidate prefilter (B', 02.09): REMOVED in FIX-34a (13.09)** — its rg-WASM search ran synchronously on the main thread (`await wasi.start()`; all WASI syscalls are sync fs), so while it ran no event-loop turn occurred and NO timer-based hang guard could fire (live host-wedge repro 13.09); `pattern_scan` now always runs the full JS walk above.** **DE-STRAngle arc completed 17.09: wall clock (`PATTERN_SCAN_MAX_RUN_MS=3000`) REMOVED (RE-ARMED 24.09 per owner order "abort after 3 seconds" — see RE-ARM note below) — deterministic size bounds replace time-based watchdogs** (fully-async pipeline since FIX-34a; inline host-thread eval; `maxEvalLineLength` default 10,000 chars); **RE-ARM 24.09 (owner order "abort after 3 seconds"): the wall clock IS armed again — `createGrepGuard(hostSignal, PATTERN_SCAN_MAX_RUN_MS=3_000)`; firing is cooperative at file boundaries → PARTIAL results + `aborted: true` + cap warn, host-signal abort unchanged** (deterministic size bounds kept alongside). Case-sensitivity is honored per call (`caseSensitive`, default true) |
+| `pattern_scan` | Recursive content search returning matching lines as `{file, line, content}` (post-v1.9.11, 30.–31.08 — engine in clean-room module `src/tools/patternScan.ts`, tool registered in `fileSystemTools.ts`). Regex by default; unsafe or syntactically invalid regexes fail fast and are **auto-demoted to literal mode** (reported via `demoted_to_literal`), unlike grep_files which force-escapes with a hint. Fully async with bounded concurrency (`concurrency` 1–16, default 4). Resource caps: per-file size gate `maxFileSizeBytes` (default **256 KB**), line-cap gate `maxFileLines` (default **10,000**) — oversize/over-line files reported in `skipped[]`, never scanned; per-file match cap `maxMatchesPerFile` (default 50); global cap `maxTotalMatches` (default 200) with `stats.truncated=true` when hit. Options: `root` (directory **or single file**, relative paths resolve against the plugin working directory), `mode` (`regex`/`literal`), `caseSensitive` (default true), `includeGlobs`/`excludeGlobs` (a matching exclude dir is pruned whole), `maxDepth` (1–50, default 10), `matchLineLength` truncation (default 300 chars + ellipsis). Directories `node_modules`, `.git`, `dist`, `build`, `out`, `.next`, `.nuxt`, `__pycache__`, `.venv`, `coverage` are always pruned. **Ripgrep phase-1 candidate prefilter (B', 02.09): REMOVED in FIX-34a (13.09)** — its rg-WASM search ran synchronously on the main thread (`await wasi.start()`; all WASI syscalls are sync fs), so while it ran no event-loop turn occurred and NO timer-based hang guard could fire (live host-wedge repro 13.09); `pattern_scan` now always runs the full JS walk above.** **DE-STRAngle arc completed 17.09: wall clock (`PATTERN_SCAN_MAX_RUN_MS=3000`) REMOVED (RE-ARMED 24.09 per owner order "abort after 3 seconds" — see RE-ARM note below) — deterministic size bounds replace time-based watchdogs** (fully-async pipeline since FIX-34a; inline host-thread eval; `maxEvalLineLength` default 10,000 chars); **RE-ARM 24.09 (owner order "abort after 3 seconds"): the wall clock IS armed again — `createGrepGuard(hostSignal, PATTERN_SCAN_MAX_RUN_MS=3_000)`; firing is cooperative at file boundaries → PARTIAL results + `aborted: true` + cap warn, host-signal abort unchanged; **WALK-ABORT 28.09:** the BFS walk phase itself now checks this same guard at every directory boundary (`walkDirectory` signal param — before, only file boundaries checked it, so a slow-FS / deep-tree walk ran unbounded past the deadline), an aborted walk returns PARTIAL targets + `aborted: true`; regression suites ×2: `tests/patternScanWalkAbort.test.ts`, `tests/patternScanWalkAbortSlowTree.test.ts`** (deterministic size bounds kept alongside). Case-sensitivity is honored per call (`caseSensitive`, default true) |
 
 > **REV-24 (28.08, v1.9.10):** Prose alternations with a bare `&` (e.g. `"Backup & Restore|Git & GitHub"`) now correctly stay in **regex mode** — `&` is not a JS regex metacharacter and no longer false-positives the code-signature heuristic. Genuine code-signature patterns are still auto-escaped to literal only when an unescaped `*`, `+` or `?` pairs with a signature indicator; the response then carries `patternMode:"auto_escaped"` **with a hint string** explaining why (no more silent 0-match fallback).
 
@@ -344,52 +344,11 @@ The `src/tools/recodeTool/` module implements a pluggable rule engine for advanc
 
 ---
 
-## 🔧 Utilities (~29)
+## 🔧 Utilities — legacy table SUPERSEDED (full re-audit 28.09)
 
-### Memory & Context Tools
-
-| Tool | Description |
-|------|-------------|
-| `save_memory` | Persist facts to `.ai_toolbox_memory.msgpack` MessagePack binary for cross-session continuity |
-| `get_memory` | Retrieve all saved memory entries with optional type filtering and result limits |
-| `search_memory` | Keyword search across stored memories returning relevance confidence scores per match |
-| `delete_memory` | Remove specific memory entry by unique ID returned during save operations |
-| `save_session_summary` | Save structured summary (accomplishments, pending tasks) with zlib compression bypassing 10k SDK limit |
-| `get_session_summary` | Retrieve latest session summary with backward-compatible legacy fallback parser for pre-v1.5.15 data |
-
-### System & Environment Tools
-
-| Tool | Description |
-|------|-------------|
-| `get_system_info` | OS type/version, CPU model/count, total/available memory, disk usage statistics |
-| `system_monitor` | Detailed CPU, memory, disk, network interface metrics reporting for performance tracking |
-| `process_list` | Running processes with CPU%, memory footprint, PID hierarchy; case-insensitive name filtering |
-| `env_inspect` | List environment variables with optional prefix filtering for targeted variable inspection |
-| `detect_os_environment` | Report OS capabilities ensuring correct command syntax before shell/path operations |
-
-### Clipboard & Notifications
-
-| Tool | Description |
-|------|-------------|
-| `read_clipboard` | Cross-platform clipboard read (Windows GetClipboardData, macOS pbpaste, Linux xclip/xsel) |
-| `write_clipboard` | Write text to system clipboard with automatic platform detection and no manual config needed |
-| `send_notification` | OS-native toast notification with title, message body, optional custom icon for user awareness |
-
-### File & Data Utilities
-
-| Tool | Description |
-|------|-------------|
-| `findLMStudioHome` | Locate LM Studio installation directory across Windows/macOS/Linux returning model storage path |
-| `get_enabled_tools` | List currently enabled tools verifying active categories and God Mode bypass status |
-| `hash_file` | Generate MD5/SHA1/SHA256 cryptographic checksums for file integrity verification |
-| `token_count` | LLM token counting via tiktoken (cl100k_base, p50k_base, gpt2 encodings) for context estimation |
-| `convert_format` | JSON↔CSV conversion, base64 encode/decode, compress/decompress with configurable levels |
-| `secret_scan` | Scan files for exposed API keys, passwords, tokens; supports custom exclusion patterns |
-| `port_check` | Synchronous TCP port availability check on localhost or custom host for service verification |
-| `package_manage` | Install/uninstall/update/audit npm/pip/cargo packages (⚠️ requires config toggle enablement) |
-| `json_query` | jq-style JSON field extraction with dot notation, array indexing, wildcard support; 10MB file cap |
-| `env_update` | Safe .env key-value management with validation (alphanumeric + underscores); auto-creates entries |
-| `get_current_working_directory` | Return absolute working directory path for reliable relative path reference in workflows |
+> **⚠️ DEAD-STATUS NOTE (verified against `src/tools/` + `toolsProvider.ts`, 28.09):** none of the tools in this former ~29-row Utilities section is registered anywhere in current code — zero hits per name in `src/tools/*.ts` and no registry entry for any of them (the old host module `utilityTools.ts` was removed in the 23.09 cleanup, after the last full audit on 28.08). Of its former rows, FIVE memory tools are LIVE — but registered under **Context Management** (`src/tools/contextManagementTools.ts`): `save_memory`, `get_memory`, `delete_memory`, `save_session_summary`, `get_session_summary`. Everything else listed below is DEAD (names retained for traceability; locale entries may still reference some of them, e.g. `findLMStudioHome` — see the header gap note). The residual `packageManage` config toggle exists in `config.ts` but gates NO registered tool (stale config residue).
+>
+> Former rows: Memory & Context — `save_memory`, `get_memory`, ~~`search_memory`~~, `delete_memory`, `save_session_summary`, `get_session_summary` · System & Environment — `get_system_info`, `system_monitor`, `process_list`, `env_inspect`, `detect_os_environment` · Clipboard & Notifications — `read_clipboard`, `write_clipboard`, `send_notification` · File & Data Utilities — `findLMStudioHome`, `get_enabled_tools`, `hash_file`, `token_count`, `convert_format`, `secret_scan`, `port_check`, `package_manage`, `json_query`, `env_update`, `get_current_working_directory`.
 
 ---
 
@@ -435,9 +394,9 @@ The `src/tools/recodeTool/` module implements a pluggable rule engine for advanc
 
 ---
 
-## 🧠 Context Management (21)
+## 🧠 Context Management (22 — incl. composite `restore_session_context`, 25.09; re-counted in the 28.09 full re-audit: the Session-Index/Project-Registry sub-table lists 9 rows, not 8)
 
-**Note**: 5 additional context management tools (`save_session_summary`, `get_session_summary`, `save_memory`, `get_memory`, `delete_memory`) are also available under the Utilities category for backward compatibility.
+**Note (re-audit 28.09)**: The five memory tools (`save_session_summary`, `get_session_summary`, `save_memory`, `get_memory`, `delete_memory`) are registered EXACTLY ONCE — in `contextManagementTools.ts` under the contextManagement key — and documented here; their former Utilities-section rows were stale duplicates (see §Utilities dead-status note).
 
 | Tool | Description |
 |------|-------------|
@@ -498,7 +457,7 @@ The `src/tools/recodeTool/` module implements a pluggable rule engine for advanc
 
 ---
 
-## 💾 Backup & Restore (5)
+## 💾 Backup & Restore (6 rows below — incl. `restore_from_bak`, added by the 28.09 re-audit; all registered under the `utility` config key)
 
 | Tool | Description |
 |------|-------------|
@@ -507,6 +466,7 @@ The `src/tools/recodeTool/` module implements a pluggable rule engine for advanc
 | `restore_backup` | Restore full working directory from archive (⚠️ overwrites all files; requires confirm=true) |
 | `delete_backup` | Remove specific backup file (⚠️ irreversible; validates existence before deletion) |
 | `cleanup_backups` | List and optionally delete `.bak` edit backups (dry-run by default; confirm required to delete) — registered under the `utility` toggle key (`cleanupBackupsTool.ts`) |
+| `restore_from_bak` | Restore one file from its `.bak` backup created by a file-modifying tool (named for the original file, without the `.bak` suffix) — same `utility` key (`restoreFromBak.ts`, 28.09 re-audit: previously undocumented here) |
 
 ---
 
@@ -543,11 +503,19 @@ Executes any registered tool by name with built-in validation and error handling
 
 ---
 
-## 📊 Data Visualization (1 — under `utility` toggle)
+## 📊 Data Visualization (1 — under `utility` toggle; 3 further live sibling tools on this key documented below, re-audit 28.09)
 
 | Tool | Description |
 |------|-------------|
 | `generate_chart` | Create line/bar/pie/scatter/area charts outputting SVG/PNG with customizable colors, labels, legends. Registered via `dataVisualizationTools.ts` in the utility tools registry. |
+
+### Sibling live tools on the `utility` config key (previously undocumented; re-audit 28.09)
+
+| Tool | Description |
+|------|-------------|
+| `list_available_bak_backups` | Scan the working directory for all `.bak` backups created by file-modifying tools — pairs with `restore_from_bak` (`restoreFromBak.ts`) |
+| `markdown_preview` | Render a Markdown file to HTML and open it in the default browser (`markdownPreviewTools.ts`) |
+| `get_repeat_tool_advice` | Return current repeat-tool reminder state/nudges for one tool (or a summary across tracked calls) — Loop-Hygiene B advisory surface (`repeatToolReminderTools.ts`, rev-3x pile, 24.09 arc) |
 
 ---
 
@@ -640,7 +608,7 @@ All tools implement multiple security layers:
 
 ---
 
-*Reference updated 2026-09-08 (v1.9.17 / manifest rev 29 — Tool Gating Profile shipped: user-level toggle persistence in `%USERPROFILE%\.ai_toolbox\tool_gating_profile.json` (booleans only, sparse store; auto-capture of non-default toggles, sticky across new chats) · previous refresh 08.09 (v1.9.16 / manifest rev 28): version header sync after web_search fix (no tool surface change) · earlier refresh 2026-09-04 (v1.9.15 / manifest rev 27): header totals re-grounded against the live i18n locale reference (`src/locales/en.ts`: **129 registration entries, 127 distinct tool names**). Prior sync: 2026-08-24 (v1.9.10): Web Research count 4→3 after duplicate rag_web_content removal (tool served by Vector RAG module since v1.9.10). Earlier baseline: 2026-08-17 (v1.9.8). Per-module tables verified against `toolsProvider.ts` registry entries and `src/tools/*.ts` on 28.08 — see header for the deltas pending a full re-audit. insert_at_line read-back drift detection documented with v1.8.8 hard fix. Graphify-Inspired Suite features (v1.9.5): Confidence-Tagged Results, Hub-Exclusion Clustering (83 tests), Project Auto-Detection, Context Tier Provenance, Cluster-Aware Tool Priority.*
+*Doc sync 2026-09-28 (pattern_scan WALK-ABORT walk-phase abort + FULL per-module re-audit with count corrections — see header; version stamp now v1.9.18 / manifest revision 33) · reference updated 2026-09-08 (v1.9.17 / manifest rev 29 — Tool Gating Profile shipped: user-level toggle persistence in `%USERPROFILE%\.ai_toolbox\tool_gating_profile.json` (booleans only, sparse store; auto-capture of non-default toggles, sticky across new chats) · previous refresh 08.09 (v1.9.16 / manifest rev 28): version header sync after web_search fix (no tool surface change) · earlier refresh 2026-09-04 (v1.9.15 / manifest rev 27): header totals re-grounded against the live i18n locale reference (`src/locales/en.ts`: **129 registration entries, 127 distinct tool names**). Prior sync: 2026-08-24 (v1.9.10): Web Research count 4→3 after duplicate rag_web_content removal (tool served by Vector RAG module since v1.9.10). Earlier baseline: 2026-08-17 (v1.9.8). FULL per-module re-audit completed **same day (28.09)**: every count above re-verified against the `toolsProvider.ts` registry + per-module `name:` scans in `src/tools/*.ts`; outcomes recorded inline (header gap note, §Utilities superseded, Image Analysis section removed, Context Management 21→22, Backup & Restore 5→6). insert_at_line read-back drift detection documented with v1.8.8 hard fix. Graphify-Inspired Suite features (v1.9.5): Confidence-Tagged Results, Hub-Exclusion Clustering (83 tests), Project Auto-Detection, Context Tier Provenance, Cluster-Aware Tool Priority.*
 
 ---
 
@@ -690,33 +658,6 @@ Origin types: `_origin: 'ast' | 'semantic'` distinguishes raw file content from 
 Tiers: CRITICAL (1, file system tools), HIGH (2, web research/execution/git), STANDARD (3, browser/image/RAG), OPTIONAL (4, context management), BACKGROUND (5, backup/cleanup). Centrality scoring computed from module degree × hub bonus — used for intelligent tool filtering when grammar parser limits require pruning.
 
 ---
----
 
-## 🖼️ Image Analysis (1 — under `imageAnalysis` toggle)
+## 🖼️ Image Analysis — REMOVED from doc (re-audit 28.09): no `analyze_image` tool exists in code, and there is no `imageAnalysis` config key; **29.09: the former ghost locale entries for this name were purged from all five locales** (they had been recorded in the 28.09 header gap note). The four LIVE image tools (`image_to_text`, `describe_image`, `screenshot_desktop`, `compare_images`) are documented under Image Processing above.
 
-**Vision model-based image analysis via loaded LM Studio vision models (e.g., Llama 3.2 Vision, Moondream).** Requires a vision-enabled model loaded in LM Studio (`model.vision === true`).
-
-| Tool | Description |
-|------|-------------|
-| `analyze_image` | Sends image to loaded vision-capable LLM along with optional prompt; returns model's textual analysis + image metadata (size, format, dimensions). Supports filesystem paths and attached files via SDK attachment resolution. Uses shared `atomicWriteBinaryFile()` for any saved outputs. |
-
-### Parameters
-```typescript
-{
-  imagePath: string;        // Path to image file or attached filename
-  prompt?: string;          // Optional analysis prompt (e.g., "Describe this image in detail", "What text is visible?")
-}
-```
-
-### Resolution Chain
-1. Absolute filesystem path → `fs.existsSync()` check
-2. Relative path from working directory → `path.resolve(process.cwd(), inputPath)`
-3. SDK temp directories (`os.tmpdir()`, `lmstudio/`, `ai-toolbox/`)
-4. Attachment resolution via `listAttachments()` / `getAttachment()` from `attachmentManager.js` (ESM import, v1.9.8+)
-
-### Type-Safety Notes (v1.9.8+ Fixes)
-- ✅ ESM conversion: Replaced `require('../attachmentManager.js')` with static `import { listAttachments, getAttachment }` — eliminates `@typescript-eslint/no-require-imports` warning
-- ✅ FileHandle type assertion: Local `type FileHandleWithReadFile = { name: string; readFile?: () => Promise<Buffer> }` + cast via `as unknown as FileHandleWithReadFile | undefined` resolves TS2339 where SDK's `FileHandle` lacks `.readFile()` declaration (pattern matches `promptPreprocessor.ts:218-247`)
-- ✅ Removed unused eslint-disable directive for Tesseract.js (`@typescript-eslint/no-unsafe-*`) — file no longer imports Tesseract
-
----

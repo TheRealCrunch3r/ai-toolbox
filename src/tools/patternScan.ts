@@ -199,13 +199,18 @@ async function scanFileWithLimits(absolutePath: string, relPath: string, rx: Reg
 
 interface WalkTarget { abs: string; rel: string; } // rel = posix path relative to root
 
-async function walkDirectory(rootAbs: string, maxDepth: number, excludeGlobs: readonly string[]): Promise<{ files: WalkTarget[]; excludedDirs: Set<string>; }> {
+async function walkDirectory(rootAbs: string, maxDepth: number, excludeGlobs: readonly string[], signal?: AbortSignal): Promise<{ files: WalkTarget[]; excludedDirs: Set<string>; }> {
   const files: WalkTarget[] = [];
   const excluded = new Set<string>();
   interface QEntry { dirAbs: string; rel: string; depth: number; } // depth of THIS directory below root (root = 0)
   const queue: QEntry[] = [{ dirAbs: rootAbs, rel: '', depth: 0 }];
 
   for (;;) {
+    // WALK-ABORT (28.09): the walk phase previously ran to completion with NO deadline check — in directory mode
+    // no file boundary exists until the BFS finishes, so a slow-FS/deep-tree walk sailed past PATTERN_SCAN_MAX_RUN_MS
+    // and only the post-walk workers noticed the flag (the 28.09 >3 s abort incidents; cf. RE-ARM 24.09's >60 s incident).
+    // One cooperative check per directory boundary: deadline or host signal → stop walking, return PARTIAL targets.
+    if (signal?.aborted) break;
     const cur = queue.shift();
     if (!cur) break; // BFS complete
     let entries: Dirent[];
@@ -302,7 +307,9 @@ export async function patternScan(options: PatternScanOptions): Promise<PatternS
       targets = [{ abs: rootAbs, rel: path.relative(process.cwd(), rootAbs).split(path.sep).join('/') || path.basename(rootAbs) }];
     } else if (st.isDirectory()) {
       const maxDepth = Math.max(1, Math.floor(options.maxDepth ?? SCAN_DEFAULTS.maxDepth));
-      const walked = await walkDirectory(rootAbs, maxDepth, excludeGlobs);
+      // WALK-ABORT (28.09): forward the shared guard signal so the BFS itself stops at the 3 s deadline / host cancel
+      // instead of running to completion before any file-boundary check could see it (see walkDirectory).
+      const walked = await walkDirectory(rootAbs, maxDepth, excludeGlobs, guard.signal);
       walked.excludedDirs.forEach((d) => excludedDirs.add(d));
       targets = walked.files.filter((t) => {
         const b = path.basename(t.abs);

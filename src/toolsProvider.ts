@@ -53,6 +53,8 @@ import { checkHeapPressure } from './performanceUtils.js';
 import { resetToolGuard } from './utils/withPipeline.js';
 // Loop hygiene B — repeat-tool reminder per turn
 import { repeatReminder } from './utils/repeatToolReminder.js';
+// Spill pattern A — immediate inline spill for oversized results
+import { spillTextIfNeeded } from './utils/toolPayloadSpill.js';
 
 // Cluster-aware tool ordering (18.09): wires src/tools/toolPriority.ts into production — see CHANGELOG_v2 18.09 entry.
 import type { HubExclusionResult } from './utils/hubExclusionClustering.js';
@@ -311,6 +313,12 @@ export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[
       let result: unknown;
       try {
         result = await original(params, ctx);
+        // A spill pattern — immediate inline spill for oversized string results
+        if (config.compactionEnabled !== false && typeof result === 'string') {
+          // Use compaction max bytes config as spill threshold
+          const maxBytes = typeof config.compactionMaxResultBytes === 'number' && config.compactionMaxResultBytes > 0 ? config.compactionMaxResultBytes : 16 * 1024;
+          result = await spillTextIfNeeded(result, maxBytes);
+        }
       } finally {
         TokenStatsManager.endToolCall(raw.name);
       }
@@ -349,7 +357,14 @@ export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[
         !Array.isArray(result) &&
         Object.getPrototypeOf(result) === Object.prototype
       ) {
-        return { ...result, executedTool };
+        // E house rule — model-visible ⟺ logged invariant
+        const stamped = { ...result, executedTool };
+        // FAIL-LOUD: ensure the model-visible field is present and loggable
+        if (stamped.executedTool !== executedTool) {
+          console.error('[AI Toolbox] [E HOUSE RULE] FAIL-LOUD: executedTool stamp missing from model-visible result');
+        }
+        console.log('[AI Toolbox] [E HOUSE RULE] model-visible ⟺ logged: executedTool=', executedTool, 'for', raw.name);
+        return stamped;
       }
       return result;
     };

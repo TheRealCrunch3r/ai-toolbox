@@ -42,7 +42,6 @@ export const esTranslations: FullTranslationSet = {
       { toolName: 'wikipedia_search', description: 'Busca resúmenes de páginas en Wikipedia', parameters: ['query, lang (opcional)'] },
       { toolName: 'fetch_web_content', description: 'Obtiene el contenido limpio del texto de una página web', parameters: ['url'] },
       { toolName: 'rag_web_content', description: 'Extracción semántica de páginas web basada en RAG', parameters: ['url, query'] },
-      { toolName: 'browser_session_open', description: 'Abre una sesión persistente de navegador', parameters: ['url, wait_for_selector (opcional)'] },
       { toolName: 'browser_session_control', description: 'Controla acciones del navegador (clic, escritura, etc.)', parameters: ['array actions, bandera read_page'] },
     ],
   },
@@ -64,7 +63,6 @@ export const esTranslations: FullTranslationSet = {
       { toolName: 'git_log', description: 'Muestra el historial de commits', parameters: ['max_count (opcional)'] },
       { toolName: 'git_add', description: 'Pone en staging archivos específicos o todos los cambios', parameters: ['paths (opcional)'] },
       { toolName: 'git_checkout', description: 'Cambia a una rama existente o crea una nueva', parameters: ['branch_name, create_new (opcional)'] },
-      { toolName: 'gh_auth', description: 'Comprueba el estado de autenticación de GitHub', parameters: [] },
       { toolName: 'gh_create_issue', description: 'Crea un nuevo issue en GitHub', parameters: ['title, body (opcional), labels (opcional)'] },
       { toolName: 'gh_list_issues', description: 'Lista issues del repositorio', parameters: ['state (opcional), labels (opcional), limit (opcional)'] },
       { toolName: 'gh_view_comments', description: 'Muestra comentarios de un issue o PR', parameters: ['number, type (opcional)'] },
@@ -186,7 +184,8 @@ export const esTranslations: FullTranslationSet = {
   utilities: {
     categoryTitle: '🔧 Herramientas utilitarias',
     tools: [
-      { toolName: 'findLMStudioHome', description: 'Localiza el directorio de instalación de LM Studio entre plataformas, devolviendo la ruta de almacenamiento de modelos', parameters: [] },
+    { toolName: 'markdown_preview', description: 'Representa un archivo Markdown como HTML y lo abre en el navegador predeterminado', parameters: ['file_path'] },
+    { toolName: 'get_repeat_tool_advice', description: 'Devuelve el estado actual del recordatorio de herramientas repetidas y avisos activos; sirve para comprobar si el modelo está en bucle de repetición', parameters: ['toolName, args (optional)'] },
     ],
   },
   imageProcessing: {
@@ -196,7 +195,6 @@ export const esTranslations: FullTranslationSet = {
       { toolName: 'describe_image', description: 'Obtiene metadatos de imagen: dimensiones, formato, tamaño y marcas de tiempo para PNG/JPG/BMP/GIF/WebP/TIFF', parameters: ['imagePath'] },
       { toolName: 'screenshot_desktop', description: 'Captura una captura de pantalla del escritorio multiplataforma (GDI+/screencapture/ImageMagick)', parameters: ['outputPath/format/quality (opcional)'] },
       { toolName: 'compare_images', description: 'Comparación a nivel de bytes y dimensiones de dos imágenes; estado de coincidencia exacta para codificaciones idénticas', parameters: ['image1Path, image2Path'] },
-      { toolName: 'analyze_image', description: 'Envía una imagen a un modelo con capacidad visual cargado en LM Studio con prompt opcional; devuelve análisis textual + metadatos (⚠️ requiere un modelo visual)', parameters: ['imagePath, prompt (opcional)'] },
     ],
   },
   backupRestore: {
@@ -207,6 +205,8 @@ export const esTranslations: FullTranslationSet = {
       { toolName: 'restore_backup', description: 'Restaura el directorio de trabajo desde un archivo de copia (⚠️ sobrescribe todos los archivos; requiere confirm=true)', parameters: ['backupFile, confirm'] },
       { toolName: 'delete_backup', description: 'Elimina un archivo de copia específico (⚠️ irreversible; valida existencia primero)', parameters: ['backupFile, confirm'] },
       { toolName: 'cleanup_backups', description: 'Lista y opcionalmente elimina copias .bak de edición — dry-run por defecto, se requiere confirmación para eliminar', parameters: ['confirm (opcional)'] },
+      { toolName: 'restore_from_bak', description: 'Restaura un archivo desde su copia de seguridad .bak creada por herramientas de modificación de archivos (replace_text_in_file, insert_at_line, append_file, delete_lines_in_file)', parameters: ['file_name'] },
+      { toolName: 'list_available_bak_backups', description: 'Escanea el directorio de trabajo actual en busca de todos los archivos .bak creados por herramientas de modificación de archivos; consulta disponible antes de restaurar', parameters: [] },
     ],
   },
   dataVisualization: {
