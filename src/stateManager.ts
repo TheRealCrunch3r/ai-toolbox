@@ -147,7 +147,10 @@ async function updateSessionIndex(projectName: string): Promise<void> {
 }
 
 /** Get the current project name from context (defaults to active working dir's basename) */
-function resolveProjectName(): string {
+// ? CONTAMINATION-FIX Part B export (01.10): readers must resolve the SAME name StateManager uses for its
+// store filename, so they can detect identity drift (frozen construction-time name vs. live CWD) and/or read
+// the correct per-project file instead of a hardcoded one. RESEARCH_session-memory-contamination_2026-10-01 §4.
+export function resolveProjectName(): string {
   const cwd = getWorkingDir();
   // Extract last directory component as fallback project name
   return path.basename(cwd).toLowerCase().replace(/[^a-z0-9]/g, '_');
@@ -1008,5 +1011,76 @@ export class StateManager {
     }
 
     this.recalculateSize();
+  }
+
+  /**
+   * REBIND-IDENTITY (CONTAMINATION-FIX Part A, 01.10): re-resolve this manager's project identity after a
+   * working-directory switch that has ALREADY taken effect at the call site (`change_directory`, Step 0.7
+   * `applyProjectCwdSwitch`). See RESEARCH_session-memory-contamination_2026-10-01.md §4.
+   *
+   * Without this, the name frozen at construction (field init / constructor) desyncs from the live CWD that
+   * every I/O path resolves: after a mid-process switch A→B all writes would target
+   * `<B>/.session_context/."A"_memory.msgpack` — a foreign file planted in B's folder under A's name — while
+   * RAM keeps serving A's records (cross-project reads, RAM-first eviction+flush merging across projects).
+   *
+   * ORDER MATTERS and deliberately deviates from the research doc's pseudocode comment ("dir still resolves
+   * live inside saveToFile → old file"), which was correct only if this ran BEFORE setWorkingDir(): every real
+   * call site invokes us AFTER the switch, so a plain `saveToFile()` here would resolve the path against the
+   * NEW directory and write A's RAM into `<B>/<.A>` — reproducing the exact artifact. The old-project flush
+   * therefore uses an EXPLICIT path built from (previousWorkingDir, frozen name):
+   * 1) cancel any pending debounced flush (it would later fire with the NEW name over OLD RAM),
+   * 2) write A's RAM to `<A>/.session_context/."A"_memory.msgpack` + update the legacy index for A,
+   * 3) rebind `currentProjectName` / `projectContextDir` to the new project (live resolution now agrees),
+   * 4) forceLoad() so RAM serves ONLY the new project's records.
+   *
+   * Non-fatal by contract: a failure must not break change_directory / CWD-switch UX — it is logged and the
+   * identity stays UNREBOUND (the next switch retries; worst case = pre-fix behavior, never data loss). No-op
+   * when persistence is disabled or the resolved name did not change.
+   * @param previousWorkingDir Absolute path of the working directory in effect BEFORE this switch — needed
+   * because live resolution already points at the new directory by the time we run (see above).
+   */
+  async refreshProject(previousWorkingDir: string): Promise<void> {
+    if (!this.persistenceEnabled) return;
+
+    const oldName = this.currentProjectName; // frozen identity: construction-time CWD basename or config override
+    const newName = resolveProjectName();    // live resolution against the CURRENT (post-switch) working dir
+    if (newName === oldName) return;         // same project — nothing to rebind
+
+    await this.ensureReady();                // settle constructor load before any flush/load below
+
+    // 1) Cancel a pending debounced flush: we take over persistence for both sides from here on. A timer left
+    //    running would fire with the NEW name while RAM still holds OLD records → cross-project clobber.
+    if (this.saveTimer) { clearTimeout(this.saveTimer); this.saveTimer = null; }
+
+    // 2) Flush the old project's RAM state into its OWN file — explicit path, see doc comment above.
+    const oldDir = previousWorkingDir || getWorkingDir();
+    let flushedOld = false;
+    try {
+      await fs.mkdir(path.join(oldDir, '.session_context'), { recursive: true });
+      const oldFile = path.join(oldDir, '.session_context', `.${oldName}_memory.msgpack`);
+      logger.info(`[StateManager.refreshProject] Flushing '${oldName}' state to ${oldFile} before rebind`);
+      await saveMemoryFile(oldFile, this.state);
+      await updateSessionIndex(oldName); // legacy bookkeeping for the project whose state just landed
+      flushedOld = true;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.error(`[StateManager.refreshProject] FAILED to flush '${oldName}' to previous dir (${oldDir}): ${msg}`);
+    }
+
+    // 3) Rebind identity. RAM is untouched — it still holds the old project's records, which are on disk in A's
+    //    own file when flushedOld; from step 4 on they can no longer leak into B (guard + clean RAM).
+    this.currentProjectName = newName;
+    try {
+      this.projectContextDir = path.join(getWorkingDir(), '.session_context');
+      await fs.mkdir(this.projectContextDir, { recursive: true });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.warn(`[StateManager.refreshProject] Could not create session context dir for '${newName}': ${msg}`);
+    }
+
+    // 4) Load the new project's store into RAM (clears the old records; empty state when B has no file yet).
+    await this.forceLoad();
+
+    logger.info(`[StateManager.refreshProject] Identity rebind complete: '${oldName}' → '${newName}' (old flush ${flushedOld ? 'OK' : 'FAILED — see error above'})`);
   }
 }

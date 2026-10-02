@@ -64,6 +64,14 @@ import { sortToolsByClusterAwarePriority } from './tools/toolPriority.js';
 let stateManager: StateManager;
 let backgroundCommandManager: BackgroundCommandManager;
 
+/** CONTAMINATION-FIX Part A (01.10): read-only accessor for the process-wide StateManager singleton — used by
+ * applyProjectCwdSwitch() (Step 0.7) to rebind identity after a CWD switch. Returns undefined until tool
+ * registration has constructed the instance; an early preprocessor call then simply skips the rebind and the
+ * next switch retries (see RESEARCH_session-memory-contamination_2026-10-01.md §4, Part A). */
+export function getStateManager(): StateManager | undefined {
+  return stateManager;
+}
+
 
 // Cluster-aware tool ordering (18.09): analyzeAiToolboxDependencies() is pure and static — it builds a
 // ~25-node graph from the hardcoded ARCHITECTURE.md edge list (no fs I/O), so compute it exactly once per

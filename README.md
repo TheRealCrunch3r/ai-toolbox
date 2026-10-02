@@ -4,13 +4,13 @@
 
 **Give your local LLM real hands.** The most complete LM Studio Hub plugin — turns any local model into a capable, self-managing AI agent with safe file editing, hang-proof codebase search, background builds, headless browser automation, Git & GitHub workflows, OCR, charting and semantic RAG; **self-managing context** keeps marathon sessions alive. One plugin, zero glue code, fully offline by default.
 
-> `v1.9.18` · `113 ready-made tools` · `860 tests green (56 suites)` · `5 locales` · `MIT` · `Node 20+`
+> `v1.9.18` · `113 ready-made tools` · `874 tests green (58 suites)` · `5 locales` · `MIT` · `Node 20+`
 
 [!IMPORTANT] LM Studio does NOT support automatic updates. If you encounter issues, update manually first: remove the current version and re-download from the plugin website. Note that LM Studio may show an "already installed" tooltip even if your version is outdated.
 
 ## Contents
 
-[Why AI Toolbox (vs other plugins)](#why-ai-toolbox-vs-other-lm-studio-plugins) · [Head-to-head comparison](#head-to-head-comparison-vs-beledarians-lm-studio-tools) · [Feature overview](#feature-overview) · [Quick start (2 minutes)](#quick-start-2-minutes) · [Configuration & tool toggles](#configuration--tool-toggles--total-control-zero-code) · [Security posture](#security-posture--built-like-it-matters) · [Architecture](#architecture-under-the-hood-for-the-curious) · [Tool arsenal (113 tools)](#the-tool-arsenal-113-tools-across-every-family-all-yours-to-toggle) · [Release highlights](#release-highlights-full-history--changelog_v3md--active-v2-archived--legacy-changelogmd)
+[Why AI Toolbox (vs other plugins)](#why-ai-toolbox-vs-other-lm-studio-plugins) · [Head-to-head comparison](#head-to-head-comparison-vs-beledarians-lm-studio-tools) · [Feature overview](#feature-overview) · [Quick start (2 minutes)](#quick-start-2-minutes) · [Configuration & tool toggles](#configuration--tool-toggles--total-control-zero-code) · [Security posture](#security-posture--built-like-it-matters) · [Architecture](#architecture-under-the-hood-for-the-curious) · [Tool arsenal (113 tools)](#the-tool-arsenal-113-tools-across-every-family-all-yours-to-toggle) · [Release highlights](#release-highlights-full-history--changelog_v4md--active-v1–v3-in-docshistory/)
 
 ---
 
@@ -45,7 +45,7 @@ The closest direct competitor on the Hub: same job (tools for local LLMs), very 
 | ✅ **AST-level refactoring** (rename, move functions, dead-import cleanup) — syntax-safe transforms with auto-rollback, not string edits |
 | ✅ **Real RAG:** local vector index over PDF / DOCX / XLSX with page-level provenance — not just keyword search |
 | ✅ **Image & data viz:** OCR on screenshots and captures, image metadata + comparison, chart generation |
-| ✅ **113 tools** vs ~49 — backed by 860 passing tests across 56 suites |
+| ✅ **113 tools** vs ~49 — backed by 874 passing tests across 58 suites |
 | ✅ **Crash-resilient writes + rollback on failure:** a botched edit can never corrupt your file |
 
 Our previous i18n gap is closed: **we now ship 5 locales** (en · de · es · zh-CN · zh-TW), each a full translation set — and anti-stub tests guard the suite so alias/fallback languages can never silently regress. We'd rather tell you than pretend it doesn't exist.
@@ -100,7 +100,7 @@ Charts rendered to image files from raw data (bar/line/pie/doughnut/scatter/rada
 ```bash
 # Developing instead of using?
 npm install && npm run build   # ESM + CJS via tsup
-npm test                        # full suite: 56 suites / 860 tests green (owner-verified 29.09; ~21.5–22.2 s host baseline from the same-day 857-test gates)
+npm test                        # full suite: 58 suites / 874 tests green (owner-verified 01.10; ~21.5 s host baseline at this count; prior arcs: 860/56 @ 29.09, 857/56 @ 28.09)
 ```
 
 ---
@@ -165,7 +165,7 @@ One plugin replaces an entire shelf. Here's every family, what it covers, and it
 
 ---
 
-## Release Highlights (full history → CHANGELOG_v3.md — active; v2 archived ← legacy CHANGELOG.md)
+## Release Highlights (full history → CHANGELOG_v4.md — active; v1–v3 in docs/history/)
 
 | Version | Headline |
 |---|---|

@@ -30,6 +30,9 @@ import { decode } from '@msgpack/msgpack';
 
 import type { PluginConfig } from '../config.js';
 import type { StateManager } from '../stateManager.js';
+// CONTAMINATION-FIX Part B (01.10): value import — the store file must be resolved with the SAME per-project
+// name StateManager uses for its writes, not a hardcoded one (see RESEARCH_session-memory-contamination §4).
+import { resolveProjectName } from '../stateManager.js';
 import { getWorkingDir } from '../workingDir.js';
 import { ContextStorageManager, SessionIndexManager } from './contextManagementTools.js';
 import type { SessionSummaryData } from './contextManagementTools.js';
@@ -150,7 +153,12 @@ PARAMS: include_sessions_index (default true), max_chars (hard dossier budget, d
       // ==================== Store file read (shared by summary + facts) ====================
       let storeRecords: StateEntry[] | null = null;
       let storeFileExists = false;
-      const storePath = path.join(wd, '.session_context', '.ai_toolbox_memory.msgpack');
+      // CONTAMINATION-FIX Part B1 (01.10): resolve the SAME per-project filename StateManager writes
+      // (<wd>/.session_context/."<name>_memory.msgpack") instead of a hardcoded one — for every project whose
+      // directory is not literally named "ai_toolbox" the old read either missed the real store or could surface
+      // a foreign file planted under that name by the pre-fix frozen-identity bug (RESEARCH §4 Part B1).
+      const storeProjectName = resolveProjectName();
+      const storePath = path.join(wd, '.session_context', `.${storeProjectName}_memory.msgpack`);
       try {
         if (await fs.access(storePath).then(() => true).catch(() => false)) {
           storeFileExists = true;
@@ -158,15 +166,30 @@ PARAMS: include_sessions_index (default true), max_chars (hard dossier budget, d
           if (Array.isArray(decoded)) storeRecords = decoded as StateEntry[];
         }
       } catch (err) {
-        sectionNotes.push({ name: 'store_file', note: `.ai_toolbox_memory.msgpack exists but could not be parsed (${String(err)}) — summary/facts families unavailable from disk` });
+        sectionNotes.push({ name: 'store_file', note: `.${storeProjectName}_memory.msgpack exists but could not be parsed (${String(err)}) — summary/facts families unavailable from disk` });
       }
 
       // ==================== 1. Latest session summary (RAM first, file fallback — mirrors get_session_summary) ====================
       let summaryData: SessionSummaryData | null = null;
       try {
         if (stateManager) {
-          const ramHit = stateManager.get<SessionSummaryData>('session_summary_latest');
-          if (ramHit && typeof ramHit === 'object') summaryData = ramHit;
+          // CONTAMINATION-FIX Part B2 (01.10): trust the RAM store ONLY while its identity matches the current
+          // project. In long-lived host processes the frozen construction-time name can lag a mid-process CWD
+          // switch — exactly then, unguarded, RAM would serve ANOTHER project's summary (the 30/09 false dossier).
+          // On mismatch: fail closed to the disk read above and surface it in section notes. getMemoryFilePath()
+          // is I/O-free by design (pure field/path computation) — see stateManager.ts.
+          let ramIdentity: string | null = null;
+          try {
+            ramIdentity = stateManager.getMemoryFilePath().projectName;
+          } catch {
+            ramIdentity = null; // unresolvable identity → treat as mismatch (fail closed to disk)
+          }
+          if (ramIdentity === storeProjectName) {
+            const ramHit = stateManager.get<SessionSummaryData>('session_summary_latest');
+            if (ramHit && typeof ramHit === 'object') summaryData = ramHit;
+          } else {
+            sectionNotes.push({ name: 'session_summary', note: `RAM store identity '${ramIdentity ?? 'unknown'}' does not match current project '${storeProjectName}' — RAM skipped, disk fallback` });
+          }
         }
         if (!summaryData && storeRecords) {
           const entry = storeRecords.find(e => e && typeof e === 'object' && e.key === 'session_summary_latest');
@@ -324,7 +347,7 @@ PARAMS: include_sessions_index (default true), max_chars (hard dossier budget, d
         if (factEntries.length === 0) {
           sections.push({ name: 'memory_facts', text: storeFileExists
             ? `## Memory Facts — none stored (store file holds ${storeRecords.length} record(s) of other type(s))`
-            : `## Memory Facts — none stored (no .ai_toolbox_memory.msgpack for this project)` });
+            : `## Memory Facts — none stored (no .${storeProjectName}_memory.msgpack for this project)` });
         }
       } else {
         sections.push({ name: 'memory_facts', text: `## Memory Facts — unavailable (${storeFileExists ? 'store file unreadable' : 'no store file'})` });

@@ -1,4 +1,13 @@
-# Changelog — ai_toolbox (active)
+# Changelog — ai_toolbox (archived v3)
+
+> ⚠️ **Superseded by [`CHANGELOG_v4.md`](../CHANGELOG_v4.md)** on 01.10.2026 (file-size rotation, same house pattern as the v1 → v2 and v2 → v3 hand-offs). This file is preserved as history — no new entries are added here. Rotation carried the ten newest v3 entries (the uncommitted rev-3x pile, 21.09–28.09) verbatim into `CHANGELOG_v4.md`, but this body kept its original copy intact; per owner order 01.10 (~21:xx), all pre-today content was dumped to THIS file — i.e., the duplicate in v4 was removed, so every entry dated before 01.10 lives here exactly once.
+> Older entries (`[20.09 SPEC-C]` and earlier) remain in this file unchanged.
+
+### Entry index — all pre-today entries live in the body below (top → bottom), exactly once
+Rev-3x pile (carried to `CHANGELOG_v4.md` at rotation and dumped back here 01.10 ~21:xx): FIX-35c (28.09 ~19:3x) · WALK-ABORT (28.09 ~17:0x–17:1x) · RESTORE SESSION CONTEXT (25.09 ~18:3x) · LOOP HYGIENE B (25.09) · PIPELINE HYGIENE D (25.09) · PATTERN_SCAN RE-ARM (24.09) · C COMPACTION FAMILY (24.09) · EOL-FIX (21.09) · FIX #33 D-LOST-WRITE (21.09 ~16:3x)
+Earlier archive body (unchanged): [20.09] SPEC-C · [20.09 ~16:05] CSM Checkpoint Self-Expiry/Count Cap (draft) · [19.09] F4 · [18.09] cluster-aware tool ordering · [17.09] AutoTracker F1+F2 · [16.–17.09] DE-STRAngle · [15.09] DRAIN-GRACE · [15.09] SEARCH-NORM · [14.09] RIPGREP TOOL SWAP
+
+---
 
 > **This file supersedes [`CHANGELOG_v2.md`](CHANGELOG_v2.md)** (rotated out on 20.09.2026 after the v2 file exceeded a comfortable single-session read size; its pre-rotation entries are kept in `CHANGELOG_v2.md` with an index + pointers, and `CHANGELOG.md` remains archived legacy history).
 > New entries are added at the top of this file. Details below were compiled from verified session records and bundle-level verification (`dist/index.js` + `index.mjs` are unminified, so shipped content was confirmed byte-exact).

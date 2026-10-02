@@ -5,9 +5,9 @@
  * for llama.cpp's EBNF grammar generator (recursion limit exceeded).
  * 
  * This module compresses tool schemas before registration by:
- * 1. Truncating verbose descriptions to ~150 chars (safe — doesn't affect validation)
- * 2. Capping excessive maxLength constraints in JSON Schema (>5KB → cap at 5KB)
- * 3. Capping excessive maxItems constraints in array schemas (>10 items → cap at 10)
+ * 1. Truncating verbose descriptions (>200 chars) to ~150 chars at a sentence boundary (safe — doesn't affect validation)
+ * 2. Capping excessive maxLength constraints in JSON Schema (>2000 → cap at 2000, per llama.cpp PR #17381 repetition-bound limit)
+ * 3. Capping excessive maxItems constraints in array schemas (>2000 → cap at 2000, same PR); recurses into nested properties/items
  */
 
 import type { Tool } from '@lmstudio/sdk';

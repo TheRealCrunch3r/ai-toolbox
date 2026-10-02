@@ -219,7 +219,9 @@ export function findVerifyWindow(lines: string[], startLine: number, verifyBefor
   return null;
 }
 
-export function registerFileSystemTools(config: PluginConfig, _stateManager: StateManager): Tool[] {
+// ✅ CONTAMINATION-FIX Part A (01.10): `stateManager` was previously unused here (_-prefixed) — change_directory now
+// uses it to rebind identity after a successful CWD switch; see refreshProject() in stateManager.ts.
+export function registerFileSystemTools(config: PluginConfig, stateManager: StateManager): Tool[] {
   const tools: Tool[] = [];
 
   // list_directory tool — ASYNC optimized with fs.promises.readdir
@@ -1811,12 +1813,21 @@ EXAMPLE:
 
         // ✅ AI Toolbox's abstraction for state change
         const success = setWorkingDir(fullPath);
-        
+
         if (!success) {
-          return { 
-            success: false, 
-            error: `Failed to change directory to '${directory}'. Ensure the path exists and is a valid directory.` 
+          return {
+            success: false,
+            error: `Failed to change directory to '${directory}'. Ensure the path exists and is a valid directory.`
           };
+        }
+
+        // ✅ CONTAMINATION-FIX Part A (01.10): rebind StateManager identity AFTER the switch — flushes pending RAM to
+        // the previous project's OWN file, then loads this directory's store. Non-fatal by contract (see refreshProject).
+        try {
+          await stateManager.refreshProject(previousDirectory);
+        } catch (refreshErr: unknown) {
+          const msg = refreshErr instanceof Error ? refreshErr.message : String(refreshErr);
+          console.warn(`[change_directory] StateManager identity rebind after CWD switch failed (non-fatal): ${msg}`);
         }
 
         // ✅ Beledarian's contextual return data + AI Toolbox's structured format

@@ -13,6 +13,8 @@ import { encode } from '@msgpack/msgpack';
 
 import { registerRestoreSessionContextTool } from '../src/tools/restoreSessionContextTool';
 import type { StateManager } from '../src/stateManager';
+// CONTAMINATION-FIX B1 (01.10): the store seed must use the SAME per-project filename the tool now resolves at read time.
+import { resolveProjectName } from '../src/stateManager';
 import { DEFAULT_CONFIG } from '../src/config';
 
 // Mutable working-dir seam (globalThis on purpose: jest.mock factory hoisting forbids out-of-scope variable refs).
@@ -43,6 +45,8 @@ let sessionCtxDir: string;
  * see mergeEntriesWithTiers + _syncFromSessionMemory docs) and load() compares against that same file path — NOT the bare
  * working dir. Seeding a directory string made every entry look cross-project (rejected by the project filter). */
 let STORE_STAMP: string;
+/** CONTAMINATION-FIX B1 (01.10): per-project store filename component, resolved with the SAME function as production. */
+let STORE_PROJECT: string;
 let toolImpl: (params: Record<string, unknown>) => Promise<Record<string, unknown>> | undefined;
 
 async function seedStore(): Promise<void> {
@@ -82,10 +86,15 @@ async function seedStore(): Promise<void> {
     } },
     // state record: explicit memory fact
     { key: `memory_${NOW}`, timestamp: NOW - DAY_MS, value: { fact: 'FACT-UNIQUE-BODY owner preference', timestamp: NOW - DAY_MS, date: 'fact-date' } },
-    // context entries (same file — the real shared-store shape)
-    checkpointA, checkpointB, decision, expiredSession,
+    // (context entries moved below into the SHARED CSM file — see post-isolation split)
   ];
-  await fs.writeFile(path.join(sessionCtxDir, '.ai_toolbox_memory.msgpack'), encode(records));
+
+  // ?? POST-ISOLATION PRODUCTION SHAPE (CONTAMINATION-FIX B1, 01.10): StateManager records live in the PER-PROJECT file
+  // .<name>_memory.msgpack; ContextStorageManager entries stay in the SHARED .ai_toolbox_memory.msgpack by design.
+  await fs.writeFile(path.join(sessionCtxDir, `.${STORE_PROJECT}_memory.msgpack`), encode(records));
+
+  const ctxRecords: unknown[] = [checkpointA, checkpointB, decision, expiredSession];
+  await fs.writeFile(path.join(sessionCtxDir, '.ai_toolbox_memory.msgpack'), encode(ctxRecords));
 
   // ── Persisted plans: two on disk, newest must win (get_plan selection semantics) ──
   const planData = {
@@ -127,6 +136,7 @@ beforeAll(async () => {
   sessionCtxDir = path.join(tempWd, '.session_context');
   STORE_STAMP = path.join(sessionCtxDir, '.ai_toolbox_memory.msgpack'); // production stamp shape (memory FILE path)
   _g.__rsc_wd = tempWd;
+  STORE_PROJECT = resolveProjectName(); // CONTAMINATION-FIX B1: resolved AFTER the seam points at tempWd (production order)
   await seedStore();
 
   const tools = registerRestoreSessionContextTool(DEFAULT_CONFIG as never);
@@ -242,8 +252,12 @@ describe('restore_session_context', () => {
   test('legacy string-valued session_summary_latest is parsed (write/read symmetry with get_session_summary)', async () => {
     const legacyValue = JSON.stringify({ task_description: 'LEGACY-STRING-SUMMARY', timestamp: NOW - DAY_MS, date: 'legacy-date' });
     // Rewrite ONLY the summary record as a JSON string value; keep everything else.
-    const storePath = path.join(sessionCtxDir, '.ai_toolbox_memory.msgpack');
-    const { decode } = await import('@msgpack/msgpack');
+    // CONTAMINATION-FIX B1 (01.10): state records now live in the PER-PROJECT file (was hardcoded shared name).
+    const storePath = path.join(sessionCtxDir, `.${STORE_PROJECT}_memory.msgpack`);
+    // CJS require (NOT native dynamic import): under module=NodeNext TS keeps `await import()` native even in
+    // CJS output — that only works if jest runs WITH --experimental-vm-modules (baked into "npm test", absent from
+    // plain `npx jest` → "A dynamic import callback was invoked" TypeError; hit 01.10 in targeted reruns).
+    const { decode } = require('@msgpack/msgpack') as typeof import('@msgpack/msgpack');
     const records = decode(await fs.readFile(storePath)) as Array<Record<string, unknown>>;
     const idx = records.findIndex(r => r.key === 'session_summary_latest');
     expect(idx).toBeGreaterThanOrEqual(0);
@@ -265,6 +279,9 @@ describe('restore_session_context', () => {
     const fakeSummary = { task_description: 'RAM-WINS-SUMMARY', timestamp: NOW - DAY_MS, date: 'ram-date' };
     const fakeStore = {
       get: <T>(_key: string): T | undefined => fakeSummary as T,
+      // CONTAMINATION-FIX B2 (01.10): the identity guard now verifies the RAM store's project name before trusting it —
+      // mirror the production StateManager surface so this pin tests PRIORITY parity, not the mismatch path.
+      getMemoryFilePath: () => ({ filePath: '', projectName: resolveProjectName(), indexPath: null }),
     } as unknown as StateManager;
 
     const tools = registerRestoreSessionContextTool(DEFAULT_CONFIG as never, fakeStore);
@@ -275,6 +292,56 @@ describe('restore_session_context', () => {
     expect(dossier).toContain('RAM-WINS-SUMMARY');
   });
 
+  // ==================== CONTAMINATION-FIX regressions (01.10, RESEARCH_session-memory-contamination §5) ====================
+
+  test('foreign .ai_toolbox_memory.msgpack with a planted summary is NOT surfaced for differently-named projects (B1)', async () => {
+    // The pre-fix frozen-identity bug wrote project A's records into B's folder under A's filename
+    // (<B>/.session_context/.<A>_memory.msgpack). For any project whose resolved name differs from 'ai_toolbox',
+    // that shared-named file must no longer feed the summary/facts families — only the per-project file may.
+    const foreignPath = path.join(sessionCtxDir, '.ai_toolbox_memory.msgpack');
+    // APPEND the forged state record to the existing file (which holds the seeded CSM context entries): in a
+    // contaminated production layout both shapes coexist; replacing would destroy the ctx fixture and the count pin below.
+    // CJS require (NOT native dynamic import) — see note at the other require() site in this file.
+    const { decode } = require('@msgpack/msgpack') as typeof import('@msgpack/msgpack');
+    const existing = decode(await fs.readFile(foreignPath)) as Array<Record<string, unknown>>;
+    await fs.writeFile(foreignPath, encode([
+      ...existing,
+      { key: 'session_summary_latest', timestamp: NOW - DAY_MS, value: { task_description: 'FORGED-FOREIGN-SUMMARY' } },
+    ]));
+
+    const res = (await toolImpl!({})) as Record<string, unknown>;
+    const data = res.data as Record<string, any>;
+    const dossier = data.dossier_text as string;
+    expect(dossier).not.toContain('FORGED-FOREIGN-SUMMARY');   // foreign record must not surface (doc §5.2)
+    expect(data.counts.session_summary).toBe(1);               // legit own-project summary from .<STORE_PROJECT>_memory.msgpack still found
+    expect(dossier).toContain('seeded task description');
+    // Context family unaffected: the planted {key,value} record is not a context entry (FIX #15 shape filter),
+    // so CSM's view of its shared file keeps exactly the seeded entries.
+    expect(data.counts.context_entries_total).toBe(3);
+  });
+
+  test('RAM store with foreign project identity is skipped in favor of disk (B2)', async () => {
+    // Simulates a long-lived process where StateManager was constructed under another project and the CWD since
+    // switched without an identity rebind: RAM holds the OLD project's summary — it must not render here. The
+    // per-project disk read is authoritative; the mismatch is surfaced in section notes, not silently absorbed.
+    const foreignIdentityStore = {
+      get: <T>(_key: string): T | undefined => ({ task_description: 'STALE-RAM-FOREIGN-SUMMARY', timestamp: NOW - DAY_MS, date: 'stale-date' }) as T,
+      getMemoryFilePath: () => ({ filePath: '', projectName: 'some_other_project_xyz', indexPath: null }),
+    } as unknown as StateManager;
+
+    const tools = registerRestoreSessionContextTool(DEFAULT_CONFIG as never, foreignIdentityStore);
+    const impl = (tools[0] as { implementation?: (p: Record<string, unknown>) => Promise<Record<string, unknown>> }).implementation;
+    expect(impl).toBeDefined();
+    const res = (await impl!({})) as Record<string, unknown>;
+    const data = res.data as Record<string, any>;
+    const dossier = data.dossier_text as string;
+    expect(dossier).not.toContain('STALE-RAM-FOREIGN-SUMMARY'); // stale RAM skipped
+    expect(data.counts.session_summary).toBe(1);                // disk fallback found the real one
+    expect(dossier).toContain('seeded task description');
+    const notes = (data.section_notes ?? []) as Array<{ name: string; note: string }>;
+    expect(notes.some(n => n.name === 'session_summary' && n.note.includes("does not match current project"))).toBe(true);
+  });
+
   test('include_sessions_index=false omits the index section without touching counts', async () => {
     const res = (await toolImpl!({ include_sessions_index: false })) as Record<string, unknown>;
     const data = res.data as Record<string, any>;
@@ -283,8 +350,10 @@ describe('restore_session_context', () => {
   });
 
   test('stale summary (>3 days old) is flagged in the staleness header', async () => {
-    const storePath = path.join(sessionCtxDir, '.ai_toolbox_memory.msgpack');
-    const { decode } = await import('@msgpack/msgpack');
+    // CONTAMINATION-FIX B1 (01.10): state records now live in the PER-PROJECT file (was hardcoded shared name).
+    const storePath = path.join(sessionCtxDir, `.${STORE_PROJECT}_memory.msgpack`);
+    // CJS require (NOT native dynamic import) — see note at the other require() site in this file.
+    const { decode } = require('@msgpack/msgpack') as typeof import('@msgpack/msgpack');
     const records = decode(await fs.readFile(storePath)) as Array<Record<string, any>>;
     const idx = records.findIndex(r => r.key === 'session_summary_latest');
     const originalValue = records[idx].value;

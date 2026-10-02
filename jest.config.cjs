@@ -55,6 +55,10 @@ module.exports = {
     '^\\.\\/dataDir\\.js$': '<rootDir>/src/dataDir.ts',
 
     '^\\.\\/stateManager\\.js$': '<rootDir>/src/stateManager.ts',
+    // CONTAMINATION-FIX Part B (01.10): src/tools/restoreSessionContextTool.ts value-imports '../stateManager.js'
+    // for resolveProjectName() — two-dot form (emitted from src/tools/) is NOT matched by the single-dot entry above; same RC#4 class as FIX #19/#20. Pre-existing '../stateManager.js' hits in fileSystemTools.ts:9 / contextManagementTools.ts:10 are `import type` (erased before resolution, never resolved at runtime).
+    '^\\.\\.\\/stateManager\\.js$': '<rootDir>/src/stateManager.ts',
+
     '^\\.\\/backgroundCommands\\.js$': '<rootDir>/src/backgroundCommands.ts',
     '^\\.\\/toolsSchemaMinifier\\.js$': '<rootDir>/src/toolsSchemaMinifier.ts',
 
@@ -71,6 +75,10 @@ module.exports = {
     // same RC#4 class (new .js-suffixed static import without mapper entry → "Cannot find module") ──
     '^\\.\\/autoTracker\\.js$': '<rootDir>/src/autoTracker.ts',
     '^\\.\\/tokenStatsManager\\.js$': '<rootDir>/src/tokenStatsManager.ts',
+    // CONTAMINATION-FIX Part A (01.10): src/promptPreprocessor.ts value-imports './toolsProvider.js' for the
+    // getStateManager() accessor — first relative .js import of toolsProvider in any test-loaded graph; same RC#4 class.
+    '^\\.\\/toolsProvider\\.js$': '<rootDir>/src/toolsProvider.ts',
+
 
 
     // ── Tool modules dynamically imported by toolsProvider.ts via import('./tools/xxx.js') ──

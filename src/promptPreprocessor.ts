@@ -17,6 +17,13 @@ import { DEFAULT_MAX_BYTES_PER_RESULT, pruneOversizedToolPayloads } from './util
 import { collectPrunedPayloadRefs, storePrunedPayload } from './utils/toolPayloadStorage.js';
 import { getToolOverheadChars } from './toolOverhead.js';
 import { getWorkingDir, setWorkingDir, listRegisteredProjects } from './workingDir.js';
+// CONTAMINATION-FIX Part A (01.10): identity rebind after Step 0.7 CWD switches. No import cycle: only index.ts
+// imports both modules; toolsProvider does not reference promptPreprocessor.
+import { getStateManager } from './toolsProvider.js';
+// CONTAMINATION-FIX follow-up C / Gap-2 (01.10): static decode import for the post-switch session-memory read in
+// executeProjectSwitch(). Replaces a per-call `await import('@msgpack/msgpack')` — dynamic native-import under a
+// CJS build is fragile, and this aligns with how every other module in src/ consumes @msgpack/msgpack.
+import { decode as decodeMsgpack } from '@msgpack/msgpack';
 
 interface ExtendedMessage {
   role?: string;
@@ -490,12 +497,58 @@ export function decideProjectSwitch(
   return { kind: 'banner', match };
 }
 
+// ==================== Session-Memory Extraction Helpers ====================
+
+/** Coerce a decoded session-summary value into plain text for prompt injection.
+ *  StateManager writes the record as an OBJECT ({task_description, ...}); older/legacy writers used bare strings. */
+function summaryValueToText(value: unknown): string | undefined {
+  if (typeof value === 'string' && value.length > 0) return value;
+  if (value && typeof value === 'object') {
+    const o = value as Record<string, unknown>;
+    if (typeof o.task_description === 'string' && o.task_description.length > 0) return o.task_description;
+    try { return JSON.stringify(value); } catch { return undefined; }
+  }
+  return undefined;
+}
+
+/** CONTAMINATION-FIX follow-up C / Gap-2b (01.10): pull the latest session summary out of a decoded store,
+ *  understanding BOTH writer shapes:
+ *   - CURRENT: StateManager record array [{ key, value, timestamp }] with key 'session_summary_latest'
+ *     (value is an object or string) — see stateManager.ts / contextManagementTools.ts saveSessionSummary;
+ *   - LEGACY: plain object map { latest_session_summary | session_summary_latest: string }.
+ *  Pre-fix the caller only understood the legacy map shape, so real StateManager stores were decoded but
+ *  never yielded a summary ("no summary found" despite a populated file). Returns undefined when no usable
+ *  summary is present (not an error). */
+function extractLatestSessionSummary(decoded: unknown): string | undefined {
+  if (!decoded || typeof decoded !== 'object') return undefined;
+  // CURRENT writer shape: array of {key, value, timestamp} records
+  if (Array.isArray(decoded)) {
+    for (let i = decoded.length - 1; i >= 0; i--) {
+      const r = (decoded as Array<Record<string, unknown>>)[i];
+      if (!r || typeof r !== 'object') continue;
+      if (typeof r.key === 'string' && r.key.includes('session_summary')) return summaryValueToText(r.value);
+    }
+    return undefined;
+  }
+  // LEGACY writer shape: object map with string values
+  const d = decoded as Record<string, unknown>;
+  for (const k of ['latest_session_summary', 'session_summary_latest']) {
+    // 🔹 LINT FIX (01.10): the typeof guard already narrows d[k] to string — the two "as string" assertions were no-ops tripping @typescript-eslint/no-unnecessary-type-assertion.
+    if (typeof d[k] === 'string' && d[k].length > 0) return d[k];
+  }
+  const objVal = d.session_summary_latest ?? d.latestSummary;
+  return summaryValueToText(objVal);
+}
+
+
 /**
  * Execute a confirmed project CWD switch (Step 0.7, Fix A): canonical persistent state change via
  * setWorkingDir() plus best-effort process.chdir(), then load and inject the target project's
  * session memory (msgpack with plain-JSON fallback). Returns the fully composed prompt for this turn.
  */
-async function executeProjectSwitch(
+// CONTAMINATION-FIX follow-up C (01.10): exported for the hermetic session-memory read-guard tests
+// (tests/sessionMemoryReadGuards.test.ts) — the confirm-first flow in preprocess() stays the only production caller.
+export async function executeProjectSwitch(
   newCwd: string,
   userPrompt: string,
   attachmentNotice: string,
@@ -514,38 +567,40 @@ async function executeProjectSwitch(
 
           // Read session memory from the new working directory (if exists)
           try {
-            const msgpackPath = path.join(newCwd, '.session_context', '.ai_toolbox_memory.msgpack');
-            
-            if (fs.existsSync(msgpackPath)) {
+            // CONTAMINATION-FIX follow-up C / Gap-2 (01.10): candidate store files — per-project FIRST, with the
+            // EXACT naming StateManager uses for its own file (`resolveProjectName()` derivation over this project's
+            // basename), legacy fixed-name .ai_toolbox_memory.msgpack as fallback. At this point applyProjectCwdSwitch()
+            // has already re-bound the working dir to newCwd, so deriving from newCwd's basename is byte-identical to
+            // StateManager.getMemoryFilePath()'s live derivation — no cross-project reads (RESEARCH doc §4).
+            const memoryCandidates = [
+              path.join(newCwd, '.session_context', `.${path.basename(newCwd).toLowerCase().replace(/[^a-z0-9]/g, '_')}_memory.msgpack`),
+              path.join(newCwd, '.session_context', '.ai_toolbox_memory.msgpack'),
+            ];
+
+            let msgpackPath: string | null = null;
+            for (const candidate of memoryCandidates) {
+              if (fs.existsSync(candidate)) {
+                msgpackPath = candidate;
+                break;
+              }
+            }
+
+            if (msgpackPath !== null) {
               console.log(`[ProjectAutoDetect] Found session memory at ${msgpackPath}`);
-              
-              // Load and decode the .ai_toolbox_memory.msgpack file using msgpack library
+
+              // Load and decode the store file via the static @msgpack/msgpack import (see module header — replaces
+              // the former per-call `await import('@msgpack/msgpack')`, fragile under CJS).
               try {
-                const msgpack = await import('@msgpack/msgpack');
                 const rawBytes = fs.readFileSync(msgpackPath);
-                
+
                 if (rawBytes.length > 0) {
-                  const decoded: unknown = msgpack.decode(rawBytes);
-                  
-                  // Check for session summary in the decoded data
-                  if (decoded && typeof decoded === 'object') {
-                    const d = decoded as Record<string, unknown>;
-                    
-                    // Cast to typed interface for safe property access
-                    type SessionSummaryKeys = { latest_session_summary?: string; session_summary_latest?: string };
-                    const typedD = d as SessionSummaryKeys;
-                    
-                    let latestSummary: string | undefined;
-                    
-                    if ('latest_session_summary' in typedD && typeof typedD.latest_session_summary === 'string') {
-                      latestSummary = typedD.latest_session_summary;
-                    } else if ('session_summary_latest' in typedD && typeof typedD.session_summary_latest === 'string') {
-                      latestSummary = typedD.session_summary_latest;
-                    } else if ('latestSummary' in d && typeof d.latestSummary === 'string') {
-                      latestSummary = d.latestSummary;
-                    }
-                    
-                    // If found, inject session summary context into the prompt
+                  // CONTAMINATION-FIX follow-up C / Gap-2b (01.10): understand BOTH writer shapes — the CURRENT
+                  // StateManager record array [{key,value,timestamp}] and LEGACY object maps — via extractLatestSessionSummary
+                  // (above). Pre-fix this path only understood the legacy map shape, so real stores decoded fine but
+                  // NEVER yielded a summary.
+                  const latestSummary: string | undefined = extractLatestSessionSummary(decodeMsgpack(rawBytes));
+
+                  // If found, inject session summary context into the prompt
                     if (latestSummary && latestSummary.length > 0) {
                       console.log(`[ProjectAutoDetect] Loaded session memory from ${newCwd}`);
                       
@@ -556,27 +611,15 @@ async function executeProjectSwitch(
                       console.log(`[ProjectAutoDetect] Session memory exists but no summary found`);
                     }
                   }
-                }
               } catch (decodeError) {
                 console.warn(`[ProjectAutoDetect] Failed to decode msgpack from ${msgpackPath}:`, decodeError instanceof Error ? decodeError.message : String(decodeError));
-                
-                // Fallback: try reading as plain JSON if msgpack fails
+
+                // Fallback: try reading as plain JSON if msgpack fails — the shared helper understands both record
+                // arrays and object maps, so no duplicated shape-check code is needed here.
                 try {
                   const rawJson = fs.readFileSync(msgpackPath, 'utf-8');
-                  const parsedJson = JSON.parse(rawJson) as Record<string, unknown>;
-                  
-                  let summaryText: string | undefined;
-                  
-                  // Cast to typed interface for safe property access (no eslint-disable needed)
-                  type SessionSummaryKeys = { latest_session_summary?: string; session_summary_latest?: string };
-                  const typedParsed = parsedJson as SessionSummaryKeys;
-                  
-                  if ('latest_session_summary' in typedParsed && typeof typedParsed.latest_session_summary === 'string') {
-                    summaryText = typedParsed.latest_session_summary;
-                  } else if ('session_summary_latest' in typedParsed && typeof typedParsed.session_summary_latest === 'string') {
-                    summaryText = typedParsed.session_summary_latest;
-                  }
-                  
+                  const summaryText: string | undefined = extractLatestSessionSummary(JSON.parse(rawJson));
+
                   if (summaryText && summaryText.length > 0) {
                     console.log(`[ProjectAutoDetect] Loaded session memory from ${newCwd} (JSON fallback)`);
                     
@@ -585,12 +628,13 @@ async function executeProjectSwitch(
                     return `${userPrompt}${sessionContext}${attachmentNotice}${checkpointSuffix}`.trim() + getTemporalSuffix(ctl);
                   }
                 } catch (jsonError) {
+                  // Defensive net: a malformed JSON fallback (JSON.parse throw) must never abort the switch.
                   console.warn(`[ProjectAutoDetect] JSON fallback also failed:`, jsonError instanceof Error ? jsonError.message : String(jsonError));
                 }
               }
-            } else {
-              console.log(`[ProjectAutoDetect] No session memory found at ${msgpackPath}`);
-            }
+              } else {
+                console.log(`[ProjectAutoDetect] No session memory found under ${newCwd} (no per-project or legacy store file present)`);
+              }
           } catch (e) {
             console.warn(`[ProjectAutoDetect] Failed to load session memory from ${newCwd}:`, e instanceof Error ? e.message : String(e));
           }
@@ -609,6 +653,9 @@ async function executeProjectSwitch(
  * Previously only process.chdir was called, so the tool-level CWD (state file) never actually changed.
  * Returns false if the switch was rejected (path invalid). */
 export function applyProjectCwdSwitch(newCwd: string): boolean {
+  // CONTAMINATION-FIX Part A (01.10): capture the pre-switch working dir — required to flush the previous
+  // project's pending RAM into its OWN file when rebinding StateManager identity below.
+  const prevWd = getWorkingDir();
   if (!setWorkingDir(newCwd)) return false;
 
   try {
@@ -621,6 +668,15 @@ export function applyProjectCwdSwitch(newCwd: string): boolean {
     // Non-fatal — persistent state is already set; only raw process.cwd() consumers stay behind.
     console.warn(`[ProjectAutoDetect] process.chdir failed (non-fatal): ${chdirError instanceof Error ? chdirError.message : String(chdirError)}`);
   }
+
+  // ✅ CONTAMINATION-FIX Part A (01.10): fire-and-forget identity rebind — this function is synchronous by its
+  // contract, so the async flush/reload runs after return. Errors are contained inside refreshProject; the
+  // catch here covers only unforeseen throws (see stateManager.ts for the ordering guarantees).
+  void getStateManager()
+    ?.refreshProject(prevWd)
+    .catch((err: unknown) => {
+      console.warn(`[ProjectAutoDetect] StateManager identity rebind after CWD switch failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`);
+    });
 
   return true;
 }

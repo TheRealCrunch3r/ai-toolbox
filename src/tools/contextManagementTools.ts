@@ -8,6 +8,11 @@ import { encode, decode } from '@msgpack/msgpack';
 
 import type { PluginConfig } from '../config.js';
 import type { StateManager } from '../stateManager.js';
+// CONTAMINATION-FIX follow-up C / Gap-1 (01.10): VALUE import of resolveProjectName() — the get_session_summary
+// RAM branch must validate the injected StateManager's identity before serving in-memory data (the instance can
+// outlive a mid-process project switch). Same RC#4 class as Part B; jest mapper entry '^\\.\\./stateManager\\.js$'
+// already covers this specifier, so no jest.config.cjs change is needed.
+import { resolveProjectName } from '../stateManager.js';
 import type { BackgroundCommandManager } from '../backgroundCommands.js';
 import { getWorkingDir } from '../workingDir.js';
 // 🔹 D-LOST-WRITE (20.09): per-path in-process lock for the shared state store — see src/sharedFileLock.ts
@@ -1904,6 +1909,28 @@ WHEN TO USE:
 
       // 🔹 PRIORITY 1: In-Memory Map (O(1) lookup — no disk I/O, no full-file scan)
       if (memoryStore) {
+        // CONTAMINATION-FIX follow-up C / Gap-1 (01.10): RAM identity guard — mirrors the Part B2 check in
+        // restoreSessionContextTool.ts. In a long-lived host process the StateManager instance outlives project
+        // switches: its projectName FREEZES at construction, so after an un-rebound CWD change this store's RAM
+        // still holds the PREVIOUS project's summary (Part A rebind covers change_directory; this guard is the
+        // read-side fail-closed net). resolveProjectName() is byte-identical to both the derivation in the disk
+        // fallback below and StateManager's own naming — equality ⇒ same file ⇒ RAM serves its current owner.
+        let ramIdentityOk = false;
+        try {
+          const storedIdentity = memoryStore.getMemoryFilePath().projectName;
+          ramIdentityOk = typeof storedIdentity === 'string' && storedIdentity.length > 0
+            && storedIdentity === resolveProjectName();
+          if (!ramIdentityOk) {
+            console.warn(
+              `[ContextManagement.get_session_summary] ⚠️ RAM store identity '${storedIdentity ?? 'unresolvable'}' ≠ current project ` +
+                `'${resolveProjectName()}' (CWD: ${getWorkingDir()}) — skipping stale in-memory summary; falling back to disk.`
+            );
+          }
+        } catch (identityErr) {
+          const identityMsg = identityErr instanceof Error ? identityErr.message : String(identityErr);
+          console.warn(`[ContextManagement.get_session_summary] RAM store identity unresolvable (${identityMsg}) — failing closed to the disk path.`);
+        }
+        if (ramIdentityOk) {
         try {
           const latest = memoryStore.get<SessionSummaryData>('session_summary_latest');
           if (latest && typeof latest === 'object') {
@@ -1917,6 +1944,7 @@ WHEN TO USE:
           const msg = memErr instanceof Error ? memErr.message : String(memErr);
           console.warn(`[ContextManagement.get_session_summary] Memory lookup failed (${msg}). Falling back to disk.`);
         }
+        } // end ramIdentityOk guard — CONTAMINATION-FIX follow-up C / Gap-1 (01.10)
       }
 
       // 🔹 FIX #7 (write/read symmetry): Read StateEntry[] from project-specific memory file
