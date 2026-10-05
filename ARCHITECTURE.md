@@ -1135,7 +1135,7 @@ src/
     ├── node-notifier.d.ts      # Node.js notifier type declarations
     └── types.d.ts              # Core shared type definitions
 
-tests/                          # Jest test suite (58 suites / 874 tests, verified green 01.10 via owner-run npm test — canon since the CONTAMINATION-FIX + read-guard arc; see README meta line; per-file list below is abbreviated)
+tests/                          # Jest test suite (63 suites / 930 tests, verified green 04.10 ×3 via owner-run npm test — canon since the ABORT-CONTRACT GATE-4 arc; prior canon 61/917 @ 04.10 (A-arc E7 + CTX-FOOTER FIX#3), 893/59 @ 02.10 (CTX-FOOTER), 874/58 @ 01.10; see README meta line; per-file list below is abbreviated)
 ├── security.test.ts            # Core security validation tests
 ├── security.edge-cases.test.ts # Security boundary & edge case testing
 ├── config.test.ts              # Zod schema + UI schematics validation

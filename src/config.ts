@@ -154,6 +154,7 @@ export const ConfigSchema = z.object({
   // ── C COMPACTION FAMILY (24.09): pre-summarization pruning of oversized tool payloads ──
   compactionEnabled: z.boolean().default(true).describe('Prune oversized tool payloads BEFORE history summarization; verbatim copies are stored in .ai_toolbox/compaction/'),
   compactionMaxResultBytes: z.number().min(1024).max(1048576).default(16384).describe('Byte budget per tool-result payload before pre-summarization pruning (default 16 KiB)'),
+  contextUsageFooter: z.boolean().default(true).describe('LLM-side limit awareness: surface a compact context-usage footer on tool results once projected chat usage crosses half the window — appended to string results and added as an additive ctx_footer field on plain-object results (format A, near-limit advisory at >=90%)'),
 
   // ── 🤖 AUTO-TRACKING SETTINGS ────────────────────────────────────
   autoTrackingEnabled: z.boolean().default(true).describe('Automatically tracks decisions, completions, and bug fixes in the background.'),
@@ -278,6 +279,10 @@ stateMaxSize: 262144,
 
   compactionEnabled: true,
   compactionMaxResultBytes: 16384,
+
+  // LLM-side limit awareness (02.10; widened 03.10 per option B): context-usage footer — appended to string
+  // tool results AND added as an additive ctx_footer field on plain-object results, gated at 50% usage
+  contextUsageFooter: true,
 
   autoTrackingEnabled: true,
 
@@ -778,6 +783,13 @@ export const configSchematics = createConfigSchematics()
     min: 1024, max: 1048576, int: true,
     hint: 'Byte budget per tool-result payload in chat history. Results above this are pruned to preview + locator before summarization (verbatim copy stored on disk).',
   }, DEFAULT_CONFIG.compactionMaxResultBytes)
+
+  // ── LLM-SIDE LIMIT AWARENESS (02.10; widened 03.10 per option B): context-usage footer on ALL tool results ──
+  .field('contextUsageFooter', 'boolean', {
+    displayName: '📊 Context Usage Footer in Tool Results',
+    subtitle: '⚙️ LLM-side Limit Awareness (02.10)',
+    hint: "Once projected context usage crosses half of the model's window, every tool result gains a short footer like [ctx ~48.3k/64k = 76%] — appended to string results and added as an additive ctx_footer field on plain-object results (every registered tool returns one) — so the model always sees current token usage. At >=90% a near-limit advisory is added.",
+  }, DEFAULT_CONFIG.contextUsageFooter)
 
   // ── 🤖 AUTO-TRACKING SETTINGS ───────────────────────────────────
   .field('autoTrackingEnabled', 'boolean', {

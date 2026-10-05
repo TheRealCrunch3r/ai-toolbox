@@ -33,6 +33,14 @@ module.exports = {
     // so both requests resolve to ONE registry ID and jest.mock in the suite intercepts it ──
     '^\\.\\/__mocks__/markdownPreviewTools\\.js$': '<rootDir>/tests/__mocks__/markdownPreviewTools.ts',
 
+    // ── CTX-FOOTER wrapper-integration suite (03.10 option B): tests/contextUsageFooter.test.ts registers its probe via
+    // jest.mock('./__mocks__/textProcessingTools.js') + require() of that same string — the request MUST resolve to the SAME
+    // registry ID as toolsProvider's static import './tools/textProcessingTools.js' (mapped into this manual mock below), or the
+    // suite-level factory lands on a different module ID and the probe never registers. Silent failure class: the stub returns a
+    // tool array, so nothing throws — only the first expect(probe).toBeDefined() fails. Same one-registry-ID pattern as the entry
+    // above (executedTool transparency, 01.09); single-dot form only, emitters verified unique via grep 03.10 ──
+    '^\\.\\/__mocks__/textProcessingTools\\.js$': '<rootDir>/tests/__mocks__/textProcessingTools.ts',
+
     // ── Tool modules imported statically by other src files (../foo.js → ../foo.ts) ──
     '^\\.\\./security\\.js$': '<rootDir>/src/security.ts',
     '^\\.\\./config\\.js$': '<rootDir>/src/config.ts',
@@ -81,7 +89,7 @@ module.exports = {
 
 
 
-    // ── Tool modules dynamically imported by toolsProvider.ts via import('./tools/xxx.js') ──
+    // ── Tool modules statically imported by toolsProvider.ts (NodeNext .js specifiers; dynamic-import comment superseded 03.10) ──
     // These are resolved relative to <rootDir>/src/, so the path is './tools/xxx.js'
     // We redirect each one to a manual mock in __mocks__/ that returns empty tool arrays.
     '^\\.\\/tools/fileSystemTools\\.js$': '<rootDir>/tests/__mocks__/fileSystemTools.ts',
@@ -161,6 +169,8 @@ module.exports = {
     // REPEAT-TOOL-REMINDER (25.09): src/toolsProvider.ts statically imports './utils/repeatToolReminder.js' — same RC#4 class as withPipeline
     '^\\./utils/repeatToolReminder\\.js$': '<rootDir>/src/utils/repeatToolReminder.ts',
     '^\\.\\./utils/repeatToolReminder\\.js$': '<rootDir>/src/utils/repeatToolReminder.ts',
+    // LLM-side limit awareness (02.10): src/toolsProvider.ts statically imports './utils/contextUsageFooter.js' — same RC#4 class as the utils entries above; per-file form only (G9 round-2: no generic rule)
+    '^\\./utils/contextUsageFooter\\.js$': '<rootDir>/src/utils/contextUsageFooter.ts',
     // ── Package-level mock redirects (ESM-only deps) ──
     '^archiver$': '<rootDir>/tests/__mocks__/archiver.ts',
     '^unzipper$': '<rootDir>/tests/__mocks__/unzipper.ts',

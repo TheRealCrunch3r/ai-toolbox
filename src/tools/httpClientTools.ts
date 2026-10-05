@@ -9,6 +9,10 @@ import { readBoundedText } from '../performanceUtils.js';
 // (consistent with fetch_web_content). 500k chars ≈ 75k words — sane API payload ceiling.
 const MAX_HTTP_BODY_CHARS = 500_000;
 
+// ==================== 04.10 ABORT-CONTRACT (house idiom) ====================
+/** Structural slice of the SDK's ToolCallContext — same ctx contract as executionTools.ts / webResearchTools.ts. */
+interface ToolCallContextLike { signal?: AbortSignal; }
+
 // ==================== Typed Params Interfaces ====================
 
 interface HttpRequestParams {
@@ -81,11 +85,14 @@ function handleError(error: unknown): { success: false; error: string } {
 /**
  * Generic HTTP client for making requests to any REST API.
  */
-async function httpRequest({ method, url, headers = {}, body }: HttpRequestParams): Promise<unknown> {
+async function httpRequest({ method, url, headers = {}, body }: HttpRequestParams, hostSignal?: AbortSignal): Promise<unknown> { // 04.10 ABORT-CONTRACT: host signal (LM Studio ToolCallContext.signal)
   try {
     // Validate URL for SSRF protection
     const validation = validateUrl(url);
     if (!validation.valid) return { success: false, error: validation.error };
+
+    // FORENSICS (04.10): make host-originated pre-aborts observable in main.log — same gap class as ripgrep/pattern_scan.
+    if (hostSignal?.aborted) console.log(`[http_request] aborted-in 0ms (host signal already fired before request start)`);
 
     // Prepare request options
     const options: RequestInit = {
@@ -108,9 +115,16 @@ async function httpRequest({ method, url, headers = {}, body }: HttpRequestParam
 
     console.log(`[AI Toolbox] HTTP ${method.toUpperCase()} ${url}`);
 
-    // Make the request with timeout
+    // Make the request with timeout — ONE authoritative controller (grepGuard idiom): host signal is forwarded INTO it.
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
+    if (hostSignal) {
+      if (hostSignal.aborted) {
+        controller.abort();
+      } else {
+        hostSignal.addEventListener('abort', () => controller.abort(), { once: true }); // 04.10 ABORT-CONTRACT
+      }
+    }
+    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout (unchanged)
 
     try {
       const response = await fetch(url, { ...options, signal: controller.signal });
@@ -143,6 +157,9 @@ headers: Object.fromEntries([...(response.headers as Iterable<[string, string]>)
       clearTimeout(timeoutId);
     }
   } catch (error) {
+    // 04.10 ABORT-CONTRACT: a host cancel surfaces as fetch's AbortError — report the aborted envelope, not a generic
+    // HTTP failure. The untouched 30 s timeout path still falls through to handleError() exactly as before.
+    if (hostSignal?.aborted) return { success: false, aborted: true, error: 'Aborted by a host cancel — request cancelled before completion. Re-run when convenient.' };
     return handleError(error);
   }
 }
@@ -150,7 +167,7 @@ headers: Object.fromEntries([...(response.headers as Iterable<[string, string]>)
 /**
  * GET request returning parsed JSON.
  */
-async function httpGetJson({ url, headers = {} }: HttpGetJsonParams): Promise<unknown> {
+async function httpGetJson({ url, headers = {} }: HttpGetJsonParams, hostSignal?: AbortSignal): Promise<unknown> { // 04.10 ABORT-CONTRACT: host signal (LM Studio ToolCallContext.signal)
   try {
     // Validate URL for SSRF protection
     const validation = validateUrl(url);
@@ -158,8 +175,19 @@ async function httpGetJson({ url, headers = {} }: HttpGetJsonParams): Promise<un
 
     console.log(`[AI Toolbox] HTTP GET ${url}`);
 
+    // FORENSICS (04.10): make host-originated pre-aborts observable in main.log — same gap class as ripgrep/pattern_scan.
+    if (hostSignal?.aborted) console.log(`[http_get_json] aborted-in 0ms (host signal already fired before request start)`);
+
+    // ONE authoritative controller (grepGuard idiom): host signal is forwarded INTO it; pre-aborted → fetch rejects immediately.
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000);
+    if (hostSignal) {
+      if (hostSignal.aborted) {
+        controller.abort();
+      } else {
+        hostSignal.addEventListener('abort', () => controller.abort(), { once: true }); // 04.10 ABORT-CONTRACT
+      }
+    }
+    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout (unchanged)
 
     try {
       const response = await fetch(url, {
@@ -199,6 +227,8 @@ headers: Object.fromEntries([...(response.headers as Iterable<[string, string]>)
       clearTimeout(timeoutId);
     }
   } catch (error) {
+    // 04.10 ABORT-CONTRACT: host cancel → aborted envelope, not generic HTTP failure (30 s timeout path unchanged below).
+    if (hostSignal?.aborted) return { success: false, aborted: true, error: 'Aborted by a host cancel — request cancelled before completion. Re-run when convenient.' };
     return handleError(error);
   }
 }
@@ -206,7 +236,7 @@ headers: Object.fromEntries([...(response.headers as Iterable<[string, string]>)
 /**
  * POST request with JSON body.
  */
-async function httpPostJson({ url, data, headers = {} }: HttpPostJsonParams): Promise<unknown> {
+async function httpPostJson({ url, data, headers = {} }: HttpPostJsonParams, hostSignal?: AbortSignal): Promise<unknown> { // 04.10 ABORT-CONTRACT: host signal (LM Studio ToolCallContext.signal)
   try {
     // Validate URL for SSRF protection
     const validation = validateUrl(url);
@@ -214,8 +244,19 @@ async function httpPostJson({ url, data, headers = {} }: HttpPostJsonParams): Pr
 
     console.log(`[AI Toolbox] HTTP POST ${url}`);
 
+    // FORENSICS (04.10): make host-originated pre-aborts observable in main.log — same gap class as ripgrep/pattern_scan.
+    if (hostSignal?.aborted) console.log(`[http_post_json] aborted-in 0ms (host signal already fired before request start)`);
+
+    // ONE authoritative controller (grepGuard idiom): host signal is forwarded INTO it; pre-aborted → fetch rejects immediately.
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000);
+    if (hostSignal) {
+      if (hostSignal.aborted) {
+        controller.abort();
+      } else {
+        hostSignal.addEventListener('abort', () => controller.abort(), { once: true }); // 04.10 ABORT-CONTRACT
+      }
+    }
+    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout (unchanged)
 
     try {
       const response = await fetch(url, {
@@ -256,6 +297,8 @@ headers: Object.fromEntries([...(response.headers as Iterable<[string, string]>)
       clearTimeout(timeoutId);
     }
   } catch (error) {
+    // 04.10 ABORT-CONTRACT: host cancel → aborted envelope, not generic HTTP failure (30 s timeout path unchanged below).
+    if (hostSignal?.aborted) return { success: false, aborted: true, error: 'Aborted by a host cancel — request cancelled before completion. Re-run when convenient.' };
     return handleError(error);
   }
 }
@@ -275,7 +318,7 @@ export function registerHttpClientTools(_config: PluginConfig): Tool[] {
       headers: z.record(z.string()).optional().describe('Custom headers as key-value pairs'),
       body: z.union([z.string(), z.record(z.unknown())]).optional().describe('Request body (string or JSON object)'),
     },
-    implementation: async (params) => httpRequest(params as HttpRequestParams),
+    implementation: async (params, ctx?: ToolCallContextLike) => httpRequest(params as HttpRequestParams, ctx?.signal), // 04.10 ABORT-CONTRACT: forward host abort signal (2nd impl param per SDK contract)
   }));
 
   // http_get_json tool - Convenience wrapper for GET requests
@@ -286,7 +329,7 @@ export function registerHttpClientTools(_config: PluginConfig): Tool[] {
       url: z.string().url().describe('Request URL (must be http:// or https://)'),
       headers: z.record(z.string()).optional().describe('Custom headers as key-value pairs'),
     },
-    implementation: async (params) => httpGetJson(params as HttpGetJsonParams),
+    implementation: async (params, ctx?: ToolCallContextLike) => httpGetJson(params as HttpGetJsonParams, ctx?.signal), // 04.10 ABORT-CONTRACT: forward host abort signal (2nd impl param per SDK contract)
   }));
 
   // http_post_json tool - Convenience wrapper for POST requests
@@ -298,7 +341,7 @@ export function registerHttpClientTools(_config: PluginConfig): Tool[] {
       data: z.record(z.unknown()).describe('JSON object to send as request body'),
       headers: z.record(z.string()).optional().describe('Custom headers as key-value pairs'),
     },
-    implementation: async (params) => httpPostJson(params as HttpPostJsonParams),
+    implementation: async (params, ctx?: ToolCallContextLike) => httpPostJson(params as HttpPostJsonParams, ctx?.signal), // 04.10 ABORT-CONTRACT: forward host abort signal (2nd impl param per SDK contract)
   }));
 
   return tools;

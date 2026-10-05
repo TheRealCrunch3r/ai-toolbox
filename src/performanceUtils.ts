@@ -513,7 +513,11 @@ export async function fetchWithRetry(
       return response;
     } catch (error: unknown) {
       lastError = error instanceof Error ? error : new Error(String(error));
-      
+
+      // 04.10 ABORT-CONTRACT: a caller-supplied signal that is already aborted would reject every remaining attempt
+      // instantly — stop retrying and surface the abort immediately instead of burning backoff sleeps on no-ops.
+      if (options?.signal?.aborted) break;
+
       if (attempt < maxRetries) {
         const delayMs = baseDelayMs * Math.pow(2, attempt); // Exponential backoff
         await new Promise(resolve => setTimeout(resolve, delayMs));

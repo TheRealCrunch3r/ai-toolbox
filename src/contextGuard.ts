@@ -85,6 +85,14 @@ const TOKEN_SCALING_FACTOR = 1;
  */
 const COMPRESSION_PREDICTION_MAX_MS = 60_000;
 
+// 04.10 ABORT-CONTRACT arc item (c): hard per-message cap for the SYNCHRONOUS tiktoken fallback encode in
+// countTokens(). Tiktoken's encoder.encode() is CPU-bound sync work — a multi-MB message content would block the
+// plugin host event loop for seconds (UI stall / watchdog). Messages are encoded precisely up to this budget, and any
+// overflow beyond it is estimated with the SAME ratio as the primary heuristic path below (chars × 0.25 × 1.10), so a
+// single oversized message cannot both block the loop AND drive an under-count that delays compression. Typical
+// chat/file-paste messages are ≤ ~50k chars → for them this changes NOTHING (cap is never reached).
+const TIKTOKEN_SYNC_ENCODE_CHAR_CAP = 100_000;
+
 /**
  * Composes an optional external (host/preprocessor) AbortSignal with a hard wall-clock cap into ONE
  * AbortSignal for SDK prediction opts — same one-controller pattern as utils/grepGuard.ts: the host
@@ -387,7 +395,19 @@ export class ContextGuard {
       // Account for message structure: role prefix + separator + content
       // This matches how LLMs actually consume tokens in chat completion API
       const structuredText = `<|start|>assistant<|name|>${role}<|end|>\n${contentStr}`;
-      count += this.encoder.encode(structuredText).length;
+
+      // 04.10 ABORT-CONTRACT arc item (c): bounded sync encode — precise BPE up to TIKTOKEN_SYNC_ENCODE_CHAR_CAP,
+      // overflow estimated with the primary-path ratio (chars × 0.25 × 1.10). ≤ cap → byte-identical result as before.
+      const encodable = structuredText.length <= TIKTOKEN_SYNC_ENCODE_CHAR_CAP
+        ? structuredText
+        : structuredText.slice(0, TIKTOKEN_SYNC_ENCODE_CHAR_CAP);
+      count += this.encoder.encode(encodable).length;
+      if (structuredText.length > TIKTOKEN_SYNC_ENCODE_CHAR_CAP) {
+        const overflowChars = structuredText.length - TIKTOKEN_SYNC_ENCODE_CHAR_CAP;
+        const estimatedOverflowTokens = Math.ceil(overflowChars * 0.25 * 1.10);
+        count += estimatedOverflowTokens;
+        console.log(`[ContextGuard] ⚠️ Tiktoken fallback: message (${role}) exceeded ${TIKTOKEN_SYNC_ENCODE_CHAR_CAP.toLocaleString('en-US')} chars — encoded cap precisely, +${estimatedOverflowTokens.toLocaleString('en-US')} tokens estimated for the overflow (×0.25 × 1.10) to keep the sync encode bounded.`);
+      }
     }
     
     // Add estimated tokens for images (LM Studio uses ~500-1000 tokens per image)
@@ -661,10 +681,24 @@ SUMMARY:`;
       } catch {}
     }
     
-    // Fallback to tiktoken
+    // Fallback to tiktoken — 04.10 ABORT-CONTRACT arc item (c): bounded sync encode, same idiom as the countTokens()
+    // message loop above. System prompts can be large (serialized tool definitions ride in them) — an unbounded BPE
+    // here would block the host event loop for seconds. ≤ cap → byte-identical result as before; overflow beyond it
+    // is estimated with the SAME ratio as the primary heuristic path (chars × 0.25 × 1.10), so no under-count that
+    // could delay compression. Callers today treat this number as a reserved/future-use value, but the WORK still ran.
     if (!this.encoder) this.encoder = get_encoding('cl100k_base');
     const structuredText = `<|start|>system<|end|>\n${text}`;
-    return this.encoder.encode(structuredText).length + 8; // +8 for overhead/BOS
+    const encodable = structuredText.length <= TIKTOKEN_SYNC_ENCODE_CHAR_CAP
+      ? structuredText
+      : structuredText.slice(0, TIKTOKEN_SYNC_ENCODE_CHAR_CAP);
+    let tokenCount = this.encoder.encode(encodable).length;
+    if (structuredText.length > TIKTOKEN_SYNC_ENCODE_CHAR_CAP) {
+      const overflowChars = structuredText.length - TIKTOKEN_SYNC_ENCODE_CHAR_CAP;
+      const estimatedOverflowTokens = Math.ceil(overflowChars * 0.25 * 1.10);
+      tokenCount += estimatedOverflowTokens;
+      console.log(`[ContextGuard] ⚠️ Tiktoken fallback (_countStringTokens): system prompt exceeded ${TIKTOKEN_SYNC_ENCODE_CHAR_CAP.toLocaleString('en-US')} chars — encoded cap precisely, +${estimatedOverflowTokens.toLocaleString('en-US')} tokens estimated for the overflow (×0.25 × 1.10) to keep the sync encode bounded.`);
+    }
+    return tokenCount + 8; // +8 for overhead/BOS
   }
 
   getThreshold(): number {

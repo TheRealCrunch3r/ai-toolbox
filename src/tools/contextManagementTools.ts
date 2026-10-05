@@ -162,18 +162,37 @@ export class ContextStorageManager {
     return [];
   }
 
-  /** Save context entries to disk — Primary W.D., NO fallback sync */
-  async save(entries: ContextEntry[], targetPath?: string): Promise<void> {
+  /** 🔹 A3 (04.10): true for context records that load() would NEVER return to this project — i.e., stamped with a
+   * foreign/other working-dir file path (the 03.10 wipe victims: invisible to every consumer, yet dropped by the old
+   * filtered write-back). Unstamped legacy records and own-stamp records are IN scope: load() serves them, so their
+   * on-disk removal stays under caller control exactly as pre-fix. Mirrors load()'s filter predicate inverted. */
+  // 🔹 TS FIX (04.10): parameter widened to the STRUCTURAL MINIMUM this predicate reads ({project_path}) —
+  // both call shapes satisfy it without a cast: the narrowed ContextEntry from isContextEntry() in saveCore's A3
+  // branch, and raw decoded records (Record<string, unknown>). The old Record<string, unknown> param rejected the
+  // interface-typed argument at L234 (TS2345): an index-signature-free interface is not assignable to an index type.
+  private _isOutOfScopeForSave(r: { project_path?: unknown }): boolean {
+    const pp = r.project_path;
+    return typeof pp === 'string' && pp.length > 0 && pp !== this.workingDirPath;
+  }
+
+  /** Save context entries to disk — Primary W.D., NO fallback sync.
+   * 🔹 A3 (04.10): `opts.clearContextLayer` makes the write-back EXACTLY `entries` — every context-shaped record
+   * currently on disk is dropped before writing (the explicit-deletion contract of clearAll()/removeCrossProjectEntries()).
+   * Default = NON-DESTRUCTIVE for foreign-stamped records: existing context entries load() cannot return are preserved,
+   * while in-scope deletions (deleteEntry / expiry prune) keep their pre-fix effect (saveCore). */
+  async save(entries: ContextEntry[], targetPath?: string, opts?: { clearContextLayer?: boolean }): Promise<void> {
     const filePath = targetPath || this.workingDirPath; // Default to working dir for writes
     // 🔹 D-LOST-WRITE fix (20.09, csmSharedFileRegression Suite D): hold the per-path in-process lock across the WHOLE
     // save (snapshot → merge → rename → verify). The body below contains early `return`s (FIX #23 abort on uninspectable
     // store; success after intact verification) — those must remain returns of THIS method, so the lock wraps a
     // delegation to the private core rather than inlining a closure around the loop (a closure would swallow them).
-    return withSharedFileLock(filePath, () => this.saveCore(entries, filePath));
+    return withSharedFileLock(filePath, () => this.saveCore(entries, filePath, opts?.clearContextLayer === true));
   }
 
-  /** Body of save() — unchanged except it now runs under the per-path lock acquired by save() (see sharedFileLock.ts). */
-  private async saveCore(entries: ContextEntry[], filePath: string): Promise<void> {
+  /** Body of save() — unchanged except it now runs under the per-path lock acquired by save() (see sharedFileLock.ts),
+   * and 🔹 A3 (04.10) makes the default write-back NON-DESTRUCTIVE for context records: every existing ctx_* record
+   * is preserved regardless of its project_path stamp unless `clearContextLayer` is set (explicit deletion only). */
+  private async saveCore(entries: ContextEntry[], filePath: string, clearContextLayer = false): Promise<void> {
     try {
 
       await this.ensureDirectory(filePath);
@@ -200,10 +219,30 @@ export class ContextStorageManager {
             if (!Array.isArray(records)) {
               throw new Error('existing store is not a record array; refusing to overwrite uninspected data');
             }
+            // 🔹 A3 (04.10, memory-store fact-loss class — plan_1791030993833 A2 prime RC): NON-DESTRUCTIVE write-back
+            // for out-of-scope records in BOTH layers. Pre-fix this list kept only NON-context shapes, while `entries`
+            // came from load() filtered to project_path === workingDirPath (or legacy no-stamp) — so any context entry
+            // stamped with a foreign/other path failed BOTH lists and was silently DELETED by every CSM save (addEntry /
+            // deleteEntry / clearAll / prune / inline read-prune). That is the 03.10 wipe class: entries that no load()
+            // returns are exactly the entries a filtered write-back drops. Now context records with a FOREIGN stamp are
+            // always preserved (unless an explicit layer wipe opts in via clearContextLayer — clearAll()/removeCrossProject
+            // Entries() only). IN-scope records keep their pre-fix removability: they ARE what load() returns, so removing
+            // them from `entries` is caller intent (deleteEntry target / expired-session prune / 1000-entry cap) and must
+            // still take effect. Id-dedupe keeps the old replace-semantics: an incoming entry with the same id supersedes
+            // its on-disk twin (newest wins), so no duplicate ids are ever written. The FIX #23 state-record preservation is unchanged.
+            const incomingIds = new Set(entries.map(e => e.id));
+            let preservedForeignCtx = 0;
             for (const r of records) {
               if (!this.isContextEntry(r)) {
-                preservedForeign.push(r as Record<string, unknown>); // foreign shape (StateManager / legacy) — keep it
+                preservedForeign.push(r as Record<string, unknown>); // foreign shape (StateManager / legacy) — keep it (FIX #23)
+              } else if (!clearContextLayer && this._isOutOfScopeForSave(r)
+                  && !(typeof r.id === 'string' && incomingIds.has(r.id))) {
+                preservedForeign.push(r as unknown as Record<string, unknown>); // 🔹 TS FIX (04.10): via-unknown cast — `r` is narrowed to the ContextEntry INTERFACE here (isContextEntry guard), and a direct interface→Record cast trips TS2352 under this tsconfig; same house pattern as the FIX #23 line above, where r: unknown
+                preservedForeignCtx++;
               }
+            }
+            if (!clearContextLayer && preservedForeignCtx > 0) {
+              console.log(`[ContextStorage.save] Preserved ${preservedForeignCtx} out-of-scope context record(s) from existing store (A3 non-destructive write-back).`);
             }
           } catch (readErr) {
             // Unreadable existing store: refuse to overwrite rather than risk deleting data we cannot inspect.
@@ -225,23 +264,53 @@ export class ContextStorageManager {
 
         // 🔹 D-RACE: post-rename self-integrity check — if the shared file no longer carries ALL of our context entries,
         // StateManager renamed over us after our snapshot; heal with one fresh merge (its records enter preservedForeign).
+        // 🔹 E7-FIX (04.10, restored 04.10 post-E7-run): verify + mirror run ONCE PER ATTEMPT right here after the rename —
+        // intact ⇒ mirror committed content + return; clobber ⇒ diagnostic below + next attempt's fresh re-merge heals.
+        // 🔹 E7-VERIFY-FIX (04.10): canonicalize each own entry through the SAME msgpack round-trip we just wrote before
+        // comparing — encode() has no representation for `undefined` and encodes it as nil, which decode() returns as an
+        // explicit null while JSON.stringify() DROPS undefined-valued keys entirely. The pre-fix strict compare therefore
+        // flagged a CLOBBER on OUR OWN successful commit for any entry carrying one undefined-valued key — e.g., the tier
+        // path's `ttl_ms: undefined` in nodesToEntries() and every non-session fixture record: 3× false "Clobber detected" +
+        // D-RACE bound exhaustion on a healthy write, with NO intact-branch mirror write (the stale-mirror failure pinned by
+        // Suite E7). Round-trip canonicalization is byte-faithful to exactly the bytes CSM wrote. Cost: one encode+decode per
+        // own entry (µs-scale at typical store sizes; verify runs once per save attempt only).
+        const canonOwn = entries.map(e => JSON.stringify(decode(encode(e))));
         let intact = true;
         try {
-          // 🔹 TS FIX (20.09, gate-1): the .then() callback must be async — it awaits readFile inside; a plain arrow is a TS1308 violation. Chain semantics unchanged: any access/read/decode failure → .catch(() => null) → verify=null → clobber path below.
+          // 🔹 TS FIX (20.09 parity, gate-1): async .then() callback — a plain arrow awaiting readFile inside would be a TS1308 violation.
           const verify: unknown = await fs.access(filePath).then(async () => decode(await fs.readFile(filePath))).catch(() => null);
           if (!Array.isArray(verify)) {
-            intact = false;
+            intact = false; // undecodable after our own rename — cannot prove durability → clobber path (heal with fresh re-merge)
           } else {
-            for (const e of entries) {
-              const hit = (verify as Array<Record<string, unknown>>).find(r => !!r && typeof r === 'object' && !Array.isArray(r)
-                // 🔹 LINT FIX (20.09, gate-2): r is already inferred as Record<string, unknown> from the .find() element type — cast removed (no-op assert).
-                && r.id === e.id);
-              if (!hit || JSON.stringify(hit) !== JSON.stringify(e)) { intact = false; break; }
+            for (let i = 0; i < entries.length; i++) {
+              const e = entries[i];
+              const hit = (verify as Array<Record<string, unknown>>).find(r => !!r && typeof r === 'object' && !Array.isArray(r) && r.id === e.id);
+              if (!hit || JSON.stringify(hit) !== canonOwn[i]) { intact = false; break; } // missing/mangled own entry (strict superset: concurrent foreign records are legal neighbors) — E7-VERIFY-FIX: compare against the canonical wire form, not the raw in-memory object
             }
           }
-        } catch { /* verify read failed — treat as intact to preserve old behavior (rename itself succeeded) */ }
+        } catch { /* verify read failed — treat as clobbered: the loop's next fresh re-merge heals, same contract as the SM-side verify */ }
 
-        if (intact) return; // success — exactly the old observable behavior (nothing else ran after the rename before)
+        if (intact) {
+          // 🔹 E7-FIX (04.10, Suite B recovery dependency): mirror EXACTLY what this commit wrote — structural twin of
+          // StateManager.saveMemoryFile's FIX #25 mirror ([...data, ...preservedForeign] → <file>.backup.json). The old
+          // pre-E7 code returned here WITHOUT mirroring: a CSM success left the last-known-good mirror holding the
+          // PREVIOUS writer's content (stale on every default save), so recovery from a corrupt primary restored a union
+          // missing this write's context entries — pinned byte-for-byte by Suite E7. Best-effort + non-fatal; console.error
+          // only when the MIRROR itself fails (loud is correct for the very path that caused Suite B/E7); on verify failure
+          // the clobber diagnostic below keeps its exact pre-existing text/level, so no NEW noise appears on unchanged paths.
+          try {
+            await fs.writeFile(`${filePath}.backup.json`, JSON.stringify([...entries, ...preservedForeign]), 'utf-8');
+          } catch (mirrorErr: unknown) { // 🔹 E7-DIAG (04.10): surface the previously-swallowed mirror-write failure — a silent skip here is exactly how Suite E7 lost its mirror while primary stayed correct; non-fatal contract unchanged, one loud line so the cause is visible in any run
+            console.error(`[ContextStorage.save] Mirror write FAILED for ${filePath}.backup.json (best-effort skipped): ${mirrorErr instanceof Error ? mirrorErr.message : String(mirrorErr)}`);
+          }
+          return; // success — old observable behavior + the mirror now reflects committed content
+        }
+
+        // 🔹 DEAD-CODE REMOVAL (04.10, post-E7-run 17:13): the former "clobber-outcome-only" mirror block (verify-gated subset re-read +
+        // A3-followup write) is REMOVED — with a REAL verify restored above (E7-FIX), the `intact` branch now mirrors + returns on every
+        // successful attempt, so this block was unreachable: it sat AFTER `if (intact) return;`, i.e. only when intact === false, and its own
+        // re-read+subset check merely duplicated the verify above (same predicate, same mirror content). Keeping one dead copy of a mirror
+        // write beside one live copy is exactly the drift hazard that produced this defect twice — single source of truth: the block above.
 
         console.error(`[ContextStorage.save] Clobber detected after rename on ${filePath} (attempt ${attempt}/${MAX_WRITE_ATTEMPTS}) — concurrent StateManager write landed between our snapshot and rename; re-merging from fresh disk content.`);
       }
@@ -540,9 +609,11 @@ export class ContextStorageManager {
     return true;
   }
 
-  /** Clear all context entries — ASYNC === */
+  /** Clear all context entries — ASYNC ===.
+   * 🔹 A3 (04.10): explicit layer wipe — the ONLY default save path allowed to drop existing context records, so the
+   * non-destructive write-back contract of addEntry/delete/prune can never silently delete out-of-scope entries. */
   async clearAll(): Promise<void> {  // MADE ASYNC
-    await this.save([]);  // ASYNC save
+    await this.save([], undefined, { clearContextLayer: true });  // ASYNC save — explicit wipe (A3)
   }
 
   /** Get summary statistics — ASYNC === */
@@ -575,7 +646,9 @@ export class ContextStorageManager {
     
     if (filtered.length < initialCount) {
       console.log(`[ContextStorage.cleanup] Removed ${initialCount - filtered.length} cross-project entry(s).`);
-      await this.save(filtered);
+      // 🔹 A3 (04.10): explicit wipe — this method's contract IS deleting the out-of-scope entries, so it opts into
+      // the context-layer clear; without it the non-destructive write-back would keep exactly what it is asked to drop.
+      await this.save(filtered, undefined, { clearContextLayer: true });
     }
     
     return initialCount - filtered.length;

@@ -46,7 +46,10 @@ import { minifyTools } from './toolsSchemaMinifier.js';
 import { reportToolSchemas } from './toolOverhead.js';
 // FIX #20 (A1+A2): mid-loop context growth — payload bookkeeping + proactive checkpoint guard.
 import { autoTracker } from './autoTracker.js';
-import { TokenStatsManager } from './tokenStatsManager.js';
+import { TokenStatsManager, estimateTokensFromChars } from './tokenStatsManager.js';
+// LLM-side limit awareness (02.10; widened 03.10 per option B): compact usage footer on tool results — appended to
+// strings and added as an additive `ctx_footer` field on plain objects — gated at 50% projected window usage
+import { buildContextUsageFooter, FOOTER_TOKEN_ESTIMATE } from './utils/contextUsageFooter.js';
 // OOM attribution (crashes 2026-08-24 ~20:24/21:10): pre-call heap probe so the next crash names its suspect tool.
 import { checkHeapPressure } from './performanceUtils.js';
 // Pipeline hygiene D — reset monotonic guard per provider invocation
@@ -77,6 +80,19 @@ export function getStateManager(): StateManager | undefined {
 // ~25-node graph from the hardcoded ARCHITECTURE.md edge list (no fs I/O), so compute it exactly once per
 // process lifetime and reuse for every provider run. Kept separate from ContextGuard's 5-minute cache on
 // purpose: tool ordering wants one stable result, not a periodically re-computed one.
+/** CTX-FOOTER fail-loud (03.10 incident ctx_1791025835710): one-shot marker for the current suppression
+ * window — when a tool result is footer-eligible but no turn baseline has been published yet
+ * (baseline === 0, i.e. preprocess() reset without its single setTurnEvaluation publish point ever
+ * reaching), exactly ONE console.warn names the silence instead of suppressing silently. Re-armed by the
+ * live-baseline branch on every wrapper pass; see resetFooterSuppressionWarnForTests(). */
+let footerSuppressionNotified = false;
+
+/** Test hook (mirrors TokenStatsManager.clearActiveToolCallsForTests): re-arm the one-shot suppression warn so each
+ * test starts at a fresh window — the flag is module state and would otherwise leak across cases in a suite. */
+export function resetFooterSuppressionWarnForTests(): void {
+  footerSuppressionNotified = false;
+}
+
 let cachedToolsClustering: HubExclusionResult | null = null;
 
 function getClusteringForToolOrder(): HubExclusionResult {
@@ -163,6 +179,7 @@ export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[
     clusterAwareToolOrder: pluginConfig.get('clusterAwareToolOrder'),
     compactionEnabled: pluginConfig.get('compactionEnabled'), // C compaction family (24.09) — exhaustive-literal completeness after config.ts schema extension
     compactionMaxResultBytes: pluginConfig.get('compactionMaxResultBytes'),
+    contextUsageFooter: pluginConfig.get('contextUsageFooter'), // LLM-side limit awareness (02.10; widened 03.10 per option B): usage footer — appended to strings + additive ctx_footer field on plain objects, gated at 50% window usage
   };
 
 
@@ -289,8 +306,11 @@ export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[
   // session-memory snapshot is saved — because preprocess() (and hence compression + user prompt) only
   // runs on user messages. The wrapper never alters routing, delays calls, or changes non-object
   // payloads — it only adds an additive `executedTool` transparency field to plain-object results
-  // (01.09.2026). Measurement and guarding are best-effort side effects (any failure is logged,
-  // never thrown into the tool call).
+  // (01.09.2026) and surfaces the context-usage footer when gated at >=50% projected window usage
+  // (02.10, LLM-side limit awareness; widened 03.10 per option B: appended to string results AND added as an
+  // additive `ctx_footer` field on plain-object results — every registered tool returns an object envelope).
+  // Measurement and guarding are best-effort side effects
+  // (any failure is logged, never thrown into the tool call).
   const instrumented = minified.map((t): Tool => {
     type ToolImplFn = (params: Record<string, unknown>, ctx: unknown) => unknown;
     type InstrumentableTool = Tool & { name?: string; implementation?: ToolImplFn };
@@ -304,7 +324,9 @@ export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[
     // recordToolResult() still executes exactly once per invocation — bookkeeping never double-counts.
     // Transparency note (01.09.2026): plain-object results also gain an additive `executedTool` field
     // (registered name of the implementation that actually ran) — see the stamp below; routing, side
-    // effects and all non-object payloads are untouched.
+    // effects and all non-object payloads are untouched. Since 03.10 (option B), gated plain objects may
+    // additionally carry an additive `ctx_footer` field from the CTX-FOOTER block inside the wrapper itself;
+    // both stamps are strictly additive new keys — never a mutation of tool-owned values.
     const wrapped: ToolImplFn = async function instrumentedImplementation(
       params: Record<string, unknown>,
       ctx: unknown,
@@ -331,6 +353,81 @@ export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[
         TokenStatsManager.endToolCall(raw.name);
       }
 
+      // LLM-side limit awareness (02.10, owner decision; trigger surface widened 03.10 per option B): a compact
+      // context-usage footer is surfaced once projected chat usage crosses half the window (format A; near-limit
+      // advisory at >=90% — see utils/contextUsageFooter.ts). Two additive forms: STRING results get it appended;
+      // PLAIN-OBJECT results gain exactly one new field `ctx_footer` holding the identical message (the
+      // executedTool-stamp pattern — strictly additive, no existing key can collide: grep-verified across src/ +
+      // tests/ before introduction). Since every registered ai_toolbox tool ends in an object envelope (source
+      // audit 03.10 ~11:3x), this widens the real trigger surface from zero to all tools; arrays, class instances
+      // and other non-object payloads stay byte-identical on both forms. The field is added BEFORE recordToolResult
+      // below (and before the executedTool stamp's combined spread): the mid-loop delta — and thus
+      // guardMidLoopThreshold's numbers — then reflect what actually enters context (the post-footer payload). The
+      // projection adds this payload's own estimate plus the footer's self-size so the gate decision accounts for
+      // both. Suppressed entirely when no turn baseline was published (baseline === 0): without one, usage could
+      // read as "mostly this tool result" and mislead — same no-misleading-numbers rule as recordToolResult's
+      // combined-value guard. Best-effort side effect: any failure is logged, never thrown into the tool call.
+      {
+        const footerAppliesTo =
+          typeof result === 'string' ||
+          (result !== null &&
+            typeof result === 'object' &&
+            !Array.isArray(result) &&
+            Object.getPrototypeOf(result) === Object.prototype);
+        if (config.contextUsageFooter !== false && footerAppliesTo) {
+          try {
+            const baseline = TokenStatsManager.getTurnBaseline();
+            if (baseline > 0) {
+              // A live baseline means the current suppression window (if any) is over — re-arm so a
+              // LATER publish-skip on a future turn warns fresh instead of inheriting this flag.
+              footerSuppressionNotified = false;
+              const limit = TokenStatsManager.getMaxContextTokens();
+              // Payload self-size — mirrors TokenStatsManager.measurePayloadChars: raw length for strings,
+              // JSON-serialized length for objects (with the same non-serializable fallback).
+              let payloadChars: number;
+              if (typeof result === 'string') {
+                payloadChars = result.length;
+              } else {
+                try {
+                  payloadChars = JSON.stringify(result)?.length ?? 0;
+                } catch {
+                  payloadChars = String(result).length;
+                }
+              }
+              const projected =
+                baseline +
+                TokenStatsManager.getMidLoopDeltaTokens() +
+                estimateTokensFromChars(payloadChars) +
+                FOOTER_TOKEN_ESTIMATE;
+              const footer = buildContextUsageFooter(projected, limit);
+              if (footer !== undefined) {
+                // Strictly additive: string append (02.10 form) or new plain-object key (03.10 option B).
+                // A tool that already set `ctx_footer` wins — never clobber an implementation-owned value.
+                if (typeof result === 'string') {
+                  result += `\n\n${footer}`;
+                } else {
+                  const obj = result as Record<string, unknown>;
+                  if (obj.ctx_footer === undefined) {
+                    obj.ctx_footer = footer;
+                  }
+                }
+              }
+            } else if (!footerSuppressionNotified) {
+              // FAIL-LOUD (03.10 incident ctx_1791025835710): baseline === 0 = this turn's preprocess() never
+              // reached its single setTurnEvaluation publish point (a throw between resetMidLoopDelta and the
+              // publish, or an early return). The footer is suppressed by design (no-misleading-numbers rule),
+              // but that silence used to be invisible in the log — one warn per suppression window names it.
+              // Results stay byte-identical; only this console line changes.
+              footerSuppressionNotified = true;
+              console.warn('[AI Toolbox] [CTX-FOOTER] suppressed: turn baseline not published (preprocess() publish ' +
+                'skipped or failed) — no usage footer on tool results until the next user message republishes it.');
+            }
+          } catch (err) {
+            console.warn('[AI Toolbox] [CTX-FOOTER] Usage footer failed (non-fatal):', err);
+          }
+        }
+      }
+
       try {
         TokenStatsManager.recordToolResult(raw.name ?? 'unknown_tool', result);
         void autoTracker
@@ -348,10 +445,14 @@ export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[
       // payload WHICH registered implementation actually executed — ground truth for transcript/LLM.
       // If a model believes it called tool X but `executedTool` names Y, substitution is visible
       // instead of hidden behind a plausible-looking success narrative. Strictly additive:
-      //  - plain-object results gain exactly ONE new field (`executedTool`; no existing key collides —
-      //    verified by grep across src/ before introduction), wrapper value is authoritative;
-      //  - strings, numbers, booleans, arrays, null, undefined and class instances pass through
-      //    byte-identical (prototype check excludes non-plain objects so their shape never changes);
+      //  - plain-object results gain at most TWO wrapper-added fields (`executedTool` here and `ctx_footer`
+      //    from the CTX-FOOTER block above when gated — 03.10 option B); no existing key collides with either
+      //    (verified by grep across src/ + tests/ before each introduction), wrapper values are authoritative;
+      //  - numbers, booleans, arrays, null, undefined and class instances pass through byte-identical
+      //    (prototype check excludes non-plain objects so their shape never changes); the ONLY string mutation
+      //    in this wrapper is the context-usage footer appended ABOVE by the CTX-FOOTER block when gated (02.10) —
+      //    it appends to strings only; its object form adds a new key ABOVE this section, which the single combined
+      //    spread below ({ ...result, executedTool }) then carries through untouched;
       //  - routing, side effects, timing and error propagation are untouched.
       const executedTool = raw.name ?? 'unknown_tool';
       // Loop hygiene B — repeat tool reminder advisory

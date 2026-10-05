@@ -171,6 +171,16 @@ interface OpenFileParams {
   target: string;
 }
 
+// ==================== 04.10 ABORT-CONTRACT (house idiom) ====================
+/** Structural slice of the SDK's ToolCallContext — same ctx contract as executionTools.ts / webResearchTools.ts. */
+interface ToolCallContextLike { signal?: AbortSignal; }
+
+/** House abort envelope: no page content exists when a host cancel wins, so this mirrors httpClientTools' reporting
+ *  (flag presence is the contract). The singleton browser is NOT disposed on abort — same as every other error path here. */
+function abortedEnvelope(hint: string): { success: boolean; aborted: true; error: string } {
+  return { success: false as const, aborted: true, error: hint };
+}
+
 export function registerBrowserTools(_config: PluginConfig): Tool[] {
   const tools: Tool[] = [];
   // browser_open_page tool
@@ -183,24 +193,37 @@ export function registerBrowserTools(_config: PluginConfig): Tool[] {
       wait_for_selector: z.string().optional().describe('CSS selector to wait for before returning.'),
       full_page_screenshot: z.boolean().optional().default(false).describe('If true, captures the full page when taking a screenshot.'),
     },
-    implementation: async ({ url, screenshot_path, wait_for_selector, full_page_screenshot }: BrowserOpenPageParams) => {
+    implementation: async ({ url, screenshot_path, wait_for_selector, full_page_screenshot }: BrowserOpenPageParams, ctx?: ToolCallContextLike) => { // 04.10 ABORT-CONTRACT: host abort signal (2nd impl param per SDK contract)
+      // FORENSICS (04.10): make host-originated pre-aborts observable in main.log — same gap class as ripgrep/pattern_scan.
+      if (ctx?.signal?.aborted) console.log(`[browser_open_page] aborted-in 0ms (host signal already fired before open start)`);
+
+      // 04.10 ABORT-CONTRACT: host cancel already in effect → do not even touch the session manager — getPage() could
+      // LAUNCH Chrome for an already-cancelled call, which is exactly what this gate prevents.
+      if (ctx?.signal?.aborted) return abortedEnvelope('Aborted by a host cancel before open started — no page was navigated. Re-run when convenient.');
+
+      const sig = ctx?.signal; // 04.10 ABORT-CONTRACT: forwarded raw into puppeteer (GoToOptions/WaitForSelectorOptions accept AbortSignal natively)
       let page: Puppeteer.Page | null = null;
 
       try {
         // H3 FIX: Use getPage() instead of getBrowser()+getCurrentPage() — unified sync with session_control
         page = await browserManager.getPage();
 
+        // 04.10 ABORT-CONTRACT: cooperative re-gate after the (potentially slow) Chrome launch — an abort arriving in
+        // that window must not navigate a freshly launched browser for a cancelled call.
+        if (ctx?.signal?.aborted) return abortedEnvelope('Aborted by a host cancel before navigation — no page was navigated. Re-run when convenient.');
+
         if ((await page.url()) !== url) {
-          await page.goto(url, { waitUntil: 'domcontentloaded' });
+          await page.goto(url, { waitUntil: 'domcontentloaded', ...(sig && { signal: sig }) }); // 04.10 ABORT-CONTRACT: spread is a no-op without hostSignal — happy path untouched
         } else {
           // Page already at correct URL — skip navigation (H3 FIX)
         }
 
         if (wait_for_selector) {
           try {
-            await page.waitForSelector(wait_for_selector, { timeout: 5000 });
+            await page.waitForSelector(wait_for_selector, { timeout: 5000, ...(sig && { signal: sig }) }); // 04.10 ABORT-CONTRACT
           } catch {
             // Ignore timeout, continue with content extraction
+            if (ctx?.signal?.aborted) return abortedEnvelope('Aborted by a host cancel mid-open — navigation was cancelled before completion. Re-run when convenient.'); // 04.10 ABORT-CONTRACT: the wait's swallow-all catch must not hide a host cancel
           }
         }
 
@@ -221,6 +244,10 @@ export function registerBrowserTools(_config: PluginConfig): Tool[] {
 
         return { success: true, data: resultData };
       } catch (error: unknown) {
+        // 04.10 ABORT-CONTRACT: puppeteer surfaces a host cancel as an abort Error from goto/waitForSelector — report
+        // the aborted envelope, not a generic page failure (timeout/network errors unchanged below). The singleton
+        // browser is intentionally left alive (same as every other error path here).
+        if (ctx?.signal?.aborted) return abortedEnvelope('Aborted by a host cancel mid-open — navigation was cancelled before completion. Re-run when convenient.');
         const message = error instanceof Error ? error.message : String(error);
         return { success: false, error: `Failed to open page: ${message}` };
       } finally {
@@ -249,20 +276,32 @@ export function registerBrowserTools(_config: PluginConfig): Tool[] {
       full_read: z.boolean().optional().default(false).describe('If true, forces full page text output.'),
       screenshot_path: z.string().optional().describe('Optional screenshot output path.'),
     },
-    implementation: async ({ actions, read_page, full_read, screenshot_path }: BrowserSessionControlParams) => {
+    implementation: async ({ actions, read_page, full_read, screenshot_path }: BrowserSessionControlParams, ctx?: ToolCallContextLike) => { // 04.10 ABORT-CONTRACT: host abort signal (2nd impl param per SDK contract)
+      // FORENSICS (04.10): make host-originated pre-aborts observable in main.log — same gap class as ripgrep/pattern_scan.
+      if (ctx?.signal?.aborted) console.log(`[browser_session_control] aborted-in 0ms (host signal already fired before control start)`);
+
+      // 04.10 ABORT-CONTRACT: host cancel already in effect → do not touch the session manager (getPage() could launch Chrome).
+      if (ctx?.signal?.aborted) return abortedEnvelope('Aborted by a host cancel before control started — no actions were executed. Re-run when convenient.');
+
+      const sig = ctx?.signal; // 04.10 ABORT-CONTRACT: forwarded raw into puppeteer where the option type accepts AbortSignal (goto only — click/type don't)
       let page: Puppeteer.Page | null = null;
 
       try {
         page = await browserManager.getPage();
 
+        if (ctx?.signal?.aborted) return abortedEnvelope('Aborted by a host cancel before control started — no actions were executed. Re-run when convenient.'); // 04.10 ABORT-CONTRACT: cooperative re-gate after the (potentially slow) Chrome launch
+
         if (actions && Array.isArray(actions)) {
           for (const action of actions as Record<string, unknown>[]) {
+            // 04.10 ABORT-CONTRACT: cooperative gate BETWEEN actions — an in-flight click/type cannot be cancelled
+            // mid-op (puppeteer exposes no signal for those), so the earliest safe stop point is here; documented caveat.
+            if (ctx?.signal?.aborted) return abortedEnvelope('Aborted by a host cancel mid-control — remaining actions were not executed. Re-run when convenient.');
             if (action.type === 'click') {
               await page.click(action.selector as string);
             } else if (action.type === 'type') {
               await page.type(action.selector as string, action.text as string);
             } else if (action.type === 'goto') {
-              await page.goto(action.url as string);
+              await page.goto(action.url as string, sig ? { signal: sig } : undefined); // 04.10 ABORT-CONTRACT: GoToOptions accepts AbortSignal natively; no-signal call stays byte-identical
             } else if (action.type === 'evaluate') {
               await page.evaluate(action.script as string);
             }
@@ -288,6 +327,8 @@ export function registerBrowserTools(_config: PluginConfig): Tool[] {
 
         return { success: true, data: resultData };
       } catch (error: unknown) {
+        // 04.10 ABORT-CONTRACT: a host cancel surfaces as an abort Error from goto — report the aborted envelope, not a generic failure.
+        if (ctx?.signal?.aborted) return abortedEnvelope('Aborted by a host cancel mid-control — remaining actions were not executed. Re-run when convenient.');
         const message = error instanceof Error ? error.message : String(error);
         return { success: false, error: `Browser control failed: ${message}` };
       } finally {
@@ -323,7 +364,14 @@ export function registerBrowserTools(_config: PluginConfig): Tool[] {
       html_content: z.string().describe('The HTML content to render'),
       file_name: z.string().optional().default('preview.html').describe('Optional filename (default: preview.html)'),
     },
-    implementation: async ({ html_content, file_name }: PreviewHtmlParams) => {
+    implementation: async ({ html_content, file_name }: PreviewHtmlParams, ctx?: ToolCallContextLike) => { // 04.10 ABORT-CONTRACT: host abort signal (2nd impl param per SDK contract)
+      // FORENSICS (04.10): make host-originated pre-aborts observable in main.log — same gap class as ripgrep/pattern_scan.
+      if (ctx?.signal?.aborted) console.log(`[preview_html] aborted-in 0ms (host signal already fired before preview start)`);
+
+      // 04.10 ABORT-CONTRACT: host cancel already in effect → do not write a file or launch the system browser for it
+      // (fire-and-forget GUI spawn — like run_in_terminal, only pre-launch gating is possible; a launched app cannot be killed retroactively).
+      if (ctx?.signal?.aborted) return abortedEnvelope('Aborted by a host cancel before preview — no application was opened. Re-run when convenient.');
+
       try {
         const fileName = file_name || 'preview.html';
         const filePath = path.join(getWorkingDir(), fileName);
@@ -350,7 +398,14 @@ export function registerBrowserTools(_config: PluginConfig): Tool[] {
     parameters: {
       target: z.string().describe('File path or URL'),
     },
-    implementation: async ({ target }: OpenFileParams) => {
+    implementation: async ({ target }: OpenFileParams, ctx?: ToolCallContextLike) => { // 04.10 ABORT-CONTRACT: host abort signal (2nd impl param per SDK contract)
+      // FORENSICS (04.10): make host-originated pre-aborts observable in main.log — same gap class as ripgrep/pattern_scan.
+      if (ctx?.signal?.aborted) console.log(`[open_file] aborted-in 0ms (host signal already fired before open start)`);
+
+      // 04.10 ABORT-CONTRACT: host cancel already in effect → do not launch the system application (fire-and-forget GUI
+      // spawn — like run_in_terminal, only pre-launch gating is possible; a launched app cannot be killed retroactively).
+      if (ctx?.signal?.aborted) return abortedEnvelope('Aborted by a host cancel before open — no application was launched. Re-run when convenient.');
+
       try {
         const openModule = await import('open');
         await openModule.default(target);

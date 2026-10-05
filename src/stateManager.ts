@@ -905,6 +905,17 @@ export class StateManager {
     // csmSharedFileRegression Suite D). ensureReady() is idempotent; _queueSave already awaits it too.
     await this.ensureReady();
 
+    // 🔹 E7-COAL (04.10, A-arc E7 gate failure): an IMMEDIATE save must cancel any PENDING debounced flush — otherwise the orphaned
+    // 500 ms timer scheduled by a preceding set()/delete()/clear()/setWithTier() fires AFTER this save completes and re-writes
+    // primary + mirror from its own snapshot. For forced saves that trailing write is pure churn (identical RAM state, stale record
+    // order) and in the dual-writer scenario it can land inside the other writer's rename→verify window — pinned by E7: the flush
+    // scheduled by sm.set() survived both forceSave() and csm.addEntry(), only firing at test end (%TEMP%\e7diag-csm.txt, 04.10).
+    // Cancelling is loss-free here: this save serializes the ENTIRE current RAM map — exactly what a later debounced write would have
+    // written. A flush ALREADY mid-flight cannot be cancelled by its (stale) handle; it then runs concurrently and both saves serialize
+    // on withSharedFileLock's per-path chain, so their union is preserved (second line of defense unchanged). Same pattern as
+    // refreshProject() step 1 (01.10): "cancel any pending debounced flush — we take over persistence from here on."
+    if (this.saveTimer !== null) { clearTimeout(this.saveTimer); this.saveTimer = null; }
+
     if (!this.projectContextDir || !this.persistenceEnabled) return;
 
     const projectMemoryFile = await getProjectMemoryFilePath(this.currentProjectName);

@@ -722,6 +722,9 @@ export async function preprocess(
   let checkpointConsumedThisTurn = false;
   let messageCount = 0;
   let tokenCount = 0;
+  // 🔹 FIX #3 (04.10, CTX-FOOTER arc part 3): function-scoped so the finally-publish below can see it even
+  // when a throw lands before the assignment further down — hoisted from its former const inside the try body.
+  let maxTokens = 0;
   let historyTextLength = 0; // ✅ Moved outside if-block to fix scoping
   
   // Step 0.5: ContextGuard auto-compression & token tracking
@@ -865,7 +868,10 @@ export async function preprocess(
         throw countError; // Re-throw to see full stack trace
       }
       
-      const maxTokens = contextGuard.getTokenLimit();
+      // 🔹 FIX #3 (04.10): assignment into the function-scoped `maxTokens` declared at the top — the
+      // finally-publish must read a value that survives throws landing before this line (it stays 0 then,
+      // i.e. the same safe no-op state as never publishing).
+      maxTokens = contextGuard.getTokenLimit();
       const threshold = contextGuard.getThreshold();
       
       // ✅ DIAGNOSTIC: Log accurate token counts against real model limits
@@ -1018,11 +1024,20 @@ export async function preprocess(
         console.log("[AutoTracker] ✅ Checkpoint-saved notice appended to this turn's model input (F1 one-shot)");
       }
 
-      // 🔹 FIX #20 (A2): single publish point — AFTER any same-turn compression. The tool wrapper's mid-loop
-      // guard measures growth against this turn-start baseline + model limit until the next preprocess().
-      TokenStatsManager.setTurnEvaluation(tokenCount, maxTokens);
     } catch (e) {
       console.error('[ContextGuard] Auto-compression failed:', e);
+    } finally {
+      // 🔹 FIX #20 (A2): single publish point — AFTER any same-turn compression. The tool wrapper's mid-loop
+      // guard measures growth against this turn-start baseline + model limit until the next preprocess().
+      // 🔹 FIX #3 (04.10, CTX-FOOTER arc part 3 — publish hardening): moved into FINALLY so a throw between
+      // resetMidLoopDelta() above and here can no longer skip it: STEP 6 countTokens re-throw, STEP 9
+      // auto-tracker re-throw, prune/checkpoint/compress/recount failures. Before this fix such a turn ran
+      // its ENTIRE tool loop with baseline === 0 — mid-loop guard + every ctx_footer silently no-op (3.10
+      // incident: zero [CTX-FOOTER] lines; the wrapper's one-shot suppression warn names that window).
+      // finally also covers the early return at "pullHistory() returned undefined". Zero compression behavior
+      // change: this publishes exactly what the try body computed, and when counting itself failed both values
+      // are 0 — byte-equivalent state to the old skip (documented in resetMidLoopDelta()).
+      TokenStatsManager.setTurnEvaluation(tokenCount, maxTokens);
     }
   }
 

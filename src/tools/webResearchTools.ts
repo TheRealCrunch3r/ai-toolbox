@@ -4,11 +4,52 @@ import { z } from 'zod';
 import { search as ddgSearch } from 'duck-duck-scrape';
 import { htmlToText } from 'html-to-text';
 import type { PluginConfig } from '../config.js';
-import { fetchWithRetry, readBoundedText, readCappedText } from '../performanceUtils.js';
+import { fetchWithRetry, readBoundedText, readCappedText, WEB_FETCH_TIMEOUT_MS } from '../performanceUtils.js';
+
+// 04.10 ABORT-CONTRACT: duck-duck-scrape 2.2.7's RUNTIME search() takes a third `needleOptions` argument (verified in the
+// installed lib/search/search.js — it is forwarded to BOTH the VQD token request and the main needle() call), but its
+// bundled .d.ts declares only two parameters, so tsc rejects the three-arg call (TS2554). Runtime behavior is unchanged
+// by this alias — same function, same arguments. Re-check if duck-duck-scrape is bumped: drop the alias when its types catch up.
+type DDGSearchCompat = (
+  query: string,
+  options?: Record<string, unknown>,
+  needleOptions?: { signal?: AbortSignal; headers?: Record<string, string> },
+) => Promise<{ results: Array<Record<string, unknown>> }>;
+const ddgSearchWithSignal = ddgSearch as unknown as DDGSearchCompat;
 
 // OOM guard: search-engine result pages are parsed via regex — a hard cap during transfer bounds the
 // worst-case allocation. Partial pages still yield their top results (soft cap by design).
 const MAX_SEARCH_HTML_CHARS = 300_000; // ~45k words — ample for 10 results on DDG/Google/Bing HTML
+
+// 04.10 ABORT-CONTRACT: VERBATIM mirror of duck-duck-scrape 2.2.7's internal COMMON_HEADERS
+// (node_modules/duck-duck-scrape/lib/util.js). dds search() passes needleOptions straight to the VQD token request —
+// `getVQD()` does NOT merge its own header defaults — so an options object that carries a signal but no headers makes
+// the VQD hop go out with Node's default User-Agent, i.e. LESS bot-resistant than the no-signal baseline (which dds
+// sends with these browser headers). Re-supplied only on the hostSignal branch: without a host signal we still pass
+// undefined and dds's own defaults apply — byte-identical happy path. If duck-duck-scrape is bumped, re-diff this against
+// its util.js COMMON_HEADERS.
+const DDG_COMMON_HEADERS: Record<string, string> = {
+  'sec-ch-ua': '"Not=A?Brand";v="8", "Chromium";v="129"',
+  'sec-ch-ua-mobile': '?0',
+  'sec-ch-ua-platform': '"Windows"',
+  'sec-fetch-dest': 'document',
+  'sec-fetch-mode': 'navigate',
+  'sec-fetch-site': 'none',
+  'sec-fetch-user': '?1',
+  'sec-gpc': '1',
+  'upgrade-insecure-requests': '1',
+  'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
+};
+
+// ==================== 04.10 ABORT-CONTRACT (house idiom) ====================
+/** Structural slice of the SDK's ToolCallContext — same ctx contract as executionTools.ts / ripgrep in fileSystemTools.ts. */
+interface ToolCallContextLike { signal?: AbortSignal; }
+
+/** House abort envelope for fetch-based tools: mirrors httpClientTools' aborted reporting (no partial payload
+ *  exists for web research — the flag presence is the contract). */
+function abortedEnvelope(hint: string): { success: boolean; aborted: true; error: string } {
+  return { success: false as const, aborted: true, error: hint };
+}
 
 // ==================== Search Engine Implementations ====================
 
@@ -19,9 +60,15 @@ interface SearchResultItem {
 }
 
 /** DuckDuckGo API (fastest, no browser needed) */
-async function searchDDGApi(query: string): Promise<SearchResultItem[]> {
-  const results = await ddgSearch(query, { region: 'wt-wt' });
-  return (results.results as Array<Record<string, unknown>>).map((r: Record<string, unknown>) => ({
+async function searchDDGApi(query: string, hostSignal?: AbortSignal): Promise<SearchResultItem[]> { // 04.10 ABORT-CONTRACT
+  // Forward the host signal into duck-duck-scrape's third argument (needleOptions — needle 3.x accepts an AbortSignal
+  // natively and rejects pre-aborted ones; verified in installed needle 3.5.0, lib/needle.js lines ~800-804). Passed
+  // ONLY when a signal exists so no-signal calls stay byte-identical to before: with undefined, dds falls back to its
+  // internal {headers: COMMON_HEADERS} for the VQD request and needle defaults for the main one. WITH a signal we must
+  // re-supply DDG_COMMON_HEADERS (see above) — an options object REPLACES dds's default rather than extending it.
+  const results = await ddgSearchWithSignal(query, { region: 'wt-wt' }, hostSignal ? { signal: hostSignal, headers: DDG_COMMON_HEADERS } : undefined);
+  // The DDGSearchCompat alias types results.results exactly — no assertion needed (04.10 lint fix: no-unnecessary-type-assertion)
+  return results.results.map((r: Record<string, unknown>) => ({
     title: r.title as string,
     url: r.url as string,
     description: (r.description as string) || '',
@@ -29,9 +76,11 @@ async function searchDDGApi(query: string): Promise<SearchResultItem[]> {
 }
 
 /** DuckDuckGo HTML Fetch (fallback when API fails) */
-async function searchDDGFetch(query: string): Promise<SearchResultItem[]> {
+async function searchDDGFetch(query: string, hostSignal?: AbortSignal): Promise<SearchResultItem[]> { // 04.10 ABORT-CONTRACT
+  const signal = mergeHostSignal(hostSignal); // grepGuard idiom — helper below the engines table; null keeps fetchWithRetry's own 30 s guard path byte-identical
   const response = await fetchWithRetry(
-    `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`
+    `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`,
+    signal ? { signal } : undefined
   );
   if (!response.ok) throw new Error(`DuckDuckGo Fetch failed: ${response.status}`);
 
@@ -58,10 +107,11 @@ async function searchDDGFetch(query: string): Promise<SearchResultItem[]> {
 }
 
 /** Google Search via HTML Fetch */
-async function searchGoogle(query: string): Promise<SearchResultItem[]> {
+async function searchGoogle(query: string, hostSignal?: AbortSignal): Promise<SearchResultItem[]> { // 04.10 ABORT-CONTRACT
+  const signal = mergeHostSignal(hostSignal); // grepGuard idiom — helper below the engines table; null keeps fetchWithRetry's own 30 s guard path byte-identical
   const response = await fetchWithRetry(
     `https://www.google.com/search?q=${encodeURIComponent(query)}&num=10`,
-    { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' } }
+    { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }, ...(signal && { signal }) } // spread is a no-op without hostSignal — happy path untouched
   );
   if (!response.ok) throw new Error(`Google search failed: ${response.status}`);
 
@@ -85,10 +135,11 @@ async function searchGoogle(query: string): Promise<SearchResultItem[]> {
 }
 
 /** Bing Search via HTML Fetch */
-async function searchBing(query: string): Promise<SearchResultItem[]> {
+async function searchBing(query: string, hostSignal?: AbortSignal): Promise<SearchResultItem[]> { // 04.10 ABORT-CONTRACT
+  const signal = mergeHostSignal(hostSignal); // grepGuard idiom — helper below the engines table; null keeps fetchWithRetry's own 30 s guard path byte-identical
   const response = await fetchWithRetry(
     `https://www.bing.com/search?q=${encodeURIComponent(query)}&count=10`,
-    { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' } }
+    { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }, ...(signal && { signal }) } // spread is a no-op without hostSignal — happy path untouched
   );
   if (!response.ok) throw new Error(`Bing search failed: ${response.status}`);
 
@@ -116,7 +167,8 @@ async function searchBing(query: string): Promise<SearchResultItem[]> {
 }
 
 /** All available Search Engine Functions */
-const SEARCH_ENGINES: Record<string, (query: string) => Promise<SearchResultItem[]>> = {
+type SearchEngineFn = (query: string, hostSignal?: AbortSignal) => Promise<SearchResultItem[]>; // 04.10 ABORT-CONTRACT
+const SEARCH_ENGINES: Record<string, SearchEngineFn> = {
   'ddg-api': searchDDGApi,
   'ddg-fetch': searchDDGFetch,
   'google': searchGoogle,
@@ -126,6 +178,31 @@ const SEARCH_ENGINES: Record<string, (query: string) => Promise<SearchResultItem
 /** Hardcoded fallback order — DuckDuckGo API is always tried first (Google/Bing block automated requests) */
 const FALLBACK_ORDER: readonly string[] = ['ddg-api', 'ddg-fetch', 'google', 'bing'];
 
+// ==================== 04.10 ABORT-CONTRACT (house idiom, continued) ====================
+/**
+ * ONE authoritative AbortController per fetch call (grepGuard idiom, src/utils/grepGuard.ts): the host signal is
+ * forwarded INTO it — a WHATWG signal has no reverse .abort(), so forwarding = listen {once:true} plus a synchronous
+ * pre-aborted check. The existing WEB_FETCH_TIMEOUT_MS guard rides on the SAME controller: when we return one,
+ * fetchWithRetry() takes its "caller manages cancellation" branch and skips its internal timer — net timeout is
+ * unchanged (30 s). Returns null without hostSignal so call sites stay byte-identical to before.
+ */
+function mergeHostSignal(hostSignal?: AbortSignal): AbortSignal | null {
+  if (!hostSignal) return null;
+  const controller = new AbortController();
+  if (hostSignal.aborted) {
+    controller.abort(); // pre-abort: the 'abort' event does NOT re-fire for late listeners — handle synchronously
+  } else {
+    hostSignal.addEventListener('abort', () => controller.abort(), { once: true });
+  }
+  const timeoutId = setTimeout(() => controller.abort(), WEB_FETCH_TIMEOUT_MS);
+  // Unref'd by design: the guard must never keep the event loop (or a jest worker) alive after the guarded request has
+  // settled — in production the plugin host keeps the loop busy regardless; if it fires late, aborting an already-
+  // settled controller is a harmless no-op. The explicit clear on 'abort' covers the early-settle paths.
+  if (typeof timeoutId.unref === 'function') timeoutId.unref();
+  controller.signal.addEventListener('abort', () => clearTimeout(timeoutId), { once: true });
+  return controller.signal;
+}
+
 // ==================== Fallback Chain Logic ====================
 
 /**
@@ -134,13 +211,20 @@ const FALLBACK_ORDER: readonly string[] = ['ddg-api', 'ddg-fetch', 'google', 'bi
  */
 async function searchWithFallbackChain(
   query: string,
-  _config: PluginConfig
-): Promise<{ success: boolean; data?: { query: string; results: SearchResultItem[]; count: number; engine: string }; error?: string }> {
+  _config: PluginConfig,
+  hostSignal?: AbortSignal // 04.10 ABORT-CONTRACT: LM Studio ToolCallContext.signal (user cancel / host timeout)
+): Promise<{ success: boolean; data?: { query: string; results: SearchResultItem[]; count: number; engine: string }; error?: string; aborted?: true }> {
+  // FORENSICS (04.10): make host-originated pre-aborts observable in main.log — same gap class as ripgrep/pattern_scan.
+  if (hostSignal?.aborted) console.log(`[web_search] aborted-in 0ms (host signal already fired before search start)`);
+
   // DuckDuckGo API is always first — it's the only engine that doesn't block automated requests
   const chain = [...FALLBACK_ORDER];
   let anyEngineEmpty = false; // 08.09 fix: distinguishes "all engines blocked/empty" from hard failures in the final error message
 
   for (const engine of chain) {
+    // 04.10 ABORT-CONTRACT: a host cancel is NOT an engine failure — stop the chain instead of cascading into the
+    // remaining engines after the user already asked to stop.
+    if (hostSignal?.aborted) return abortedEnvelope('Aborted by a host cancel — search stopped before completion. Re-run when convenient.');
     try {
       const searchFn = SEARCH_ENGINES[engine];
       if (!searchFn) {
@@ -148,7 +232,7 @@ async function searchWithFallbackChain(
         continue;
       }
 
-      const results = await searchFn(query);
+      const results = await searchFn(query, hostSignal); // 04.10 ABORT-CONTRACT: raw host signal — each engine merges/forwards per its transport (fetch vs needle)
 
       // 08.09 fix: HTTP-200-but-empty is the signature of a bot-blocked / JS-shell SERP page (observed
       // live on google.com from datacenter IPs: consent redirect + zero parseable result elements). The
@@ -171,6 +255,9 @@ async function searchWithFallbackChain(
         data: { query, results, count: results.length, engine },
       };
     } catch (error) {
+      // 04.10 ABORT-CONTRACT: a host cancel surfaces inside the engine's rejection — report it directly; never treat
+      // it as "engine failed" and cascade into the next one.
+      if (hostSignal?.aborted) return abortedEnvelope('Aborted by a host cancel mid-search — request was cancelled before completion. Re-run when convenient.');
       const message = error instanceof Error ? error.message : String(error);
       console.error(`Search engine "${engine}" failed: ${message}`);
       // Try next engine in the chain
@@ -207,8 +294,8 @@ export function registerWebResearchTools(config: PluginConfig): Tool[] {
     parameters: {
       query: z.string().describe('The search query'),
     },
-    implementation: async ({ query }: WebSearchParams) => { // C5 FIX: typed params
-      return await searchWithFallbackChain(query, config);
+    implementation: async ({ query }: WebSearchParams, ctx?: ToolCallContextLike) => { // C5 FIX: typed params; 04.10 ABORT-CONTRACT: host abort signal (2nd impl param per SDK contract)
+      return await searchWithFallbackChain(query, config, ctx?.signal); // 04.10 ABORT-CONTRACT
     },
   }));
 
@@ -220,10 +307,17 @@ export function registerWebResearchTools(config: PluginConfig): Tool[] {
       query: z.string().describe('The search query'),
       lang: z.string().optional().default('en').describe('Language code (default: en)'),
     },
-    implementation: async ({ query, lang }: WikipediaSearchParams) => { // C5 FIX: typed params
+    implementation: async ({ query, lang }: WikipediaSearchParams, ctx?: ToolCallContextLike) => { // C5 FIX: typed params; 04.10 ABORT-CONTRACT: host abort signal (2nd impl param per SDK contract)
+      // FORENSICS (04.10): make host-originated pre-aborts observable in main.log — same gap class as ripgrep/pattern_scan.
+      if (ctx?.signal?.aborted) console.log(`[wikipedia_search] aborted-in 0ms (host signal already fired before search start)`);
       try {
+        // 04.10 ABORT-CONTRACT: host cancel already in effect → do not even issue the request.
+        if (ctx?.signal?.aborted) return abortedEnvelope('Aborted by a host cancel — Wikipedia search was never started. Re-run when convenient.');
+
         const apiUrl = `https://${lang || 'en'}.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&format=json&origin=*`;
-        const response = await fetchWithRetry(apiUrl);
+        // 04.10 ABORT-CONTRACT: one merged controller (host + existing 30 s guard); null → byte-identical pre-change path (fetchWithRetry's own guard).
+        const hostAbort = mergeHostSignal(ctx?.signal);
+        const response = await fetchWithRetry(apiUrl, hostAbort ? { signal: hostAbort } : undefined);
 
         if (!response.ok) {
           throw new Error(`Wikipedia API error: ${response.status}`);
@@ -247,6 +341,8 @@ export function registerWebResearchTools(config: PluginConfig): Tool[] {
 
         return { success: true, data: { query, language: lang || 'en', results: pages, count: pages.length } };
       } catch (error) {
+        // 04.10 ABORT-CONTRACT: host cancel → aborted envelope, not generic search failure (timeout/network errors unchanged below).
+        if (ctx?.signal?.aborted) return abortedEnvelope('Aborted by a host cancel — Wikipedia request was cancelled before completion. Re-run when convenient.');
         const message = error instanceof Error ? error.message : String(error);
         return { success: false, error: `Wikipedia search failed: ${message}` };
       }
@@ -260,9 +356,16 @@ export function registerWebResearchTools(config: PluginConfig): Tool[] {
     parameters: {
       url: z.string().url().describe('The URL to fetch'),
     },
-    implementation: async ({ url }: FetchWebContentParams) => { // C5 FIX: typed params
+    implementation: async ({ url }: FetchWebContentParams, ctx?: ToolCallContextLike) => { // C5 FIX: typed params; 04.10 ABORT-CONTRACT: host abort signal (2nd impl param per SDK contract)
+      // FORENSICS (04.10): make host-originated pre-aborts observable in main.log — same gap class as ripgrep/pattern_scan.
+      if (ctx?.signal?.aborted) console.log(`[fetch_web_content] aborted-in 0ms (host signal already fired before fetch start)`);
       try {
-        const response = await fetchWithRetry(url);
+        // 04.10 ABORT-CONTRACT: host cancel already in effect → do not even issue the request.
+        if (ctx?.signal?.aborted) return abortedEnvelope('Aborted by a host cancel — page fetch was never started. Re-run when convenient.');
+
+        // 04.10 ABORT-CONTRACT: one merged controller (host + existing 30 s guard); null → byte-identical pre-change path (fetchWithRetry's own guard).
+        const hostAbort = mergeHostSignal(ctx?.signal);
+        const response = await fetchWithRetry(url, hostAbort ? { signal: hostAbort } : undefined);
 
         if (!response.ok) {
           throw new Error(`HTTP error: ${response.status}`);
@@ -286,6 +389,8 @@ export function registerWebResearchTools(config: PluginConfig): Tool[] {
 
         return { success: true, data: { url, content: text.substring(0, 5000) } }; // Limit length
       } catch (error) {
+        // 04.10 ABORT-CONTRACT: host cancel → aborted envelope, not generic fetch failure (timeout/OOM-guard errors unchanged below).
+        if (ctx?.signal?.aborted) return abortedEnvelope('Aborted by a host cancel — page fetch was cancelled before completion. Re-run when convenient.');
         const message = error instanceof Error ? error.message : String(error);
         return { success: false, error: `Failed to fetch content: ${message}` };
       }
