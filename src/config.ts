@@ -773,13 +773,13 @@ export const configSchematics = createConfigSchematics()
   // ── C COMPACTION FAMILY (24.09): pre-summarization pruning of oversized tool payloads ──
   .field('compactionEnabled', 'boolean', {
     displayName: '✂️ Compaction Pre-Summarization Pruning',
-    subtitle: '⚙️ C Compaction Family (24.09)',
+    subtitle: '⚙️ C Compaction Family',
     hint: 'Before history is summarized, tool payloads above the byte budget are replaced by a head/tail preview plus an opaque locator; the full result stays stored verbatim in .ai_toolbox/compaction/.',
   }, DEFAULT_CONFIG.compactionEnabled)
 
   .field('compactionMaxResultBytes', 'numeric', {
     displayName: '📏 Max Tool Result Before Pruning (bytes)',
-    subtitle: '⚙️ C Compaction Family (24.09)',
+    subtitle: '⚙️ C Compaction Family',
     min: 1024, max: 1048576, int: true,
     hint: 'Byte budget per tool-result payload in chat history. Results above this are pruned to preview + locator before summarization (verbatim copy stored on disk).',
   }, DEFAULT_CONFIG.compactionMaxResultBytes)
@@ -787,7 +787,7 @@ export const configSchematics = createConfigSchematics()
   // ── LLM-SIDE LIMIT AWARENESS (02.10; widened 03.10 per option B): context-usage footer on ALL tool results ──
   .field('contextUsageFooter', 'boolean', {
     displayName: '📊 Context Usage Footer in Tool Results',
-    subtitle: '⚙️ LLM-side Limit Awareness (02.10)',
+    subtitle: '⚙️ LLM-side Limit Awareness',
     hint: "Once projected context usage crosses half of the model's window, every tool result gains a short footer like [ctx ~48.3k/64k = 76%] — appended to string results and added as an additive ctx_footer field on plain-object results (every registered tool returns one) — so the model always sees current token usage. At >=90% a near-limit advisory is added.",
   }, DEFAULT_CONFIG.contextUsageFooter)
 

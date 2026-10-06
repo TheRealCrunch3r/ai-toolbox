@@ -1,12 +1,12 @@
 # Documentation Update Summary — AI Toolbox Plugin
 
 **Date**: 2026-09-19  
-**Version**: v1.9.18 (manifest revision 33 — pending publish; rev 30 was the last published to GitHub, 15.09)  
+**Version**: v1.9.19 (manifest revision 0 — rev lock lifted 06.10, owner publish pending; rev 30 was the last published to GitHub, 15.09)  
 **Status**: ✅ Complete
 
 ---
 
-## 📋 Version Status Overview (current: **v1.9.18 / manifest revision 33** — pending publish; rev 30 was the last published to GitHub, 15.09, version header synced 08.09 for the Tool Gating Profile release; content last refreshed **28.09.2026** against live code (WALK-ABORT docs sync + full per-module re-audit); changelog chain: CHANGELOG_v3.md (active) ← CHANGELOG_v2.md (archived 20.09) ← CHANGELOG.md (legacy), plus RELEASE_NOTES.md)
+## 📋 Version Status Overview (current: **v1.9.19 / manifest revision 0** — rev lock lifted 06.10, owner publish pending; rev 30 was the last published to GitHub, 15.09, version header synced 08.09 for the Tool Gating Profile release; content last refreshed **28.09.2026** against live code (WALK-ABORT docs sync + full per-module re-audit); changelog chain: CHANGELOG_v3.md (active) ← CHANGELOG_v2.md (archived 20.09) ← CHANGELOG.md (legacy), plus RELEASE_NOTES.md)
 
 | Component | Status | Notes |
 |-----------|--------|-------|

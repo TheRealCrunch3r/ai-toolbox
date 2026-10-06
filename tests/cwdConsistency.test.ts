@@ -37,10 +37,9 @@ import { setDataDirOverride } from '../src/dataDir';
 /** Repo root (tests/..). 🔹 FIX #31b: the working-dir state-file location is owned by src/workingDir.ts —
  * under jest it resolves to a per-run temp file (leak fix), in production <root>/.ai_toolbox_state.json.
  * ALWAYS read it via getStateFilePath(); never re-derive the path here. */
-const REPO_ROOT = path.resolve(__dirname, '..');
+// 🔹 PLAN-SEAM (06.10): REPO_ROOT + PLUGIN_ROOT_PLAN_FILE removed — PlanStorageManager no longer mirrors to /
+// falls back on a plugin-root file, so there is no shared mirror path for this suite to scrub or assert against.
 const STATE_FILE = getStateFilePath();
-// PlanStorageManager syncs every save() to the plugin root (src/ in jest, dist/ when built).
-const PLUGIN_ROOT_PLAN_FILE = path.join(REPO_ROOT, 'src', '.session_context', '.ai_toolbox_plans.json');
 
 let tempRoot: string; // scratch base dir for registry fixtures + fake project dirs
 
@@ -408,19 +407,6 @@ describe('PlanStorageManager per-call working-dir resolution', () => {
     fs.mkdirSync(dirB, { recursive: true });
   });
 
-  afterAll(() => {
-    // save() syncs every plan to the plugin root. In jest runs that file is test residue by
-    // definition — even if an EARLIER suite created it (the old pre-existed guard let such
-    // residue survive full-suite runs → "stray src/.session_context" defect). Outside tests
-    // (e.g. running this suite via ts-node in dev) the file may be a live dev-session plan, so leave it.
-    if (process.env.NODE_ENV === 'test' && fs.existsSync(PLUGIN_ROOT_PLAN_FILE)) {
-      fs.rmSync(PLUGIN_ROOT_PLAN_FILE);
-      const dir = path.dirname(PLUGIN_ROOT_PLAN_FILE);
-      // Only rmdir if empty — never destroy a .session_context that holds other content.
-      try { fs.rmdirSync(dir); } catch { /* not empty — leave it */ }
-    }
-  });
-
   test('save() resolves CWD per call: create_plan after mid-session switch lands in the NEW dir', async () => {
     // Construct the storage manager while CWD = dirA (mirrors old construction-time capture)
     setWorkingDir(dirA);
@@ -446,8 +432,8 @@ describe('PlanStorageManager per-call working-dir resolution', () => {
   });
 
   test('load() resolves CWD per call: get_plan after switch reads from the NEW dir', async () => {
-    // Isolated fixture dir — save() syncs every plan to the plugin root, and load() falls back to it.
-    // Reusing a dir that another test already saved into would leak that test's plans via the fallback.
+    // Fresh fixture dir per call (🔹 PLAN-SEAM 06.10): with the single-store design each working dir reads/writes
+    // only its own .session_context file — no cross-test leakage possible anymore.
     const freshDir = path.join(tempRoot, 'plan-dir-d');
     fs.mkdirSync(freshDir, { recursive: true });
 
@@ -471,9 +457,7 @@ describe('PlanStorageManager per-call working-dir resolution', () => {
     expect(fs.existsSync(path.join(dirA, '.session_context', '.ai_toolbox_plans.json'))).toBe(false);
   });
 
-  test('get_plan returns null when the current working dir has no plans (no plugin-root leakage in fresh state)', async () => {
-    // Remove any residue from prior tests so this assertion is deterministic.
-    if (fs.existsSync(PLUGIN_ROOT_PLAN_FILE)) fs.rmSync(PLUGIN_ROOT_PLAN_FILE);
+  test('get_plan returns null when the current working dir has no plans', async () => {
 
     const emptyDir = path.join(tempRoot, 'plan-dir-empty');
     fs.mkdirSync(emptyDir, { recursive: true });
@@ -519,6 +503,20 @@ describe('normalizeConfirmationReply', () => {
     expect(normalizeConfirmationReply('ja please')).toBeNull();
     expect(normalizeConfirmationReply('continue with the build')).toBeNull();
     expect(normalizeConfirmationReply('')).toBeNull();
+  });
+
+  // i18n-CONFIRM arc (06.10): acceptance is language-AGNOSTIC by design — every shipped locale's
+  // words parse, union derived from src/locales/*.ts (single source of truth). Display stays
+  // single-language per configured "🌐 Language" setting; parsing deliberately does not.
+  it('accepts confirm/decline words in ALL shipped languages', () => {
+    expect(normalizeConfirmationReply('SÍ')).toBe('YES');
+    expect(normalizeConfirmationReply('sí')).toBe('YES'); // case-insensitive (accented)
+    expect(normalizeConfirmationReply('确认')).toBe('YES'); // zh-CN simplified
+    expect(normalizeConfirmationReply('確認')).toBe('YES'); // zh-TW traditional
+  });
+
+  it('accepts decline words in ALL shipped languages', () => {
+    expect(normalizeConfirmationReply('取消')).toBe('NO'); // zh-CN/zh-TW shared (Spanish 'NO' dedupes onto English)
   });
 });
 

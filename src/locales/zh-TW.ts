@@ -124,6 +124,7 @@ export const zhTWTranslations: FullTranslationSet = {
       { toolName: 'create_plan', description: '建立多步驟執行計畫（1–30 步）；取代任何活動中的計畫並傳回 planId + stepCount', parameters: ['goal, steps'] },
       { toolName: 'get_plan', description: '傳回活動中的計畫，含各步驟狀態、完成百分比與已用時間；無計畫時傳回 null', parameters: [] },
       { toolName: 'update_plan_step', description: '透過狀態機更新單一計畫步驟（pending→in_progress→done；any→blocked；blocked→pending）——封鎖時必須提供 note', parameters: ['planId, index, status, note (required if blocked)'] },
+      { toolName: 'remove_plan', description: '從工作狀態儲存中移除已持久化的計畫；除非 confirm=true 否則僅傳回 dry-run 預覽 — 仅限未完成的計畫，已完成計畫會在最後一個 done 時由 update_plan_step 自動移除', parameters: ['planId, confirm (required to remove)'] },
     ],
   },
   contextManagement: {
@@ -221,5 +222,7 @@ export const zhTWTranslations: FullTranslationSet = {
     disabledTools: '已禁用的工具：',
     errorPrefix: '錯誤：',
     successPrefix: '成功：',
+    yesWord: '確認',
+    noWord: '取消',
   },
 };

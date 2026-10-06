@@ -124,7 +124,7 @@ export function main(context: PluginContext) {
 }
 ```
 
-### 2. Tool Registration Flow (Current State — full re-audit **28.09** against live `toolsProvider.ts`; version stamp v1.9.18 / manifest rev 33)
+### 2. Tool Registration Flow (Current State — full re-audit **28.09** against live `toolsProvider.ts`; version stamp v1.9.19 / manifest rev 0)
 
 ```
 toolsProvider() called by LM Studio SDK
@@ -1135,7 +1135,7 @@ src/
     ├── node-notifier.d.ts      # Node.js notifier type declarations
     └── types.d.ts              # Core shared type definitions
 
-tests/                          # Jest test suite (63 suites / 930 tests, verified green 04.10 ×3 via owner-run npm test — canon since the ABORT-CONTRACT GATE-4 arc; prior canon 61/917 @ 04.10 (A-arc E7 + CTX-FOOTER FIX#3), 893/59 @ 02.10 (CTX-FOOTER), 874/58 @ 01.10; see README meta line; per-file list below is abbreviated)
+tests/                          # Jest test suite (65 suites / 952 tests, verified green 06.10 ~21:0x via owner-run npm test — canon since the DOC-PIN arc (registry-vs-docs drift gate); prior canon 64/941 @ 06.10 (i18n-CONFIRM), 64/938 @ 05.10–06.10 (PLAN-REMOVAL, unchanged through A3 close-out ~18:2x), 63/931 @ 05.10 (SM-VERIFY-FIX + THRESHOLD-MARKER WORDING), 63/930 @ 04.10 ×3 (ABORT-CONTRACT GATE-4), 61/917 @ 04.10 (A-arc E7 + CTX-FOOTER FIX#3), 893/59 @ 02.10 (CTX-FOOTER), 874/58 @ 01.10; see README meta line; per-file list below is abbreviated)
 ├── security.test.ts            # Core security validation tests
 ├── security.edge-cases.test.ts # Security boundary & edge case testing
 ├── config.test.ts              # Zod schema + UI schematics validation

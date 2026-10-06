@@ -10,6 +10,9 @@ import { configSchematics } from './config';
 import pdfParse from 'pdf-parse';
 import type { ContextGuard } from './contextGuard';
 import { setAttachments, listAttachments } from './attachmentManager';
+// i18n-CONFIRM arc (06.10): confirmation prompts follow the user's configured language ("🌐 Language" menu);
+// acceptance stays multilingual via the derived union sets — single source of truth in src/locales/.
+import { getConfirmationWords, ALL_CONFIRM_WORDS, ALL_DECLINE_WORDS } from './locales';
 import { autoTracker } from './autoTracker';
 import { TokenStatsManager, drainActiveToolTurns } from './tokenStatsManager';
 // C compaction family (24.09): pre-summarization pruning of oversized tool payloads (DeepSeek harness item C)
@@ -66,8 +69,8 @@ export function buildCheckpointSavedNotice(input: CheckpointNoticeInput): string
     : '';
   const idPart = input.sessionId ? ` (checkpoint ${input.sessionId})` : '';
   return '\n\n✅ AUTO-CHECKPOINT SAVED BEFORE COMPRESSION (one-shot notice — not a prompt):\n' +
-    'An automatic session-memory snapshot was saved' + pct + idPart + ' in place of the token-limit warning for this turn.\n' +
-    "Briefly acknowledge to the user that their session memory was auto-saved; no YES/NO reply or further action is required.";
+    'A machine telemetry record (auto-written; not a manually saved session memory) was stored' + pct + idPart + ' in place of the token-limit warning for this turn — the history that prompt referred to has been compressed.\n' +
+    "Briefly acknowledge to the user that the auto checkpoint ran before compression; no YES/NO reply or further action is required.";
 }
 
 // --- Temporal Awareness Helpers (merged from up_to_date) ---
@@ -231,7 +234,16 @@ function detectDirectoryPath(text: string): string | null {
   return null;
 }
 
-function injectWorkingDirectoryPrompt(originalMessage: string, detectedPath: string): string {
+// 🔹 i18n-CONFIRM arc (06.10): option words follow the user's configured language when passed;
+// without them the legacy bilingual wording is preserved byte-for-byte for any other caller/test.
+function injectWorkingDirectoryPrompt(
+  originalMessage: string,
+  detectedPath: string,
+  words?: { yes: string; no: string },
+): string {
+  const replyHint = words
+    ? `Reply '${words.yes}' to confirm, or '${words.no}' to decline.`
+    : "Reply 'yes' or 'ja' to confirm, or 'no'/'nein' to decline.";
   const instruction = `
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ⚠️ WORKING DIRECTORY DETECTED
@@ -248,7 +260,7 @@ Example response:
 Would you like me to set this as your working directory? 
 All subsequent file operations will use this directory as the base.
 
-Reply 'yes' or 'ja' to confirm, or 'no'/'nein' to decline."
+${replyHint}"
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -453,13 +465,16 @@ async function retrieveFromPdfs(
 let pendingProjectSwitch: { name: string; path: string } | null = null;
 
 /**
- * Normalize a bilingual confirmation reply to the canonical FSM input (Fix B).
- * Accepts English 'YES'/'NO' and German 'JA'/'NEIN'; anything else → null (not a confirmation reply).
+ * Normalize a multilingual confirmation reply to the canonical FSM input (Fix B, extended by the
+ * i18n-CONFIRM arc 06.10). Accepts EVERY shipped language's confirm/decline words — union derived
+ * from src/locales/*.ts at module load (YES/JA/SÍ/确认/確認 → 'YES'; NO/NEIN/取消 → 'NO'); anything
+ * else → null (not a confirmation reply). Language-agnostic by design: only the user's configured
+ * language is DISPLAYED, but any shipped word still parses (owner verdict 06.10 ~19:0x).
  */
 export function normalizeConfirmationReply(raw: string): 'YES' | 'NO' | null {
   const u = raw.trim().toUpperCase();
-  if (u === 'YES' || u === 'JA') return 'YES';
-  if (u === 'NO' || u === 'NEIN') return 'NO';
+  if (ALL_CONFIRM_WORDS.has(u)) return 'YES';
+  if (ALL_DECLINE_WORDS.has(u)) return 'NO';
   return null;
 }
 
@@ -884,7 +899,13 @@ export async function preprocess(
       if ((autoTrackingConfig.get('autoTrackingEnabled') ?? true) && maxTokens > 0) {
         console.log('[ContextGuard DEBUG] Step 9: calling checkAndGeneratePrompt()...');
         try {
-          const promptResult = autoTracker.checkAndGeneratePrompt(tokenCount, maxTokens);
+          // i18n-CONFIRM arc (06.10): the checkpoint question is DISPLAYED in the user's configured
+          // language ("🌐 Language" menu); reply parsing stays multilingual inside Step 0.6 below.
+          const promptResult = autoTracker.checkAndGeneratePrompt(
+            tokenCount,
+            maxTokens,
+            getConfirmationWords(autoTrackingConfig.get('language')),
+          );
           if (promptResult.triggered && promptResult.warning) {
             pendingWarning = promptResult.warning;
             console.log(`[AutoTracker] ✅ THRESHOLD PROMPT GENERATED — user will be asked to save session memory`);
@@ -1051,8 +1072,10 @@ export async function preprocess(
       `${pendingWarning}\n` +
       `---\n` +
       `ACTION REQUIRED: Before responding to the user's message, explicitly acknowledge this token limit warning.\n` +
-      `If the user replied 'YES'/'JA' to save session memory → trigger the context management save tool now.\n` +
-      `If the user did NOT reply YES/JA or NO/NEIN → ask them if they want to proceed with a context save.\n` +
+      // i18n-CONFIRM arc (06.10): wording is language-agnostic on purpose — the parser accepts every shipped
+      // confirmation word, so reference the options above instead of duplicating one language's words here.
+      `If the user replied with one of the confirmation options shown in the warning above → trigger the context management save tool now.\n` +
+      `If the user declined or did NOT give a confirmation reply → ask them if they want to proceed with a context save.\n` +
       `Do not proceed with normal conversation until this warning has been addressed.\n` +
       `</SYSTEM_INSTRUCTION>`;
     pendingWarning = undefined; // Clear to prevent duplication in Step 1/2
@@ -1158,7 +1181,9 @@ export async function preprocess(
     console.log(`[ProjectAutoDetect] Found registered project "${projectMatch.name}" at ${projectMatch.path}`);
 
     // 🔹 Fix A (v1.9.8+ safety rule in index.ts): NEVER auto-switch on detection alone —
-    // confirm-first banner; the CWD changes only after an explicit YES/JA reply in a later message.
+    // confirm-first banner; the CWD changes only after an explicit confirmation reply in a later message.
+    // i18n-CONFIRM arc (06.10): options DISPLAYED in the user's configured language; parsing accepts all shipped words.
+    const confWords = getConfirmationWords(ctl.getPluginConfig(configSchematics).get('language'));
     const decision = decideProjectSwitch(projectMatch, userPrompt, getWorkingDir(), pendingProjectSwitch);
 
     if (decision.kind === 'skip') {
@@ -1176,7 +1201,7 @@ export async function preprocess(
 
       // Include the checkpoint warning only if it is still live after Step 0.6 ran this turn (avoids re-asking a consumed prompt).
       const activeSuffix = autoTracker.hasPendingWarning() ? checkpointSuffix : '';
-      const projectInjectPrompt = `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n⚠️ REGISTERED PROJECT DETECTED\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\nI found a registered project matching your message:\n\nProject: "${projectMatch.name}"\nPath: ${projectMatch.path}\n\nWould you like me to switch your working directory to this project?\nReply 'yes' or 'ja' to confirm, or 'no'/'nein' to decline.\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\nUser's original message:\n${userPrompt}${attachmentNotice}\n`;
+      const projectInjectPrompt = `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n⚠️ REGISTERED PROJECT DETECTED\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\nI found a registered project matching your message:\n\nProject: "${projectMatch.name}"\nPath: ${projectMatch.path}\n\nWould you like me to switch your working directory to this project?\nReply '${confWords.yes}' to confirm, or '${confWords.no}' to decline.\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\nUser's original message:\n${userPrompt}${attachmentNotice}\n`;
       return `${projectInjectPrompt.trim()}${activeSuffix}`.trim() + getTemporalSuffix(ctl);
     } else if (decision.kind === 'declined') {
       console.log(`[ProjectAutoDetect] Switch to "${projectMatch.name}" declined — keeping current working directory`);
@@ -1222,7 +1247,9 @@ export async function preprocess(
   // Step 1: Directory detection (highest priority)
   const detectedPath = detectDirectoryPath(userPrompt);
   if (detectedPath) {
-    let base = injectWorkingDirectoryPrompt(userPrompt + attachmentNotice, detectedPath) + checkpointSuffix;
+    // i18n-CONFIRM arc (06.10): the directory banner's reply options also follow the configured language.
+    const dirWords = getConfirmationWords(ctl.getPluginConfig(configSchematics).get('language'));
+    let base = injectWorkingDirectoryPrompt(userPrompt + attachmentNotice, detectedPath, dirWords) + checkpointSuffix;
     
     return base + getTemporalSuffix(ctl);
   }

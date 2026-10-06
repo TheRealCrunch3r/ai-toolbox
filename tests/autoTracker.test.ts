@@ -102,16 +102,45 @@ describe('AutoTracker FSM & Core Functionality', () => {
 
     it('should handle YES reply correctly', () => {
       tracker.checkTokenThreshold(8000, 10000);
-      
+
       const prompt = tracker.checkAndGeneratePrompt(8000, 10000);
       expect(prompt.triggered).toBe(true);
-      expect(prompt.warning).toContain("Reply 'YES'/'JA' to trigger the session memory save");
-      
+      // i18n-CONFIRM arc (06.10): default display is the single-language (EN) word pair; the old
+      // bilingual 'YES'/'JA' pin was superseded when option words started following configured language.
+      expect(prompt.warning).toContain("Reply 'YES' to trigger the session memory save");
+
       // User replies YES
       tracker.consumePendingConfirmation();
       tracker.processUserReply('YES');
-      
+
       expect(tracker.getState()).toBe(AutoTrackState.CONFIRMED);
+    });
+
+    it('displays option words in the configured language when passed (i18n-CONFIRM arc 06.10)', () => {
+      const { ContextStorageManager } = require('../src/tools/contextManagementTools');
+      // One FRESH tracker per case: a pending warning is cached per tracker, so re-using one would
+      // serve the first language's wording on every later call (see THRESHOLD_REACHED early return).
+      const freshTriggeredTracker = (): AutoTracker => {
+        const t = new AutoTracker({ autoTrackingEnabled: true }, ContextStorageManager);
+        t.checkTokenThreshold(8000, 10000); // → THRESHOLD_REACHED (no pending warning yet)
+        return t;
+      };
+
+      // German display: only the de words are shown (display = single-language by design).
+      const dePrompt = freshTriggeredTracker().checkAndGeneratePrompt(8000, 10000, { yes: 'JA', no: 'NEIN' });
+      expect(dePrompt.triggered).toBe(true);
+      expect(dePrompt.warning).toContain("Reply 'JA' to trigger the session memory save");
+      expect(dePrompt.warning).toContain("or 'NEIN' to continue");
+
+      // Chinese (Simplified) display.
+      const zhPrompt = freshTriggeredTracker().checkAndGeneratePrompt(8000, 10000, { yes: '确认', no: '取消' });
+      expect(zhPrompt.warning).toContain("Reply '确认'");
+      expect(zhPrompt.warning).toContain("'取消' to continue");
+
+      // Absent words → default (EN single-language): the byte-exact pre-arc behavior for any
+      // caller/test that does not pass a word pair.
+      const defPrompt = freshTriggeredTracker().checkAndGeneratePrompt(8000, 10000);
+      expect(defPrompt.warning).toContain("Reply 'YES' to trigger the session memory save");
     });
   });
 

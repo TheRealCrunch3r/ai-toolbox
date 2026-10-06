@@ -61,15 +61,13 @@ const ActivePlanSchema = z.object({
 /**
  * Manages plan persistence to disk with atomic writes.
  * Uses the same pattern as contextManagementTools (temp file + rename).
+ * 🔹 PLAN-SEAM (06.10): the CURRENT working dir's .session_context store is the SINGLE source of truth —
+ * the former plugin-root mirror (save()) and its load() fallback were removed: under jest they wrote test
+ * residue into src/, and in production after a project switch an empty new working dir could surface
+ * ANOTHER project's plans via the fallback read.
  */
-/** Exported (25.09): read-only reuse by restoreSessionContextTool.ts — load() stays the single source of truth for plan file paths + Zod validation (working dir primary, plugin root fallback). */
+/** Exported (25.09): read-only reuse by restoreSessionContextTool.ts — load() stays the single source of truth for plan file paths + Zod validation. */
 export class PlanStorageManager {
-  private pluginRootPath: string;
-
-  constructor() {
-    const baseDir = path.resolve(__dirname, '..');
-    this.pluginRootPath = path.join(baseDir, '.session_context', '.ai_toolbox_plans.json');
-  }
 
   /** Resolve the plan file for the CURRENT working directory.
    * Re-resolved on every call so mid-session change_directory() is honored (FIX: previously captured once at construction). */
@@ -92,14 +90,8 @@ export class PlanStorageManager {
     // Re-resolve per call — mid-session change_directory() must be honored (FIX: stale construction-time capture)
     const workingDirPlanPath = this.getWorkingDirPlanPath();
 
-    let plans = await this.loadPlansFromFile(workingDirPlanPath);
-    
-    // Fallback: Plugin Root if no plans found in Working Directory
-    if (Object.keys(plans).length === 0) {
-      plans = await this.loadPlansFromFile(this.pluginRootPath);
-    }
-    
-    return plans;
+    // 🔹 PLAN-SEAM (06.10): single-store read — the former plugin-root fallback was removed (see class docblock).
+    return await this.loadPlansFromFile(workingDirPlanPath);
   }
 
   /** Helper: parse and validate plan data from a specific file path */
@@ -143,24 +135,12 @@ export class PlanStorageManager {
     const workingDirPlanPath = this.getWorkingDirPlanPath();
 
     
-    // Write to working dir first (primary)
+    // Single-store write — 🔹 PLAN-SEAM (06.10): the former plugin-root mirror was removed.
     try {
       await this.ensureDirectory(workingDirPlanPath);
       const tempPath = workingDirPlanPath + '.tmp';
       await fs.writeFile(tempPath, JSON.stringify(data), 'utf-8');
       await fs.rename(tempPath, workingDirPlanPath);
-      
-      // Sync to plugin root (secondary)
-      if (this.pluginRootPath !== workingDirPlanPath) {
-        try {
-          await this.ensureDirectory(this.pluginRootPath);
-          const pluginTemp = this.pluginRootPath + '.tmp';
-          await fs.writeFile(pluginTemp, JSON.stringify(data), 'utf-8');
-          await fs.rename(pluginTemp, this.pluginRootPath);
-        } catch (syncError) {
-          console.error(`[PlanStorage.save] Failed to sync to plugin root: ${String(syncError)}`);
-        }
-      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.error(`[PlanStorage.save] FAILED for ${workingDirPlanPath}: ${message}`);
@@ -255,6 +235,7 @@ EXAMPLE: create_plan({ goal: "Refactor auth module", steps: ["Read current auth.
     description: `Updates the status of one step in an active plan.
 USE WHEN: You start working on a step (set to "in_progress"), complete it ("done"), or encounter blockers ("blocked").
 STATE MACHINE: pending → in_progress → done | any → blocked | blocked → pending
+TERMINAL REMOVAL: when the last remaining non-done step is marked "done" (plan fully complete), the plan is automatically removed from the persisted store per house rule — capture anything you still need before that flip; use remove_plan for explicit removal of unfinished plans.
 EXAMPLES: update_plan_step({ planId: "...", index: 0, status: "done" })`,
     parameters: {
       planId: z.string().min(1).describe('The unique ID of the plan (returned by create_plan)'),
@@ -312,6 +293,36 @@ EXAMPLES: update_plan_step({ planId: "...", index: 0, status: "done" })`,
 
         plan.updatedAt = Date.now();
         
+        // 🔹 PLAN-HYGIENE (05.10, owner rule): a plan whose last step just reached "done" is TERMINALLY
+        // complete — house rule removes it from the working-state store at that moment. Provenance belongs in
+        // CHANGELOG/session-summaries/memory facts, not .ai_toolbox_plans.json (root cause of the 29-stale-plan
+        // accumulation; audited + slimmed 05.10). Blocked/partial plans are NEVER auto-removed. The response still
+        // carries full final stats so nothing is lost from the transcript; remove_plan exists for explicit removal
+        // of UNFINISHED (abandoned/superseded) plans only.
+        const completedSteps = plan.steps.filter(s => s.status === 'done').length;
+        const naturallyCompleted = status === 'done' && completedSteps === plan.steps.length;
+
+        if (naturallyCompleted) {
+          delete plans[planId];
+          await storageManager.save(plans);
+
+          return {
+            success: true,
+            data: {
+              removedOnCompletion: true,
+              planId,
+              goal: plan.goal,
+              stepIndex: index,
+              previousStatus,
+              newStatus: status,
+              completedSteps,
+              totalSteps: plan.steps.length,
+              allDone: true,
+              message: 'All steps done — plan removed from the persisted store per house rule (completed plans are working-state only; provenance lives in CHANGELOG/session summaries/memory facts).',
+            },
+          };
+        }
+
         // Save updated plan
         plans[planId] = plan;
         await storageManager.save(plans);
@@ -420,6 +431,73 @@ EXAMPLE: get_plan()`,
     },
   });
 
-  // Return all three tools sorted alphabetically
-  return [createPlanTool, getPlanTool, updatePlanStepTool].sort((a, b) => a.name.localeCompare(b.name));
+  // 🔹 PLAN-HYGIENE (05.10): explicit removal tool — for UNFINISHED plans only (abandoned/superseded).
+  // Completed plans are auto-removed by update_plan_step's terminal branch above; this never re-adds data.
+  const removePlanTool: Tool = tool({
+    name: 'remove_plan',
+    description: `Removes a persisted plan from the .ai_toolbox_plans.json working-state store (goal + step statuses are returned in the response for provenance).
+USE WHEN: abandoning or superseding an UNFINISHED plan at arc close-out, or cleaning plans that outlived their arcs. Do NOT use for completed plans — update_plan_step removes those automatically when the final step is marked "done".
+SAFETY: destructive — requires confirm=true to remove; without it returns a DRY-RUN preview of exactly what would be removed (plan summary + step status counts), and nothing changes on disk.
+EXAMPLES: remove_plan({ planId: "..." }) → preview · remove_plan({ planId: "...", confirm: true }) → removes`,
+    parameters: {
+      planId: z.string().min(1).describe('The unique ID of the plan to remove (get_plan surfaces the newest active one; the store may hold more)'),
+      confirm: z.boolean().optional().describe('Must be exactly true to actually remove. Omitted or false returns a dry-run preview only.'),
+    },
+    implementation: async ({ planId, confirm }: {
+      readonly planId: string;
+      readonly confirm?: boolean;
+    }) => {
+      try {
+        const plans = await storageManager.load();
+
+        if (!plans[planId]) {
+          return { success: false, error: `Plan '${planId}' not found in the persisted store (it may already have been removed on completion).` };
+        }
+
+        const plan = plans[planId];
+        const statusCounts: Record<StepStatus, number> = { pending: 0, in_progress: 0, done: 0, blocked: 0 };
+        for (const s of plan.steps) statusCounts[s.status] += 1;
+
+        if (confirm !== true) {
+          return {
+            success: true,
+            dryRun: true,
+            data: {
+              removed: false,
+              planId,
+              goal: plan.goal,
+              stepCount: plan.steps.length,
+              statusCounts,
+              createdAt: new Date(plan.createdAt).toISOString(),
+              updatedAt: new Date(plan.updatedAt).toISOString(),
+              message: 'Dry-run preview — nothing was modified. Call again with confirm=true to remove this plan.',
+            },
+          };
+        }
+
+        delete plans[planId];
+        await storageManager.save(plans);
+
+        return {
+          success: true,
+          data: {
+            removed: true,
+            planId,
+            goal: plan.goal,
+            stepCount: plan.steps.length,
+            statusCounts,
+            createdAt: new Date(plan.createdAt).toISOString(),
+            updatedAt: new Date(plan.updatedAt).toISOString(),
+            message: 'Plan removed from the persisted store. Its goal/step summary is in this response for provenance.',
+          },
+        };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return { success: false, error: `Failed to remove plan: ${message}` };
+      }
+    },
+  });
+
+  // Return all four tools sorted alphabetically
+  return [createPlanTool, getPlanTool, updatePlanStepTool, removePlanTool].sort((a, b) => a.name.localeCompare(b.name));
 }

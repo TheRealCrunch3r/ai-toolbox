@@ -269,4 +269,60 @@ describe('StateManager Race Conditions (B1 & B2)', () => {
       expect(astEntries[0].key).toBe('tiered_entry');
     });
   });
+
+  // ── SM-VERIFY-FIX (05.10, E7 bug class — closed the "separate decision" deferred in CHANGELOG 04.10) ──────
+  // encode() has no representation for `undefined` (encoded as nil → decode returns explicit null), while
+  // JSON.stringify DROPS undefined-valued keys — so the pre-fix strict compare against the RAW in-RAM value
+  // flagged a CLOBBER on OUR OWN successful commit for any record whose value carries one undefined-valued key.
+  // Under jest the SM logger is silent (JEST_WORKER_ID), so the false positive is observed through its ONLY durable
+  // side effect: the `.backup.json` mirror is written EXCLUSIVELY in the INTACT branch — pre-fix, every attempt failed
+  // verify on such a save → no mirror at all while the primary was correct (the stale/missing-mirror failure Suite E7
+  // pinned byte-for-byte on the CSM side; this store's mirror is loadMemoryFile's quarantine-recovery source).
+
+  describe('SM-VERIFY-FIX — undefined-valued keys in state values must not false-positive clobber', () => {
+
+    it('SHOULD treat an own record with an undefined-valued key as INTACT: save commits AND the last-known-good mirror is written', async () => {
+      const actualFs = jest.requireActual('fs/promises');
+
+      await actualFs.mkdir(path.join(TMP_DIR, '.session_context'), { recursive: true });
+
+      // Realistic summary-shaped value (save_session_summary record class) with ONE undefined-valued key —
+      // the exact bug class CSM's nodesToEntries() `ttl_ms: undefined` pinned on the context side.
+      const summaryValue: Record<string, unknown> = {
+        task_description: 'sm-verify-fixture',
+        accomplishments: '',
+        pending_tasks: undefined, // 🔹 THE trap — must round-trip as nil and never trip verify
+        timestamp: Date.now(),
+        date: new Date().toLocaleString(),
+      };
+
+      const sm = new StateManager({ ...DEFAULT_CONFIG });
+      await new Promise(r => setTimeout(r, 150)); // let constructor load settle (no file → fresh store)
+
+      sm.set('session_summary_latest', summaryValue);
+      sm.set('plain_entry', 'control_value'); // control record — proves the check still runs for ordinary values
+      await sm.forceSave();
+
+      const memPath = getMemoryPath(TMP_DIR);
+
+      // 1) Durability sanity: both records are on disk in canonical wire form (undefined → nil → null).
+      const diskEntries = await readMemoryFile(memPath);
+      expect(diskEntries.map(e => e.key)).toEqual(expect.arrayContaining(['session_summary_latest', 'plain_entry']));
+      const summaryHit = diskEntries.find((e: { key?: string }) => e.key === 'session_summary_latest');
+      expect(summaryHit).toBeDefined();
+      expect(summaryHit.value.pending_tasks).toBeNull(); // msgpack nil decoded to explicit null
+
+      // 2) THE regression pin: the last-known-good mirror must EXIST and carry both records. Pre-fix, verify
+      // false-positived on every attempt (3×), the intact branch never ran → no mirror was ever written although
+      // the primary was correct — exactly the E7 stale-mirror failure; recoverability would silently degrade on
+      // every such save until a later healthy save refreshed the mirror.
+      const mirrorPath = `${memPath}.backup.json`;
+      let mirrorExists = true;
+      try { await actualFs.access(mirrorPath); } catch { mirrorExists = false; }
+      expect(mirrorExists).toBe(true); // pre-fix: FALSE (missing mirror) — the assertion that fails without SM-VERIFY-FIX
+      const mirror: Array<Record<string, unknown>> = JSON.parse(await actualFs.readFile(mirrorPath, 'utf-8'));
+      expect(Array.isArray(mirror)).toBe(true);
+      expect(mirror.map(r => r.key)).toEqual(expect.arrayContaining(['session_summary_latest', 'plain_entry']));
+    });
+  });
 });

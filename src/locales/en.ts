@@ -124,6 +124,7 @@ export const enTranslations: FullTranslationSet = {
       { toolName: 'create_plan', description: 'Create a multi-step execution plan (1–30 steps); replaces any active plan and returns planId + stepCount', parameters: ['goal, steps'] },
       { toolName: 'get_plan', description: 'Return the active plan with step statuses, completion percentage and elapsed time; null if no plan exists', parameters: [] },
       { toolName: 'update_plan_step', description: 'Update one plan step through the state machine (pending→in_progress→done; any→blocked; blocked→pending) — note required when blocking', parameters: ['planId, index, status, note (required if blocked)'] },
+      { toolName: 'remove_plan', description: 'Remove a persisted plan from the working-state store; dry-run preview unless confirm=true — for UNFINISHED plans only, completed ones are auto-removed by update_plan_step at final done', parameters: ['planId, confirm (required to remove)'] },
     ],
   },
   contextManagement: {
@@ -221,5 +222,7 @@ export const enTranslations: FullTranslationSet = {
     disabledTools: 'Disabled Tools:',
     errorPrefix: 'Error:',
     successPrefix: 'Success:',
+    yesWord: 'YES',
+    noWord: 'NO',
   },
 };

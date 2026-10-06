@@ -381,11 +381,31 @@ async function saveMemoryFile(filePath: string, state: Map<string, StateEntry>):
           if (!Array.isArray(verify)) {
             intact = false;
           } else {
-            for (const rec of data) {
+            // 🔹 SM-VERIFY-FIX (05.10, E7 bug class — "separate decision" from CHANGELOG 04.10 A-arc close-out): canonicalize each of OUR
+            // records through the SAME msgpack round-trip we just wrote before comparing — encode() has no representation for `undefined`
+            // and encodes it as nil, which decode() returns as an explicit null while JSON.stringify() DROPS undefined-valued keys entirely.
+            // The pre-fix strict compare therefore flagged a CLOBBER on OUR OWN successful commit for any state value carrying one
+            // undefined-valued key (e.g., a summary-shaped record with `pending_tasks: undefined`): false "Clobber detected" on EVERY
+            // attempt → D-RACE bound exhaustion (3×) + loud all-clobbered ERROR, and — because ONLY the intact branch writes the mirror —
+            // <filePath>.backup.json stays stale while the primary is correct. That stale mirror is exactly what loadMemoryFile's
+            // quarantine-recovery restores from, so every such save silently degraded last-known-good recoverability (the E7 failure class).
+            // Canonical form = decode(encode(rec)) — byte-faithful to exactly the bytes this commit wrote; a genuinely mangled/missing own
+            // record still fails (stringify of its canonical value differs, or find() misses). `rec` is always a plain object here (built
+            // in saveMemoryFile), so decode(encode(rec)) stays an object — no `?? null` needed. Cost: one encode+decode per own record
+            // (µs-scale at typical store sizes; verify runs once per attempt only) — same trade-off as the CSM-side E7-VERIFY-FIX.
+            // 🔹 TS FIX (05.10, gate-2 pattern per saveCore 30.08 note): decode() is typed `unknown` in this @msgpack/msgpack
+            // version — shape-guard + targeted cast instead of member access on raw unknown (TS18046). The round-trip result IS
+            // structurally our own record ({key,value,timestamp}[_origin]); the guard rejects any non-object degenerate.
+            const canonValues = data.map(rec => {
+              const rt: unknown = decode(encode(rec));
+              return JSON.stringify(rt && typeof rt === 'object' && !Array.isArray(rt) ? (rt as { value?: unknown }).value : undefined);
+            });
+            for (let i = 0; i < data.length; i++) {
+              const rec = data[i];
               const hit = (verify as Array<Record<string, unknown>>).find(r => !!r && typeof r === 'object' && !Array.isArray(r)
                 // 🔹 LINT FIX (20.09, gate-2): r/hit are already inferred as Record<string, unknown> from the .find() element type — casts removed (no-op asserts).
                 && r.key === rec.key);
-              if (!hit || JSON.stringify(hit.value) !== JSON.stringify(rec.value)) { intact = false; break; }
+              if (!hit || JSON.stringify(hit.value) !== canonValues[i]) { intact = false; break; } // SM-VERIFY-FIX: compare against the canonical wire form, not the raw in-memory value
             }
           }
         } catch { /* verify read failed — treat as intact to preserve old behavior (rename itself succeeded) */ }

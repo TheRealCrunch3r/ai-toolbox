@@ -292,11 +292,23 @@ export class AutoTracker {
    * Check threshold and generate a user-facing prompt if triggered.
    * Returns { triggered, warning? } instead of auto-saving immediately.
    */
-  checkAndGeneratePrompt(currentTokens: number, maxTokens: number): { triggered: boolean; warning?: string } {
+  // 🔹 i18n-CONFIRM arc (06.10): optional display-language word pair for the checkpoint question below —
+  // defaults to today's exact wording so every other caller/tests stay byte-identical until wired up.
+  private confirmationWords: { yes: string; no: string } = { yes: 'YES', no: 'NO' };
+
+  checkAndGeneratePrompt(
+    currentTokens: number,
+    maxTokens: number,
+    words?: { yes: string; no: string },
+  ): { triggered: boolean; warning?: string } {
     // Subtract ContextGuard's fixed BOS/system overhead for accurate percentage calculation
     const effectiveTokens = Math.max(0, currentTokens - CONTEXT_GUARD_OVERHEAD);
     const usagePercentage = (effectiveTokens / maxTokens) * 100;
     const threshold = this.config.autoTrackTokenThreshold ?? 75;
+    // i18n-CONFIRM arc (06.10): pick up the display-language words for THIS call (absent → keep current defaults).
+    if (words) {
+      this.confirmationWords = words;
+    }
 
     if (!this.config.autoTrackingEnabled || !maxTokens || maxTokens <= 0 || usagePercentage < threshold) {
       // 🔹 FIX RC-2: A CONFIRMED state with no live prompt is not a pending warning. If usage dropped
@@ -331,7 +343,7 @@ export class AutoTracker {
     this.transitionTo(AutoTrackState.THRESHOLD_REACHED, `first_trigger=${usagePercentage.toFixed(1)}%`);
     
     const bufferedCount = this.actionBuffer.length;
-    const warning = `⚠️ SESSION WARNING: You have reached ${usagePercentage.toFixed(0)}% of your token limit. It is highly recommended to save session memory before continuing.\n\nAuto-tracked events in buffer (will be saved with checkpoint): ${bufferedCount}\n\nDo you want to proceed with a context save? Reply 'YES'/'JA' to trigger the session memory save, or 'NO'/'NEIN' to continue.`;
+    const warning = `⚠️ SESSION WARNING: You have reached ${usagePercentage.toFixed(0)}% of your token limit. It is highly recommended to save session memory before continuing.\n\nAuto-tracked events in buffer (will be saved with checkpoint): ${bufferedCount}\n\nDo you want to proceed with a context save? Reply '${this.confirmationWords.yes}' to trigger the session memory save, or '${this.confirmationWords.no}' to continue.`;
     
     this.pendingCheckpointWarning = warning;
     debugLog('[PROMPT]', 'Generated checkpoint prompt for user confirmation');
@@ -438,7 +450,7 @@ export class AutoTracker {
       return { fired: false };
     }
 
-    console.log(`[AutoTracker] [CHECKPOINT] Mid-loop threshold crossed: ~${usagePercentage.toFixed(1)}% (${baselineTokens} + ${deltaEstTokens} delta / ${maxTokens}) — saving proactive checkpoint (no prompt possible mid-turn)`);
+    console.log(`[AutoTracker] [CHECKPOINT] ${threshold}% token threshold reached mid-loop (~${usagePercentage.toFixed(1)}% usage, ${baselineTokens} + ${deltaEstTokens} delta / ${maxTokens}) — notifying user on next message`);
     this._midLoopGuardedAt = cumulative;
 
     // Flush buffered tracked actions together with the snapshot (same pairing as checkAndSaveTokenThreshold).
@@ -449,7 +461,7 @@ export class AutoTracker {
 
     const saveResult = await this.autoSaveSessionMemory(cumulative, maxTokens, this.messageCount);
     if (saveResult.saved) {
-      console.log(`[AutoTracker] [CHECKPOINT] Mid-loop snapshot saved: ${saveResult.sessionId}`);
+      console.log(`[AutoTracker] [CHECKPOINT] threshold marker saved (${saveResult.sessionId}) — user will be notified on next message`);
       return { fired: true, saved: true, sessionId: saveResult.sessionId };
     }
 
@@ -548,7 +560,7 @@ export class AutoTracker {
       timestamp,
       type: 'summary' as const,
       title: `Session Memory Checkpoint (${usagePercentage}% tokens used)`,
-      content: `Auto-triggered session memory save at ${threshold}% token threshold.\n\nCurrent session state:\n- Tokens used: ${currentTokens} / ${maxTokens} (${usagePercentage}%)\n- Messages in session: ${messageCount}\n- Threshold configured: ${threshold}%\n- Auto-tracked events in buffer: ${this.actionBuffer.length}\n\nThis checkpoint preserves critical context before potential overflow.`,
+      content: `Threshold reached mid-loop (~${threshold}% of context) — user will be notified on next message.\n\nMachine telemetry record (auto-written; not a manually saved session memory):\n\nCurrent session state:\n- Tokens used: ${currentTokens} / ${maxTokens} (${usagePercentage}%)\n- Messages in session: ${messageCount}\n- Threshold configured: ${threshold}%\n- Auto-tracked events in buffer: ${this.actionBuffer.length}\n\nUser notification (YES/NO save prompt) fires on the next user message — nobody can answer mid-loop.`,
       tags: ['auto_checkpoint', 'token_threshold'],
     };
 

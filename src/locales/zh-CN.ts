@@ -124,6 +124,7 @@ export const zhCNTranslations: FullTranslationSet = {
       { toolName: 'create_plan', description: '创建多步骤执行计划（1–30 步）；替换任何活动计划并返回 planId + stepCount', parameters: ['goal, steps'] },
       { toolName: 'get_plan', description: '返回活动计划，含各步骤状态、完成百分比与已用时间；无计划时返回 null', parameters: [] },
       { toolName: 'update_plan_step', description: '通过状态机更新单个计划步骤（pending→in_progress→done；any→blocked；blocked→pending）——阻塞时必须提供 note', parameters: ['planId, index, status, note (required if blocked)'] },
+      { toolName: 'remove_plan', description: '从工作状态存储中移除已持久化的计划；除非 confirm=true 否则仅返回 dry-run 预览 — 仅限未完成的计划，已完成计划会在最后一个 done 时由 update_plan_step 自动移除', parameters: ['planId, confirm (required to remove)'] },
     ],
   },
   contextManagement: {
@@ -221,5 +222,7 @@ export const zhCNTranslations: FullTranslationSet = {
     disabledTools: '禁用的工具：',
     errorPrefix: '错误：',
     successPrefix: '成功：',
+    yesWord: '确认',
+    noWord: '取消',
   },
 };

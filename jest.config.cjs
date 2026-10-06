@@ -169,6 +169,8 @@ module.exports = {
     // REPEAT-TOOL-REMINDER (25.09): src/toolsProvider.ts statically imports './utils/repeatToolReminder.js' — same RC#4 class as withPipeline
     '^\\./utils/repeatToolReminder\\.js$': '<rootDir>/src/utils/repeatToolReminder.ts',
     '^\\.\\./utils/repeatToolReminder\\.js$': '<rootDir>/src/utils/repeatToolReminder.ts',
+    // DOC-PIN-TEST (06.10): tests/docsConsistency.test.ts is the FIRST suite to load the REAL src/tools/imageProcessingTools.ts (extensionless import, bypassing the tools-mock redirect above); its internal NodeNext '../attachmentManager.js' import then needs this entry — same RC#4 class as every entry in this file (new .js-suffixed static import without mapper entry → "Cannot find module"); per-file form only (G9 round-2: no generic rule), real-src target (getAttachment/listAttachments have no mock)
+    '^\\.\\./attachmentManager\\.js$': '<rootDir>/src/attachmentManager.ts',
     // LLM-side limit awareness (02.10): src/toolsProvider.ts statically imports './utils/contextUsageFooter.js' — same RC#4 class as the utils entries above; per-file form only (G9 round-2: no generic rule)
     '^\\./utils/contextUsageFooter\\.js$': '<rootDir>/src/utils/contextUsageFooter.ts',
     // ── Package-level mock redirects (ESM-only deps) ──

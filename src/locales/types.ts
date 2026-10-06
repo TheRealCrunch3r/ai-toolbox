@@ -43,6 +43,10 @@ export interface FullTranslationSet {
     disabledTools: string;
     errorPrefix: string;
     successPrefix: string;
+    // 🔹 i18n-CONFIRM arc (06.10): localized words for the YES/NO confirmation prompts
+    // (checkpoint save + project/CWD switch). Displayed per configured language; accepted in ALL languages.
+    yesWord: string;
+    noWord: string;
   };
 }
 
