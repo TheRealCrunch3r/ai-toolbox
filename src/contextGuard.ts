@@ -31,6 +31,22 @@ function cachedJSONStringify(obj: unknown): string {
 
 import type { LMStudioClient, LLMPredictionStats } from '@lmstudio/sdk';
 import { TokenStatsManager } from './tokenStatsManager.js';
+// Arc C (07.10): structured continuity generation at the compression trigger — parser + persist live in
+// sessionSummaryPersist.ts; cycle-free by construction (toolsProvider / all src/tools modules never import
+// contextGuard or promptPreprocessor, only index.ts imports both sides of that graph). FIX B (09.10) reuses BOTH
+// exports here for the mid-loop forced-compression pipeline — grep-verified 09.10: no runtime edge back into
+// contextGuard from any module these chain through (only index.ts imports contextGuard at runtime; promptPreprocessor's
+// is type-only).
+import type { SessionSummaryData } from './tools/contextManagementTools.js';
+import { parseSessionContinuity, persistGeneratedSessionSummary } from './sessionSummaryPersist.js';
+// FIX B (09.10): PART-B pipeline parity for compressMidLoop() — pre-summarization payload pruning + the canonical
+// AutoTracker checkpoint snapshot (PART B). No import cycle: autoTracker imports only zod (+ a deferred dynamic
+// import of tools/contextManagementTools.js, which never references contextGuard); workingDir is dependency-free.
+import { autoTracker } from './autoTracker.js';
+import { getWorkingDir } from './workingDir.js';
+// FIX B (09.10): C compaction family — same store-before-prune ordering and byte budget as PART B in promptPreprocessor.
+import { DEFAULT_MAX_BYTES_PER_RESULT, pruneOversizedToolPayloads } from './utils/toolPayloadCompaction.js';
+import { collectPrunedPayloadRefs, storePrunedPayload } from './utils/toolPayloadStorage.js';
 
 // Common English words to exclude from keyword extraction (false positives)
 const STOP_WORDS = new Set([
@@ -135,7 +151,8 @@ function debugLog(...args: unknown[]): void {
 }
 
 export interface ContextGuardConfig {
-  tokenLimit: number;
+  tokenLimit: number; // effective context window (absolute tokens) — model-reported or built-in fallback
+  compressionPercent: number; // 📊 Compression trigger as % of tokenLimit (07.10: replaces the hardcoded *0.9 / absolute menu limit), default 90
   smartReading: boolean;
   summaryModel: string;
   terminalFilterEnabled: boolean;
@@ -462,7 +479,9 @@ export class ContextGuard {
   ): Promise<ContextMessage[]> {
     // 🔹 FIX #2: Pass summaryModel to countTokens so SDK-native counting is used during threshold check
     const currentTokens = await this.countTokens(messages, 0, this.config.summaryModel);
-    const threshold = this.config.tokenLimit * 0.9;
+    // 📊 Percent-based trigger (07.10): compression at `compressionPercent` % of the effective window
+    // (default 90% — numerically identical to the former hardcoded *0.9).
+    const threshold = this.config.tokenLimit * (this.config.compressionPercent / 100);
 
     if (currentTokens < threshold) {
       debugLog('[COMPRESS]', `Token count (${currentTokens}) below threshold (${threshold}). No compression needed.`);
@@ -653,6 +672,209 @@ SUMMARY:`;
   }
 
   /**
+   * Arc C (07.10): generate the structured session-continuity summary BEFORE compression destroys history —
+   * called from promptPreprocessor PART B immediately before compressHistory(), with the caller-side keepLast=10
+   * exclusion already applied (the last 10 messages survive compression and are deliberately NOT summarized).
+   *
+   * Model resolution mirrors compressHistory(): the configured summaryModel first, then the caller-supplied
+   * fallback id (the active chat model); neither usable → null. Contract: ALWAYS RESOLVES with
+   * `SessionSummaryData | null` — never throws; any failure (no model/client, wall-clock cap, user stop,
+   * unparsable output) resolves null so the caller keeps the deterministic telemetry fallback unchanged.
+   * The prediction reuses the module-private withTimeoutCap() one-controller pattern of compressHistory().
+   */
+  async generateSessionContinuity(
+    messagesToSummarize: ContextMessage[],
+    opts?: { fallbackModelId?: string; abortSignal?: AbortSignal },
+  ): Promise<SessionSummaryData | null> {
+    const modelId = (this.config.summaryModel || '').trim() !== ''
+      ? this.config.summaryModel.trim()
+      : ((opts?.fallbackModelId ?? '').trim());
+
+    if (!modelId || !this.lmClient) {
+      debugLog('[CONTINUITY]', 'No summary model / fallback id or LM client — skipping continuity generation');
+      return null;
+    }
+    if (messagesToSummarize.length === 0) {
+      debugLog('[CONTINUITY]', 'Empty message list — nothing to summarize');
+      return null;
+    }
+
+    try {
+      const model = await this.getCachedModel(modelId);
+
+      const historyText = messagesToSummarize.map(m => {
+        const role = (m.role || 'user').toUpperCase();
+        const contentStr: string = typeof m.content === 'string'
+          ? m.content
+          : m.content != null && typeof m.content !== 'string'
+            ? JSON.stringify(m.content)
+            : '';
+        return `[${role}] ${contentStr}`;
+      }).join('\n\n');
+
+      const continuityPrompt = `You are a session-continuity writer. The conversation history below is about to be compressed and its detail will be lost. Write the exact continuation brief that the next session needs, using ONLY this format (no other text, no code fences):
+
+TASK:
+<one or two sentences: what the user asked / the overall task>
+ACCOMPLISHMENTS:
+- short bullet per item (file paths and names exactly as written); write (none) if nothing was accomplished
+PENDING TASKS:
+- short bullet per remaining step; write (none) if the work is complete
+DECISIONS MADE:
+- short bullet with a one-line rationale each; write (none) if no decisions were made
+CONTEXT FOR NEXT SESSION:
+- exact file paths, anchors and next steps only — pointers, never transcripts
+
+RULES: Preserve ALL file paths, function names, class names, and variable names exactly as written. Be precise but brief (max ~80 words per section). Do not invent work that did not happen in the history below.
+
+CONVERSATION HISTORY TO SUMMARIZE:
+${historyText}`;
+
+      // Cancellable + capped — same one-controller pattern as compressHistory() (no orphaned timers/listeners).
+      const { signal: predictionSignal, dispose: disposePredictionGuard } = withTimeoutCap(
+        opts?.abortSignal,
+        COMPRESSION_PREDICTION_MAX_MS,
+      );
+
+      try {
+        const response = model.respond(
+          [{ role: 'user', content: continuityPrompt }],
+          { maxTokens: 1024, temperature: 0.1, signal: predictionSignal },
+        );
+
+        // Wait for the result — host cancel or cap aborts it in-flight (stopReason 'userStopped').
+        const result = await response.result();
+
+        if (result.stats && result.stats.stopReason === 'userStopped') {
+          throw new Error('Continuity generation stopped by user cancel or prediction cap');
+        }
+
+        const rawContent: string | undefined = typeof result.content === 'string' ? result.content : undefined;
+        const parsed = parseSessionContinuity(rawContent ?? '');
+        if (!parsed) {
+          console.warn('[ContextGuard] ⚠️ Arc C continuity output unparsable (no sections found) — telemetry fallback applies');
+          return null;
+        }
+
+        debugLog('[CONTINUITY]', `Generated structured session summary (${rawContent?.length ?? 0} chars raw)`);
+        return parsed;
+      } finally {
+        // Clear the cap timer + host-signal listener on EVERY path (no orphaned timers/listeners).
+        disposePredictionGuard();
+      }
+    } catch (error) {
+      console.error(`[ContextGuard] Arc C continuity generation failed: ${error instanceof Error ? error.message : String(error)}`);
+      return null; // non-fatal by contract — telemetry fallback is owned by the caller
+    }
+  }
+
+  /**
+   * FIX B (09.10, owner GO) — mid-loop forced compression: runs the SAME pipeline PART B in promptPreprocessor uses at user-message
+   * boundaries, but callable from inside an agentic tool loop. Before this nothing ran between tier-2's ~90% forced SAVE and the
+   * model's 100% hard stop — a save persists memory but never shrinks context, so a run-away turn crossing 90% mid-loop accumulated
+   * straight to the wall (09.10 verification session: turn died at 100%, owner had to enlarge the window; same failure earlier that day).
+   * The wrapper in toolsProvider.ts calls this ONCE PER TURN when its shared projection crosses PREEMPTIVE_COMPRESSION_PERCENT
+   * (fixed 95 — always below 100 and above tier-2's compressionPercent crossing); the boundary path stays untouched for turns that
+   * never cross mid-loop.
+   *
+   * Pipeline parity with PART B: (1) store-before-prune of oversized payloads, (2) PART-B telemetry snapshot via
+   * autoTracker.autoSaveSessionMemory(), (3) Arc-C structured continuity save when enabled, (4) compressHistory() — whose
+   * onCompression callback → autoTracker.onContextCompressed() fires exactly as at the boundary (FSM re-arms identically).
+   * Non-fatal contract: steps 1–3 log-and-continue on any failure; step 4 carries compressHistory's own fallback summary. The CALLER
+   * must swap host history (pop/append) and republish TokenStatsManager baseline/messages — this method only PRODUCES the replacement
+   * array, it never mutates host state itself.
+   */
+  async compressMidLoop(
+    messages: ContextMessage[],
+    opts?: { compactionEnabled?: boolean; forceSummaryOnCompress?: boolean; abortSignal?: AbortSignal; currentTokens?: number; maxTokens?: number },
+  ): Promise<{ compressed: boolean; messages: ContextMessage[] }> {
+    const keepLast = 10; // same keepLast as PART B / compressHistory — last 10 survive verbatim, deliberately not summarized
+
+    if (messages.length <= keepLast) {
+      console.log(`[ContextGuard] [TIER-2-COMPACT] Mid-loop compression skipped: ${messages.length} message(s) ≤ keepLast(10) — nothing summarizable`);
+      return { compressed: false, messages };
+    }
+
+    // (1) C compaction family — store-before-prune of oversized payloads, same gate + ordering as PART B. Mid-loop parity matters:
+    // an unpruned giant payload would sit in keepLast forever and re-fire the threshold almost immediately after compression.
+    if (opts?.compactionEnabled !== false) {
+      try {
+        const refs = collectPrunedPayloadRefs(messages, DEFAULT_MAX_BYTES_PER_RESULT);
+        if (refs.length > 0) {
+          for (const ref of refs) {
+            // Exclusive 'wx' create + 0o600: never overwrites, refuses symlink targets at the path.
+            await storePrunedPayload(getWorkingDir(), ref);
+          }
+          const pruneOutcome = pruneOversizedToolPayloads(messages, { maxBytesPerResult: DEFAULT_MAX_BYTES_PER_RESULT, digests: refs.map((r) => r.digestHex) });
+          if (pruneOutcome.prunedCount > 0) {
+            console.log(`[ContextGuard] [TIER-2-COMPACT] Pruned ${pruneOutcome.prunedCount} oversized payload(s) before mid-loop summarization — verbatim copies in .ai_toolbox/compaction/`);
+          } else {
+            console.warn(`[ContextGuard] [TIER-2-COMPACT] FAIL-LOUD: ${refs.length} payload(s) collected but NONE pruned — history kept verbatim this pass`);
+          }
+        }
+      } catch (pruneErr) {
+        // Any store failure aborts pruning for THIS pass only (PART B parity — compress with verbatim payloads).
+        console.warn(`[ContextGuard] [TIER-2-COMPACT] Prune-before-summarization aborted (non-fatal): ${pruneErr instanceof Error ? pruneErr.message : String(pruneErr)}`);
+      }
+    }
+
+    // (2) PART-B telemetry snapshot BEFORE history is destroyed — same non-fatal ordering as the boundary path. The caller passes its
+    // live projection numbers (wrapper `projected`/`limit`); messageCount here = messages.length (best available mid-loop equivalent of
+    // history.getLength()). Denominator falls back to this guard's own window when absent, so the record never reads NaN/0%.
+    let snapshotSaved = false;
+    try {
+      const tokensUsed = Math.max(0, Math.round(opts?.currentTokens ?? 0));
+      const denomLimit = (typeof opts?.maxTokens === 'number' && Number.isFinite(opts.maxTokens) && opts.maxTokens > 0) ? opts.maxTokens : this.config.tokenLimit;
+      const saveResult = await autoTracker.autoSaveSessionMemory(tokensUsed, denomLimit, messages.length);
+      snapshotSaved = !!saveResult?.saved;
+      if (snapshotSaved) {
+        console.log(`[ContextGuard] [TIER-2-COMPACT] ✅ Pre-mid-loop-compression checkpoint saved: ${saveResult.sessionId}`);
+      } else {
+        console.warn('[ContextGuard] [TIER-2-COMPACT] ⚠️ Mid-loop compression snapshot NOT saved — compressing without a clean checkpoint');
+      }
+    } catch (snapErr) {
+      console.warn(`[ContextGuard] [TIER-2-COMPACT] Snapshot failed (non-fatal): ${snapErr instanceof Error ? snapErr.message : String(snapErr)}`);
+    }
+
+    // (3) Arc-C structured continuity save — same strict ===true gate + keepLast=10 caller-side exclusion as PART B. The summary model
+    // resolves inside generateSessionContinuity() (configured summaryModel first; the wrapper passes the active chat id as fallback).
+    if (opts?.forceSummaryOnCompress === true && messages.length > 10) {
+      try {
+        await autoTracker.flushActionsToMemory(); // buffered actions land in the store before the summary spans them (PART B parity)
+        const toSummarize = messages.slice(0, messages.length - keepLast);
+        const summary = await this.generateSessionContinuity(toSummarize, { abortSignal: opts?.abortSignal });
+        if (summary) {
+          const persistOutcome = await persistGeneratedSessionSummary(summary);
+          console.log(persistOutcome.saved
+            ? '[ContextGuard] [TIER-2-COMPACT] ✅ Structured continuity summary persisted before mid-loop compression'
+            : `[ContextGuard] [TIER-2-COMPACT] ⚠️ Continuity summary generated but persistence failed (${persistOutcome.error ?? 'unknown'}) — telemetry only`);
+        } else {
+          console.warn('[ContextGuard] [TIER-2-COMPACT] No structured continuity summary available (no usable model) — telemetry fallback applies');
+        }
+      } catch (arcErr) {
+        console.warn(`[ContextGuard] [TIER-2-COMPACT] Forced session-memory save failed (non-fatal): ${arcErr instanceof Error ? arcErr.message : String(arcErr)}`);
+      }
+    }
+
+    // (4) The compression itself — compressHistory() re-counts internally against ITS OWN threshold and returns the input UNCHANGED
+    // when the authoritative count is below it (the wrapper's char-heuristic projection can overestimate), falls back to its own
+    // summary on prediction failure, and fires onCompression() → autoTracker.onContextCompressed() exactly like the boundary path.
+    const compressedMessages = await this.compressHistory(messages, opts?.abortSignal);
+
+    // Read-after-await in a single-threaded gap: no interleaving possible — _lastCompressionInfo is set by compressHistory itself on
+    // EVERY return path (including the below-threshold no-op). Claiming `compressed:true` without this check would lie to the wrapper.
+    const info = this.getLastCompressionInfo();
+    if (!info?.compressed) {
+      console.warn('[ContextGuard] [TIER-2-COMPACT] FAIL-LOUD: projection crossed the pre-emptive threshold but compressHistory\'s internal recount was below its own trigger — NO compression ran, history kept verbatim (safe direction; re-evaluated on the next tool result)');
+      return { compressed: false, messages };
+    }
+
+    this.resetTokenCache(); // PART B parity — post-compression recount is owned by the caller's republish step
+    console.log(`[ContextGuard] [TIER-2-COMPACT] ✅ Mid-loop compression complete: ${messages.length} → ${compressedMessages.length} messages (keepLast=${keepLast}, snapshot=${snapshotSaved ? 'saved' : 'missed'})`);
+    return { compressed: true, messages: compressedMessages };
+  }
+
+  /**
    * Helper to count tokens for a specific string using SDK or fallback.
    */
   private async _countStringTokens(text: string, modelId?: string): Promise<number> {
@@ -701,8 +923,10 @@ SUMMARY:`;
     return tokenCount + 8; // +8 for overhead/BOS
   }
 
+  // 📊 Percent-based trigger (07.10) — mirrors compressHistory() so external consumers (preprocessor,
+  // AutoTracker gates) always agree with the internal compression decision.
   getThreshold(): number {
-    return this.config.tokenLimit * 0.9;
+    return this.config.tokenLimit * (this.config.compressionPercent / 100);
   }
 
   /**
@@ -822,7 +1046,7 @@ SUMMARY:`;
       }
       
       if (!model) {
-        // If auto-detection fails, use the config's contextGuardTokenLimit instead of hardcoded fallback
+        // If auto-detection fails, keep the current effective window (last model-reported value or the built-in 30k startup fallback — see index.ts)
         const configLimit = this.config.tokenLimit;
         console.log(`[ContextGuard] ⚠️ Auto-detection failed. Using configured tokenLimit: ${configLimit}.`);
         return; // Keep existing config.tokenLimit (which should come from plugin settings)

@@ -44,6 +44,13 @@ let midLoopEstTokens = 0;
 let turnBaselineTokens = 0;
 let maxContextTokens = 0;
 
+// FIX #21 (09.10, two-tier mid-loop save): the current turn's LIVE message list (post-compression when a
+// same-turn compression ran), published alongside the token baseline for the wrapper-side forced 90%
+// session-memory save. Reference semantics: it is a live view of the host history array — the host owns and
+// may mutate it; consumers must treat it as read-only, never splice or reassign it (the last-10 keepLast
+// exclusion is applied caller-side at consumption time). null = no list published for this turn yet.
+let publishedTurnMessages: ReadonlyArray<Record<string, unknown>> | null = null;
+
 /** Shared estimation ratio — MUST stay in sync with the ContextGuard.countTokens() primary path */
 const CHARS_PER_TOKEN = 0.25;
 const TOKEN_BUFFER_FACTOR = 1.10;
@@ -318,6 +325,7 @@ export class TokenStatsManager {
     midLoopEstTokens = 0;
     turnBaselineTokens = 0;
     maxContextTokens = 0;
+    publishedTurnMessages = null; // FIX #21 (09.10) — stale-list hazard: previous turn's array would otherwise survive the reset window
   }
 
   /**
@@ -327,6 +335,22 @@ export class TokenStatsManager {
   static setTurnEvaluation(baselineTokens: number, maxTokens: number): void {
     turnBaselineTokens = Math.max(0, baselineTokens);
     maxContextTokens = Math.max(0, maxTokens);
+  }
+
+  /**
+   * FIX #21 (09.10) — publish the current turn's live message list for the mid-loop forced session-memory
+   * save. Called from promptPreprocessor.preprocess() at the SAME single finally point as setTurnEvaluation()
+   * (post-compression when a same-turn compression ran; null whenever this turn did not reach that point).
+   * The stored reference is LIVE — callers must treat it as read-only and never hold onto it across turns:
+   * resetMidLoopDelta()/clear() drop it, so anything captured before the next preprocess() start is stale.
+   */
+  static setTurnMessages(messages: ReadonlyArray<Record<string, unknown>> | null): void {
+    publishedTurnMessages = messages;
+  }
+
+  /** FIX #21 (09.10) — message list published by this turn's preprocess(); null until the publish point runs. */
+  static getTurnMessages(): ReadonlyArray<Record<string, unknown>> | null {
+    return publishedTurnMessages;
   }
 
   /** FIX #20 A2 — token count at the start of the current turn (before any tool calls). */
@@ -350,6 +374,7 @@ export class TokenStatsManager {
     midLoopEstTokens = 0;
     turnBaselineTokens = 0; // FIX #20 A2 — baseline/limit republished at next preprocess()
     maxContextTokens = 0;
+    publishedTurnMessages = null; // FIX #21 (09.10) — chat reset ⇒ previous conversation's array must not leak into the new one
     activeToolCalls = 0; // C compaction (24.09) — fresh session ⇒ no in-flight tool loop
   }
 

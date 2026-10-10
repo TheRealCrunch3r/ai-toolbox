@@ -152,6 +152,14 @@ export class AutoTracker {
   // Re-fires only if usage grows beyond that point again (e.g., one more huge tool payload).
   private _midLoopGuardedAt = 0;
 
+  // 🔹 FIX-A (09.10, owner GO): pending one-shot user-visible notice of a mid-loop threshold crossing — armed by
+  // guardMidLoopThreshold() on successful checkpoint save and consumed EXACTLY ONCE via takePendingMidLoopNotice(),
+  // which preprocess() calls to inject F1-style acknowledgement text into the model input. The FSM stays untouched
+  // (documented guard contract), so without this field a crossing that is followed by compression or a context-window
+  // increase dropping usage below threshold vanished with ZERO user-visible mention — "notified on next message" was
+  // only a console.log promise no state ever carried across turns.
+  private _pendingMidLoopNotice: { usagePercent: number; sessionId?: string } | null = null;
+
   constructor(config?: Partial<AutoTrackConfig>, testStorageManager?: unknown) {
     this.config = {
       autoTrackingEnabled: true, // ← Matches schema & DEFAULT_CONFIG default (true)
@@ -461,7 +469,12 @@ export class AutoTracker {
 
     const saveResult = await this.autoSaveSessionMemory(cumulative, maxTokens, this.messageCount);
     if (saveResult.saved) {
-      console.log(`[AutoTracker] [CHECKPOINT] threshold marker saved (${saveResult.sessionId}) — user will be notified on next message`);
+      // 🔹 FIX-A (09.10, owner GO): arm the one-shot user-visible notice HERE — previously only the console.log below
+      // promised "notified on next message" while no state carried that across turns, so a crossing followed by usage
+      // dropping below threshold (compression / context-window increase) was never mentioned to the owner. Rendered +
+      // consumed once via takePendingMidLoopNotice() in preprocess(); see its docblock for the one-shot contract.
+      this._pendingMidLoopNotice = { usagePercent: usagePercentage, sessionId: saveResult.sessionId }; // raw number — toFixed(1) applied at render time in takePendingMidLoopNotice()
+      console.log(`[AutoTracker] [CHECKPOINT] threshold marker saved (${saveResult.sessionId}) — user will be notified on next message (FIX-A notice armed)`);
       return { fired: true, saved: true, sessionId: saveResult.sessionId };
     }
 
@@ -469,6 +482,33 @@ export class AutoTracker {
     console.error('[AutoTracker] [CHECKPOINT] Mid-loop snapshot FAILED — will retry on next evaluation (guard reset to first-crossing)');
     this._midLoopGuardedAt = 0;
     return { fired: true, saved: false };
+  }
+
+  /**
+   * 🔹 FIX-A (09.10, owner GO) — consume the pending one-shot notice of a mid-loop threshold crossing, rendered as
+   * F1-style "briefly acknowledge" instruction text for injection into this user message's model input. Returns
+   * null when no crossing armed a notice (the common case). One-shot by contract: consumed on first call whether or
+   * not the host actually delivers it — never re-injected on later turns (same semantics as F1's checkpointSavedNotice,
+   * which lives in exactly one preprocess() run). Deliberately independent of the FSM and of checkAndGeneratePrompt():
+   * a mid-loop crossing must not alter the YES/NO prompt state machine. The percent shown is usage AT CROSSING — not
+   * the configured threshold (matches the checkpoint record titles; large tool-result jumps cross well past 75%).
+   */
+  takePendingMidLoopNotice(): string | null {
+    const notice = this._pendingMidLoopNotice;
+    if (!notice) return null;
+    // Consume on first call — one-shot, no re-injection on later turns.
+    this._pendingMidLoopNotice = null;
+    console.log(`[AutoTracker] [FIX-A] Mid-loop crossing notice consumed for model-input injection (~${notice.usagePercent.toFixed(1)}% at crossing)`);
+    const idPart = notice.sessionId ? ` (checkpoint ${notice.sessionId})` : '';
+    return '\n\n🔔 MID-LOOP CONTEXT THRESHOLD NOTICE (one-shot — not a prompt):\n' +
+      'During the previous turn, context usage crossed your configured save threshold while tools were running mid-loop' + idPart + '.\n' +
+      `The automatic session-memory checkpoint saved at that point recorded ~${notice.usagePercent.toFixed(1)}% of the model context window used.\n` +
+      'Briefly acknowledge this to the user (one short sentence); no YES/NO reply or further action is required.';
+  }
+
+  /** 🔹 FIX-A (09.10, owner GO) — test/diagnostics hook: true while an unconsumed mid-loop crossing notice is pending. */
+  hasPendingMidLoopNotice(): boolean {
+    return this._pendingMidLoopNotice !== null;
   }
 
   /**

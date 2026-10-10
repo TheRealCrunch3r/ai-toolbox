@@ -23,6 +23,9 @@ import { getWorkingDir, setWorkingDir, listRegisteredProjects } from './workingD
 // CONTAMINATION-FIX Part A (01.10): identity rebind after Step 0.7 CWD switches. No import cycle: only index.ts
 // imports both modules; toolsProvider does not reference promptPreprocessor.
 import { getStateManager } from './toolsProvider.js';
+// Arc C (07.10): forced structured session-memory save at the compression trigger — persists via the canonical
+// save_session_summary writer path (see src/sessionSummaryPersist.ts); cycle-free edge set (only index.ts imports both sides).
+import { persistGeneratedSessionSummary } from './sessionSummaryPersist.js';
 // CONTAMINATION-FIX follow-up C / Gap-2 (01.10): static decode import for the post-switch session-memory read in
 // executeProjectSwitch(). Replaces a per-call `await import('@msgpack/msgpack')` — dynamic native-import under a
 // CJS build is fragile, and this aligns with how every other module in src/ consumes @msgpack/msgpack.
@@ -87,6 +90,18 @@ let contextGuard: ContextGuard | null = null;
 
 export function setContextGuard(guard: ContextGuard | null): void {
   contextGuard = guard;
+}
+
+/**
+ * FIX #21 (09.10, two-tier mid-loop save) — null-safe read accessor for the active ContextGuard instance.
+ * setContextGuard() stays the ONE-WAY injection point (index.ts constructs once at startup; test harnesses swap
+ * fakes/reset to null between suites). This getter is the first external READ path: the toolsProvider wrapper
+ * consumes it to reach generateSessionContinuity()/getThreshold(). Consumers MUST handle null (guard not yet
+ * constructed or detached) and keep their own typeof method-guards for stub instances — same defensive contract
+ * as Arc C's `typeof contextGuard.generateSessionContinuity === 'function'` gate.
+ */
+export function getContextGetter(): ContextGuard | null {
+  return contextGuard;
 }
 let cacheTimestamp = 0;
 
@@ -740,6 +755,10 @@ export async function preprocess(
   // 🔹 FIX #3 (04.10, CTX-FOOTER arc part 3): function-scoped so the finally-publish below can see it even
   // when a throw lands before the assignment further down — hoisted from its former const inside the try body.
   let maxTokens = 0;
+  // 🔹 FIX #21 (09.10, two-tier mid-loop save): function-scoped like the others above so the finally-publish can
+  // see it even when a throw lands before any assignment below — stays null then, i.e. "no list published for this
+  // turn" (the wrapper's trigger gate treats null as no-op, same safe direction as baseline === 0).
+  let publishedTurnMessages: { role?: string; content?: unknown; [key: string]: unknown }[] | null = null;
   let historyTextLength = 0; // ✅ Moved outside if-block to fix scoping
   
   // Step 0.5: ContextGuard auto-compression & token tracking
@@ -809,13 +828,13 @@ export async function preprocess(
         contextGuard.setLMClient(ctl.client);
       }
 
-      // Re-seed the user's configured token limit every turn. ContextGuard is constructed in index.ts
-      // WITHOUT config access, so this menu value was never applied — detection failures kept a stale
-      // startup constant (262144). Precedence: setTokenLimitFromModel() below still overrides with the
-      // model's real context window when it can be read from the SDK; otherwise the configured limit wins.
-      const menuTokenLimit = pluginConfig.get('contextGuardTokenLimit');
-      if (typeof menuTokenLimit === 'number' && Number.isFinite(menuTokenLimit) && menuTokenLimit > 0) {
-        contextGuard.updateConfig({ tokenLimit: menuTokenLimit });
+      // Re-seed the user's configured compression trigger PERCENTAGE every turn (07.10). ContextGuard is
+      // constructed in index.ts WITHOUT config access, so without this reseed a menu change would only take
+      // effect after a plugin reload. The effective WINDOW still comes from setTokenLimitFromModel() below
+      // (model-reported window; built-in 30k fallback when unavailable) — the percent applies on top of it.
+      const compressionPercent = pluginConfig.get('contextGuardCompressionPercent');
+      if (typeof compressionPercent === 'number' && Number.isFinite(compressionPercent) && compressionPercent > 0) {
+        contextGuard.updateConfig({ compressionPercent });
       }
 
       // Auto-detect the currently active model and get its ID for accurate token counting
@@ -872,6 +891,9 @@ export async function preprocess(
 
       // Calculate tokens for threshold check using actual model limit & History Text Length × 0.25
       const safeMessages = messages ?? [];
+      // 🔹 FIX #21 (09.10): publish this turn's live message list with the token baseline — re-published below when
+      // a same-turn compression replaces it, so the finally point always sees the post-compression array.
+      publishedTurnMessages = safeMessages;
       
       console.log('[ContextGuard DEBUG] Step 6: calling countTokens()...');
       
@@ -1008,6 +1030,51 @@ export async function preprocess(
           pendingWarning = undefined; // drop this turn's locally-captured copy too — the suffix builder must NOT re-inject a YES/NO request about history that is being replaced now
         }
 
+        // 💾 Arc C (07.10) — FORCED STRUCTURED SESSION-MEMORY SAVE at the compression trigger, awaited BEFORE
+        // compressHistory() destroys history (same ordering guarantee as PART B's telemetry snapshot above).
+        // STRICT `=== true` gate on purpose: production ParsedConfig applies the zod default(true), while pinned
+        // harness stubs return undefined for unknown keys → the arc-C path is fully skipped there. The typeof guard
+        // additionally protects legacy/stub ContextGuard objects lacking generateSessionContinuity; and
+        // safeMessages.length > 10 guarantees a non-empty summarizable span past the keepLast=10 exclusion below.
+        // Non-fatal by design: any failure only logs — compression must still run and PART B's telemetry snapshot
+        // + F1 notice stay byte-identical (pinned by tests/precompressSnapshot.test.ts, which never reach this block).
+        if (pluginConfig.get('contextGuardForceSummaryOnCompress') === true
+            && typeof contextGuard.generateSessionContinuity === 'function'
+            && safeMessages.length > 10) {
+          try {
+            // Flush buffered auto-tracked actions FIRST: they land in the persistent store before the
+            // structured summary is generated from this turn's message span.
+            await autoTracker.flushActionsToMemory();
+
+            // keepLast=10 exclusion on the CALLER side — mirrors compressHistory's slice(0, -keepLast): the last
+            // 10 messages survive compression verbatim and are deliberately NOT summarized here.
+            const toSummarize = safeMessages.slice(0, safeMessages.length - 10);
+
+            // contextGuard is narrowed to the concrete class here (the enclosing `if (contextGuard)` scope);
+            // generateSessionContinuity is a regular class method — no cast/assertion needed. The typeof check in
+            // the gate above remains the runtime guard for legacy/stub instances lacking the method.
+            const summary = await contextGuard.generateSessionContinuity(toSummarize, {
+              fallbackModelId: activeModelId || undefined,
+              abortSignal: ctl.abortSignal,
+            });
+
+            if (summary) {
+              const persistOutcome = await persistGeneratedSessionSummary(summary);
+              if (persistOutcome.saved) {
+                console.log('[Arc C] ✅ Structured session-continuity summary persisted before compression');
+              } else {
+                // Telemetry fallback — deterministic, non-fatal: the summary was generated but NOT durable.
+                console.warn(`[Arc C] ⚠️ Continuity summary generated but persistence failed (${persistOutcome.error ?? 'unknown'}) — telemetry only`);
+              }
+            } else {
+              // No parsable model output (or no usable model) — deterministic telemetry fallback, compression proceeds.
+              console.warn('[Arc C] ⚠️ No structured continuity summary available — telemetry fallback applies');
+            }
+          } catch (arcCErr) {
+            console.warn(`[Arc C] ⚠️ Forced session-memory save failed (non-fatal): ${arcCErr instanceof Error ? arcCErr.message : String(arcCErr)}`);
+          }
+        }
+
         // Forward the host abort signal so an in-flight summarization prediction stops when the user
         // cancels this turn (same ctl.abortSignal already used for embedding/retrieval below).
         const compressedMessages = await contextGuard.compressHistory(safeMessages, ctl.abortSignal) as unknown as ChatMessage[];
@@ -1017,6 +1084,9 @@ export async function preprocess(
         }
         compressedMessages.forEach((msg: ChatMessage) => history.append(msg));
         contextGuard.resetTokenCache();
+        // 🔹 FIX #21 (09.10): re-publish the POST-compression array — the wrapper-side forced save must never see
+        // messages that compression just destroyed (the pre-compression safeMessages is dead at this point).
+        publishedTurnMessages = compressedMessages as unknown as { role?: string; content?: unknown; [key: string]: unknown }[];
 
         // 🔹 FIX #20 A2: compression ran this turn — recount the NEW (post-compression) history so the
         // published baseline reflects reality. Without this, the mid-loop guard would evaluate tool-payload
@@ -1045,6 +1115,19 @@ export async function preprocess(
         console.log("[AutoTracker] ✅ Checkpoint-saved notice appended to this turn's model input (F1 one-shot)");
       }
 
+      // 🔹 FIX-A (09.10, owner GO): surface a mid-loop threshold crossing from a PREVIOUS turn the same way — F1-style
+      // straight onto userPrompt (NOT via checkpointSuffix: return paths gate that suffix on hasPendingWarning(), which
+      // is false here by construction whenever this notice exists — guardMidLoopThreshold deliberately does not touch the
+      // FSM). takePendingMidLoopNotice() is one-shot INSIDE autoTracker; a throw between its render and the append below
+      // consumes exactly like the F1 variable (dies with this run) — same loss semantics as pre-#20, no double-injection.
+      // Independent of checkpointSavedNotice: both can be live in the same run (a crossing armed earlier mid-loop plus a
+      // checkpoint saved at compression now), and the model gets one short acknowledgement instruction per fact.
+      const midLoopNotice = autoTracker.takePendingMidLoopNotice();
+      if (midLoopNotice) {
+        userPrompt += midLoopNotice;
+        console.log("[AutoTracker] ✅ Mid-loop crossing notice appended to this turn's model input (FIX-A one-shot)");
+      }
+
     } catch (e) {
       console.error('[ContextGuard] Auto-compression failed:', e);
     } finally {
@@ -1059,6 +1142,9 @@ export async function preprocess(
       // change: this publishes exactly what the try body computed, and when counting itself failed both values
       // are 0 — byte-equivalent state to the old skip (documented in resetMidLoopDelta()).
       TokenStatsManager.setTurnEvaluation(tokenCount, maxTokens);
+      // 🔹 FIX #21 (09.10): same single publish point — the turn's live message list for the wrapper-side forced
+      // 90% save. null on any throw before its first assignment = safe no-op for that turn (documented above).
+      TokenStatsManager.setTurnMessages(publishedTurnMessages);
     }
   }
 

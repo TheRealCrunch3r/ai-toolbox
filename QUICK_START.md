@@ -58,7 +58,7 @@ executionTerminal: true (for shell scripting)
 **Solution**: Ensure its category toggle is enabled in Settings. Check God Mode if you want all tools available.
 
 **Problem**: Grammar parser crashes on first message
-**Solution**: This was fixed in v1.5.36+ via schema minification (description truncation, constraint capping). If it persists, try increasing `contextGuardTokenLimit` to reduce payload size.
+**Solution**: This was fixed in v1.5.36+ via schema minification (description truncation, constraint capping); tool schemas are minified automatically on every registration, no setting required.
 
 **Problem**: Tool category toggles don't work
 **Solution**: Ensure you're using `.get('key')` pattern if extending the plugin — direct property access on `ParsedConfig` returns `undefined`. See `CONTRIBUTING.md` for extension patterns.

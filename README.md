@@ -4,7 +4,7 @@
 
 **Give your local LLM real hands.** The most complete LM Studio Hub plugin — turns any local model into a capable, self-managing AI agent with safe file editing, hang-proof codebase search, background builds, headless browser automation, Git & GitHub workflows, OCR, charting and semantic RAG; **self-managing context** keeps marathon sessions alive. One plugin, zero glue code, fully offline by default.
 
-> `v1.9.19` · `113 ready-made tools` · `952 tests green (65 suites)` · `5 locales` · `MIT` · `Node 20+`
+> `v1.9.19` · `113 ready-made tools` · `1020 tests green (71 suites)` · `5 locales` · `MIT` · `Node 20+`
 
 [!IMPORTANT] LM Studio does NOT support automatic updates. If you encounter issues, update manually first: remove the current version and re-download from the plugin website. Note that LM Studio may show an "already installed" tooltip even if your version is outdated.
 
@@ -45,7 +45,7 @@ The closest direct competitor on the Hub: same job (tools for local LLMs), very 
 | ✅ **AST-level refactoring** (rename, move functions, dead-import cleanup) — syntax-safe transforms with auto-rollback, not string edits |
 | ✅ **Real RAG:** local vector index over PDF / DOCX / XLSX with page-level provenance — not just keyword search |
 | ✅ **Image & data viz:** OCR on screenshots and captures, image metadata + comparison, chart generation |
-| ✅ **113 tools** vs ~49 — backed by 952 passing tests across 65 suites |
+| ✅ **113 tools** vs ~49 — backed by 1020 passing tests across 71 suites |
 | ✅ **Crash-resilient writes + rollback on failure:** a botched edit can never corrupt your file |
 
 Our previous i18n gap is closed: **we now ship 5 locales** (en · de · es · zh-CN · zh-TW), each a full translation set — and anti-stub tests guard the suite so alias/fallback languages can never silently regress. We'd rather tell you than pretend it doesn't exist.
@@ -100,7 +100,7 @@ Charts rendered to image files from raw data (bar/line/pie/doughnut/scatter/rada
 ```bash
 # Developing instead of using?
 npm install && npm run build   # ESM + CJS via tsup
-npm test                        # full suite: 65 suites / 952 tests green (owner-verified 06.10 DOC-PIN gate ~21:0x; prior arcs: 64/941 @ 06.10 [i18n gate], 64/938 @ 06.10 ×2 [F1 ~16:57 · PLAN-SEAM ~18:0x], 63/931 @ 05.10, 63/930 @ 04.10 ×3, 61/917 @ 04.10, 893/59 @ 02.10, 874/58 @ ~21.5 s on 01.10, 860/56 @ 29.09, 857/56 @ 28.09)
+npm test                        # full suite: 71 suites / 1020 tests green (owner-verified 10.10 TWO-TIER CLOSE-OUT — FIX A + FIX B, gate round 3 ~12:05; prior canon 69/1003 @ 09.10 [FIX #21 mid-loop forced-save, r7] · prior arcs: 68/990 @ 08.10 [LEVER-1], 68/987 @ 07.10 [Arc C sweep — entry unlogged], 65/952 @ 06.10 [DOC-PIN gate] 64/941 @ 06.10 [i18n gate], 64/938 @ 06.10 ×2 [F1 ~16:57 · PLAN-SEAM ~18:0x], 63/931 @ 05.10, 63/930 @ 04.10 ×3, 61/917 @ 04.10, 893/59 @ 02.10, 874/58 @ ~21.5 s on 01.10, 860/56 @ 29.09, 857/56 @ 28.09)
 ```
 
 ---

@@ -1866,8 +1866,8 @@ WHEN TO USE:
         // Each field is capped at 2 KB (2048 chars). This prevents a single session summary
         // from consuming excessive memory, especially in long sessions with verbose LLM output.
         const MAX_FIELD_LENGTH = 2048;
-        const TRUNCATION_SUFFIX = '\n… (truncated for size)'; // 21 chars
-        const SAFE_SLICE_LEN = MAX_FIELD_LENGTH - TRUNCATION_SUFFIX.length; // 2027
+        const TRUNCATION_SUFFIX = '\n… (truncated for size)'; // 23 UTF-16 units ('\n' + '…' + space + '(truncated for size)') — measured, never re-hardcode
+        const SAFE_SLICE_LEN = MAX_FIELD_LENGTH - TRUNCATION_SUFFIX.length; // runtime: 2048 − 23 = 2025 (derived at load, so a future suffix edit stays cap-exact)
         
         const truncate = (text?: string): { content: string; truncated: boolean } => {
           if (!text || text.length <= MAX_FIELD_LENGTH) return { content: text ?? '', truncated: false };

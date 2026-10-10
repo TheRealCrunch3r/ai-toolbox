@@ -858,6 +858,52 @@ next preprocess()/threshold evaluation
 - **Nested-count semantics:** tool `+delta` ⊆ turn total ⊆ `chat used`.
 - **Gating:** the `| chat used ≈ N tok` field is emitted only when the turn-start baseline > 0; it is omitted if the ContextGuard recount fails.
 
+#### TIER 2 — Mid-Loop Forced Session-Memory Save at the Compression Percent (FIX #21, spec owner-confirmed 08.10 ~21:0x; shipped 09.10)
+
+Two-tier context-save contract: **TIER 1 @75%** (`autoTrackTokenThreshold`) stays an interactive YES/NO prompt on the user's next message (AutoTracker FSM, unchanged above); **TIER 2 @`contextGuardCompressionPercent`** (default 90 — the same value PART B compresses at on the NEXT user message) now also fires a FORCED structured session-memory save *inside* the tool loop, because nobody is listening mid-turn to answer tier-1's prompt and usage can run past 100% before the next `preprocess()` runs. Owner spec: **save ONLY** (no mid-turn history compression — that stays at PART B), **once per turn** (one-shot latch), **non-fatal** (a save failure never breaks or delays a tool call). No new config key — tier 2 rides the existing `contextGuardEnabled` + `contextGuardCompressionPercent`.
+
+```
+tool result → toolsProvider wrapper pass (src/toolsProvider.ts, per registered tool)
+    │
+    ├── shared projection: baseline + midLoopDeltaTokens + this payload's estimate + footer self-size
+    │     (computed ONCE per pass and consumed by BOTH the usage-footer gate and tier 2 — one number, two independent gates)
+    │
+    └── TIER-2 block (sibling of the footer gate inside `baseline > 0`, NOT nested under the contextUsageFooter toggle):
+          Gate: !forcedSaveFiredThisTurn                       ← one-shot per turn; re-armed at provider entry (= new turn, resetToolGuard convention)
+            AND config.contextGuardEnabled === true             ← strict (undefined/false/0 skip — mirrors PART B)
+            AND limit > 0 AND percent is a finite number > 0   ← read LIVE from pluginConfig each pass (UI toggle change takes effect this run)
+            AND projected >= limit * percent / 100              ← INCLUSIVE boundary (== threshold fires; pinned by test)
+          │
+          ├── Gate/guard fails ──► Skip silently (guard instance null pre-startup, or a stub without the method — PART B covers it)
+          │
+          └── Gate passes → LATCH forcedSaveFiredThisTurn = true BEFORE the first await (a failure must not re-arm mid-turn):
+                ▼
+            turnMessages = TokenStatsManager.getTurnMessages() ?? []   ← post-compression list published at PART B's single setTurnEvaluation finally point (Step 2 hook); an absent publish coalesces to []
+            │
+            ├── Span guard: toSummarize = slice(0, len − keepLast=10) on the CALLER side (same exclusion as compressHistory), computed BEFORE its gate `toSummarize.length >= 10` (INCLUSIVE — a 20-message list fires exactly)
+            │     └── <10 summarizable messages (short list or absent publish) → deterministic [TIER-2] skip-log ("nothing summarizable yet"), latch still holds
+            │
+            ├── flushActionsToMemory()                          ← buffered auto-tracked actions durable before the summary spans them (PART B parity)
+            ├── guard.generateSessionContinuity(toSummarize)    ← uncast call; same Arc-C machinery PART B uses at compression time
+            │     └── no structured summary (no usable model) → [TIER-2] warn, save skipped — compression still pending at next user message
+            │
+            └── persistGeneratedSessionSummary(summary)         ← canonical save_session_summary writer path (.session_context/)
+                  └── saved=true → ✅ telemetry line · saved=false → ⚠️ persist-failed telemetry line (never throws)
+
+every failure inside the block is caught → [TIER-2] console.warn, tool result flows through byte-unchanged (non-fatal by spec)
+```
+
+**Wiring:** `promptPreprocessor.ts` publishes a reference to the current message list at the SAME finally point as `TokenStatsManager.setTurnEvaluation()` (post-compression when compression ran; cleared per turn by `resetMidLoopDelta()`) and exposes the guard instance via `getContextGetter()` — a one-way read next to the existing setter-only `setContextGuard()` (sole production setter: index.ts). The wrapper is the first external reader; callers handle null AND keep their own method gate for stubs. Pinned by `tests/tier2MidLoopSave.test.ts` (13 tests, canon 69 suites / 1003 tests, owner-GREEN 09.10): inclusive boundary, once-per-turn idempotency + re-arm on a new provider run, strict gate matrix, save-failure non-fatality, span-guard skip with latch hold, footer-OFF independence (the pre-fix defect class), and the suppression-warn regression pin.
+
+#### TIER A/B — User-Visible Crossing Notice (FIX A) + Pre-Emptive Mid-Loop Compression at 95% (FIX B; owner-GREEN 10.10, close-out of the two-tier arc)
+
+The 09.10 verification session proved two remaining gaps in the ladder above: a threshold crossing armed NO state across turns (so usage dropping below threshold after compression/context-increase vanished silently), and NOTHING ran mid-loop between tier-2's @~90% forced SAVE — memory only, a save never shrinks context — and the model's 100% hard stop. Owner GO "A and B" closed both:
+
+- **FIX A — one-shot user-visible notice** (`src/autoTracker.ts` + `src/promptPreprocessor.ts`): every SUCCESSFUL mid-loop save arms a pending `{usagePercent, sessionId?}`; `preprocess()` renders it F1-style onto userPrompt via consume-once `takePendingMidLoopNotice()` — "🔔 MID-LOOP CONTEXT THRESHOLD NOTICE … ~X% at crossing (checkpoint id) … briefly acknowledge, no YES/NO reply". The FSM is deliberately untouched (documented guard contract); the notice is independent of and co-exists with checkpointSavedNotice; a failed save arms nothing. Pinned by `tests/fixA_midLoopNotice.test.ts` (6 tests).
+- **FIX B — pre-emptive forced COMPRESSION at FIXED 95%** (`src/contextGuard.ts` + `src/toolsProvider.ts`): when the wrapper's shared projection crosses `PREEMPTIVE_COMPRESSION_PERCENT = 95` (fixed constant by design — no config key; it must stay below the wall even if `contextGuardCompressionPercent` is user-set to its schema max of 100), run the FULL PART-B pipeline mid-loop via NEW `ContextGuard.compressMidLoop()` — store-before-prune → PART-B telemetry snapshot → Arc-C continuity save (strict `===true`, keepLast=10) → `compressHistory()` with the return GATED on `getLastCompressionInfo()?.compressed` (FAIL-LOUD log if its internal recount is below its own trigger; the wrapper's char-heuristic projection can overestimate). On success: host-history pop-to-zero/append swap via duck-typed `ctx.client.llm.history()`, post-compression list republished, and a `countTokens` recount re-published as baseline. INDEPENDENT one-shot latch (`midLoopCompactionFiredThisTurn`) — tier-2's @~90% save must not suppress the @95% compression and vice versa; every failure non-fatal (tool result byte-unchanged). SIBLING of tier-2 AND the footer gate inside `if (baseline > 0)` → fires for every payload shape regardless of the `contextUsageFooter` toggle. Pinned by `tests/tierB_midLoopCompaction.test.ts` (11 tests).
+
+Full ladder after this arc: **TIER 1 @75%** interactive prompt + Fix-A one-shot notice on successful crossings · **TIER 2 @`contextGuardCompressionPercent` (~90)** forced SAVE mid-loop · **FIX B @95** pre-emptive COMPRESSION mid-loop · **PART B at the next user message** — the boundary path stays untouched for turns that never cross mid-loop.
+
 ### ContextGuard Compression Flow (v1.4.2)
 
 ```
@@ -916,6 +962,37 @@ Final Prompt sent to LLM (with or without compression indicator)
 ### CONTEXT SUMMARY (from 15 messages)
 [Summary content here...]
 ```
+
+#### Forced Structured Session-Memory Save at the Compression Trigger — Arc C (07.10, `contextGuardForceSummaryOnCompress`)
+
+When compression fires, an arc-C step runs **after PART B-2's checkpoint-warning settlement and BEFORE `compressHistory()`** (`src/promptPreprocessor.ts`), so a durable structured summary exists before the history it describes is destroyed:
+
+```
+Above threshold → PART B-2 settlement (pending checkpoint warning consumed)
+    │
+    ▼
+Gate: contextGuardForceSummaryOnCompress === true          ← strict; undefined/false skips the step entirely
+      AND typeof guard.generateSessionContinuity === 'function'  ← legacy/stub guards skip byte-identically to pre-Arc C
+      AND safeMessages.length > 10                          ← keepLast=10 exclusion guarantees a non-empty span
+    │
+    ├── Gate fails ──► Skip (legacy path, unchanged)
+    │
+    └── Gate passes (all failures below are caught → compression still runs):
+            ▼
+        flushActionsToMemory()                              ← buffered auto-tracked actions durable first
+            ▼
+        generateSessionContinuity(safeMessages.slice(0, len-10), { fallbackModelId, abortSignal })
+            │   (summary model = contextGuardSummaryModel or current chat model)
+            ├── Summary ──► persistGeneratedSessionSummary() via the canonical save_session_summary writer
+            │       ├── saved → log ✅
+            │       └── not durable → telemetry warn (fallback)
+            ├── null (unparsable / no usable model) ──► telemetry warn (fallback)
+            └── throw ──► caught, telemetry warn (non-fatal)
+            ▼
+        compressHistory(safeMessages, ctl.abortSignal)      ← history destruction strictly last — runs in every case
+```
+
+Non-fatal by design: PART B's telemetry snapshot + F1 checkpoint notice remain byte-identical on the arc-C path; ordering and all failure sides are pinned by `tests/arcCCompressionWiring.test.ts` (the pre-Arc C legacy side stays pinned by `tests/precompressSnapshot.test.ts`).
 
 ---
 
@@ -1061,9 +1138,10 @@ ConfigSchema (Zod)
 ├── i18n (1 field)
 ├── Notifications (1 field)
 ├── Temporal Awareness (2 fields: temporalAwareness, dateFormatStyle)
-└── ContextGuard (6 fields): v1.4.2
+└── ContextGuard (7 fields): v1.4.2
     ├── contextGuardEnabled (boolean) — Master toggle
-    ├── contextGuardTokenLimit (number 1K-200K) — Compression threshold
+    ├── contextGuardCompressionPercent (int 50–100, default 90) — Compression trigger as % of the effective context window (07.10: replaced absolute contextGuardTokenLimit; built-in 30k fallback when no model window reported)
+    ├── contextGuardForceSummaryOnCompress (boolean, default true) — Arc C (07.10): forced structured session-memory save at the compression trigger — flushes auto-tracked actions, then generates + persists a structured SessionSummaryData via the canonical save_session_summary writer BEFORE history destruction; strict `=== true` gate + typeof check on the guard method; non-fatal telemetry fallback on any failure
     ├── contextGuardSmartReading (boolean) — Keyword-based file reading
     ├── contextGuardSummaryModel (string) — Dedicated summary model name
     ├── contextGuardTerminalFilterEnabled (boolean) — Terminal output filtering
@@ -1135,7 +1213,7 @@ src/
     ├── node-notifier.d.ts      # Node.js notifier type declarations
     └── types.d.ts              # Core shared type definitions
 
-tests/                          # Jest test suite (65 suites / 952 tests, verified green 06.10 ~21:0x via owner-run npm test — canon since the DOC-PIN arc (registry-vs-docs drift gate); prior canon 64/941 @ 06.10 (i18n-CONFIRM), 64/938 @ 05.10–06.10 (PLAN-REMOVAL, unchanged through A3 close-out ~18:2x), 63/931 @ 05.10 (SM-VERIFY-FIX + THRESHOLD-MARKER WORDING), 63/930 @ 04.10 ×3 (ABORT-CONTRACT GATE-4), 61/917 @ 04.10 (A-arc E7 + CTX-FOOTER FIX#3), 893/59 @ 02.10 (CTX-FOOTER), 874/58 @ 01.10; see README meta line; per-file list below is abbreviated)
+tests/                          # Jest test suite (71 suites / 1020 tests, verified green 10.10 ~12:05 via owner-run npm test — TWO-TIER CLOSE-OUT FIX A + FIX B gate round 3; NEW CANON since that arc; prior canon 69/1003 @ 09.10 (FIX #21 mid-loop forced-save, r7), 68/990 @ 08.10 (LEVER-1), 68/987 @ 07.10 (Arc C sweep, unlogged entry), 65/952 @ 06.10 (DOC-PIN, registry-vs-docs drift gate), 64/941 @ 06.10 (i18n-CONFIRM), 64/938 @ 05.10–06.10 (PLAN-REMOVAL, unchanged through A3 close-out ~18:2x), 63/931 @ 05.10 (SM-VERIFY-FIX + THRESHOLD-MARKER WORDING), 63/930 @ 04.10 ×3 (ABORT-CONTRACT GATE-4), 61/917 @ 04.10 (A-arc E7 + CTX-FOOTER FIX#3), 893/59 @ 02.10 (CTX-FOOTER), 874/58 @ 01.10; see README meta line; per-file list below is abbreviated)
 ├── security.test.ts            # Core security validation tests
 ├── security.edge-cases.test.ts # Security boundary & edge case testing
 ├── config.test.ts              # Zod schema + UI schematics validation

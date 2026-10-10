@@ -90,7 +90,11 @@ export function main(context: PluginContext) {
   
   // Initialize ContextGuard with default settings
   const contextGuard = new ContextGuard({
-    tokenLimit: 262144,          // Large fallback (256k) — dynamically overridden by SDK model info at runtime
+    tokenLimit: 30000,           // 📊 Fallback effective window (07.10) — used ONLY when the active model does not report its
+                                 //   context window; dynamically overridden by SDK model info at runtime. Was 262144 while the menu
+                                 //   carried an absolute limit re-seeded each turn; with the percent-only setting this constant IS
+                                 //   the unreporting-model default (preserves the former 30k/27k trigger at defaults).
+    compressionPercent: 90,      // Compression trigger as % of tokenLimit — mirrors DEFAULT_CONFIG.contextGuardCompressionPercent
     smartReading: true,          // Enables keyword-based file reading
     summaryModel: '',            // Empty = use current chat model for summarization
     terminalFilterEnabled: true, // Truncates long terminal outputs

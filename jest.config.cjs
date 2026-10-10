@@ -87,6 +87,19 @@ module.exports = {
     // getStateManager() accessor — first relative .js import of toolsProvider in any test-loaded graph; same RC#4 class.
     '^\\.\\/toolsProvider\\.js$': '<rootDir>/src/toolsProvider.ts',
 
+    // ARC-C (07.10): src/promptPreprocessor.ts value-imports './sessionSummaryPersist.js' for the forced
+    // compression-time session-memory save — first .js-suffixed import of this module in any test-loaded graph; same
+    // RC#4 class as the toolsProvider entry above; per-file form only (G9 round-2), real-src target.
+    '^\\.\\/sessionSummaryPersist\\.js$': '<rootDir>/src/sessionSummaryPersist.ts',
+
+    // FIX #21 two-tier arc (09.10): src/toolsProvider.ts value-imports './promptPreprocessor.js' for
+    // getContextGetter() — NEW specifier, first .js-suffixed import of promptPreprocessor in any test-loaded graph; same
+    // RC#4 class as the toolsProvider entry above; per-file form only (G9 round-2: no generic rule), real-src target.
+    // NOTE: this edge completes a promptPreprocessor <-> toolsProvider cycle — SAFE by construction, both directions are
+    // lazy runtime function calls (never module-top-level): getStateManager() @promptPreprocessor L705 and
+    // getContextGetter() inside the tool wrapper closure; CJS circular partial-exports resolve before any call site runs.
+    '^\\./promptPreprocessor\\.js$': '<rootDir>/src/promptPreprocessor.ts',
+
 
 
     // ── Tool modules statically imported by toolsProvider.ts (NodeNext .js specifiers; dynamic-import comment superseded 03.10) ──

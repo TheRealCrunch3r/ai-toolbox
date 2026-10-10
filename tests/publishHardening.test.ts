@@ -54,7 +54,7 @@ function makeGuard(opts: GuardOpts = {}): unknown {
     compressHistory = async (): Promise<unknown[]> => []; // resolves — pop/append then no-op on empty history
   }
   return {
-    updateConfig: (_c: Record<string, unknown>): void => {}, // menu tokenLimit re-seed (L~800) — swallow
+    updateConfig: (_c: Record<string, unknown>): void => {}, // menu compression-percentage re-seed (07.10; was absolute tokenLimit) — swallow
     countTokens,
     getTokenLimit: (): number => MAX_TOKENS,
     getThreshold: (): number => 25_000, // 28k test counts exceed it → compression branch; 10k stays below
@@ -76,7 +76,7 @@ function makeEmptyHistory(): Record<string, unknown> {
 
 /** Fake PromptPreprocessorController: no client (skips setLMClient + model autodetection), RAG off. */
 function makeCtl(history: Record<string, unknown>): PreprocessCtl {
-  const values: Record<string, unknown> = { contextGuardTokenLimit: MAX_TOKENS, documentRAG: false };
+  const values: Record<string, unknown> = { contextGuardCompressionPercent: 90, documentRAG: false }; // 07.10: was contextGuardTokenLimit (absolute tokens)
   return {
     client: undefined,
     abortSignal: new AbortController().signal,

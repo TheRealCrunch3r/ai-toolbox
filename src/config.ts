@@ -145,7 +145,8 @@ export const ConfigSchema = z.object({
 
   // ── 🧠 CONTEXT GUARD SETTINGS ───────────────────────────────────
   contextGuardEnabled: z.boolean().default(true).describe('Enable ContextGuard token management and history compression'),
-  contextGuardTokenLimit: z.number().min(1000).max(200000).default(30000).describe('Token limit before history compression triggers (at 90% of this value); if the active model reports a context window, that takes precedence'),
+  contextGuardCompressionPercent: z.number().min(50).max(100).default(90).describe('History compression triggers at this percentage of the effective context window (the active model\'s reported window; built-in 30k fallback when unavailable)'),
+  contextGuardForceSummaryOnCompress: z.boolean().default(true).describe('Forced cross-session continuity save (07.10 arc C): when compression triggers, a structured session summary is generated via the Summary Model and persisted BEFORE history is compressed'),
   contextGuardSmartReading: z.boolean().default(true).describe('Enable keyword-based smart file reading'),
   contextGuardSummaryModel: z.string().default('').describe('LM Studio model name for summarization (leave empty to use current chat model)'),
   contextGuardTerminalFilterEnabled: z.boolean().default(true).describe('Enable terminal output filtering'),
@@ -267,7 +268,8 @@ stateMaxSize: 262144,
 
   contextGuardEnabled: true,
 
-  contextGuardTokenLimit: 30000,
+  contextGuardCompressionPercent: 90, // 📊 ContextGuard: compression trigger as % of effective context window (replaces absolute contextGuardTokenLimit, 07.10)
+  contextGuardForceSummaryOnCompress: true, // 💾 Arc C (07.10): forced structured session-memory save at the compression trigger — generated before history destruction; telemetry checkpoint remains the fallback on any failure
 
   contextGuardSmartReading: true,
 
@@ -737,12 +739,19 @@ export const configSchematics = createConfigSchematics()
     hint: 'Automatically compresses chat history when token limit is reached. Enables smart file reading and terminal output filtering.',
   }, DEFAULT_CONFIG.contextGuardEnabled)
 
-  .field('contextGuardTokenLimit', 'numeric', {
-    displayName: '📊 Token Limit Before Compression',
+  .field('contextGuardCompressionPercent', 'numeric', {
+    displayName: '📊 Compression Trigger (% of Context Window)',
     subtitle: '⚙️ ContextGuard Setting',
-    min: 1000, max: 200000, int: true,
-    hint: 'Compression triggers at 90% of this limit. If LM Studio reports the active model\'s real context window, that value takes precedence over this setting.',
-  }, DEFAULT_CONFIG.contextGuardTokenLimit)
+    min: 50, max: 100, int: true,
+    hint: 'History compression triggers when context usage reaches this percentage of the active model\'s context window. If LM Studio reports the model\'s real window it is used; otherwise a built-in 30k fallback applies.',
+  }, DEFAULT_CONFIG.contextGuardCompressionPercent)
+
+  // 💾 Arc C (07.10): forced structured session-memory save at the compression trigger — generated + persisted BEFORE history destruction (see persistGeneratedSessionSummary); non-fatal by design, the telemetry checkpoint stays as fallback.
+  .field('contextGuardForceSummaryOnCompress', 'boolean', {
+    displayName: '💾 Force Session-Memory Save Before Compression',
+    subtitle: '⚙️ ContextGuard Setting',
+    hint: "When context reaches your Compression Trigger, a structured session summary (task description, accomplishments, pending tasks) is generated with the Summary Model and persisted BEFORE history is compressed. Non-fatal: on any failure the previous telemetry checkpoint still runs.",
+  }, DEFAULT_CONFIG.contextGuardForceSummaryOnCompress)
 
   .field('contextGuardSmartReading', 'boolean', {
     displayName: '🔍 Smart File Reading',
