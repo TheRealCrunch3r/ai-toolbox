@@ -1,8 +1,6 @@
 <div align="center">
 <a href="README.md">English</a> · <a href="README.de.md">Deutsch</a> · <a href="README.es.md">Español</a> · <a href="README.zh-CN.md">简体中文</a> · <b>繁體中文</b><br/>
 <h1>AI Toolbox —— 面向 LM Studio 本地 LLM 的一體化自主 AI Agent & 工具外掛</h1><hr/>
-<br/><img src="docs/brand/emblem-256.png" alt="AI Toolbox 徽標 — 匯聚格構與軸向光束（V3）" width="96"/><br/>
-<span style="letter-spacing:.28em;font-weight:bold">強大工具 · 穩固之手</span><br/>
 <b>給你的本地 LLM 一雙真正的手。</b> 最完整的 LM Studio Hub 外掛——把任意本地模型變成能幹、自管理的 AI 智能體。<br/>自管理上下文讓馬拉松式會話保持存活 · 一個外掛，零膠水程式碼，預設完全離線。
 <br/><a href="#"><img src="https://img.shields.io/badge/version-v1.9.19-2f80ed?style=flat-square" alt="version v1.9.19"/></a> <a href="#the-tool-arsenal-113-tools-across-every-family-all-yours-to-toggle"><img src="https://img.shields.io/badge/tools-113%20ready--made-7c3aed?style=flat-square" alt="tools 113 ready-made"/></a> <a href="#quick-start-2-minutes"><img src="https://img.shields.io/badge/tests-71%20suites%20%C2%B7%201020%20green-3fb950?style=flat-square" alt="tests 71 suites · 1020 green"/></a> <a href="#"><img src="https://img.shields.io/badge/LM%20Studio-Hub%20plugin-e84393?style=flat-square" alt="LM Studio Hub plugin"/></a> <a href="LICENSE"><img src="https://img.shields.io/github/license/TheRealCrunch3r/ai-toolbox?style=flat-square" alt="license MIT (live-verified from LICENSE)"/></a> <a href="#"><img src="https://img.shields.io/badge/runtime-Node%20%E2%89%A5%2020-83cd29?style=flat-square&logo=node.js" alt="runtime Node ≥ 20"/></a><br/>
 <b>Docs:</b> <a href="DOCUMENTATION.md">Documentation</a> · <a href="QUICK_START.md">Quick Start</a> · <a href="ARCHITECTURE.md">Architecture</a> · <a href="TOOLS_REFERENCE.md">Tool Reference</a> · <a href="CHANGELOG_v4.md">Changelog</a><br/>
