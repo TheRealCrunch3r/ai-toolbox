@@ -207,7 +207,7 @@ export const DEFAULT_CONFIG: PluginConfig = {
 
   utility: true,
 
-  uiGeneration: false,
+  uiGeneration: true,
 
   contextManagement: true,
 
