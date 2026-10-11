@@ -18,7 +18,7 @@
 
 > `v1.9.19` · `113 ready-made tools` · `1020 tests green (71 suites)` · `5 locales` · `MIT` · `Node 20+`
 
-[!IMPORTANT] LM Studio does NOT support automatic updates. If you encounter issues, update manually first: remove the current version and re-download from the plugin website. Note that LM Studio may show an "already installed" tooltip even if your version is outdated.
+<div align="center"><table><tr><td style="border-left:4px solid #d1242f; background:#ffebe9; padding:8px 16px;"><b>⚠️ LM Studio does NOT support automatic updates.</b><br/>If you encounter issues, update manually first: remove the current version and re-download from the plugin website. Note that LM Studio may show an "already installed" tooltip even if your version is outdated.</td></tr></table></div>
 
 ## Contents
 

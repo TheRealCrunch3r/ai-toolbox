@@ -20,7 +20,7 @@
 
 > ⚠️ **Übersetzung** — Deutsche Fassung von [README.md](README.md). Englisch ist die maßgebliche Version (canonical); bei Abweichungen gilt README.md. Diese Datei bei Änderungen am Original mit synchronisieren.
 
-[!IMPORTANT] LM Studio unterstützt KEINE automatischen Updates. Bei Problemen zuerst manuell aktualisieren: aktuelle Version entfernen und vom Plugin-Website neu herunterladen. Beachten Sie, dass LM Studio selbst bei veralteter Version einen „bereits installiert"-Hinweis anzeigen kann.
+<div align="center"><table><tr><td style="border-left:4px solid #d1242f; background:#ffebe9; padding:8px 16px;"><b>⚠️ LM Studio unterstützt KEINE automatischen Updates.</b><br/>Bei Problemen zuerst manuell aktualisieren: aktuelle Version entfernen und vom Plugin-Website neu herunterladen. Beachten Sie, dass LM Studio selbst bei veralteter Version einen „bereits installiert"-Hinweis anzeigen kann.</td></tr></table></div>
 
 ## Inhalt
 

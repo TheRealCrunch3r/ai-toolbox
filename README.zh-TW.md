@@ -20,7 +20,7 @@
 
 > ⚠️ **譯文聲明** —— 本檔案為 [README.md](README.md) 的繁體中文版。英文版為準（canonical），如有出入以 README.md 為準；原文變更時請同步更新本檔案。
 
-[!IMPORTANT] LM Studio 不支援自動更新。如遇問題，請先手動更新：移除目前版本並從外掛網站重新下載。注意即使你的版本已過時，LM Studio 仍可能顯示「已安裝」提示。
+<div align="center"><table><tr><td style="border-left:4px solid #d1242f; background:#ffebe9; padding:8px 16px;"><b>⚠️ LM Studio 不支援自動更新。</b><br/>如遇問題，請先手動更新：移除目前版本並從外掛網站重新下載。即使你的版本已過時，LM Studio 仍可能顯示「已安裝」提示。</td></tr></table></div>
 
 ## 目錄
 
