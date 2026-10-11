@@ -7,8 +7,8 @@
 <a href="CONTRIBUTING.md">Contributing</a> · <a href="SECURITY.md">Security</a><br/>
 <br>
 <b>🚀 Easy install:</b> <a href="https://lmstudio.ai/crunch3r/ai-toolbox">Get AI Toolbox from the LM Studio Hub</a> <br> OR </br>
-<br>
 <code>Install: copy the <b>dist/</b> folder into LM Studio → enable under Plugins (Node.js 20+)</code>
+<br>
 </div>
 
 
