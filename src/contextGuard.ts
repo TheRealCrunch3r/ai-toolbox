@@ -30,7 +30,7 @@ function cachedJSONStringify(obj: unknown): string {
 }
 
 import type { LMStudioClient, LLMPredictionStats } from '@lmstudio/sdk';
-import { TokenStatsManager } from './tokenStatsManager.js';
+import { TokenStatsManager, estimateTokensFromChars } from './tokenStatsManager.js';
 // Arc C (07.10): structured continuity generation at the compression trigger — parser + persist live in
 // sessionSummaryPersist.ts; cycle-free by construction (toolsProvider / all src/tools modules never import
 // contextGuard or promptPreprocessor, only index.ts imports both sides of that graph). FIX B (09.10) reuses BOTH
@@ -104,7 +104,7 @@ const COMPRESSION_PREDICTION_MAX_MS = 60_000;
 // 04.10 ABORT-CONTRACT arc item (c): hard per-message cap for the SYNCHRONOUS tiktoken fallback encode in
 // countTokens(). Tiktoken's encoder.encode() is CPU-bound sync work — a multi-MB message content would block the
 // plugin host event loop for seconds (UI stall / watchdog). Messages are encoded precisely up to this budget, and any
-// overflow beyond it is estimated with the SAME ratio as the primary heuristic path below (chars × 0.25 × 1.10), so a
+// overflow beyond it is estimated via estimateTokensFromChars() — the shared agentic-density ratio in tokenStatsManager, so a
 // single oversized message cannot both block the loop AND drive an under-count that delays compression. Typical
 // chat/file-paste messages are ≤ ~50k chars → for them this changes NOTHING (cap is never reached).
 const TIKTOKEN_SYNC_ENCODE_CHAR_CAP = 100_000;
@@ -203,10 +203,10 @@ export class ContextGuard {
 
   /**
    * Counts tokens efficiently with caching.
-   * Uses History Text Length × 0.25 + 10% buffer → SDK native counting → Tiktoken estimation.
+   * Uses the shared agentic-density estimate (estimateTokensFromChars, tokenStatsManager) → SDK native counting → Tiktoken estimation.
    * 
    * 🔥 PRIORITY ORDER:
-   * 1. History Text Length × 0.25 × 1.10 (effective ~0.264) — Matches LM Studio sidebar exactly (+10% safety buffer)
+   * 1. Shared agentic-density estimate (chars ÷ measured 3.2 c/tok, recalibrated 10.11 — see tokenStatsManager for provenance)
    * 2. SDK PredictionResult.stats — From model.respond().result().stats
    * 3. SDK native countTokens() — Model-specific tokenization
    * 4. Tiktoken estimation — Fallback when all above unavailable
@@ -221,10 +221,11 @@ export class ContextGuard {
     // 🔹 P1 #3: Conditional logging
     debugLog('[COUNT]', `Processing ${messages.length} messages.`);
 
-    // ✅ PRIMARY METHOD: If historyTextLength is provided (from native API), use ×0.25 + 10% buffer ratio
-    // This matches LM Studio's sidebar exactly and avoids SDK overestimation (~124k vs ~80k)
+    // ✅ PRIMARY METHOD: If historyTextLength is provided (from native API), use the shared agentic-density
+    // ratio from tokenStatsManager — recalibrated to the MEASURED content density in 10.11 (TOKEN-DIVERGENCE arc;
+    // provenance + band-floor rationale live at the single source of truth there). Avoids SDK overestimation (~124k vs ~80k)
     if (historyTextLength != null && historyTextLength > 0) {
-      const primaryTokenCount = Math.ceil(historyTextLength * 0.25 * 1.10); // base × +10% buffer
+      const primaryTokenCount = estimateTokensFromChars(historyTextLength); // shared ratio — see tokenStatsManager
       
       // Add image tokens if applicable (SDK doesn't account for multi-modal images automatically)
       let totalTokens = primaryTokenCount;
@@ -234,7 +235,7 @@ export class ContextGuard {
       
       this.cachedTokenCount = totalTokens;
       this._lastMessageHash = this.computeMessageHash(messages);
-      console.log(`[ContextGuard] ✅ Primary count: ${historyTextLength.toLocaleString('en-US')} chars → ${primaryTokenCount.toLocaleString('en-US')} tokens (×0.25 + 10% buffer)`);
+      console.log(`[ContextGuard] ✅ Primary count: ${historyTextLength.toLocaleString('en-US')} chars → ${primaryTokenCount.toLocaleString('en-US')} tokens (shared agentic-density ratio — see tokenStatsManager)`);
       return totalTokens;
     }
 
@@ -305,7 +306,7 @@ export class ContextGuard {
           // contains tool-call structures ("Cannot count tokens for messages that contain tool
           // calls"). The existing try/catch below falls back to tiktoken on that error, but it is
           // better not to trigger it in the first place. Cost of omitted tool-call text is covered:
-          // the preprocessor's primary heuristic (historyTextLength × 0.25 × 1.10) already includes
+          // the preprocessor's primary heuristic (estimateTokensFromChars over historyTextLength — shared agentic-density ratio) already includes
           // full getToolCallRequests()/getToolCallResults() payloads via the native history API, and
           // this fallback only runs when that primary path was unavailable for this turn.
 
@@ -414,16 +415,16 @@ export class ContextGuard {
       const structuredText = `<|start|>assistant<|name|>${role}<|end|>\n${contentStr}`;
 
       // 04.10 ABORT-CONTRACT arc item (c): bounded sync encode — precise BPE up to TIKTOKEN_SYNC_ENCODE_CHAR_CAP,
-      // overflow estimated with the primary-path ratio (chars × 0.25 × 1.10). ≤ cap → byte-identical result as before.
+      // overflow estimated via estimateTokensFromChars() (shared agentic-density ratio in tokenStatsManager). ≤ cap → exact encode only, as before.
       const encodable = structuredText.length <= TIKTOKEN_SYNC_ENCODE_CHAR_CAP
         ? structuredText
         : structuredText.slice(0, TIKTOKEN_SYNC_ENCODE_CHAR_CAP);
       count += this.encoder.encode(encodable).length;
       if (structuredText.length > TIKTOKEN_SYNC_ENCODE_CHAR_CAP) {
         const overflowChars = structuredText.length - TIKTOKEN_SYNC_ENCODE_CHAR_CAP;
-        const estimatedOverflowTokens = Math.ceil(overflowChars * 0.25 * 1.10);
+        const estimatedOverflowTokens = estimateTokensFromChars(overflowChars);
         count += estimatedOverflowTokens;
-        console.log(`[ContextGuard] ⚠️ Tiktoken fallback: message (${role}) exceeded ${TIKTOKEN_SYNC_ENCODE_CHAR_CAP.toLocaleString('en-US')} chars — encoded cap precisely, +${estimatedOverflowTokens.toLocaleString('en-US')} tokens estimated for the overflow (×0.25 × 1.10) to keep the sync encode bounded.`);
+        console.log(`[ContextGuard] ⚠️ Tiktoken fallback: message (${role}) exceeded ${TIKTOKEN_SYNC_ENCODE_CHAR_CAP.toLocaleString('en-US')} chars — encoded cap precisely, +${estimatedOverflowTokens.toLocaleString('en-US')} tokens estimated for the overflow (shared agentic density - see tokenStatsManager) to keep the sync encode bounded.`);
       }
     }
     
@@ -906,7 +907,7 @@ ${historyText}`;
     // Fallback to tiktoken — 04.10 ABORT-CONTRACT arc item (c): bounded sync encode, same idiom as the countTokens()
     // message loop above. System prompts can be large (serialized tool definitions ride in them) — an unbounded BPE
     // here would block the host event loop for seconds. ≤ cap → byte-identical result as before; overflow beyond it
-    // is estimated with the SAME ratio as the primary heuristic path (chars × 0.25 × 1.10), so no under-count that
+    // is estimated with the SAME ratio as the primary heuristic path (shared agentic density via estimateTokensFromChars - see tokenStatsManager), so no under-count that
     // could delay compression. Callers today treat this number as a reserved/future-use value, but the WORK still ran.
     if (!this.encoder) this.encoder = get_encoding('cl100k_base');
     const structuredText = `<|start|>system<|end|>\n${text}`;
@@ -916,9 +917,9 @@ ${historyText}`;
     let tokenCount = this.encoder.encode(encodable).length;
     if (structuredText.length > TIKTOKEN_SYNC_ENCODE_CHAR_CAP) {
       const overflowChars = structuredText.length - TIKTOKEN_SYNC_ENCODE_CHAR_CAP;
-      const estimatedOverflowTokens = Math.ceil(overflowChars * 0.25 * 1.10);
+      const estimatedOverflowTokens = estimateTokensFromChars(overflowChars);
       tokenCount += estimatedOverflowTokens;
-      console.log(`[ContextGuard] ⚠️ Tiktoken fallback (_countStringTokens): system prompt exceeded ${TIKTOKEN_SYNC_ENCODE_CHAR_CAP.toLocaleString('en-US')} chars — encoded cap precisely, +${estimatedOverflowTokens.toLocaleString('en-US')} tokens estimated for the overflow (×0.25 × 1.10) to keep the sync encode bounded.`);
+      console.log(`[ContextGuard] ⚠️ Tiktoken fallback (_countStringTokens): system prompt exceeded ${TIKTOKEN_SYNC_ENCODE_CHAR_CAP.toLocaleString('en-US')} chars — encoded cap precisely, +${estimatedOverflowTokens.toLocaleString('en-US')} tokens estimated for the overflow (shared agentic density - see tokenStatsManager) to keep the sync encode bounded.`);
     }
     return tokenCount + 8; // +8 for overhead/BOS
   }

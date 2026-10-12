@@ -2,7 +2,7 @@
 <a href="README.md">English</a> · <b>Deutsch</b> · <a href="README.es.md">Español</a> · <a href="README.zh-CN.md">简体中文</a> · <a href="README.zh-TW.md">繁體中文</a><br/>
 <h1>AI Toolbox — All-in-One autonomes KI-Agenten- & Tool-Plugin für lokale LLMs in LM Studio</h1><hr/>
 <b>Lokalen LLM echte Hände.</b> Das vollständigste LM-Studio-Hub-Plugin — macht jedes lokale Modell zu einem fähigen, selbstverwaltenden AI-Agenten.<br/>Selbstverwaltender Kontext hält Marathon-Sessions am Leben · ein Plugin, kein Glue-Code, standardmäßig vollständig offline.
-<br/><a href="#"><img src="https://img.shields.io/badge/version-v1.9.19-2f80ed?style=plastic" alt="version v1.9.19"/></a> <a href="#the-tool-arsenal-113-tools-across-every-family-all-yours-to-toggle"><img src="https://img.shields.io/badge/tools-113%20ready--made-7c3aed?style=plastic" alt="tools 113 ready-made"/></a> <a href="#quick-start-2-minutes"><img src="https://img.shields.io/badge/tests-71%20suites%20%C2%B7%201020%20green-3fb950?style=plastic" alt="tests 71 suites · 1020 green"/></a> <a href="#"><img src="https://img.shields.io/badge/LM%20Studio-Hub%20plugin-e84393?style=plastic" alt="LM Studio Hub plugin"/></a> <a href="LICENSE"><img src="https://img.shields.io/github/license/TheRealCrunch3r/ai-toolbox?style=plastic" alt="license MIT (live-verified from LICENSE)"/></a> <a href="#"><img src="https://img.shields.io/badge/runtime-Node%20%E2%89%A5%2020-83cd29?style=plastic&logo=node.js" alt="runtime Node ≥ 20"/></a><br/>
+<br/><a href="#"><img src="https://img.shields.io/badge/version-v1.9.19-2f80ed?style=plastic" alt="version v1.9.19"/></a> <a href="#the-tool-arsenal-113-tools-across-every-family-all-yours-to-toggle"><img src="https://img.shields.io/badge/tools-113%20ready--made-7c3aed?style=plastic" alt="tools 113 ready-made"/></a> <a href="#quick-start-2-minutes"><img src="https://img.shields.io/badge/tests-72%20suites%20%C2%B7%201026%20green-3fb950?style=plastic" alt="tests 72 suites · 1026 green"/></a> <a href="#"><img src="https://img.shields.io/badge/LM%20Studio-Hub%20plugin-e84393?style=plastic" alt="LM Studio Hub plugin"/></a> <a href="LICENSE"><img src="https://img.shields.io/github/license/TheRealCrunch3r/ai-toolbox?style=plastic" alt="license MIT (live-verified from LICENSE)"/></a> <a href="#"><img src="https://img.shields.io/badge/runtime-Node%20%E2%89%A5%2020-83cd29?style=plastic&logo=node.js" alt="runtime Node ≥ 20"/></a><br/>
 <b>Docs:</b> <a href="DOCUMENTATION.md">Documentation</a> · <a href="QUICK_START.md">Quick Start</a> · <a href="ARCHITECTURE.md">Architecture</a> · <a href="TOOLS_REFERENCE.md">Tool Reference</a> · <a href="CHANGELOG_v4.md">Changelog</a><br/>
 <a href="CONTRIBUTING.md">Contributing</a> · <a href="SECURITY.md">Security</a><br/>
 <br>
@@ -16,7 +16,7 @@
 
 **Geben Sie Ihrem lokalen LLM echte Hände.** Das vollständigste Plugin im LM Studio Hub — verwandelt jedes lokale Modell in einen fähigen, selbstverwaltenden KI-Agenten mit sicherer Dateibearbeitung, hang-sicherer Codebase-Suche, Hintergrund-Builds, headloser Browser-Automatisierung, Git- & GitHub-Workflows, OCR, Chart-Erstellung und semantischem RAG; **selbstverwaltender Kontext** hält Marathon-Sitzungen am Leben. Ein Plugin, null Klebcode, standardmäßig vollständig offline.
 
-> `v1.9.19` · `113 fertige Tools` · `1020 Tests grün (71 Suiten)` · `5 Lokalisationen` · `MIT` · `Node 20+`
+> `v1.9.19` · `113 fertige Tools` · `1026 Tests grün (72 Suiten)` · `5 Lokalisationen` · `MIT` · `Node 20+`
 
 > ⚠️ **Übersetzung** — Deutsche Fassung von [README.md](README.md). Englisch ist die maßgebliche Version (canonical); bei Abweichungen gilt README.md. Diese Datei bei Änderungen am Original mit synchronisieren.
 
@@ -61,7 +61,7 @@ Der nächstliegende direkte Wettbewerber im Hub: gleiche Aufgabe (Tools für lok
 | ✅ **AST-level Refactoring** (Rename, Funktionsverschiebung, Dead-Import-Cleanup) — syntaksichere Transformationen mit Auto-Rollback, keine String-Bearbeitungen |
 | ✅ **Echtes RAG:** lokaler Vektorindex über PDF / DOCX / XLSX mit Seitenebenen-Provenienz — nicht nur Keyword-Suche |
 | ✅ **Bilder & Data-Viz:** OCR auf Screenshots und Aufnahmen, Bild-Metadaten + Vergleich, Chart-Erstellung |
-| ✅ **113 Tools** vs ~49 — gestützt durch 1020 bestandene Tests in 71 Suiten |
+| ✅ **113 Tools** vs ~49 — gestützt durch 1026 bestandene Tests in 72 Suiten |
 | ✅ **Crash-resiliente Schreibvorgänge + Rollback bei Fehlschlag:** eine missglückte Bearbeitung kann Ihre Datei nie korrupt machen |
 
 Unsere frühere i18n-Lücke ist geschlossen: **wir liefern jetzt 5 Lokalisationen** (en · de · es · zh-CN · zh-TW), jeweils ein vollständiger Übersetzungssatz — und Anti-Stub-Tests bewachen die Suite, damit Alias-/Fallback-Sprachen nie stillschweigend regressieren. Wir sagen Ihnen das lieber, als zu behaupten, es gäbe sie nicht.
@@ -116,7 +116,7 @@ Charts aus Rohdaten gerendert zu Bilddateien (Balken/Linie/Kreis/Donut/Streuung/
 ```bash
 # Developing instead of using?
 npm install && npm run build   # ESM + CJS via tsup
-npm test                        # full suite: 71 suites / 1020 tests green (owner-verified 10.10 TWO-TIER CLOSE-OUT — FIX A + FIX B, gate round 3 ~12:05; prior canon 69/1003 @ 09.10 [FIX #21 mid-loop forced-save, r7] · prior arcs: 68/990 @ 08.10 [LEVER-1], 68/987 @ 07.10 [Arc C sweep — entry unlogged], 65/952 @ 06.10 [DOC-PIN gate] 64/941 @ 06.10 [i18n gate], 64/938 @ 06.10 ×2 [F1 ~16:57 · PLAN-SEAM ~18:0x], 63/931 @ 05.10, 63/930 @ 04.10 ×3, 61/917 @ 04.10, 893/59 @ 02.10, 874/58 @ ~21.5 s on 01.10, 860/56 @ 29.09, 857/56 @ 28.09)
+npm test                        # full suite: 72 suites / 1026 tests green (owner-verified 10.11 TOKEN-DIVERGENCE arc — Class A agentic-density recalibration + Class B wire-shape credit, gate GREEN ~20:1x; prior canon 71/1020 @ 10.10 [TWO-TIER CLOSE-OUT r3] · prior arcs: 68/990 @ 08.10 [LEVER-1], 68/987 @ 07.10 [Arc C sweep — entry unlogged], 65/952 @ 06.10 [DOC-PIN gate] 64/941 @ 06.10 [i18n gate], 64/938 @ 06.10 ×2 [F1 ~16:57 · PLAN-SEAM ~18:0x], 63/931 @ 05.10, 63/930 @ 04.10 ×3, 61/917 @ 04.10, 893/59 @ 02.10, 874/58 @ ~21.5 s on 01.10, 860/56 @ 29.09, 857/56 @ 28.09)
 ```
 
 ---
@@ -172,7 +172,7 @@ Ein Plugin ersetzt eine ganze Regalwand. Hier ist jede Familie, was sie abdeckt 
 | 🐙 **Git & GitHub** | 15 | Voller lokaler git inkl. **stash & blame** · Issues/PRs/Kommentare/Diffs/Push über Ihre `gh` CLI | ✗ opt-in |
 | ⏳ **Hintergrundbefehle** | 3 | Lange Jobs ausführen ohne den Chat zu blockieren — stdout/stderr überwachen, jederzeit abbrechen. Kein Docker erforderlich. | ✗ opt-in |
 | 📡 **HTTP-Client** | 3 | Requests jeder Methode mit Retry/Timeout, JSON GET/POST-Helfer — SSRF-geschützt | ✗ opt-in |
-| 🎨 **UI-Generierung** | 3 | Live HTML/CSS/JS-Komponenten im Browser bauen & vorschauen · Daten wieder extrahieren | ✗ opt-in |
+| 🎨 **UI-Generierung** | 3 | Live HTML/CSS/JS-Komponenten im Browser bauen & vorschauen · Daten wieder extrahieren (standardmäßig AN seit 10.10, Owner-Entscheidung) | ✅ |
 | 🗃️ **Datenbank** | 1 | Read-only-SQLite mit injektionssicheren parametrisierten Queries | ✗ opt-in |
 
 > *Zahlen sind code-verifiziert (Source-of-Truth-Audit, Sept. 2026); die ausgesetzte Tool-Anzahl ist immer umschalterabhängig.*

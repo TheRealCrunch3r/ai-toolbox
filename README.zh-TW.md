@@ -2,7 +2,7 @@
 <a href="README.md">English</a> · <a href="README.de.md">Deutsch</a> · <a href="README.es.md">Español</a> · <a href="README.zh-CN.md">简体中文</a> · <b>繁體中文</b><br/>
 <h1>AI Toolbox —— 面向 LM Studio 本地 LLM 的一體化自主 AI Agent & 工具外掛</h1><hr/>
 <b>給你的本地 LLM 一雙真正的手。</b> 最完整的 LM Studio Hub 外掛——把任意本地模型變成能幹、自管理的 AI 智能體。<br/>自管理上下文讓馬拉松式會話保持存活 · 一個外掛，零膠水程式碼，預設完全離線。
-<br/><a href="#"><img src="https://img.shields.io/badge/version-v1.9.19-2f80ed?style=plastic" alt="version v1.9.19"/></a> <a href="#the-tool-arsenal-113-tools-across-every-family-all-yours-to-toggle"><img src="https://img.shields.io/badge/tools-113%20ready--made-7c3aed?style=plastic" alt="tools 113 ready-made"/></a> <a href="#quick-start-2-minutes"><img src="https://img.shields.io/badge/tests-71%20suites%20%C2%B7%201020%20green-3fb950?style=plastic" alt="tests 71 suites · 1020 green"/></a> <a href="#"><img src="https://img.shields.io/badge/LM%20Studio-Hub%20plugin-e84393?style=plastic" alt="LM Studio Hub plugin"/></a> <a href="LICENSE"><img src="https://img.shields.io/github/license/TheRealCrunch3r/ai-toolbox?style=plastic" alt="license MIT (live-verified from LICENSE)"/></a> <a href="#"><img src="https://img.shields.io/badge/runtime-Node%20%E2%89%A5%2020-83cd29?style=plastic&logo=node.js" alt="runtime Node ≥ 20"/></a><br/>
+<br/><a href="#"><img src="https://img.shields.io/badge/version-v1.9.19-2f80ed?style=plastic" alt="version v1.9.19"/></a> <a href="#the-tool-arsenal-113-tools-across-every-family-all-yours-to-toggle"><img src="https://img.shields.io/badge/tools-113%20ready--made-7c3aed?style=plastic" alt="tools 113 ready-made"/></a> <a href="#quick-start-2-minutes"><img src="https://img.shields.io/badge/tests-72%20suites%20%C2%B7%201026%20green-3fb950?style=plastic" alt="tests 72 suites · 1026 green"/></a> <a href="#"><img src="https://img.shields.io/badge/LM%20Studio-Hub%20plugin-e84393?style=plastic" alt="LM Studio Hub plugin"/></a> <a href="LICENSE"><img src="https://img.shields.io/github/license/TheRealCrunch3r/ai-toolbox?style=plastic" alt="license MIT (live-verified from LICENSE)"/></a> <a href="#"><img src="https://img.shields.io/badge/runtime-Node%20%E2%89%A5%2020-83cd29?style=plastic&logo=node.js" alt="runtime Node ≥ 20"/></a><br/>
 <b>Docs:</b> <a href="DOCUMENTATION.md">Documentation</a> · <a href="QUICK_START.md">Quick Start</a> · <a href="ARCHITECTURE.md">Architecture</a> · <a href="TOOLS_REFERENCE.md">Tool Reference</a> · <a href="CHANGELOG_v4.md">Changelog</a><br/>
 <a href="CONTRIBUTING.md">Contributing</a> · <a href="SECURITY.md">Security</a><br/>
 <br>
@@ -16,7 +16,7 @@
 
 **給你的本地 LLM 裝上真正的手。** LM Studio Hub 上最完整的外掛 —— 把任意本地模型變成一個有能力、自我管理的 AI Agent，具備安全的檔案編輯、絕不掛起的程式庫搜尋、背景建置、無頭瀏覽器自動化、Git & GitHub 工作流、OCR、圖表產生和語意 RAG；**自管理上下文**讓馬拉松式會話保持存活。一個外掛，零膠水程式碼，預設完全離線。
 
-> `v1.9.19` · `113 個即用工具` · `1020 項測試通過（71 個套件）` · `5 種語言本機化` · `MIT` · `Node 20+`
+> `v1.9.19` · `113 個即用工具` · `1026 項測試通過（72 個套件）` · `5 種語言本機化` · `MIT` · `Node 20+`
 
 > ⚠️ **譯文聲明** —— 本檔案為 [README.md](README.md) 的繁體中文版。英文版為準（canonical），如有出入以 README.md 為準；原文變更時請同步更新本檔案。
 
@@ -61,7 +61,7 @@ Hub 上最接近的直接競爭者：同樣的活兒（給本地 LLM 提供工�
 | ✅ **AST 級重構**（重新命名、移動函式、清理無用 import）—— 語法安全變換帶自動回滾，不是字串編輯 |
 | ✅ **真正的 RAG：** 基於 PDF / DOCX / XLSX 的本機向量索引，帶頁級溯源 —— 不只是關鍵字搜尋 |
 | ✅ **影像與資料視覺化：** 對截圖和螢幕擷取做 OCR、圖片中繼資料 + 對比、圖表產生 |
-| ✅ **113 個工具** vs ~49 —— 由 71 個套件共 1020 項通過的測試支撐 |
+| ✅ **113 個工具** vs ~49 —— 由 72 個套件共 1026 項通過的測試支撐 |
 | ✅ **崩潰 resilient 的寫入 + 失敗回滾：** 一次失敗的編輯永遠不會損毀你的檔案 |
 
 我們此前的 i18n 缺口已關閉：**現在提供 5 種語言**（en · de · es · zh-CN · zh-TW），每種都是完整翻譯集 —— 並且有反 stub 測試守護套件，保證別名/回退語言不會靜默退化。我們寧可直接告訴你，也不假裝它不存在。
@@ -116,7 +116,7 @@ PDF、Word 文件與試算表 → **本機語意向量搜尋**（資料不出你
 ```bash
 # Developing instead of using?
 npm install && npm run build   # ESM + CJS via tsup
-npm test                        # full suite: 71 suites / 1020 tests green (owner-verified 10.10 TWO-TIER CLOSE-OUT — FIX A + FIX B, gate round 3 ~12:05; prior canon 69/1003 @ 09.10 [FIX #21 mid-loop forced-save, r7] · prior arcs: 68/990 @ 08.10 [LEVER-1], 68/987 @ 07.10 [Arc C sweep — entry unlogged], 65/952 @ 06.10 [DOC-PIN gate] 64/941 @ 06.10 [i18n gate], 64/938 @ 06.10 ×2 [F1 ~16:57 · PLAN-SEAM ~18:0x], 63/931 @ 05.10, 63/930 @ 04.10 ×3, 61/917 @ 04.10, 893/59 @ 02.10, 874/58 @ ~21.5 s on 01.10, 860/56 @ 29.09, 857/56 @ 28.09)
+npm test                        # full suite: 72 suites / 1026 tests green (owner-verified 10.11 TOKEN-DIVERGENCE arc — Class A agentic-density recalibration + Class B wire-shape credit, gate GREEN ~20:1x; prior canon 71/1020 @ 10.10 [TWO-TIER CLOSE-OUT r3] · prior arcs: 68/990 @ 08.10 [LEVER-1], 68/987 @ 07.10 [Arc C sweep — entry unlogged], 65/952 @ 06.10 [DOC-PIN gate] 64/941 @ 06.10 [i18n gate], 64/938 @ 06.10 ×2 [F1 ~16:57 · PLAN-SEAM ~18:0x], 63/931 @ 05.10, 63/930 @ 04.10 ×3, 61/917 @ 04.10, 893/59 @ 02.10, 874/58 @ ~21.5 s on 01.10, 860/56 @ 29.09, 857/56 @ 28.09)
 ```
 
 ---
@@ -172,7 +172,7 @@ npm test                        # full suite: 71 suites / 1020 tests green (owne
 | 🐙 **Git & GitHub** | 15 | 完整本機 git 含 **stash 與 blame** · 經你的 `gh` CLI 操作 issues/PR/留言/diff/push | ✗ opt-in |
 | ⏳ **背景命令** | 3 | 跑長任務不阻塞聊天 —— 監視 stdout/stderr，隨時取消。無需 Docker。 | ✗ opt-in |
 | 📡 **HTTP 客戶端** | 3 | 任意方法請求帶重試/逾時，JSON GET/POST 助手 —— SSRF 防護 | ✗ opt-in |
-| 🎨 **UI 產生** | 3 | 在瀏覽器中建構並預覽即時 HTML/CSS/JS 元件 · 把資料擷取回來 | ✗ opt-in |
+| 🎨 **UI 產生** | 3 | 在瀏覽器中建構並預覽即時 HTML/CSS/JS 元件 · 把資料擷取回來（自 10.10 起預設開啟 · 所有者決定） | ✅ |
 | 🗃️ **資料庫** | 1 | 唯讀 SQLite，注入免疫的參數化查詢 | ✗ opt-in |
 
 > *數量均經程式碼核驗（source-of-truth 審計，2026 年 9 月）；暴露的工具數始終取決於開關設定。*

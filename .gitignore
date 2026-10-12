@@ -25,6 +25,7 @@ Thumbs.db
 # AI Toolbox internal state, cache & backup files (machine-specific & auto-generated)
 .ai_toolbox_backups/
 .ai_toolbox_*
+.ai_toolbox/
 
 # AI Toolbox hidden session context (auto-generated, never commit)
 .session_context/

@@ -27,7 +27,7 @@ export interface CompactableMessage {
 
 // ==================== Tuning constants ====================
 
-/** Default max payload bytes before a tool-result message gets pruned (16 KiB ≈ ~4.5k tokens at ×0.25+10%). */
+/** Default max payload bytes before a tool-result message gets pruned (16 KiB ≈ ~5.1k tokens at the shared agentic density /3.2). */
 export const DEFAULT_MAX_BYTES_PER_RESULT = 16 * 1024;
 
 /** Preview budget: head slice of a pruned payload (chars). */

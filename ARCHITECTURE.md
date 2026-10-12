@@ -151,7 +151,7 @@ createToolsProvider(config, stateManager, bgCommandManager)
             ├── registerImageProcessingTools() ─► 4 tools (enabled by default)
             ├── registerHttpClientTools()      ──► 3 tools (disabled by default)
             ├── registerRagTools()             ──► 7 tools (enabled by default: rag_index_files/pdf/docx/xlsx, rag_query_vector, rag_clear_index, rag_web_content — since v1.9.2/v1.9.10)
-            ├── registerUiGenerationTools()    ──► 3 tools (disabled by default)
+            ├── registerUiGenerationTools()    ──► 3 tools (enabled by default — flipped from disabled, owner decision 10.10)
             ├── registerContextManagementTools() ─► **22 tools** (re-counted in the 28.09 re-audit: 12 core memory/session + session-index & project-registry 9 + composite `restore_session_context`; enabled by default)
             ├── registerTextProcessingTools()  ──► 3 tools (enabled by default; line_operations folded to fileSystemTools.ts 23.09, Q6)
             ├── registerRefactorCodeTools()    ──► **1 tool** (`refactor_code`; the former second entry, `unused_import_cleanup`, is a recode-engine rule object, not a registered tool — audited 05.09, confirmed in the 28.09 re-audit; enabled by default)
@@ -292,7 +292,7 @@ export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[
 
 **Key Design Decisions:**
 - Tools registered **conditionally** based on config toggles + GOD MODE bypass
-- Default states: File System, Web Research, Document Parsing, Image Processing, Vector RAG, Context Management, Text Processing, AST Refactoring, Task Planning — enabled by default; Git, Browser, Database, Background Commands, HTTP Client, UI Generation — disabled by default
+- Default states: File System, Web Research, Document Parsing, Image Processing, Vector RAG, Context Management, Text Processing, AST Refactoring, Task Planning, UI Generation — enabled by default (UI Generation flipped from disabled, owner decision 10.10); Git, Browser, Database, Background Commands, HTTP Client — disabled by default
 - Execution tools have fine-grained toggles (JS/Python vs Terminal/Shell)
 - **Closure-based dependency injection**: Each registry entry captures `config`, `stateManager`, and `backgroundCommandManager` at definition time via arrow functions
 
@@ -1213,7 +1213,7 @@ src/
     ├── node-notifier.d.ts      # Node.js notifier type declarations
     └── types.d.ts              # Core shared type definitions
 
-tests/                          # Jest test suite (71 suites / 1020 tests, verified green 10.10 ~12:05 via owner-run npm test — TWO-TIER CLOSE-OUT FIX A + FIX B gate round 3; NEW CANON since that arc; prior canon 69/1003 @ 09.10 (FIX #21 mid-loop forced-save, r7), 68/990 @ 08.10 (LEVER-1), 68/987 @ 07.10 (Arc C sweep, unlogged entry), 65/952 @ 06.10 (DOC-PIN, registry-vs-docs drift gate), 64/941 @ 06.10 (i18n-CONFIRM), 64/938 @ 05.10–06.10 (PLAN-REMOVAL, unchanged through A3 close-out ~18:2x), 63/931 @ 05.10 (SM-VERIFY-FIX + THRESHOLD-MARKER WORDING), 63/930 @ 04.10 ×3 (ABORT-CONTRACT GATE-4), 61/917 @ 04.10 (A-arc E7 + CTX-FOOTER FIX#3), 893/59 @ 02.10 (CTX-FOOTER), 874/58 @ 01.10; see README meta line; per-file list below is abbreviated)
+tests/                          # Jest test suite (72 suites / 1026 tests, verified green 10.11 ~20:1x via owner-run npm test — TOKEN-DIVERGENCE Class A + B gate GREEN; NEW CANON since that arc; prior canon 69/1003 @ 09.10 (FIX #21 mid-loop forced-save, r7), 68/990 @ 08.10 (LEVER-1), 68/987 @ 07.10 (Arc C sweep, unlogged entry), 65/952 @ 06.10 (DOC-PIN, registry-vs-docs drift gate), 64/941 @ 06.10 (i18n-CONFIRM), 64/938 @ 05.10–06.10 (PLAN-REMOVAL, unchanged through A3 close-out ~18:2x), 63/931 @ 05.10 (SM-VERIFY-FIX + THRESHOLD-MARKER WORDING), 63/930 @ 04.10 ×3 (ABORT-CONTRACT GATE-4), 61/917 @ 04.10 (A-arc E7 + CTX-FOOTER FIX#3), 893/59 @ 02.10 (CTX-FOOTER), 874/58 @ 01.10; see README meta line; per-file list below is abbreviated)
 ├── security.test.ts            # Core security validation tests
 ├── security.edge-cases.test.ts # Security boundary & edge case testing
 ├── config.test.ts              # Zod schema + UI schematics validation
@@ -1298,7 +1298,7 @@ All tool categories are now fully registered in `toolsProvider.ts` using the dec
 | Image Processing | imageProcessingTools.ts | 4 | ✅ Yes | Enabled |
 | HTTP Client | httpClientTools.ts | 3 | ✅ Yes | Disabled |
 | Vector RAG | vectorRagTools.ts | 7 | ✅ Yes | Enabled |
-| UI Generation | uiGenerationTools.ts | 3 | ✅ Yes | Disabled |
+| UI Generation | uiGenerationTools.ts | 3 | ✅ Yes | Enabled (flipped from disabled, owner decision 10.10) |
 | Context Management | contextManagementTools.ts | **22** (re-audited 28.09 vs live registry: 12 core memory/session + session-index & project-registry 9 + composite `restore_session_context`; was "12" → "20" at the 05.09 audit) | ✅ Yes | Enabled |
 | Text Processing | textProcessingTools.ts (− line_operations folded to fileSystemTools.ts, 23.09 Q6) | 3 | ✅ Yes | Enabled |
 | AST Refactoring | refactorCodeTools.ts | 1 (was "2" — `unusedImports` is a recode-engine rule object, not a registered tool; audited 05.09) | ✅ Yes | Enabled |

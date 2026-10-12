@@ -28,7 +28,7 @@ fileSystem: true, webSearch: true, documentParsing: true, imageProcessing: true
 vectorRag: true, contextManagement: true, textProcessing: true, astRefactoring: true
 executionJavaScript: true, executionPython: true
 browserAutomation: false, gitOperations: false, databaseQueries: false
-backgroundCommands: false, httpClient: false, uiGeneration: false
+backgroundCommands: false, httpClient: false
 ```
 
 ### Web Development

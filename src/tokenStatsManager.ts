@@ -35,7 +35,7 @@ const listeners: Set<StatsChangeListener> = new Set();
 /** Raw character sum of all tool results returned since the last preprocess() call */
 let midLoopDeltaChars = 0;
 
-/** Estimated token sum (same ratio as ContextGuard primary method: chars × 0.25 + 10% buffer) */
+/** Estimated token sum (shared agentic-density ratio — see estimateTokensFromChars() below) */
 let midLoopEstTokens = 0;
 
 // FIX #20 A2 — turn-start baseline for the mid-loop guard, plus the model context limit it is
@@ -51,12 +51,25 @@ let maxContextTokens = 0;
 // exclusion is applied caller-side at consumption time). null = no list published for this turn yet.
 let publishedTurnMessages: ReadonlyArray<Record<string, unknown>> | null = null;
 
-/** Shared estimation ratio — MUST stay in sync with the ContextGuard.countTokens() primary path */
-const CHARS_PER_TOKEN = 0.25;
-const TOKEN_BUFFER_FACTOR = 1.10;
+// ==================== Token estimation ratio — SINGLE SOURCE OF TRUTH (TOKEN-DIVERGENCE arc, 10.11 owner GO) ====================
+//
+// MEASURED density of this plugin's agentic content mix: a verbatim session sample (prose + JSON tool output +
+// code + log lines; 2,527 chars) probed against the live LM Studio server (/v1/chat/completions usage.prompt_tokens,
+// max_output_tokens=1; qwen3.8-27b-ud; 10.10 probe at ~88% window fill): 787 prompt tokens = 3.21 chars/token.
+// The prior ×0.25 (+10% buffer) assumed ~3.64 chars/token and undercounted dense agentic payloads by ~12–18%,
+// the history-span half of the measured ctx_footer-vs-host-meter gap (the host meter counts EXACT model-tokenizer
+// output; this estimate drives tier-1/tier-2 gates, the CTX-FOOTER projection and mid-loop delta bookkeeping).
+// We divide by the FLOOR of the measured 3.2–3.4 band: conservative on exactly this workload (÷3.2 gives +0.4% vs
+// probe truth), and prose-heavy content (~4 c/tok) overcounts slightly — deliberately, earlier compaction beats a
+// 100% stall. The former separate +10% buffer is dropped because the base is now MEASURED rather than guessed;
+// the band floor already carries the safety margin. contextGuard.ts and promptPreprocessor.ts import this function
+// instead of hardcoding their own ratio (supersedes the old "MUST stay in sync" comment).
+
+/** Measured chars-per-token density of agentic content (10.10 live probe; provenance above). */
+export const AGENTIC_CHARS_PER_TOKEN = 3.2;
 
 export function estimateTokensFromChars(chars: number): number {
-  return Math.ceil(Math.max(0, chars) * CHARS_PER_TOKEN * TOKEN_BUFFER_FACTOR);
+  return Math.ceil(Math.max(0, chars) / AGENTIC_CHARS_PER_TOKEN);
 }
 
 /** Conditional verbose log for turn-state transitions (AI_TOOLBOX_DEBUG-gated; contextGuard convention). */

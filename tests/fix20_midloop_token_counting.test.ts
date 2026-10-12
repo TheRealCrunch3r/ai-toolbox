@@ -2,8 +2,9 @@
  * FIX #20 — AutoTracker mid-loop token counting (A1 delta bookkeeping + A2 mid-loop guard)
  *
  * Regression suite for future_improvements/autoTracker_midloop_fix_plan.md:
- * - A1: TokenStatsManager records per-turn tool payload deltas (chars × 0.25 × 1.10 — same ratio as
- *   the ContextGuard.countTokens() primary path). Deltas are strictly per-TURN and must be reset at
+ * - A1: TokenStatsManager records per-turn tool payload deltas (shared agentic density via
+ *   estimateTokensFromChars — the same function as the ContextGuard.countTokens() primary path, 10.11).
+ *   Deltas are strictly per-TURN and must be reset at
  *   every preprocess() start or next turn's native history count would double-count them.
  * - A2: autoTracker.guardMidLoopThreshold() proactively saves a session-memory checkpoint when the
  *   turn-start baseline + cumulative delta crosses the configured threshold — no user prompt is
@@ -64,27 +65,28 @@ describe('FIX #20 A1 — per-turn tool payload delta bookkeeping', () => {
     (console.log as unknown as { mockRestore: () => void }).mockRestore();
   });
 
-  it('estimates tokens with the ContextGuard ratio chars × 0.25 × 1.10 (ceiling)', () => {
-    // IEEE-754: double(1.1) is slightly ABOVE exact 1.1, so 100×1.1 === 110.00000000000001 and
-    // ceil() → 111 (real-arithmetic would give exactly 110). This matches the ContextGuard primary
-    // path EXACTLY (same formula, contextGuard.ts:156) — do NOT "simplify" either side to exact
+  it('estimates tokens with the shared agentic density (measured /3.2 c/tok, ceiling)', () => {
+    // TOKEN-DIVERGENCE arc (10.11): single source of truth is estimateTokensFromChars in tokenStatsManager
+    // — AGENTIC_CHARS_PER_TOKEN = 3.2 (floor of the live-measured 3.2-3.4 band; provenance + rationale there).
+    // FP note: double(3.2) ≈ 3.20000000000000018, so raw 401/3.2 === 125.31249999999999 — still rounds
+    // into ceil() → 126 (real-arithmetic gives 125.3125 too). Do NOT "simplify" either side to exact
     // integer math without updating both; +1 on boundaries is the conservative (early-snapshot) direction.
-    expect(estimateTokensFromChars(400)).toBe(111);
-    expect(estimateTokensFromChars(401)).toBe(111); // ceil(110.275) = 111 — ceiling verified
+    expect(estimateTokensFromChars(400)).toBe(125);
+    expect(estimateTokensFromChars(401)).toBe(126); // ceil(125.3125) = 126 — ceiling verified
     expect(estimateTokensFromChars(0)).toBe(0);
   });
 
   it('accumulates string payloads per turn and exposes the estimated delta', () => {
-    // IEEE-754: double(1.1) is slightly above exact 1.1, so the raw products are NOT integers here —
-    // values verified empirically in Node and MUST mirror the ContextGuard primary path exactly (same formula):
-    const first = TokenStatsManager.recordToolResult('read_file', 'x'.repeat(400)); // raw 110.00000000000001 → ceil = 111
-    const second = TokenStatsManager.recordToolResult('grep_files', 'y'.repeat(800)); // raw 220.00000000000003 → ceil = 221
+    // Shared agentic density (measured /3.2 c/tok, tokenStatsManager) — raw quotients are NOT integers here;
+    // values verified empirically in Node and MUST mirror the ContextGuard primary path exactly (same function):
+    const first = TokenStatsManager.recordToolResult('read_file', 'x'.repeat(400)); // raw 125.0 → ceil = 125
+    const second = TokenStatsManager.recordToolResult('grep_files', 'y'.repeat(800)); // raw 250.0 → ceil = 250
 
-    expect(first).toBe(111);
-    expect(second).toBe(221);
-    // Per-record ceils accumulate (111 + 221 = 332) — deliberately NOT re-estimated from total chars,
+    expect(first).toBe(125);
+    expect(second).toBe(250);
+    // Per-record ceils accumulate (125 + 250 = 375) — deliberately NOT re-estimated from total chars,
     // because ceil is not additive across FP boundaries. Do NOT "simplify" to exact integer math.
-    expect(TokenStatsManager.getMidLoopDeltaTokens()).toBe(332);
+    expect(TokenStatsManager.getMidLoopDeltaTokens()).toBe(375);
     expect(TokenStatsManager.getMidLoopDeltaChars()).toBe(1200);
   });
 
@@ -98,7 +100,7 @@ describe('FIX #20 A1 — per-turn tool payload delta bookkeeping', () => {
   });
 
   it('resets the per-turn delta so the next turn is not double-counted (A1 invariant)', () => {
-    TokenStatsManager.recordToolResult('read_file', 'z'.repeat(4000)); // 1100 tok
+    TokenStatsManager.recordToolResult('read_file', 'z'.repeat(4000)); // est = ceil(1250.0) = 1250
     expect(TokenStatsManager.getMidLoopDeltaTokens()).toBeGreaterThan(0);
 
     // This is what promptPreprocessor.preprocess() does at the start of every user turn:
@@ -157,7 +159,7 @@ describe('FIX #20 A2 — mid-loop proactive checkpoint (guardMidLoopThreshold)',
 
   it('does NOT fire while cumulative usage stays below the threshold', async () => {
     // Turn started at 70% of a 10k window; a small tool result keeps us under 75%.
-    // est(240 chars) = ceil(66.0) = 66 → cumulative 7066 < 7508 (threshold incl. OVERHEAD).
+    // est(240 chars) = ceil(75.0) = 75 → cumulative 7075 < 7508 (threshold incl. OVERHEAD).
     TokenStatsManager.setTurnEvaluation(7000, 10000);
     const below = await runToolReturn('x'.repeat(240));
     expect(below.fired).toBe(false);
@@ -167,11 +169,11 @@ describe('FIX #20 A2 — mid-loop proactive checkpoint (guardMidLoopThreshold)',
   it('fires exactly at the threshold boundary (75.00% incl. overhead) and saves a checkpoint', async () => {
     // Boundary math mirrors tests/autoTracker.test.ts: effective = (cumulative − OVERHEAD) / maxTokens.
     // Fire needs cumulative ≥ 0.75 × 10000 + OVERHEAD = 7508 at threshold 75%.
-    // est(33 chars) = ceil(9.075) = 10 → baseline 7498 + 10 = exactly 7508 → (7508−8)/10000 = 75.0% → fires.
+    // est(32 chars) = ceil(10.0) = 10 → baseline 7498 + 10 = exactly 7508 → (7508−8)/10000 = 75.0% → fires.
     TokenStatsManager.setTurnEvaluation(7498, 10000);
-    const res = await runToolReturn('x'.repeat(33));
+    const res = await runToolReturn('x'.repeat(32));
 
-    expect(TokenStatsManager.getMidLoopDeltaTokens()).toBe(10); // est arithmetic pinned explicitly
+    expect(TokenStatsManager.getMidLoopDeltaTokens()).toBe(10); // est arithmetic pinned explicitly (ceil(32/3.2) = ceil(10.0) = 10)
     expect(res.fired).toBe(true);
     expect(res.saved).toBe(true);
     expect(res.sessionId?.startsWith('ctx_')).toBe(true);
@@ -189,27 +191,27 @@ describe('FIX #20 A2 — mid-loop proactive checkpoint (guardMidLoopThreshold)',
     // Case B: positive growth reaching cumulative 7507 → effective 7499/10000 = 74.99% < 75%.
     TokenStatsManager.clear();
     tracker.resetCounter();
-    TokenStatsManager.setTurnEvaluation(7498, 10000);
-    const below = await runToolReturn('x'.repeat(32)); // est = ceil(8.8) = 9 → cumulative 7507
-    expect(TokenStatsManager.getMidLoopDeltaTokens()).toBe(9);
+    TokenStatsManager.setTurnEvaluation(7497, 10000);
+    const below = await runToolReturn('x'.repeat(32)); // est = ceil(10.0) = 10 → cumulative 7507 (one token under the fire line)
+    expect(TokenStatsManager.getMidLoopDeltaTokens()).toBe(10);
     expect(below.fired).toBe(false);
     expect(savedEntries().length).toBe(0);
   });
 
   it('re-fires only after growth since the last save reaches the hysteresis floor (F2, 17.09 — supersedes legacy any-growth dedupe)', async () => {
-    // First return crosses: est(4500) = ceil(1237.5) = 1238 → cumulative 8238; first crossing fires immediately, guard armed at 8238.
+    // First return crosses: est(4500) = ceil(1406.25) = 1407 → cumulative 8407; first crossing fires immediately, guard armed at 8407.
     TokenStatsManager.setTurnEvaluation(7000, 10000);
     const first = await runToolReturn('x'.repeat(4500));
     expect(first.fired).toBe(true);
 
     // Second evaluation: growth since the last save is negative → within floor (max(4096, 5%·10k=500) = 4096) → suppressed.
     TokenStatsManager.resetMidLoopDelta();
-    const noReFire = await tracker.guardMidLoopThreshold(7000, 1233, 10000); // cumulative 8233 → growth −5 < floor
+    const noReFire = await tracker.guardMidLoopThreshold(7000, 1233, 10000); // cumulative 8233 → growth −174 vs guarded level 8407 < floor (est /3.2)
     expect(noReFire.fired).toBe(false);
 
     // Third evaluation: growth since the guarded level reaches EXACTLY the floor → boundary re-fire (growth >= floor fires).
     TokenStatsManager.resetMidLoopDelta();
-    const bigger = await tracker.guardMidLoopThreshold(7000, 5334, 10000); // cumulative 12334 → growth +4096 == floor 4096
+    const bigger = await tracker.guardMidLoopThreshold(7000, 5503, 10000); // cumulative 12503 → growth +4096 == floor 4096 (guarded at 8407 under /3.2)
     expect(bigger.fired).toBe(true);
     const checkpoints = savedEntries().filter(e => (e as { tags?: string[] })?.tags?.includes('auto_checkpoint'));
     expect(checkpoints.length).toBe(2);
@@ -242,7 +244,7 @@ describe('FIX #20 A2 — mid-loop proactive checkpoint (guardMidLoopThreshold)',
   it('rolls back the guard level when the snapshot save fails, so a larger payload can retry', async () => {
     TokenStatsManager.setTurnEvaluation(7000, 10000);
     RecordingStorageManager.failNext = true; // must be static — AutoTracker news up its own instance per save call
-    const failed = await runToolReturn('x'.repeat(4500)); // cumulative ≈ 8238 → save fails
+    const failed = await runToolReturn('x'.repeat(4500)); // cumulative ≈ 8407 (est(4500) = 1407) → guard fires, save fails
     expect(failed.fired).toBe(true);
     expect(failed.saved).toBe(false);
 
@@ -267,23 +269,23 @@ describe('FIX #20 A2 — mid-loop proactive checkpoint (guardMidLoopThreshold)',
 
   it('simulates the full tool loop from the plan: 5 × ~30k-char returns cross the threshold mid-loop', async () => {
     // Plan verification scenario: turn starts at 60% of a 100k window; each of 5 tool calls returns
-    // ~30,000 chars (≈8,250 est. tok). Crossing must happen on the FIRST such return, not at next user msg.
+    // ~30,000 chars (≈9,375 est. tok each at shared density /3.2). Crossing must happen on the FIRST such return, not at next user msg.
     TokenStatsManager.setTurnEvaluation(60000, 100000);
 
     const firePoints: number[] = [];
     for (let i = 1; i <= 5; i++) {
-      const res = await runToolReturn('x'.repeat(30000)); // ≈ ceil(30000 × 0.275) = 8250 tok each
+      const res = await runToolReturn('x'.repeat(30000)); // est(30000) = ceil(9375) = 9375 tok each — exact integer, no FP boundary
       if (res.fired && res.saved) firePoints.push(i);
     }
 
-    expect(TokenStatsManager.getMidLoopDeltaTokens()).toBe(5 * 8250); // full loop delta bookkept (A1)
+    expect(TokenStatsManager.getMidLoopDeltaTokens()).toBe(5 * 9375); // full loop delta bookkept (A1)
     expect(firePoints.length).toBeGreaterThanOrEqual(1);              // at least one proactive snapshot…
     expect(firePoints[0]).toBeLessThanOrEqual(2);                     // …within the first two returns, not next turn
   });
 
   it('resets guard level on context compression and new session so re-crossing fires again', async () => {
     TokenStatsManager.setTurnEvaluation(7000, 10000);
-    const fired = await runToolReturn('x'.repeat(4500)); // guarded at ≈8238
+    const fired = await runToolReturn('x'.repeat(4500)); // guarded at ≈8407 (est(4500) = 1407 over the 7000 baseline)
     expect(fired.fired).toBe(true);
 
     tracker.onContextCompressed(); // compression → fresh context below threshold

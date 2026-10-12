@@ -14,7 +14,7 @@ import { setAttachments, listAttachments } from './attachmentManager';
 // acceptance stays multilingual via the derived union sets — single source of truth in src/locales/.
 import { getConfirmationWords, ALL_CONFIRM_WORDS, ALL_DECLINE_WORDS } from './locales';
 import { autoTracker } from './autoTracker';
-import { TokenStatsManager, drainActiveToolTurns } from './tokenStatsManager';
+import { TokenStatsManager, drainActiveToolTurns, estimateTokensFromChars } from './tokenStatsManager';
 // C compaction family (24.09): pre-summarization pruning of oversized tool payloads (DeepSeek harness item C)
 import { DEFAULT_MAX_BYTES_PER_RESULT, pruneOversizedToolPayloads } from './utils/toolPayloadCompaction.js';
 import { collectPrunedPayloadRefs, storePrunedPayload } from './utils/toolPayloadStorage.js';
@@ -815,8 +815,8 @@ export async function preprocess(
           historyTextLength += toolOverheadChars;
         }
 
-        const estimatedHistoryTokens = Math.ceil(historyTextLength * 0.25 * 1.10); // base × +10% buffer
-        console.log(`[TokenDebug] History Text Length: ${historyTextLength} chars | Est. Tokens (x0.25 + 10%): ${estimatedHistoryTokens}`);
+        const estimatedHistoryTokens = estimateTokensFromChars(historyTextLength); // shared ratio - see tokenStatsManager
+        console.log(`[TokenDebug] History Text Length: ${historyTextLength} chars | Est. Tokens (agentic density /3.2): ${estimatedHistoryTokens}`);
       }
       console.log(`[TokenDebug] Total Tool calls: ${toolCallCount}, Total Files/Images: ${imageCount}`);
 
@@ -889,7 +889,7 @@ export async function preprocess(
         }
       }
 
-      // Calculate tokens for threshold check using actual model limit & History Text Length × 0.25
+      // Calculate tokens for threshold check using actual model limit & the shared agentic-density estimate (estimateTokensFromChars)
       const safeMessages = messages ?? [];
       // 🔹 FIX #21 (09.10): publish this turn's live message list with the token baseline — re-published below when
       // a same-turn compression replaces it, so the finally point always sees the post-compression array.

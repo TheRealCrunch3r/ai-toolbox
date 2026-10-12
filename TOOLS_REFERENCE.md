@@ -19,7 +19,7 @@
 | Utilities | 0 live tools in this section (`utilityTools.ts` removed in the 23.09 cleanup; re-audit 28.09 verified every row below dead — see its ⚠️ note) | ✅ Utility toggle | Active | (the `utility` config key hosts the LIVE modules: Backup & Restore, cleanup_backups, Data Visualization, restore_from_bak + list_available_bak_backups, markdown_preview, get_repeat_tool_advice — see their sections)
 | Image Processing | 4 | ✅ Enabled | Active |
 | Vector RAG | 7 | ✅ Enabled | Active |
-| UI Generation | 3 | ❌ Disabled | Active |
+| UI Generation | 3 | ✅ Enabled | Active | (default flipped disabled→enabled by owner decision, 10.10)
 | Context Management | 22 (12 core + 9 session-index/project-registry + 1 composite resume `restore_session_context`, 25.09) | ✅ Enabled | Active |
 | Text Processing | 3 | ✅ Enabled | Active | (− `line_operations` folded to File System, 23.09 Q6)
 | Backup & Restore | 6 (incl. `restore_from_bak` — added by the 28.09 re-audit) | ✅ Utility toggle | Active |
