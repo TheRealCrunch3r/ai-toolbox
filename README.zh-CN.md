@@ -2,7 +2,7 @@
 <a href="README.md">English</a> · <a href="README.de.md">Deutsch</a> · <a href="README.es.md">Español</a> · <b>简体中文</b> · <a href="README.zh-TW.md">繁體中文</a><br/>
 <h1>AI Toolbox —— 面向 LM Studio 本地 LLM 的一体化自主 AI Agent & 工具插件</h1><hr/>
 <b>给你的本地 LLM 一双真正的手。</b> 最完整的 LM Studio Hub 插件——把任意本地模型变成能干、自管理的 AI 智能体。<br/>自管理上下文让马拉松式会话保持存活 · 一个插件，零胶水代码，默认完全离线。
-<br/><code>v1.9.19</code> · <code>113 个即用工具</code> · <code>72 套件 / 1026 测试全绿</code> · <code>LM Studio Hub 插件</code> · <code>MIT 许可证</code> · <code>Node ≥ 20</code><br/>
+<br/><a href="#"><img src="https://img.shields.io/badge/version-v1.9.19-2f80ed?style=plastic" alt="version v1.9.19"/></a> <a href="#the-tool-arsenal-113-tools-across-every-family-all-yours-to-toggle"><img src="https://img.shields.io/badge/tools-113%20ready--made-7c3aed?style=plastic" alt="tools 113 ready-made"/></a> <a href="#quick-start-2-minutes"><img src="https://img.shields.io/badge/tests-72%20suites%20%C2%B7%201026%20green-3fb950?style=plastic" alt="tests 72 suites · 1026 green"/></a> <a href="#"><img src="https://img.shields.io/badge/LM%20Studio-Hub%20plugin-e84393?style=plastic" alt="LM Studio Hub plugin"/></a> <a href="LICENSE"><img src="https://img.shields.io/github/license/TheRealCrunch3r/ai-toolbox?style=plastic" alt="license MIT (live-verified from LICENSE)"/></a> <a href="#"><img src="https://img.shields.io/badge/runtime-Node%20%E2%89%A5%2020-83cd29?style=plastic&logo=node.js" alt="runtime Node ≥ 20"/></a><br/>
 <b>Docs:</b> <a href="DOCUMENTATION.md">Documentation</a> · <a href="QUICK_START.md">Quick Start</a> · <a href="ARCHITECTURE.md">Architecture</a> · <a href="TOOLS_REFERENCE.md">Tool Reference</a> · <a href="CHANGELOG_v4.md">Changelog</a><br/>
 <a href="CONTRIBUTING.md">Contributing</a> · <a href="SECURITY.md">Security</a><br/>
 <br>
@@ -20,7 +20,7 @@
 
 > ⚠️ **译文声明** —— 本文件为 [README.md](README.md) 的简体中文版。英文版为准（canonical），如有出入以 README.md 为准；原文变更时请同步更新本文件。
 
-<div align="center"><table><tr><td style="border-left:4px solid #d1242f; background:#ffebe9; color:#a40e26; padding:8px 16px;"><b>⚠️ LM Studio 不支持自动更新。</b><br/>如遇问题，请先手动更新：移除当前版本并从插件网站重新下载。即使你的版本已过时，LM Studio 仍可能显示"已安装"提示。</td></tr></table></div>
+<div align="center"><table><tr><td style="border-left:4px solid #d1242f; background:#ffebe9; padding:8px 16px;"><b>⚠️ LM Studio 不支持自动更新。</b><br/>如遇问题，请先手动更新：移除当前版本并从插件网站重新下载。即使你的版本已过时，LM Studio 仍可能显示"已安装"提示。</td></tr></table></div>
 
 ## 目录
 

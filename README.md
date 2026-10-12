@@ -2,7 +2,7 @@
 <b>English</b> · <a href="README.de.md">Deutsch</a> · <a href="README.es.md">Español</a> · <a href="README.zh-CN.md">简体中文</a> · <a href="README.zh-TW.md">繁體中文</a><br/>
 <h1>AI Toolbox — All-in-One Autonomous AI Agent & Tool Plugin for Local LLMs in LM Studio</h1><hr/>
 <b>Give your local LLM real hands.</b> The most complete LM Studio Hub plugin — turns any local model into a capable, self-managing AI agent.<br/>Self-managing context keeps marathon sessions alive · one plugin, zero glue code, fully offline by default.
-<br/><code>v1.9.19</code> · <code>113 ready-made tools</code> · <code>72 suites / 1026 tests green</code> · <code>LM Studio Hub plugin</code> · <code>MIT license</code> · <code>Node ≥ 20</code><br/>
+<br/><a href="#"><img src="https://img.shields.io/badge/version-v1.9.19-2f80ed?style=plastic" alt="version v1.9.19"/></a> <a href="#the-tool-arsenal-113-tools-across-every-family-all-yours-to-toggle"><img src="https://img.shields.io/badge/tools-113%20ready--made-7c3aed?style=plastic" alt="tools 113 ready-made"/></a> <a href="#quick-start-2-minutes"><img src="https://img.shields.io/badge/tests-72%20suites%20%C2%B7%201026%20green-3fb950?style=plastic" alt="tests 72 suites · 1026 green"/></a> <a href="#"><img src="https://img.shields.io/badge/LM%20Studio-Hub%20plugin-e84393?style=plastic" alt="LM Studio Hub plugin"/></a> <a href="LICENSE"><img src="https://img.shields.io/github/license/TheRealCrunch3r/ai-toolbox?style=plastic" alt="license MIT (live-verified from LICENSE)"/></a> <a href="#"><img src="https://img.shields.io/badge/runtime-Node%20%E2%89%A5%2020-83cd29?style=plastic&logo=node.js" alt="runtime Node ≥ 20"/></a><br/>
 <b>Docs:</b> <a href="DOCUMENTATION.md">Documentation</a> · <a href="QUICK_START.md">Quick Start</a> · <a href="ARCHITECTURE.md">Architecture</a> · <a href="TOOLS_REFERENCE.md">Tool Reference</a> · <a href="CHANGELOG_v4.md">Changelog</a><br/>
 <a href="CONTRIBUTING.md">Contributing</a> · <a href="SECURITY.md">Security</a><br/>
 <br>
@@ -18,7 +18,7 @@
 
 > `v1.9.19` · `113 ready-made tools` · `1026 tests green (72 suites)` · `5 locales` · `MIT` · `Node 20+`
 
-<div align="center"><table><tr><td style="border-left:4px solid #d1242f; background:#ffebe9; color:#a40e26; padding:8px 16px;"><b>⚠️ LM Studio does NOT support automatic updates.</b><br/>If you encounter issues, update manually first: remove the current version and re-download from the plugin website. Note that LM Studio may show an "already installed" tooltip even if your version is outdated.</td></tr></table></div>
+<div align="center"><table><tr><td style="border-left:4px solid #d1242f; background:#ffebe9; padding:8px 16px;"><b>⚠️ LM Studio does NOT support automatic updates.</b><br/>If you encounter issues, update manually first: remove the current version and re-download from the plugin website. Note that LM Studio may show an "already installed" tooltip even if your version is outdated.</td></tr></table></div>
 
 ## Contents
 

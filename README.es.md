@@ -2,7 +2,7 @@
 <a href="README.md">English</a> · <a href="README.de.md">Deutsch</a> · <b>Español</b> · <a href="README.zh-CN.md">简体中文</a> · <a href="README.zh-TW.md">繁體中文</a><br/>
 <h1>AI Toolbox — Plugin todo-en-uno de agentes y herramientas de IA autónomos para LLMs locales en LM Studio</h1><hr/>
 <b>Dale manos reales a tu LLM local.</b> El plugin más completo del Hub de LM Studio — convierte cualquier modelo local en un agente de IA capaz y autosuficiente.<br/>Contexto autogestionado mantiene vivas las sesiones maratón · un solo plugin, sin pegamento, completamente offline por defecto.
-<br/><code>v1.9.19</code> · <code>113 herramientas listas para usar</code> · <code>72 suites / 1026 tests en verde</code> · <code>plugin del LM Studio Hub</code> · <code>licencia MIT</code> · <code>Node ≥ 20</code><br/>
+<br/><a href="#"><img src="https://img.shields.io/badge/version-v1.9.19-2f80ed?style=plastic" alt="version v1.9.19"/></a> <a href="#the-tool-arsenal-113-tools-across-every-family-all-yours-to-toggle"><img src="https://img.shields.io/badge/tools-113%20ready--made-7c3aed?style=plastic" alt="tools 113 ready-made"/></a> <a href="#quick-start-2-minutes"><img src="https://img.shields.io/badge/tests-72%20suites%20%C2%B7%201026%20green-3fb950?style=plastic" alt="tests 72 suites · 1026 green"/></a> <a href="#"><img src="https://img.shields.io/badge/LM%20Studio-Hub%20plugin-e84393?style=plastic" alt="LM Studio Hub plugin"/></a> <a href="LICENSE"><img src="https://img.shields.io/github/license/TheRealCrunch3r/ai-toolbox?style=plastic" alt="license MIT (live-verified from LICENSE)"/></a> <a href="#"><img src="https://img.shields.io/badge/runtime-Node%20%E2%89%A5%2020-83cd29?style=plastic&logo=node.js" alt="runtime Node ≥ 20"/></a><br/>
 <b>Docs:</b> <a href="DOCUMENTATION.md">Documentation</a> · <a href="QUICK_START.md">Quick Start</a> · <a href="ARCHITECTURE.md">Architecture</a> · <a href="TOOLS_REFERENCE.md">Tool Reference</a> · <a href="CHANGELOG_v4.md">Changelog</a><br/>
 <a href="CONTRIBUTING.md">Contributing</a> · <a href="SECURITY.md">Security</a><br/>
 <br>
@@ -20,7 +20,7 @@
 
 > ⚠️ **Traducción** — Versión española de [README.md](README.md). El inglés es la versión canónica; en caso de divergencia prevalece README.md. Mantener esta archivo sincronizado cuando el original cambie.
 
-<div align="center"><table><tr><td style="border-left:4px solid #d1242f; background:#ffebe9; color:#a40e26; padding:8px 16px;"><b>⚠️ LM Studio NO admite actualizaciones automáticas.</b><br/>Si encuentras problemas, actualiza primero manualmente: elimina la versión actual y vuelve a descargarla desde el sitio del plugin. Ten en cuenta que LM Studio puede mostrar un tooltip de «ya instalado» aunque tu versión esté desactualizada.</td></tr></table></div>
+<div align="center"><table><tr><td style="border-left:4px solid #d1242f; background:#ffebe9; padding:8px 16px;"><b>⚠️ LM Studio NO admite actualizaciones automáticas.</b><br/>Si encuentras problemas, actualiza primero manualmente: elimina la versión actual y vuelve a descargarla desde el sitio del plugin. Ten en cuenta que LM Studio puede mostrar un tooltip de «ya instalado» aunque tu versión esté desactualizada.</td></tr></table></div>
 
 ## Contenido
 

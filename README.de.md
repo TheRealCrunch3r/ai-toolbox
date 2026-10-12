@@ -2,7 +2,7 @@
 <a href="README.md">English</a> · <b>Deutsch</b> · <a href="README.es.md">Español</a> · <a href="README.zh-CN.md">简体中文</a> · <a href="README.zh-TW.md">繁體中文</a><br/>
 <h1>AI Toolbox — All-in-One autonomes KI-Agenten- & Tool-Plugin für lokale LLMs in LM Studio</h1><hr/>
 <b>Lokalen LLM echte Hände.</b> Das vollständigste LM-Studio-Hub-Plugin — macht jedes lokale Modell zu einem fähigen, selbstverwaltenden AI-Agenten.<br/>Selbstverwaltender Kontext hält Marathon-Sessions am Leben · ein Plugin, kein Glue-Code, standardmäßig vollständig offline.
-<br/><code>v1.9.19</code> · <code>113 fertige Tools</code> · <code>72 Suiten / 1026 Tests grün</code> · <code>LM Studio Hub Plugin</code> · <code>MIT-Lizenz</code> · <code>Node ≥ 20</code><br/>
+<br/><a href="#"><img src="https://img.shields.io/badge/version-v1.9.19-2f80ed?style=plastic" alt="version v1.9.19"/></a> <a href="#the-tool-arsenal-113-tools-across-every-family-all-yours-to-toggle"><img src="https://img.shields.io/badge/tools-113%20ready--made-7c3aed?style=plastic" alt="tools 113 ready-made"/></a> <a href="#quick-start-2-minutes"><img src="https://img.shields.io/badge/tests-72%20suites%20%C2%B7%201026%20green-3fb950?style=plastic" alt="tests 72 suites · 1026 green"/></a> <a href="#"><img src="https://img.shields.io/badge/LM%20Studio-Hub%20plugin-e84393?style=plastic" alt="LM Studio Hub plugin"/></a> <a href="LICENSE"><img src="https://img.shields.io/github/license/TheRealCrunch3r/ai-toolbox?style=plastic" alt="license MIT (live-verified from LICENSE)"/></a> <a href="#"><img src="https://img.shields.io/badge/runtime-Node%20%E2%89%A5%2020-83cd29?style=plastic&logo=node.js" alt="runtime Node ≥ 20"/></a><br/>
 <b>Docs:</b> <a href="DOCUMENTATION.md">Documentation</a> · <a href="QUICK_START.md">Quick Start</a> · <a href="ARCHITECTURE.md">Architecture</a> · <a href="TOOLS_REFERENCE.md">Tool Reference</a> · <a href="CHANGELOG_v4.md">Changelog</a><br/>
 <a href="CONTRIBUTING.md">Contributing</a> · <a href="SECURITY.md">Security</a><br/>
 <br>
@@ -20,7 +20,7 @@
 
 > ⚠️ **Übersetzung** — Deutsche Fassung von [README.md](README.md). Englisch ist die maßgebliche Version (canonical); bei Abweichungen gilt README.md. Diese Datei bei Änderungen am Original mit synchronisieren.
 
-<div align="center"><table><tr><td style="border-left:4px solid #d1242f; background:#ffebe9; color:#a40e26; padding:8px 16px;"><b>⚠️ LM Studio unterstützt KEINE automatischen Updates.</b><br/>Bei Problemen zuerst manuell aktualisieren: aktuelle Version entfernen und vom Plugin-Website neu herunterladen. Beachten Sie, dass LM Studio selbst bei veralteter Version einen „bereits installiert"-Hinweis anzeigen kann.</td></tr></table></div>
+<div align="center"><table><tr><td style="border-left:4px solid #d1242f; background:#ffebe9; padding:8px 16px;"><b>⚠️ LM Studio unterstützt KEINE automatischen Updates.</b><br/>Bei Problemen zuerst manuell aktualisieren: aktuelle Version entfernen und vom Plugin-Website neu herunterladen. Beachten Sie, dass LM Studio selbst bei veralteter Version einen „bereits installiert"-Hinweis anzeigen kann.</td></tr></table></div>
 
 ## Inhalt
 
