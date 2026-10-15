@@ -14,7 +14,7 @@ import { setAttachments, listAttachments } from './attachmentManager';
 // acceptance stays multilingual via the derived union sets — single source of truth in src/locales/.
 import { getConfirmationWords, ALL_CONFIRM_WORDS, ALL_DECLINE_WORDS } from './locales';
 import { autoTracker } from './autoTracker';
-import { TokenStatsManager, drainActiveToolTurns, estimateTokensFromChars } from './tokenStatsManager';
+import { TokenStatsManager, drainActiveToolTurns, estimateTokensFromChars, setAgenticCharsPerToken } from './tokenStatsManager';
 // C compaction family (24.09): pre-summarization pruning of oversized tool payloads (DeepSeek harness item C)
 import { DEFAULT_MAX_BYTES_PER_RESULT, pruneOversizedToolPayloads } from './utils/toolPayloadCompaction.js';
 import { collectPrunedPayloadRefs, storePrunedPayload } from './utils/toolPayloadStorage.js';
@@ -816,7 +816,8 @@ export async function preprocess(
         }
 
         const estimatedHistoryTokens = estimateTokensFromChars(historyTextLength); // shared ratio - see tokenStatsManager
-        console.log(`[TokenDebug] History Text Length: ${historyTextLength} chars | Est. Tokens (agentic density /3.2): ${estimatedHistoryTokens}`);
+        // 15.10: label no longer hardcodes a ratio — the density is user-editable (contextGuardAgenticDensity) and live in tokenStatsManager.
+        console.log(`[TokenDebug] History Text Length: ${historyTextLength} chars | Est. Tokens (shared agentic density, live — see tokenStatsManager): ${estimatedHistoryTokens}`);
       }
       console.log(`[TokenDebug] Total Tool calls: ${toolCallCount}, Total Files/Images: ${imageCount}`);
 
@@ -835,6 +836,14 @@ export async function preprocess(
       const compressionPercent = pluginConfig.get('contextGuardCompressionPercent');
       if (typeof compressionPercent === 'number' && Number.isFinite(compressionPercent) && compressionPercent > 0) {
         contextGuard.updateConfig({ compressionPercent });
+      }
+
+      // Re-seed the user's configured agentic chars-per-token DENSITY every turn (15.10 owner request). estimateTokensFromChars()
+      // is a module-level function in tokenStatsManager WITHOUT config access, so — exactly like the percent above — a menu change
+      // only takes effect via this per-turn reseed. Stub/plugin configs returning undefined keep the built-in default 3.6 (raised from 3.4 on 15.10 owner instruction).
+      const agenticDensity = pluginConfig.get('contextGuardAgenticDensity');
+      if (typeof agenticDensity === 'number' && Number.isFinite(agenticDensity) && agenticDensity > 0) {
+        setAgenticCharsPerToken(agenticDensity);
       }
 
       // Auto-detect the currently active model and get its ID for accurate token counting
@@ -1068,7 +1077,10 @@ export async function preprocess(
               }
             } else {
               // No parsable model output (or no usable model) — deterministic telemetry fallback, compression proceeds.
-              console.warn('[Arc C] ⚠️ No structured continuity summary available — telemetry fallback applies');
+              // 15.10 owner report: warn→log reroute so this by-design notice stops rendering as an ERROR-level line in
+              // the host log file (stderr=error-level mapping; byte-identical text, ⚠️ marker stays in-text). Pairs with
+              // the matching C2a gate-skip notice in contextGuard.generateSessionContinuity().
+              console.log('[Arc C] ⚠️ No structured continuity summary available — telemetry fallback applies');
             }
           } catch (arcCErr) {
             console.warn(`[Arc C] ⚠️ Forced session-memory save failed (non-fatal): ${arcCErr instanceof Error ? arcCErr.message : String(arcCErr)}`);

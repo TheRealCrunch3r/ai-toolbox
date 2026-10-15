@@ -65,11 +65,42 @@ let publishedTurnMessages: ReadonlyArray<Record<string, unknown>> | null = null;
 // the band floor already carries the safety margin. contextGuard.ts and promptPreprocessor.ts import this function
 // instead of hardcoding their own ratio (supersedes the old "MUST stay in sync" comment).
 
-/** Measured chars-per-token density of agentic content (10.10 live probe; provenance above). */
-export const AGENTIC_CHARS_PER_TOKEN = 3.2;
+/** Agentic chars-per-token density (14.10 owner-set interim value — incident log below). */
+// ⚠️ 14.10 (THREE EVENTS, ALL NOW RECORDED): (1) ~17:19 flip to 3.5 — authorship UNRESOLVED, sat ABOVE the measured
+// band ceiling; (2) restore to 3.2 at ~17:46, VERIFIED by the owner's full gate GREEN ~17:49; (3) 3.45 written at
+// 17:53:41 (file mtime; atomic .bak pair in the same second) — RESOLVED at owner handoff 18:06: the OWNER was
+// rewriting this line themselves, not an external writer ("i was rewiting it to 3.45"). Value now set to 3.4 ON
+// OWNER INSTRUCTION (18:0x, "for now") — INSIDE the live-measured 3.2–3.4 band (at its CEILING; slightly less
+// conservative than the floor choice in the provenance block above) but NOT a probe-justified value: no new probe
+// exists for it yet. tests/fix20_midloop_token_counting.test.ts expectations updated in THIS SAME dated edit per
+// protocol below. When 3.4 is made permanent or a NEW probe justifies another density: change value + provenance
+// block + fix20 expectations in ONE dated edit — never the value alone (that exact pattern produced today's three
+// incidents). Do NOT touch this line outside that protocol; if it moves again, sweep src/ mtimes before anything else.
+// 15.10 owner request ("make it user editable"): the density is now a plugin-menu setting (contextGuardAgenticDensity in
+// config.ts), reseeded into this module state EVERY turn by promptPreprocessor.preprocess() and set directly in tests via
+// setAgenticCharsPerToken(). The const below stays as the DEFAULT / fallback value — every estimation path goes through
+// estimateTokensFromChars(), which reads the LIVE state, so a menu change takes effect next turn with zero source edits.
+// 15.10 (~19:4x) DEFAULT RAISED 3.4 → 3.6 ON OWNER INSTRUCTION ("adjust the agentic chars per token scaler to 3.6 as default"):
+// NOT probe-justified — it sits ABOVE the live-measured ~3.2–3.4 band, i.e. less conservative than both the measured floor choice and
+// the prior interim; est() yields FEWER estimated tokens for identical chars ⇒ gates fire slightly LATER (owner's accepted trade).
+// fix20 test edit: NONE — the 15.10 density-adaptive rewrite derives every expectation from getAgenticCharsPerToken() at runtime,
+// which is exactly what the protocol's third step exists for; value + provenance moved in ONE dated edit per protocol above.
+export const AGENTIC_CHARS_PER_TOKEN = 3.6; // DEFAULT only (raised 3.4 → 3.6 on 15.10 owner instruction ~19:4x) — live value is agenticCharsPerToken below
+
+/** Live agentic chars-per-token density, user-editable via the contextGuardAgenticDensity menu field (15.10). */
+let agenticCharsPerToken = AGENTIC_CHARS_PER_TOKEN;
+
+export function setAgenticCharsPerToken(value: number): void {
+  if (!Number.isFinite(value) || value <= 0) return; // reject non-finite/non-positive — keep last valid density (safe no-op)
+  agenticCharsPerToken = value;
+}
+
+export function getAgenticCharsPerToken(): number {
+  return agenticCharsPerToken;
+}
 
 export function estimateTokensFromChars(chars: number): number {
-  return Math.ceil(Math.max(0, chars) / AGENTIC_CHARS_PER_TOKEN);
+  return Math.ceil(Math.max(0, chars) / agenticCharsPerToken);
 }
 
 /** Conditional verbose log for turn-state transitions (AI_TOOLBOX_DEBUG-gated; contextGuard convention). */

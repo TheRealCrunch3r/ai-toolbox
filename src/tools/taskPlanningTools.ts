@@ -13,6 +13,9 @@ import * as path from 'path';
 
 import type { PluginConfig } from '../config.js';
 import { getWorkingDir } from '../workingDir.js';
+// 🔹 FIX-B (14.10): supersede-on-close-out — arc close-out retires machine-tracked context entries accrued during the arc.
+// One-way dependency: contextManagementTools.ts does not import this module, so no circular-import hazard is introduced.
+import { ContextStorageManager } from './contextManagementTools.js';
 
 // ==================== Plan Data Types ====================
 
@@ -180,6 +183,34 @@ function validateStatusTransition(currentStatus: StepStatus, newStatus: StepStat
 export function registerTaskPlanningTools(_config: PluginConfig): Tool[] {
   const storageManager = new PlanStorageManager();
 
+  // 🔹 FIX-B (14.10, supersede-on-close-out): when an arc/plan CLOSES OUT — natural completion OR explicit remove_plan —
+  // retire the machine-tracked open-item entries that accrued during its lifetime so future sessions never see a closed
+  // arc's pending items as still active (observed defect: auto-tracked gate decisions outlived their arcs and had to be
+  // deleted by hand at close-out). STRICT PREDICATE — only machine-written records are ever eligible for retirement:
+  //   • tagged 'auto_track' (written exclusively by AutoTracker's checkpoint flush) AND type 'decision',
+  //   • timestamped at or after the closing plan's createdAt (entries from BEFORE the arc belong to earlier work).
+  // NEVER auto-retired: explicit track_important_event / save_memory owner content (no machine tag), decisions, and
+  // session checkpoints (TTL-scoped by their own lifecycle) — those stay out of every automatic retirement path.
+  const CLOSEOUT_MACHINE_TAG = 'auto_track';
+  async function retireArcContextEntries(planId: string, plan: ActivePlan, dryRun: boolean): Promise<number> {
+    try {
+      // Fresh manager per call so mid-session change_directory() is honored (same contract as PlanStorageManager.load()).
+      const contextStore = new ContextStorageManager();
+      return await contextStore.removeEntriesMatching(
+        e => (Array.isArray(e.tags) && e.tags.includes(CLOSEOUT_MACHINE_TAG))
+          && e.type === 'decision'
+          // Entries older than the arc belong to earlier work — never retired by this close-out.
+          && typeof e.timestamp === 'number' && e.timestamp >= plan.createdAt,
+        `plan ${planId} close-out: retiring machine-tracked decisions accrued during the arc`,
+        { dryRun },
+      );
+    } catch (error) {
+      // Best-effort by design — a context-store hiccup must never fail plan close-out itself.
+      console.warn(`[taskPlanningTools] close-out context retirement skipped (non-fatal): ${String(error)}`);
+      return 0;
+    }
+  }
+
   // create_plan tool - Create a new execution plan with goal and steps
   const createPlanTool: Tool = tool({
     name: 'create_plan',
@@ -303,6 +334,9 @@ EXAMPLES: update_plan_step({ planId: "...", index: 0, status: "done" })`,
         const naturallyCompleted = status === 'done' && completedSteps === plan.steps.length;
 
         if (naturallyCompleted) {
+          // 🔹 FIX-B: supersede-on-close-out — retire the arc's machine-tracked open items BEFORE the plan record goes,
+          // and report the count in the response so the retirement is visible in the transcript. Best-effort by design.
+          const retiredContextEntries = await retireArcContextEntries(planId, plan, false);
           delete plans[planId];
           await storageManager.save(plans);
 
@@ -318,7 +352,8 @@ EXAMPLES: update_plan_step({ planId: "...", index: 0, status: "done" })`,
               completedSteps,
               totalSteps: plan.steps.length,
               allDone: true,
-              message: 'All steps done — plan removed from the persisted store per house rule (completed plans are working-state only; provenance lives in CHANGELOG/session summaries/memory facts).',
+              retiredContextEntries,
+              message: `All steps done — plan removed from the persisted store per house rule (completed plans are working-state only; provenance lives in CHANGELOG/session summaries/memory facts).${retiredContextEntries > 0 ? ` Superseded ${retiredContextEntries} machine-tracked context entr${retiredContextEntries === 1 ? 'y' : 'ies'} from this arc. Explicitly recorded (track_important_event) entries are NOT auto-retired — retire those manually at close-out if they are now stale.` : ''}`,
             },
           };
         }
@@ -459,6 +494,9 @@ EXAMPLES: remove_plan({ planId: "..." }) → preview · remove_plan({ planId: ".
         for (const s of plan.steps) statusCounts[s.status] += 1;
 
         if (confirm !== true) {
+          // 🔹 FIX-B: dry-run ALSO previews how many of the arc's machine-tracked context entries would be retired —
+          // pure read (ContextStorageManager.removeEntriesMatching with dryRun=true never writes).
+          const wouldRetireContextEntries = await retireArcContextEntries(planId, plan, true);
           return {
             success: true,
             dryRun: true,
@@ -468,13 +506,16 @@ EXAMPLES: remove_plan({ planId: "..." }) → preview · remove_plan({ planId: ".
               goal: plan.goal,
               stepCount: plan.steps.length,
               statusCounts,
+              wouldRetireContextEntries,
               createdAt: new Date(plan.createdAt).toISOString(),
               updatedAt: new Date(plan.updatedAt).toISOString(),
-              message: 'Dry-run preview — nothing was modified. Call again with confirm=true to remove this plan.',
+              message: `Dry-run preview — nothing was modified. Call again with confirm=true to remove this plan.${wouldRetireContextEntries > 0 ? ` Supersede-on-close-out would also retire ${wouldRetireContextEntries} machine-tracked context entr${wouldRetireContextEntries === 1 ? 'y' : 'ies'} accrued during this arc.` : ''}`,
             },
           };
         }
 
+        // 🔹 FIX-B: supersede-on-close-out — retire the arc's machine-tracked open items, then remove the plan record.
+        const retiredContextEntries = await retireArcContextEntries(planId, plan, false);
         delete plans[planId];
         await storageManager.save(plans);
 
@@ -486,9 +527,10 @@ EXAMPLES: remove_plan({ planId: "..." }) → preview · remove_plan({ planId: ".
             goal: plan.goal,
             stepCount: plan.steps.length,
             statusCounts,
+            retiredContextEntries,
             createdAt: new Date(plan.createdAt).toISOString(),
             updatedAt: new Date(plan.updatedAt).toISOString(),
-            message: 'Plan removed from the persisted store. Its goal/step summary is in this response for provenance.',
+            message: `Plan removed from the persisted store. Its goal/step summary is in this response for provenance.${retiredContextEntries > 0 ? ` Superseded ${retiredContextEntries} machine-tracked context entr${retiredContextEntries === 1 ? 'y' : 'ies'} from this arc; explicitly recorded entries are NOT auto-retired.` : ''}`,
           },
         };
       } catch (error) {

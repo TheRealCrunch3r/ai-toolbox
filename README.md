@@ -2,7 +2,7 @@
 <b>English</b> · <a href="README.de.md">Deutsch</a> · <a href="README.es.md">Español</a> · <a href="README.zh-CN.md">简体中文</a> · <a href="README.zh-TW.md">繁體中文</a><br/>
 <h1>AI Toolbox — All-in-One Autonomous AI Agent & Tool Plugin for Local LLMs in LM Studio</h1><hr/>
 <b>Give your local LLM real hands.</b> The most complete LM Studio Hub plugin — turns any local model into a capable, self-managing AI agent.<br/>Self-managing context keeps marathon sessions alive · one plugin, zero glue code, fully offline by default.
-<br/><a href="#"><img src="https://img.shields.io/badge/version-v1.9.19-2f80ed?style=plastic" alt="version v1.9.19"/></a> <a href="#the-tool-arsenal-113-tools-across-every-family-all-yours-to-toggle"><img src="https://img.shields.io/badge/tools-113%20ready--made-7c3aed?style=plastic" alt="tools 113 ready-made"/></a> <a href="#quick-start-2-minutes"><img src="https://img.shields.io/badge/tests-72%20suites%20%C2%B7%201026%20green-3fb950?style=plastic" alt="tests 72 suites · 1026 green"/></a> <a href="#"><img src="https://img.shields.io/badge/LM%20Studio-Hub%20plugin-e84393?style=plastic" alt="LM Studio Hub plugin"/></a> <a href="LICENSE"><img src="https://img.shields.io/github/license/TheRealCrunch3r/ai-toolbox?style=plastic" alt="license MIT (live-verified from LICENSE)"/></a> <a href="#"><img src="https://img.shields.io/badge/runtime-Node%20%E2%89%A5%2020-83cd29?style=plastic&logo=node.js" alt="runtime Node ≥ 20"/></a><br/>
+<br/><a href="#"><img src="https://img.shields.io/badge/version-v1.9.20-2f80ed?style=plastic" alt="version v1.9.20"/></a> <a href="#the-tool-arsenal-113-tools-across-every-family-all-yours-to-toggle"><img src="https://img.shields.io/badge/tools-113%20ready--made-7c3aed?style=plastic" alt="tools 113 ready-made"/></a> <a href="#quick-start-2-minutes"><img src="https://img.shields.io/badge/tests-73%20suites%20%C2%B7%201035%20green-3fb950?style=plastic" alt="tests 73 suites · 1035 green"/></a> <a href="#"><img src="https://img.shields.io/badge/LM%20Studio-Hub%20plugin-e84393?style=plastic" alt="LM Studio Hub plugin"/></a> <a href="LICENSE"><img src="https://img.shields.io/github/license/TheRealCrunch3r/ai-toolbox?style=plastic" alt="license MIT (live-verified from LICENSE)"/></a> <a href="#"><img src="https://img.shields.io/badge/runtime-Node%20%E2%89%A5%2020-83cd29?style=plastic&logo=node.js" alt="runtime Node ≥ 20"/></a><br/>
 <b>Docs:</b> <a href="DOCUMENTATION.md">Documentation</a> · <a href="QUICK_START.md">Quick Start</a> · <a href="ARCHITECTURE.md">Architecture</a> · <a href="TOOLS_REFERENCE.md">Tool Reference</a> · <a href="CHANGELOG_v4.md">Changelog</a><br/>
 <a href="CONTRIBUTING.md">Contributing</a> · <a href="SECURITY.md">Security</a><br/>
 <br>
@@ -16,7 +16,7 @@
 
 **Give your local LLM real hands.** The most complete LM Studio Hub plugin — turns any local model into a capable, self-managing AI agent with safe file editing, hang-proof codebase search, background builds, headless browser automation, Git & GitHub workflows, OCR, charting and semantic RAG; **self-managing context** keeps marathon sessions alive. One plugin, zero glue code, fully offline by default.
 
-> `v1.9.19` · `113 ready-made tools` · `1026 tests green (72 suites)` · `5 locales` · `MIT` · `Node 20+`
+> `v1.9.20` · `113 ready-made tools` · `1057 tests green (74 suites)` · `5 locales` · `MIT` · `Node 20+`
 
 <div align="center"><table><tr><td style="border-left:4px solid #d1242f; background:#ffebe9; padding:8px 16px;"><b>⚠️ LM Studio does NOT support automatic updates.</b><br/>If you encounter issues, update manually first: remove the current version and re-download from the plugin website. Note that LM Studio may show an "already installed" tooltip even if your version is outdated.</td></tr></table></div>
 
@@ -57,7 +57,7 @@ The closest direct competitor on the Hub: same job (tools for local LLMs), very 
 | ✅ **AST-level refactoring** (rename, move functions, dead-import cleanup) — syntax-safe transforms with auto-rollback, not string edits |
 | ✅ **Real RAG:** local vector index over PDF / DOCX / XLSX with page-level provenance — not just keyword search |
 | ✅ **Image & data viz:** OCR on screenshots and captures, image metadata + comparison, chart generation |
-| ✅ **113 tools** vs ~49 — backed by 1026 passing tests across 72 suites |
+| ✅ **113 tools** vs ~49 — backed by 1057 passing tests across 74 suites |
 | ✅ **Crash-resilient writes + rollback on failure:** a botched edit can never corrupt your file |
 
 Our previous i18n gap is closed: **we now ship 5 locales** (en · de · es · zh-CN · zh-TW), each a full translation set — and anti-stub tests guard the suite so alias/fallback languages can never silently regress. We'd rather tell you than pretend it doesn't exist.
@@ -112,7 +112,7 @@ Charts rendered to image files from raw data (bar/line/pie/doughnut/scatter/rada
 ```bash
 # Developing instead of using?
 npm install && npm run build   # ESM + CJS via tsup
-npm test                        # full suite: 72 suites / 1026 tests green (owner-verified 10.11 TOKEN-DIVERGENCE arc — Class A agentic-density recalibration + Class B wire-shape credit, gate GREEN ~20:1x; prior canon 71/1020 @ 10.10 [TWO-TIER CLOSE-OUT r3] · prior arcs: 68/990 @ 08.10 [LEVER-1], 68/987 @ 07.10 [Arc C sweep — entry unlogged], 65/952 @ 06.10 [DOC-PIN gate] 64/941 @ 06.10 [i18n gate], 64/938 @ 06.10 ×2 [F1 ~16:57 · PLAN-SEAM ~18:0x], 63/931 @ 05.10, 63/930 @ 04.10 ×3, 61/917 @ 04.10, 893/59 @ 02.10, 874/58 @ ~21.5 s on 01.10, 860/56 @ 29.09, 857/56 @ 28.09)
+npm test                        # full suite: 74 suites / 1057 tests green (owner-verified 15.10 SESSION-MEMORY ARC-C C1 dedupe + C2 empty-history gate & artifact strip, trio GREEN ~18:2x; prior canon 73/1035 @ 14.10 [ARC-B supersede-on-close-out], 73/1031 @ 14.10 [ARC-A + density restore], 72/1026 @ 10.11 [TOKEN-DIVERGENCE], 71/1020 @ 10.10 [TWO-TIER CLOSE-OUT r3] · prior arcs: 68/990 @ 08.10 [LEVER-1], 68/987 @ 07.10 [Arc C sweep — entry unlogged], 65/952 @ 06.10 [DOC-PIN gate] 64/941 @ 06.10 [i18n gate], 64/938 @ 06.10 ×2 [F1 ~16:57 · PLAN-SEAM ~18:0x], 63/931 @ 05.10, 63/930 @ 04.10 ×3, 61/917 @ 04.10, 893/59 @ 02.10, 874/58 @ ~21.5 s on 01.10, 860/56 @ 29.09, 857/56 @ 28.09)
 ```
 
 ---
@@ -177,7 +177,7 @@ One plugin replaces an entire shelf. Here's every family, what it covers, and it
 
 ---
 
-## Release Highlights (full history → CHANGELOG_v4.md — active; v1–v3 in docs/history/)
+## Release Highlights (full history → CHANGELOG_v5.md — active; v1–v4 in docs/history/)
 
 | Version | Headline |
 |---|---|

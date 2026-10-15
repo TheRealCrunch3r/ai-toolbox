@@ -38,3 +38,6 @@ future_improvements/
 
 # Per-install state (machine-specific, never commit)
 install-state.json
+
+# Local Hub-simple README artifact (owner-local working copy - never commit/push)
+README.MD_LMS_HUB_SIMPLE.md

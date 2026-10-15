@@ -18,6 +18,20 @@ import { getWorkingDir } from '../workingDir.js';
 // 🔹 D-LOST-WRITE (20.09): per-path in-process lock for the shared state store — see src/sharedFileLock.ts
 import { withSharedFileLock } from '../sharedFileLock.js';
 import { getDataDir } from '../dataDir.js'; // 🔹 REG-MOVE (12.09): persistent data-dir root for the project registry
+// ARC C2b-FIX (15.10): STATIC import of stripSummaryArtifacts — the original ARC C2b line used a per-call
+// `await import('../sessionSummaryPersist.js')`, which this codebase forbids by documented house pattern: "Static
+// import (NOT dynamic): the CJS Jest transform cannot resolve `await import(...)`" (toolsProvider.ts:41,
+// utils/fileSearch.ts:8, tools/recodeTool/recodeEngine.ts:3). tsconfig module:NodeNext keeps dynamic import()
+// native in the emitted CJS; under Jest it throws at CALL time inside save_session_summary → the tool returned
+// success:false BEFORE memoryStore.set('session_summary_latest', ...) — the two stateManagerDataLoss REDs of 15.10
+// (line 81 / line 201: record missing from disk while memory_* and context entries survived; jest.config.cjs's C2b
+// mapper entry could not help because a throwing native import never reaches resolution). The resulting
+// contextManagementTools ↔ sessionSummaryPersist cycle is SAFE by construction — same class as the documented
+// promptPreprocessor ↔ toolsProvider cycle (jest.config.cjs): BOTH directions are lazy runtime call sites
+// (persistGeneratedSessionSummary uses SessionIndexManager inside its body; save_session_summary uses this binding
+// only at tool-call time), never module-top-level evaluation. The existing mapper entry for '../sessionSummaryPersist.js'
+// covers this exact specifier from src/tools/ — no jest.config.cjs change needed.
+import { stripSummaryArtifacts } from '../sessionSummaryPersist.js';
 import type { ContextOrigin, ContextNode } from '../contextTiers.js';
 import { replaceTier, createContextNode } from '../contextTiers.js';
 import type { Confidence } from '../types/confidenceTypes.js';
@@ -64,7 +78,15 @@ interface ContextSummary {
 // ==================== Context Storage Manager — ASYNC ===
 
 /** Default TTL for session-scoped memories (24 hours) */
-const SESSION_TTL_MS = 24 * 60 * 60 * 1000; 
+const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
+
+// 🔹 FIX-A (14.10): retention cap for SUBSTANTIVE entries (not auto-checkpoint-tagged, not session-scoped).
+// Session-scoped entries self-expire via TTL; checkpoints are machine noise bounded by the same TTL. What grew
+// without bound before this fix were global-scope decisions/patterns/summaries (31 of them + 271 >7d-old records
+// resurfacing on every restore_session_context as of 14.10). Beyond the cap, oldest entries are pruned first —
+// EXCEPT type 'decision', which is owner-precious and exempt even if decisions alone exceed the cap (never drop
+// an owner decision silently; surface pressure by keeping them all instead).
+const MAX_SUBSTANTIVE_CONTEXT_ENTRIES = 100;
 
 export class ContextStorageManager {
   private workingDirPath: string;
@@ -415,14 +437,40 @@ export class ContextStorageManager {
   /** Add a new context entry — ASYNC === */
   async addEntry(entry: ContextEntry): Promise<void> {  // MADE ASYNC
     const entries = await this.load();  // ASYNC load
-    
-    const mergedEntries = await this.mergeEntriesWithTiers(entries, entry);
-    
-    // Limit to last 1000 entries to prevent unbounded growth
+
+    let mergedEntries = await this.mergeEntriesWithTiers(entries, entry);
+
+    // 🔹 FIX-A (14.10) part 2 — inline TTL reap: pruneExpiredSessionEntries() had ZERO callers pre-fix; the only
+    // live enforcement was getRecentEntries()' read-side inline prune, so entries written by other paths stayed on
+    // disk long after expiry until someone happened to call that one tool. addEntry is the single write funnel for
+    // new context content — reaping expired session-scoped entries here means every save also collects dead
+    // telemetry. Same predicate as before (_isExpired: scope 'session' + explicit ttl_ms only), one in-memory
+    // filter pass, no extra I/O, no contract change (expired session removal was always legitimate caller intent).
+    const liveEntries = mergedEntries.filter(e => !this._isExpired(e));
+
+    // 🔹 FIX-A (14.10) part 3 — bounded retention for substantive entries (see MAX_SUBSTANTIVE_CONTEXT_ENTRIES):
+    // checkpoint-tagged and session-scoped records are excluded (TTL bounds them); beyond the cap, drop oldest by
+    // timestamp first; 'decision' is exempt so owner-precious memory can never be silently pruned.
+    const substantive = liveEntries.filter(e => !(Array.isArray(e.tags) && e.tags.includes('auto_checkpoint')) && e.scope !== 'session');
+    if (substantive.length > MAX_SUBSTANTIVE_CONTEXT_ENTRIES) {
+      const excess = substantive.length - MAX_SUBSTANTIVE_CONTEXT_ENTRIES;
+      const droppable = substantive
+        .filter(e => e.type !== 'decision')
+        .sort((a, b) => (typeof a.timestamp === 'number' ? a.timestamp : 0) - (typeof b.timestamp === 'number' ? b.timestamp : 0));
+      const dropIds = new Set(droppable.slice(0, Math.min(excess, droppable.length)).map(e => e.id));
+      if (dropIds.size > 0) {
+        console.log(`[ContextStorage.addEntry] Retention cap: pruned ${dropIds.size} oldest non-decision substantive entr${dropIds.size === 1 ? 'y' : 'ies'} (> ${MAX_SUBSTANTIVE_CONTEXT_ENTRIES}).`);
+      }
+      mergedEntries = liveEntries.filter(e => !dropIds.has(e.id));
+    } else {
+      mergedEntries = liveEntries;
+    }
+
+    // Limit to last 1000 entries to prevent unbounded growth (hard backstop, unchanged pre-fix)
     if (mergedEntries.length > 1000) {
       mergedEntries.splice(1000);
     }
-    
+
     await this.save(mergedEntries);  // ASYNC save
   }
 
@@ -609,6 +657,27 @@ export class ContextStorageManager {
     return true;
   }
 
+  /** 🔹 FIX-B (14.10, supersede-on-close-out): set-based retirement of context entries matching a STRICT caller predicate —
+   * the shared-file-safe twin of deleteEntry() for retiring more than one id at once. Runs through the SAME load()/save()
+   * contract as every other path: load()'s project filter applies first (only in-scope entries can ever match), and the
+   * default save() write-back stays non-destructive for foreign-stamped records. This method NEVER inspects content
+   * semantics itself — callers must pass predicates that structurally exclude owner-precious records (decisions, explicit
+   * track_important_event memory) so no auto-retirement path can delete them. @param dryRun true = count matches without
+   * writing (pure read — used for remove_plan previews). */
+  async removeEntriesMatching(
+    predicate: (entry: ContextEntry) => boolean,
+    reason: string,
+    opts?: { dryRun?: boolean }
+  ): Promise<number> {
+    const entries = await this.load();  // ASYNC load
+    const matchedCount = entries.filter(predicate).length;
+    if (matchedCount === 0) return 0;
+    if (opts?.dryRun) return matchedCount; // preview only — store untouched
+    console.log(`[ContextStorage.removeEntriesMatching] Retiring ${matchedCount} entr${matchedCount === 1 ? 'y' : 'ies'}: ${reason}`);
+    await this.save(entries.filter(e => !predicate(e)));  // ASYNC save (non-destructive write-back contract)
+    return matchedCount;
+  }
+
   /** Clear all context entries — ASYNC ===.
    * 🔹 A3 (04.10): explicit layer wipe — the ONLY default save path allowed to drop existing context records, so the
    * non-destructive write-back contract of addEntry/delete/prune can never silently delete out-of-scope entries. */
@@ -780,6 +849,15 @@ interface SessionIndexData {
 
 const SESSION_INDEX_MAX_ENTRIES = 50; // Prune oldest when exceeding this limit
 
+// 🔹 ARC C1 (15.10, owner GO): dedupe window for addEntry() — summary writes closer together than this are ONE
+// logical session (observed live 14.10: the Arc-B session wrote 5 index rows in 38 min: 18:36 / 18:58 / 19:05 /
+// 19:14 — each compression/manual save unshifted its own row). Largest same-session gap observed ≈ 22 min, so
+// 30 min covers it with margin; genuinely separate sessions are normally ≥ window apart. Newest-row-only on
+// purpose (O(1); can never merge two distinct sessions separated by a gap ≥ window). Accepted limitation: an
+// unbroken work session spanning >30 min between summary writes still yields multiple rows — the full summary
+// itself is unaffected (only the lightweight index), and the constant is pinned in tests for a later owner tweak.
+const SESSION_INDEX_DEDUPE_WINDOW_MS = 30 * 60 * 1000;
+
 export class SessionIndexManager {
   private workingDirPath: string;
   private pluginRootPath: string;
@@ -863,12 +941,23 @@ export class SessionIndexManager {
     await fs.rename(tempPath, filePath);
   }
 
-  /** Add a session entry to the index */
+  /** Add a session entry to the index.
+   * 🔹 ARC C1 (15.10, owner GO): dedupe guard — repeated summary writes from ONE logical session used to append
+   * one row each (blind unshift; both writers — save_session_summary + Arc-C persistGeneratedSessionSummary —
+   * call this). If the NEWEST existing row is younger than SESSION_INDEX_DEDUPE_WINDOW_MS it IS that same
+   * session → supersede the row in place (latest description wins, position stays at index 0) instead of
+   * appending a duplicate. Rows older than the window append normally; total_count stays consistent either way. */
   async addEntry(task_description: string, timestamp: number, date: string): Promise<void> {
     let data = await this.load() || { sessions: [], total_count: 0, last_updated: Date.now() };
-    
-    // Append new entry (newest first)
-    data.sessions.unshift({ task_description, timestamp, date });
+
+    const newest = data.sessions[0];
+    if (newest && (timestamp - newest.timestamp) < SESSION_INDEX_DEDUPE_WINDOW_MS) {
+      console.log(`[SessionIndex.addEntry] Dedupe guard: newest row is ${Math.round((timestamp - newest.timestamp) / 60000)}m old (< window ${SESSION_INDEX_DEDUPE_WINDOW_MS / 60000}m) — overwriting it in place instead of appending a duplicate.`);
+      data.sessions[0] = { task_description, timestamp, date }; // same logical session — latest description wins
+    } else {
+      // Append new entry (newest first)
+      data.sessions.unshift({ task_description, timestamp, date });
+    }
     data.last_updated = Date.now();
     
     // Prune oldest entries if exceeding limit
@@ -1828,6 +1917,11 @@ WHEN TO USE:
           title,
           content,
           tags,
+          // 🔹 FIX-A (14.10): explicit PROJECT scope — these records live in the per-project store and are filtered
+          // by project_path on load; the pre-fix implicit default 'global' was semantically wrong and masked why
+          // they never expired. Behaviorally inert today ('session' is the only TTL-eligible scope), but keeps the
+          // store self-describing so the lifecycle of each class is visible at a glance.
+          scope: 'project',
         };
 
         await storageManager.addEntry(entry);  // ASYNC call
@@ -1878,12 +1972,18 @@ WHEN TO USE:
           };
         };
 
+        // ARC C2b (15.10, owner GO): defense-in-depth at the MANUAL writer boundary too — strip contamination
+        // artifacts from every field BEFORE truncation (same helper + ordering as persistGeneratedSessionSummary:
+        // strip first so the 2 KB cap is never spent on LSEP tokens / echoed placeholders / reasoning preamble).
+        // 🔹 ARC C2b-FIX (15.10): `stripSummaryArtifacts` is now the STATIC module-top import above — this per-call
+        // dynamic import() broke under Jest's CJS transform (see the import-site comment for the postmortem); the call sites below are unchanged.
+
         // 🔹 FIX #3: Cache truncate results to avoid double-calls (performance + logic)
-        const taskDesc = truncate(task_description);
-        const accomplishmentsTrunc = truncate(accomplishments);
-        const pendingTasksTrunc = truncate(pending_tasks);
-        const decisionsMadeTrunc = truncate(decisions_made);
-        const contextForNextSessionTrunc = truncate(context_for_next_session);
+        const taskDesc = truncate(stripSummaryArtifacts(task_description));
+        const accomplishmentsTrunc = truncate(stripSummaryArtifacts(accomplishments ?? ''));
+        const pendingTasksTrunc = truncate(stripSummaryArtifacts(pending_tasks ?? ''));
+        const decisionsMadeTrunc = truncate(stripSummaryArtifacts(decisions_made ?? ''));
+        const contextForNextSessionTrunc = truncate(stripSummaryArtifacts(context_for_next_session ?? ''));
 
         const summaryData: SessionSummaryData = {
           task_description: taskDesc.content,

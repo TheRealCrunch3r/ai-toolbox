@@ -1,6 +1,6 @@
 # Changelog — ai_toolbox (archived v3)
 
-> ⚠️ **Superseded by [`CHANGELOG_v4.md`](../CHANGELOG_v4.md)** on 01.10.2026 (file-size rotation, same house pattern as the v1 → v2 and v2 → v3 hand-offs). This file is preserved as history — no new entries are added here. Rotation carried the ten newest v3 entries (the uncommitted rev-3x pile, 21.09–28.09) verbatim into `CHANGELOG_v4.md`, but this body kept its original copy intact; per owner order 01.10 (~21:xx), all pre-today content was dumped to THIS file — i.e., the duplicate in v4 was removed, so every entry dated before 01.10 lives here exactly once.
+> ⚠️ **Superseded by [`CHANGELOG_v4.md`](CHANGELOG_v4.md)** on 01.10.2026 (file-size rotation, same house pattern as the v1 → v2 and v2 → v3 hand-offs). This file is preserved as history — no new entries are added here. Rotation carried the ten newest v3 entries (the uncommitted rev-3x pile, 21.09–28.09) verbatim into `CHANGELOG_v4.md`, but this body kept its original copy intact; per owner order 01.10 (~21:xx), all pre-today content was dumped to THIS file — i.e., the duplicate in v4 was removed, so every entry dated before 01.10 lives here exactly once.
 > Older entries (`[20.09 SPEC-C]` and earlier) remain in this file unchanged.
 
 ### Entry index — all pre-today entries live in the body below (top → bottom), exactly once

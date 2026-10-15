@@ -602,6 +602,10 @@ export class AutoTracker {
       title: `Session Memory Checkpoint (${usagePercentage}% tokens used)`,
       content: `Threshold reached mid-loop (~${threshold}% of context) — user will be notified on next message.\n\nMachine telemetry record (auto-written; not a manually saved session memory):\n\nCurrent session state:\n- Tokens used: ${currentTokens} / ${maxTokens} (${usagePercentage}%)\n- Messages in session: ${messageCount}\n- Threshold configured: ${threshold}%\n- Auto-tracked events in buffer: ${this.actionBuffer.length}\n\nUser notification (YES/NO save prompt) fires on the next user message — nobody can answer mid-loop.`,
       tags: ['auto_checkpoint', 'token_threshold'],
+      // 🔹 FIX-A (14.10): session scope → mergeEntriesWithTiers applies SESSION_TTL_MS (24h) automatically;
+      // checkpoints are machine telemetry for ONE session, not durable memory — pre-fix they were written with
+      // the default scope 'global' + no TTL and accumulated forever (370 global entries / 92% of store by 14.10).
+      scope: 'session' as const,
     };
 
     // Save to persistent memory via the storage manager (injected for testing or pre-resolved)

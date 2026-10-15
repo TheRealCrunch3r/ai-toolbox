@@ -316,3 +316,171 @@ describe('ARC C — parseSessionContinuity (lenient dual-shape parser)', () => {
     expect(parsed?.task_description ?? null).toBe('recovered via sections');
   });
 });
+
+
+// ==================== ARC C2 (15.10, owner GO) — pipeline contamination guards ============================
+// Observed live in .session_context/sessions.json on 14.10: rows that are NOT summaries (model narrating an
+// empty history / raw reasoning fragments / echoed prompt placeholder / LSEP leaks). The guards below pin the
+// EXACT production artifact shapes so a future regex/contract change fails loudly against real data, not vibes.
+
+import { hasMeaningfulUserContent, stripSummaryArtifacts } from '../src/sessionSummaryPersist';
+
+describe('ARC C2 — hasMeaningfulUserContent (empty-history gate predicate)', () => {
+  it('accepts a user-role message with >=8 trimmed chars of string content', () => {
+    expect(hasMeaningfulUserContent([{ role: 'user', content: 'fix both pins' }])).toBe(true); // "fix both pins" = 13
+    expect(hasMeaningfulUserContent([{ role: 'USER', content: '   fix the gate   ' }])).toBe(true); // case-insensitive + trimmed
+  });
+
+  it('rejects short (7 chars), whitespace-only, and empty user messages', () => {
+    expect(hasMeaningfulUserContent([{ role: 'user', content: 'fix two' }])).toBe(false); // 7 after trim — below threshold
+    expect(hasMeaningfulUserContent([{ role: 'user', content: '   \n\t ' }])).toBe(false);
+    expect(hasMeaningfulUserContent([{ role: 'user', content: '' }])).toBe(false);
+  });
+
+  it('never counts non-user roles (system/assistant/tool), regardless of length', () => {
+    const long = 'a'.repeat(200);
+    expect(hasMeaningfulUserContent([
+      { role: 'system', content: long },
+      { role: 'assistant', content: long },
+      { role: 'tool', content: long },
+    ])).toBe(false);
+  });
+
+  it('counts the SDK content-block array shape ({type:text,text}) and concatenates blocks per message', () => {
+    expect(hasMeaningfulUserContent([
+      { role: 'user', content: [{ type: 'text', text: 'short' }] }, // 5 chars alone — below threshold
+    ])).toBe(false);
+    expect(hasMeaningfulUserContent([
+      { role: 'user', content: [{ type: 'text', text: 'fix the' }, { type: 'text', text: ' gate please' }] }, // joined = "fix the\n gate please" >= 8 after trim
+    ])).toBe(true);
+    expect(hasMeaningfulUserContent([
+      { role: 'user', content: [{ type: 'image_url', url: 'x' }, { type: 'text', text: '   ' }] }, // non-text block ignored
+    ])).toBe(false);
+  });
+
+  it('returns false for an empty message list and tolerates messages with missing role/content', () => {
+    expect(hasMeaningfulUserContent([])).toBe(false);
+    expect(hasMeaningfulUserContent([{ content: 'enough text here' }, { role: 'user' }])).toBe(false); // no role / no content → never user-meaningful
+  });
+});
+
+describe('ARC C2 — stripSummaryArtifacts (one-field contamination strip)', () => {
+  it('strips LSEP tokens in their observed leaked shape (trailing hash, adjacent text kept)', () => {
+    expect(stripSummaryArtifacts('before __LM_STUDIO_INTERNAL_LSEP_9f8e2ab7 after')).toBe('before  after');
+    expect(stripSummaryArtifacts('a__LM_STUDIO_INTERNAL_LSEP_x1b2 and __LM_STUDIO_INTERNAL_LSEP_z c')).toBe('a and  c');
+  });
+
+  it('strips the echoed continuity-prompt placeholder (ellipsis INSIDE the angle brackets — observed shape)', () => {
+    // 🔹 ARC C2b-test-FIX (15.10): assert on the literal INPUT — this line originally ran its own fixture through
+    // stripSummaryArtifacts() and demanded the output still contain '<one or two sentences...>', i.e., it asserted the
+    // exact opposite of what that function is designed to do, so it could never pass (self-referential artifact check).
+    expect('Task: <one or two sentences...> done').toContain('<one or two sentences...>'); // sanity: input really is the artifact
+    const out = stripSummaryArtifacts('Task: <one or two sentences...> done');
+    expect(out).not.toContain('<one or two sentences');
+    expect(out.startsWith('Task:') && out.trim().endsWith('done')).toBe(true);
+  });
+
+  it('leaves legitimate plain-text "..." sequences untouched (no angle brackets → no match)', () => {
+    expect(stripSummaryArtifacts('Restore AGENTIC_CHARS_PER_TOKEN to 3.2 and update fix20 pins...')).toBe(
+      'Restore AGENTIC_CHARS_PER_TOKEN to 3.2 and update fix20 pins...',
+    );
+  });
+
+  it('removes a model reasoning preamble up to the FIRST fixed section heading (observed failure class)', () => {
+    const raw = 'maybe "No task was provided..." But format requires one or two sentences... TASK: fix both pins\nACCOMPLISHMENTS: did X';
+    expect(stripSummaryArtifacts(raw)).toBe('TASK: fix both pins\nACCOMPLISHMENTS: did X');
+  });
+
+  it('keeps text with NO known heading intact (trim only) — parser decides usability, not the strip', () => {
+    const raw = 'Sorry, I cannot summarize this session.';
+    expect(stripSummaryArtifacts(raw)).toBe(raw);
+  });
+
+  it('composes: LSEP + placeholder + preamble in ONE field (the full observed junk row)', () => {
+    const raw = '__LM_STUDIO_INTERNAL_LSEP_deadbeef<one or two sentences...> TASK: restore density to 3.2\nPENDING TASKS: none';
+    expect(stripSummaryArtifacts(raw)).toBe('TASK: restore density to 3.2\nPENDING TASKS: none');
+  });
+
+  it('returns "" for empty/undefined input without throwing', () => {
+    expect(stripSummaryArtifacts('')).toBe('');
+    expect(stripSummaryArtifacts(undefined as unknown as string)).toBe('');
+  });
+});
+
+describe('ARC C2 — persistGeneratedSessionSummary (strip-before-truncate + no-meaningful gate)', () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'arc-c2-persist-'));
+    expect(setWorkingDir(tmpDir)).toBe(true);
+  });
+
+  afterEach(() => {
+    resetWorkingDir();
+    (toolsProvider.getStateManager as jest.Mock).mockReset();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('skips persistence entirely when task_description is only junk after strip (saved:false, store untouched)', async () => {
+    const store = makeFakeStore({ session_summary_latest: { task_description: 'must survive' } });
+    (toolsProvider.getStateManager as jest.Mock).mockReturnValue(store);
+
+    const result = await persistGeneratedSessionSummary(baseSummary({
+      task_description: '<one or two sentences...>', // pure echoed placeholder → '' after strip
+      accomplishments: 'nope',
+    }));
+
+    expect(result.saved).toBe(false);
+    expect(result.error).toBe('no meaningful content');
+    // The gate fires BEFORE any store operation — the existing summary must survive byte-identical.
+    expect(store.delete).not.toHaveBeenCalled();
+    expect(store.set).not.toHaveBeenCalled();
+    expect(store.forceSave).not.toHaveBeenCalled();
+    const surviving = store.map.get('session_summary_latest') as { task_description: string };
+    expect(surviving.task_description).toBe('must survive');
+  });
+
+  it('skips persistence for an LSEP-token-only task description (observed leak shape)', async () => {
+    const store = makeFakeStore();
+    (toolsProvider.getStateManager as jest.Mock).mockReturnValue(store);
+
+    const result = await persistGeneratedSessionSummary(baseSummary({
+      task_description: '__LM_STUDIO_INTERNAL_LSEP_0a1b2c3d', // strip → ''
+    }));
+
+    expect(result).toEqual({ saved: false, error: 'no meaningful content' });
+    expect(store.set).not.toHaveBeenCalled();
+  });
+
+  it('strips contamination from EVERY field before truncation (persisted bytes are clean)', async () => {
+    const store = makeFakeStore();
+    (toolsProvider.getStateManager as jest.Mock).mockReturnValue(store);
+
+    await persistGeneratedSessionSummary(baseSummary({
+      task_description: 'TASK-ish preamble junk TASK: restore density to 3.2', // heading present → preamble removed... 
+      accomplishments: '__LM_STUDIO_INTERNAL_LSEP_ff00- fixed the gate\n- real bullet',
+      pending_tasks: '<one or two sentences...>', // pure placeholder → '' after strip (stays optional-empty downstream)
+    }));
+
+    const written = store.map.get('session_summary_latest') as SessionSummaryData;
+    expect(written.task_description).toBe('TASK: restore density to 3.2');
+    expect(written.accomplishments).not.toContain('__LM_STUDIO_INTERNAL_LSEP_');
+    expect(written.accomplishments?.includes('- real bullet')).toBe(true);
+    // pending_tasks stripped to '' (artifact-only field) — NOT the raw placeholder echo.
+    expect(written.pending_tasks ?? '').toBe('');
+  });
+
+  it('still truncates AFTER stripping (cap applies to clean text, writer P0 parity preserved)', async () => {
+    const store = makeFakeStore();
+    (toolsProvider.getStateManager as jest.Mock).mockReturnValue(store);
+
+    // 3000 junk chars that strip down to a short task + enough clean tail? No — keep it simple and exact:
+    // padding is CLEAN text (no artifacts) so the truncation pin tests the ORDERING, not the strip.
+    const longClean = 'TASK: work on ' + 'x'.repeat(3000);
+    await persistGeneratedSessionSummary(baseSummary({ task_description: longClean }));
+
+    const written = store.map.get('session_summary_latest') as SessionSummaryData;
+    expect(written.task_description?.length).toBe(2048); // strip (no-op here) then truncate to exactly the cap
+    expect(written.task_description?.endsWith('\n… (truncated for size)')).toBe(true);
+  });
+});

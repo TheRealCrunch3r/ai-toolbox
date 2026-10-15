@@ -47,6 +47,65 @@ export function truncateSessionSummaryField(text?: string): { content: string; t
   };
 }
 
+// ==================== ARC C2 (15.10, owner GO): pipeline contamination guards ====================
+// Observed live in .session_context/sessions.json on 14.10 — rows that are NOT summaries:
+//   • "No user request was provided in the conversation history."        ← model narrating an empty history
+//   • 'maybe "No task was provided..." But format requires one or two sentences ...'  ← raw reasoning fragment
+//   • "<one or two sentences...>"                                        ← prompt placeholder echoed verbatim
+//   • __LM_STUDIO_INTERNAL_LSEP_* host separators leaking into consumed text (never produced in src/ — grep-verified)
+
+/** Strip LM Studio internal message-separator tokens (__LM_STUDIO_INTERNAL_LSEP_*) from summary text. */
+function stripLsepTokens(text: string): string {
+  return text.replace(/__LM_STUDIO_INTERNAL_LSEP_[^\s"]*/g, '');
+}
+
+/** True when at least one USER-role message carries non-trivial text (≥8 chars after trim).
+ * Covers both plain-string content and the SDK content-block array shape ({type:'text',text}); non-user roles
+ * (system/assistant/tool) never count. 8 chars is deliberately low: real tasks are short ("fix both" = 9), but a
+ * pure empty/agent turn (whitespace-only user messages, tool traffic only) has nothing for the continuity prompt
+ * to work from — observed failure class above. Exported for hermetic unit tests (exact production shapes). */
+export function hasMeaningfulUserContent(
+  messages: ReadonlyArray<{ role?: string; content?: unknown }>,
+): boolean {
+  for (const m of messages) {
+    if ((m.role ?? '').toLowerCase() !== 'user') continue;
+    let text = '';
+    if (typeof m.content === 'string') {
+      text = m.content;
+    } else if (Array.isArray(m.content)) {
+      for (const block of m.content as Array<Record<string, unknown>>) {
+        // 15.10 gate: no `as string` — the typeof guard already narrows block.text in this branch (stable const ref); cast was @typescript-eslint/no-unnecessary-type-assertion
+        const t = typeof block?.text === 'string' ? block.text : '';
+        if (t.length > 0) text += `${t}\n`;
+      }
+    }
+    if (text.trim().length >= 8) return true;
+  }
+  return false;
+}
+
+/** Strip known contamination artifacts from ONE summary field: LSEP tokens, the continuity prompt's own
+ * placeholder ("&lt;one or two sentences...>" and kin), and model reasoning preamble — leading prose that ends at
+ * the first fixed section heading (a small local model asked to summarize an empty history answers about its task
+ * instead of doing it). Returns text with every removed span replaced by whitespace (positions stay stable for
+ * any downstream parsing) then re-trimmed. Exported for hermetic unit tests. */
+export function stripSummaryArtifacts(text: string): string {
+  if (!text || text.length === 0) return '';
+  let out = stripLsepTokens(text);
+  // Prompt placeholders echoed verbatim (any bracketed angle-bracket placeholder, e.g. "<one or two sentences...>")
+  out = out.replace(/<[^<>]{0,120}\.\.\.[^<>]{0,120}>/g, ' ');
+  // Reasoning preamble: leading text up to the FIRST known section heading (only when a heading actually exists)
+  const headIdx = Math.min(
+    ...['TASK:', 'ACCOMPLISHMENTS:', 'PENDING TASKS:', 'DECISIONS MADE:', 'CONTEXT FOR NEXT SESSION:']
+      .map(h => out.indexOf(h))
+      .filter(i => i !== -1),
+  );
+  if (Number.isFinite(headIdx) && headIdx > 0) {
+    out = `${' '.repeat(headIdx)}${out.slice(headIdx)}`;
+  }
+  return out.trim();
+}
+
 /**
  * Persist a generated session-continuity summary through the canonical save_session_summary writer path.
  *
@@ -61,11 +120,20 @@ export async function persistGeneratedSessionSummary(summary: SessionSummaryData
     return { saved: false, error: 'StateManager not available. Session summary could not be persisted.' };
   }
 
-  const taskDesc = truncateSessionSummaryField(summary.task_description);
-  const accomplishmentsTrunc = truncateSessionSummaryField(summary.accomplishments);
-  const pendingTasksTrunc = truncateSessionSummaryField(summary.pending_tasks);
-  const decisionsMadeTrunc = truncateSessionSummaryField(summary.decisions_made);
-  const contextForNextSessionTrunc = truncateSessionSummaryField(summary.context_for_next_session);
+  // ARC C2b (15.10, owner GO): strip contamination artifacts from every field BEFORE truncation — the persisted
+  // summary is the last place a junk row may be born (observed live 14.10). Order matters: strip first so the 2 KB
+  // cap is never spent on LSEP tokens / echoed placeholders / reasoning preamble.
+  const strippedTaskDescription = stripSummaryArtifacts(summary.task_description ?? '');
+  if (strippedTaskDescription === '') {
+    console.warn('[sessionSummaryPersist] ⚠️ Skipping persistence: task description empty after artifact strip — nothing meaningful to persist (mirrors the anyNonEmpty parser contract)');
+    return { saved: false, error: 'no meaningful content' };
+  }
+
+  const taskDesc = truncateSessionSummaryField(strippedTaskDescription);
+  const accomplishmentsTrunc = truncateSessionSummaryField(stripSummaryArtifacts(summary.accomplishments ?? ''));
+  const pendingTasksTrunc = truncateSessionSummaryField(stripSummaryArtifacts(summary.pending_tasks ?? ''));
+  const decisionsMadeTrunc = truncateSessionSummaryField(stripSummaryArtifacts(summary.decisions_made ?? ''));
+  const contextForNextSessionTrunc = truncateSessionSummaryField(stripSummaryArtifacts(summary.context_for_next_session ?? ''));
 
   const summaryData: SessionSummaryData = {
     task_description: taskDesc.content,

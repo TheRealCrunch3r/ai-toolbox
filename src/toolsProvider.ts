@@ -222,6 +222,7 @@ export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[
     dateFormatStyle: pluginConfig.get('dateFormatStyle') as 'standard' | 'heuteIst',
     contextGuardEnabled: pluginConfig.get('contextGuardEnabled'),
     contextGuardCompressionPercent: pluginConfig.get('contextGuardCompressionPercent'), // 📊 07.10: percent of context window (was absolute contextGuardTokenLimit)
+    contextGuardAgenticDensity: pluginConfig.get('contextGuardAgenticDensity'), // 🔢 15.10: user-editable agentic chars-per-token density — exhaustive-literal completeness after config.ts schema extension; consumed per-turn by promptPreprocessor's reseed (tokenStatsManager live state)
     contextGuardForceSummaryOnCompress: pluginConfig.get('contextGuardForceSummaryOnCompress'), // 💾 07.10 arc C: forced structured session-memory save at the compression trigger (see src/sessionSummaryPersist.ts)
     contextGuardSmartReading: pluginConfig.get('contextGuardSmartReading'),
     contextGuardSummaryModel: pluginConfig.get('contextGuardSummaryModel'),

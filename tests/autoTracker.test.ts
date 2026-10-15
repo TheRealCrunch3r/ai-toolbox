@@ -238,9 +238,36 @@ describe('AutoTracker FSM & Core Functionality', () => {
 
     it('should calculate correct percentage in autoSaveSessionMemory', async () => {
       const result = await tracker.autoSaveSessionMemory(7508, 10000, 10);
-      
+
       // Should show ~75%, not inflated 75.08%
       expect(result.saved).toBe(true);
+    });
+
+    it('FIX-A (14.10): checkpoint entries are written session-scoped so the 24h TTL applies downstream', async () => {
+      // This file's jest.mock factory returns a plain class (NOT a jest.fn), so .mock.instances is unavailable —
+      // record through our own injected ctor instead, same pattern as FailingContextStorageManager below.
+      const written: Record<string, unknown>[] = [];
+      class RecordingContextStorageManager {
+        addEntry = jest.fn().mockImplementation(async (e: Record<string, unknown>) => {
+          written.push(e);
+        });
+      }
+      // Fresh tracker with the recording ctor — under Jest (NODE_ENV=test) autoSaveSessionMemory uses the
+      // INJECTED constructor (autoTracker.ts testStorageManager branch), never the pre-resolved module.
+      const t = new AutoTracker({ autoTrackingEnabled: true }, RecordingContextStorageManager);
+
+      const result = await t.autoSaveSessionMemory(7508, 10000, 10);
+
+      expect(result.saved).toBe(true);
+      // Exactly one entry written per checkpoint save; pin its production input shape (house rule — the LEVER-1
+      // no-op lesson): scope drives mergeEntriesWithTiers' SESSION_TTL_MS auto-application; global/no-TTL was
+      // the pre-fix immortal-checkpoint defect.
+      expect(written).toHaveLength(1);
+      const entry = written[0];
+      expect(entry.scope).toBe('session');
+      expect(entry.tags).toEqual(['auto_checkpoint', 'token_threshold']);
+      expect(entry.type).toBe('summary');
+      expect(String(entry.id)).toMatch(/^ctx_\d+_checkpoint$/);
     });
 
     it('should NOT trigger when disabled', () => {

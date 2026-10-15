@@ -2,7 +2,7 @@
 <a href="README.md">English</a> · <b>Deutsch</b> · <a href="README.es.md">Español</a> · <a href="README.zh-CN.md">简体中文</a> · <a href="README.zh-TW.md">繁體中文</a><br/>
 <h1>AI Toolbox — All-in-One autonomes KI-Agenten- & Tool-Plugin für lokale LLMs in LM Studio</h1><hr/>
 <b>Lokalen LLM echte Hände.</b> Das vollständigste LM-Studio-Hub-Plugin — macht jedes lokale Modell zu einem fähigen, selbstverwaltenden AI-Agenten.<br/>Selbstverwaltender Kontext hält Marathon-Sessions am Leben · ein Plugin, kein Glue-Code, standardmäßig vollständig offline.
-<br/><a href="#"><img src="https://img.shields.io/badge/version-v1.9.19-2f80ed?style=plastic" alt="version v1.9.19"/></a> <a href="#the-tool-arsenal-113-tools-across-every-family-all-yours-to-toggle"><img src="https://img.shields.io/badge/tools-113%20ready--made-7c3aed?style=plastic" alt="tools 113 ready-made"/></a> <a href="#quick-start-2-minutes"><img src="https://img.shields.io/badge/tests-72%20suites%20%C2%B7%201026%20green-3fb950?style=plastic" alt="tests 72 suites · 1026 green"/></a> <a href="#"><img src="https://img.shields.io/badge/LM%20Studio-Hub%20plugin-e84393?style=plastic" alt="LM Studio Hub plugin"/></a> <a href="LICENSE"><img src="https://img.shields.io/github/license/TheRealCrunch3r/ai-toolbox?style=plastic" alt="license MIT (live-verified from LICENSE)"/></a> <a href="#"><img src="https://img.shields.io/badge/runtime-Node%20%E2%89%A5%2020-83cd29?style=plastic&logo=node.js" alt="runtime Node ≥ 20"/></a><br/>
+<br/><a href="#"><img src="https://img.shields.io/badge/version-v1.9.20-2f80ed?style=plastic" alt="version v1.9.20"/></a> <a href="#the-tool-arsenal-113-tools-across-every-family-all-yours-to-toggle"><img src="https://img.shields.io/badge/tools-113%20ready--made-7c3aed?style=plastic" alt="tools 113 ready-made"/></a> <a href="#quick-start-2-minutes"><img src="https://img.shields.io/badge/tests-72%20suites%20%C2%B7%201026%20green-3fb950?style=plastic" alt="tests 72 suites · 1026 green"/></a> <a href="#"><img src="https://img.shields.io/badge/LM%20Studio-Hub%20plugin-e84393?style=plastic" alt="LM Studio Hub plugin"/></a> <a href="LICENSE"><img src="https://img.shields.io/github/license/TheRealCrunch3r/ai-toolbox?style=plastic" alt="license MIT (live-verified from LICENSE)"/></a> <a href="#"><img src="https://img.shields.io/badge/runtime-Node%20%E2%89%A5%2020-83cd29?style=plastic&logo=node.js" alt="runtime Node ≥ 20"/></a><br/>
 <b>Docs:</b> <a href="DOCUMENTATION.md">Documentation</a> · <a href="QUICK_START.md">Quick Start</a> · <a href="ARCHITECTURE.md">Architecture</a> · <a href="TOOLS_REFERENCE.md">Tool Reference</a> · <a href="CHANGELOG_v4.md">Changelog</a><br/>
 <a href="CONTRIBUTING.md">Contributing</a> · <a href="SECURITY.md">Security</a><br/>
 <br>
@@ -16,7 +16,7 @@
 
 **Geben Sie Ihrem lokalen LLM echte Hände.** Das vollständigste Plugin im LM Studio Hub — verwandelt jedes lokale Modell in einen fähigen, selbstverwaltenden KI-Agenten mit sicherer Dateibearbeitung, hang-sicherer Codebase-Suche, Hintergrund-Builds, headloser Browser-Automatisierung, Git- & GitHub-Workflows, OCR, Chart-Erstellung und semantischem RAG; **selbstverwaltender Kontext** hält Marathon-Sitzungen am Leben. Ein Plugin, null Klebcode, standardmäßig vollständig offline.
 
-> `v1.9.19` · `113 fertige Tools` · `1026 Tests grün (72 Suiten)` · `5 Lokalisationen` · `MIT` · `Node 20+`
+> `v1.9.20` · `113 fertige Tools` · `1026 Tests grün (72 Suiten)` · `5 Lokalisationen` · `MIT` · `Node 20+`
 
 > ⚠️ **Übersetzung** — Deutsche Fassung von [README.md](README.md). Englisch ist die maßgebliche Version (canonical); bei Abweichungen gilt README.md. Diese Datei bei Änderungen am Original mit synchronisieren.
 
@@ -181,7 +181,7 @@ Ein Plugin ersetzt eine ganze Regalwand. Hier ist jede Familie, was sie abdeckt 
 
 ---
 
-## Release-Highlights (voller Verlauf → CHANGELOG_v4.md — aktiv; v1–v3 in docs/history/)
+## Release-Highlights (voller Verlauf → CHANGELOG_v5.md — aktiv; v1–v4 in docs/history/)
 
 | Version | Schlagzeile |
 |---|---|

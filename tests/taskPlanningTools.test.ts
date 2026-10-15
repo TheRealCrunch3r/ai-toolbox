@@ -14,6 +14,10 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
+// 🔹 FIX-B (14.10): encode() pins the REAL production context-store format in the supersede-on-close-out tests —
+// ContextStorageManager.load()/removeEntriesMatching() must operate on genuine msgpack, not a mock stand-in.
+import { encode } from '@msgpack/msgpack';
+
 import type { PluginConfig } from '../src/config';
 import { registerTaskPlanningTools } from '../src/tools/taskPlanningTools';
 import { setWorkingDir, resetWorkingDir } from '../src/workingDir';
@@ -187,5 +191,148 @@ describe('task planning tools — plan removal lifecycle (PLAN-HYGIENE 05.10)', 
     expect(g.success).toBe(true);
     const data = g.data as { planId?: string };
     expect(String(data.planId ?? '')).toBe(older); // falls through to the surviving older plan
+  });
+});
+
+
+// ==================== FIX-B (14.10): supersede-on-close-out ====================
+/**
+ * Fix B — when an arc/plan closes out (natural completion OR explicit remove_plan), machine-tracked open-item
+ * context entries that accrued during the arc's lifetime are retired, so a closed arc never leaves its pending
+ * items looking active to future sessions. STRICT eligibility: tagged 'auto_track' + type 'decision' +
+ * timestamp >= plan.createdAt. Explicitly recorded owner content (no machine tag) and pre-arc entries survive.
+ */
+
+/** Write real msgpack context entries into the hermetic working dir's shared store file (production format). */
+function seedContextEntries(wd: string, entries: Record<string, unknown>[]): void {
+  const memDir = path.join(wd, '.session_context');
+  fs.mkdirSync(memDir, { recursive: true });
+  fs.writeFileSync(path.join(memDir, '.ai_toolbox_memory.msgpack'), encode(entries));
+}
+
+function readContextEntries(wd: string): Record<string, unknown>[] {
+  const memPath = path.join(wd, '.session_context', '.ai_toolbox_memory.msgpack');
+  if (!fs.existsSync(memPath)) return [];
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { decode } = require('@msgpack/msgpack') as { decode: (buf: Buffer) => unknown };
+  const raw = decode(fs.readFileSync(memPath));
+  return Array.isArray(raw) ? (raw as Record<string, unknown>[]) : [];
+}
+
+describe('task planning tools — supersede-on-close-out (FIX-B 14.10)', () => {
+  let tmpDir: string;
+  let byName: Map<string, PlanToolStub>;
+
+  const invoke = async (name: string, args: Record<string, unknown> = {}): Promise<ToolEnvelope> => {
+    const t = byName.get(name);
+    if (!t || !t.implementation) throw new Error(`tool '${name}' missing or lacks implementation`);
+    return await t.implementation(args);
+  };
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fixb-'));
+    expect(setWorkingDir(tmpDir)).toBe(true); // point ALL plan + context storage at the isolated dir
+    const tools = registerTaskPlanningTools(null as unknown as PluginConfig) as unknown as PlanToolStub[];
+    byName = new Map(tools.map((t) => [t.name, t]));
+  });
+
+  afterEach(() => {
+    resetWorkingDir(); // established convention — never leak CWD state between tests
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  const makePlan = async (steps: string[]): Promise<string> => {
+    const res = await invoke('create_plan', { goal: `goal (${steps.length} steps)`, steps });
+    expect(res.success).toBe(true);
+    return String((res.data as { planId?: string }).planId ?? '');
+  };
+
+  /** Seed the three entry classes that must behave differently at close-out. */
+  const seedArcEntries = (createdAt: number): void => {
+    const tDuringArc = createdAt + 5000; // inside the arc's lifetime → eligible
+    seedContextEntries(tmpDir, [
+      { id: 'auto_track_decision_during', timestamp: tDuringArc, date: new Date(tDuringArc).toISOString(), type: 'decision', title: 'machine gate decision', content: 'auto-tracked during this arc', tags: ['auto_track', 'gate'] }, // RETIRED at close-out
+      { id: 'owner_decision_during', timestamp: tDuringArc, date: new Date(tDuringArc).toISOString(), type: 'decision', title: 'explicitly recorded decision', content: 'track_important_event owner content — no machine tag' }, // SURVIVES (strict predicate)
+      { id: 'auto_track_decision_before', timestamp: createdAt - 60_000, date: new Date(createdAt - 60_000).toISOString(), type: 'decision', title: 'machine decision from earlier work', content: 'accrued before this arc started', tags: ['auto_track', 'gate'] }, // SURVIVES (pre-arc)
+    ]);
+  };
+
+  const completeAllSteps = async (planId: string, stepCount: number): Promise<ToolEnvelope> => {
+    let last: ToolEnvelope = { success: false, error: 'not started' };
+    for (let i = 0; i < stepCount; i += 1) {
+      last = await invoke('update_plan_step', { planId, index: i, status: 'in_progress' });
+      expect(last.success).toBe(true);
+      const terminal = await invoke('update_plan_step', { planId, index: i, status: 'done' });
+      if (i === stepCount - 1) last = terminal;
+    }
+    return last;
+  };
+
+  it('NATURAL completion retires only machine-tracked entries accrued during the arc', async () => {
+    const id = await makePlan(['a']);
+    const createdAt = Number((readStore(tmpDir)[id] as Record<string, Json>)?.createdAt ?? Date.now());
+    seedArcEntries(createdAt);
+
+    const terminal = await completeAllSteps(id, 1);
+    expect(terminal.success).toBe(true);
+    const data = terminal.data as Record<string, Json>;
+    expect(data.removedOnCompletion).toBe(true); // plan itself removed per house rule (unchanged)
+    expect(Number(data.retiredContextEntries)).toBe(1); // exactly the eligible machine entry
+
+    // Disk: eligible entry gone; owner decision + pre-arc machine entry survive, file still valid msgpack.
+    const survivors = readContextEntries(tmpDir).map(e => e.id).sort();
+    expect(survivors).toEqual(['auto_track_decision_before', 'owner_decision_during']);
+  });
+
+  it('remove_plan dry-run PREVIEWs the retirement without writing (byte-identical store)', async () => {
+    const id = await makePlan(['x', 'y']);
+    const createdAt = Number((readStore(tmpDir)[id] as Record<string, Json>)?.createdAt ?? Date.now());
+    seedArcEntries(createdAt);
+    expect(await invoke('update_plan_step', { planId: id, index: 0, status: 'in_progress' })).toMatchObject({ success: true });
+
+    const memBefore = fs.readFileSync(path.join(tmpDir, '.session_context', '.ai_toolbox_memory.msgpack'));
+    const plansBefore = fs.readFileSync(planFileOf(tmpDir), 'utf-8');
+
+    const preview = await invoke('remove_plan', { planId: id }); // no confirm → dry-run
+    expect(preview.success).toBe(true);
+    expect(preview.dryRun).toBe(true);
+    const d = preview.data as Record<string, Json>;
+    expect(Number(d.wouldRetireContextEntries)).toBe(1);
+    expect(readStore(tmpDir)[id]).toBeDefined(); // plan still present
+
+    expect(fs.readFileSync(path.join(tmpDir, '.session_context', '.ai_toolbox_memory.msgpack')).equals(memBefore)).toBe(true); // pure read
+    expect(fs.readFileSync(planFileOf(tmpDir), 'utf-8')).toBe(plansBefore);
+  });
+
+  it('remove_plan with confirm retires machine entries and removes the plan (owner + pre-arc entries survive)', async () => {
+    const id = await makePlan(['x']);
+    const createdAt = Number((readStore(tmpDir)[id] as Record<string, Json>)?.createdAt ?? Date.now());
+    seedArcEntries(createdAt);
+
+    const res = await invoke('remove_plan', { planId: id, confirm: true });
+    expect(res.success).toBe(true);
+    const d = res.data as Record<string, Json>;
+    expect(d.removed).toBe(true);
+    expect(Number(d.retiredContextEntries)).toBe(1);
+    expect(Object.keys(readStore(tmpDir))).toEqual([]); // plan store empty but valid
+
+    const survivors = readContextEntries(tmpDir).map(e => e.id).sort();
+    expect(survivors).toEqual(['auto_track_decision_before', 'owner_decision_during']);
+  });
+
+  it('close-out with NO eligible entries reports 0 and leaves the context store byte-identical', async () => {
+    const id = await makePlan(['x']);
+    const createdAt = Number((readStore(tmpDir)[id] as Record<string, Json>)?.createdAt ?? Date.now());
+    seedArcEntries(createdAt);
+    // Retire nothing yet eligible by removing the only machine entry's eligibility: rewrite store without it.
+    const memPath = path.join(tmpDir, '.session_context', '.ai_toolbox_memory.msgpack');
+    seedContextEntries(tmpDir, readContextEntries(tmpDir).filter(e => e.id !== 'auto_track_decision_during'));
+    // 🔹 GATE-RED FIX (14.10): baseline captured AFTER the eligibility rewrite — round-1 gate RED was this line sitting ABOVE it:
+    // the byte-compare then ran a 2-entry post-close-out store against a 3-entry pre-rewrite baseline (guaranteed mismatch) even
+    // though close-out performed zero writes. Production untouched; one-line move only.
+    const before = fs.readFileSync(memPath);
+
+    await completeAllSteps(id, 1); // natural completion — nothing eligible to retire
+    expect(fs.readFileSync(memPath).equals(before)).toBe(true); // zero retirement = zero writes (save skipped)
   });
 });

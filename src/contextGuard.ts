@@ -38,7 +38,7 @@ import { TokenStatsManager, estimateTokensFromChars } from './tokenStatsManager.
 // contextGuard from any module these chain through (only index.ts imports contextGuard at runtime; promptPreprocessor's
 // is type-only).
 import type { SessionSummaryData } from './tools/contextManagementTools.js';
-import { parseSessionContinuity, persistGeneratedSessionSummary } from './sessionSummaryPersist.js';
+import { hasMeaningfulUserContent, parseSessionContinuity, persistGeneratedSessionSummary, stripSummaryArtifacts } from './sessionSummaryPersist.js';
 // FIX B (09.10): PART-B pipeline parity for compressMidLoop() — pre-summarization payload pruning + the canonical
 // AutoTracker checkpoint snapshot (PART B). No import cycle: autoTracker imports only zod (+ a deferred dynamic
 // import of tools/contextManagementTools.js, which never references contextGuard); workingDir is dependency-free.
@@ -699,6 +699,19 @@ SUMMARY:`;
       debugLog('[CONTINUITY]', 'Empty message list — nothing to summarize');
       return null;
     }
+    // ARC C2a (15.10, owner GO): empty-history gate at the single choke point all three Arc-C trigger sites flow
+    // through (promptPreprocessor PART B / compressMidLoop step 3 / any future caller). A summarization window with
+    // NO meaningful user-role content has nothing to summarize — observed 14.10 failure class: a small local model
+    // asked to summarize an empty history narrated ITS task ("No user request was provided in the conversation
+    // history.") and that junk row got persisted + indexed. Skip BEFORE the model call (no spend, no persistence).
+    if (!hasMeaningfulUserContent(messagesToSummarize)) {
+      // 15.10 owner report: this EXPECTED-OPERATIONAL notice must not land on stderr — Node routes console.warn to
+      // stderr and the LM Studio host renders plugin stderr lines at ERROR level, so a by-design gate skip read as a
+      // failure in the log file. Rerouted warn→log (stdout) with byte-identical text; severity marker stays ⚠️ in-text
+      // (module convention — cf. Tiktoken fallback notices + compressHistory's "instead of stderr logging" precedent).
+      console.log('[ContextGuard] ⚠️ Arc C continuity SKIPPED: no meaningful user-role content in the summarization window (empty/agent-only history) — skipping summary generation + persistence');
+      return null;
+    }
 
     try {
       const model = await this.getCachedModel(modelId);
@@ -755,6 +768,14 @@ ${historyText}`;
         if (!parsed) {
           console.warn('[ContextGuard] ⚠️ Arc C continuity output unparsable (no sections found) — telemetry fallback applies');
           return null;
+        }
+
+        // ARC C2b (15.10, owner GO): defense-in-depth at the generate boundary — strip contamination artifacts
+        // (LSEP tokens / echoed placeholder / reasoning preamble) from every parsed field before returning. The
+        // persist entry points strip independently too; this keeps whatever is returned here clean for any consumer
+        // that does not route through persistGeneratedSessionSummary().
+        for (const key of ['task_description', 'accomplishments', 'pending_tasks', 'decisions_made', 'context_for_next_session'] as const) {
+          parsed[key] = stripSummaryArtifacts(parsed[key] ?? '');
         }
 
         debugLog('[CONTINUITY]', `Generated structured session summary (${rawContent?.length ?? 0} chars raw)`);

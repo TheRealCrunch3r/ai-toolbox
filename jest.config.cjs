@@ -91,6 +91,10 @@ module.exports = {
     // compression-time session-memory save — first .js-suffixed import of this module in any test-loaded graph; same
     // RC#4 class as the toolsProvider entry above; per-file form only (G9 round-2), real-src target.
     '^\\.\\/sessionSummaryPersist\\.js$': '<rootDir>/src/sessionSummaryPersist.ts',
+    // ARC C2b (15.10): src/tools/contextManagementTools.ts DYNAMICALLY imports '../sessionSummaryPersist.js' inside the
+    // save_session_summary implementation for stripSummaryArtifacts() — two-dot form emitted from src/tools/; same RC#4 class,
+    // per-file entry only (G9 round-2), real-src target. First test to exercise it: stateManagerDataLoss.test.ts.
+    '^\\.\\./sessionSummaryPersist\\.js$': '<rootDir>/src/sessionSummaryPersist.ts',
 
     // FIX #21 two-tier arc (09.10): src/toolsProvider.ts value-imports './promptPreprocessor.js' for
     // getContextGetter() — NEW specifier, first .js-suffixed import of promptPreprocessor in any test-loaded graph; same

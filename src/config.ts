@@ -146,6 +146,7 @@ export const ConfigSchema = z.object({
   // ── 🧠 CONTEXT GUARD SETTINGS ───────────────────────────────────
   contextGuardEnabled: z.boolean().default(true).describe('Enable ContextGuard token management and history compression'),
   contextGuardCompressionPercent: z.number().min(50).max(100).default(90).describe('History compression triggers at this percentage of the effective context window (the active model\'s reported window; built-in 30k fallback when unavailable)'),
+  contextGuardAgenticDensity: z.number().min(1).max(20).default(3.6).describe('Chars-per-token density used to estimate token counts from character length for agentic content (prose + tool output mix; live-measured band ~3.2-3.4, see provenance in tokenStatsManager.ts)'),
   contextGuardForceSummaryOnCompress: z.boolean().default(true).describe('Forced cross-session continuity save (07.10 arc C): when compression triggers, a structured session summary is generated via the Summary Model and persisted BEFORE history is compressed'),
   contextGuardSmartReading: z.boolean().default(true).describe('Enable keyword-based smart file reading'),
   contextGuardSummaryModel: z.string().default('').describe('LM Studio model name for summarization (leave empty to use current chat model)'),
@@ -269,6 +270,7 @@ stateMaxSize: 262144,
   contextGuardEnabled: true,
 
   contextGuardCompressionPercent: 90, // 📊 ContextGuard: compression trigger as % of effective context window (replaces absolute contextGuardTokenLimit, 07.10)
+  contextGuardAgenticDensity: 3.6, // 🔢 agentic chars-per-token density (user-editable menu field, 15.10) — default raised 3.4→3.6 on 15.10 owner instruction (ABOVE the live-measured band ~3.2-3.4; not probe-justified); provenance in tokenStatsManager.ts
   contextGuardForceSummaryOnCompress: true, // 💾 Arc C (07.10): forced structured session-memory save at the compression trigger — generated before history destruction; telemetry checkpoint remains the fallback on any failure
 
   contextGuardSmartReading: true,
@@ -745,6 +747,15 @@ export const configSchematics = createConfigSchematics()
     min: 50, max: 100, int: true,
     hint: 'History compression triggers when context usage reaches this percentage of the active model\'s context window. If LM Studio reports the model\'s real window it is used; otherwise a built-in 30k fallback applies.',
   }, DEFAULT_CONFIG.contextGuardCompressionPercent)
+
+  // 🔢 Agentic chars-per-token density (15.10 owner request "make it user editable"): reseeded per turn into the
+  // tokenStatsManager live state by promptPreprocessor.preprocess(); changing it here NEVER requires a test edit.
+  .field('contextGuardAgenticDensity', 'numeric', {
+    displayName: '🔢 Agentic Chars-per-Token Density',
+    subtitle: '⚙️ ContextGuard Setting',
+    min: 1, max: 20, step: 0.1,
+    hint: 'Chars per token used to estimate tokens from character length (agentic mix of prose + tool output; live-measured band ~3.2-3.4 — default 3.6 is owner-set above that band). Higher = denser content = fewer estimated tokens; lower estimates more and triggers compaction earlier.',
+  }, DEFAULT_CONFIG.contextGuardAgenticDensity)
 
   // 💾 Arc C (07.10): forced structured session-memory save at the compression trigger — generated + persisted BEFORE history destruction (see persistGeneratedSessionSummary); non-fatal by design, the telemetry checkpoint stays as fallback.
   .field('contextGuardForceSummaryOnCompress', 'boolean', {
