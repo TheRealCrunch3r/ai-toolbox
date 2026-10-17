@@ -2,6 +2,23 @@
 
 > Supersedes `CHANGELOG_v4.md`. Active changelog for version 1.9.20.
 
+## [16.10.2026 ~19:1x–20:3x] — ARC-RESTORE: one-shot `verification_checkpoint` lifecycle + restore-side hardening (F3) + reader-alarm / checkpoint-write house rules (F1/F2); canon 74 suites / **1064** tests
+
+**Scope:** close of the owner-GO'd "do all the fixes and optimizations" arc. F1 = reader-alarm discipline, F2 = checkpoint write protocol (invariant + precondition + expiry + closure-on-read; under it, the stale C1 count-checkpoint was evaluated and closed as benign per protocol and `sessions.json` re-anchored at total_count=28), F3 = code: tag-driven one-shot lifecycle for `verification_checkpoint` entries plus restore-side renderer hardening.
+
+**Changes:**
+- **F3 checkpoint lifecycle (`src/tools/contextManagementTools.ts`):** new export `VERIFICATION_CHECKPOINT_TAG='verification_checkpoint'`; `mergeEntriesWithTiers` defaults no-scope, checkpoint-tagged entries to scope:'session' (SESSION_TTL_MS 24 h) with inline reap in `addEntry`; explicit writer scope respected, no silent override.
+- **F3 restore-side hardening (`src/tools/restoreSessionContextTool.ts`):** per-entry age labels (`· age Nd` / fresh); `TOP_N_SUBSTANTIVE=10` cap on substantives plus a pointer line for older entries; additive JSON field `context_stale_fraction` (fraction of entries >3 d) replaces newest-only boolean math while preserving the boolean contract and the "context=true" text pin, header now renders e.g. `context=false · 0% of entries >3d`; live verification_checkpoint entries get a one-shot staleness warning; tool description updated.
+- **F1/F2:** persisted as house rules (memory entries) - no code.
+
+**Tests:** +6 inside existing suites (74/1058 -> 74/1064): `tests/contextLifecycleFixA.test.ts` F3.1-F3.3 (default scope + exact-24 h TTL on disk; explicit scope respected with no TTL attached; expired checkpoint reaped inline, fresh survives) and `tests/restoreSessionContext.test.ts` F3.R1-R3 (fraction staleness + age label, top-N cap + pointer, one-shot labeling); hermetic temp-store rewrites with byte-restore in finally.
+
+**Verification:** OWNER GATE GREEN 16.10 ~20:3x: `npx tsc --noEmit` clean, lint 0 problems, jest **74 suites / 1064 tests all passed in ~21 s**. Round 1 of the gate loop closed one production TDZ defect (staleFractionPct used before declaration; fixed by hoisting above headerLines construction); residual round-2 items were test-side only (fixture shapes re-stamped to post-fix disk shape, age-label pin corrected 'age 0d' -> 'age fresh') - zero product-behavior gaps remained after the TDZ fix.
+
+**Canon:** 74 suites / **1064** tests (prev entry's 74/1058 + exactly 6 = the new F3/F3.R tests; both deltas explained, zero drift).
+
+---
+
 ## [15.10.2026 ~19:2x–20:0x] — Arc C log-channel fix + agentic density made user-editable (default 3.4 → 3.6) + changelog rotation to history
 
 **Scope:** source-side close of the owner request "make AGENTIC_CHARS_PER_TOKEN user editable" plus the follow-on default raise, a two-notice stderr→log reroute for Arc C operational lines, and the CHANGELOG_v4 rotation into `docs/history/` (v5 active). Yesterday's ARC-A/B/C session-memory work remains documented in the now-archived v4.
@@ -18,7 +35,7 @@
 
 **Verification:** OWNER GATES GREEN twice (15.10 ~19:3x and ~19:52): `npx tsc --noEmit && npm run lint && npx jest` → 0/0 + **74/1058 in ~21 s**, incl. the density default raise with zero test edits. Pre-commit re-run at commit time (docs-only additions since — no code delta).
 
-**Next owner-side steps:** dist rebuild + LM Studio reload → verify [TokenDebug] est drops ~5% for same content, Arc C skip lines at INFO not ERROR; Hub/GitHub publish decision; README Release-Highlights table still missing v1.9.20/v1.9.19 rows (+ localized mirrors).
+**Next owner-side steps:** dist rebuild + LM Studio reload → verify [TokenDebug] est drops ~5% for same content, Arc C skip lines at INFO not ERROR; Hub/GitHub publish decision. (CLOSED 16.10: README Release-Highlights rows v1.9.20/v1.9.19 landed in all five live README tables + the release summary below; rotation-missed stale changelog links repaired in the same pass — see entry appended under Previous entries.)
 
 ---
 
@@ -46,3 +63,16 @@
 ## Previous entries
 
 Full history up to v1.9.19: [`docs/history/CHANGELOG_v4.md`](docs/history/CHANGELOG_v4.md) (archived 15.10 rotation; older volumes in `docs/history/`).
+
+### [16.10.2026 ~17:5x] — README Release-Highlights close-out (pending #2): v1.9.20 + v1.9.19 rows added to all six locales · release summary pinned here · rotation-missed stale changelog links repaired
+
+**Scope:** docs-only — zero code/tests touched, gate trio not applicable by construction. Closes the carried item "README Release-Highlights table still missing v1.9.20/v1.9.19 rows (+ localized mirrors)".
+
+**Release summary (source for the README table rows):** **v1.9.20** — version-move release (`manifest.json` `version` → v1.9.20 on 15.10 ~18:54, revision reset to 0; current state per manifest/package) folding the ENTIRE rev-3x pile since the last GitHub publish (rev 30, 15.09): FIX-35c + WALK-ABORT (28.09 — archived in `docs/history/CHANGELOG_v3.md`), CONTAMINATION-FIX + jest flag independence (01.10), CTX-FOOTER family (02.–04.10: footer → object surface → fail-loud warn → publish hardening), 05.10 arcs (SM-VERIFY · THRESHOLD-MARKER · PLAN-REMOVAL), 06.10 arcs (PLAN-SEAM · A3 close-out · F1 wording · i18n-CONFIRM + the rev-lock lift to v1.9.20 rev 0 itself), the unlogged Arc-C sweep of 07.10 (+3 suites / +35 tests — lineage gap on record in the ARC-B digest), LEVER-1 (08.10, wire −1,326 chars / −3.55%), FIX #21 two-tier mid-loop forced save (09.10), TWO-TIER close-out Fix A user-visible threshold notice + Fix B pre-emptive 95% compression (10.10 — shipped live ~13:1x), TOKEN-DIVERGENCE measured estimator `AGENTIC_CHARS_PER_TOKEN` = 3.2 (10.11) and SESSION-MEMORY ARCS A/B/C full 3-defect remediation closed owner-GREEN (14.–15.10; C1 dedupe verified live on disk + in the owner log); canon **74 suites / 1058 tests** since this file's top entry (density-adaptive test rewrite, zero test edits for the 3.4 → 3.6 default raise). **v1.9.19** — UNRELEASED LABEL: package.json moved v1.9.18 → v1.9.20 directly on 06.10 (rev-lock lift), so no code shipped under v1.9.19; the manifest's `version` field carried it until the 15.10 version move, and its rev-0 unstick flip (owner order 15.10 ~18:4x — recorded in `docs/history/CHANGELOG_v4.md`) made the pile detectable for the Hub publish. The README rows state exactly this (no invented v1.9.19 feature list).
+
+**Changes:**
+- **All five live READMEs** (`README.md`, `.de`, `.es`, `.zh-CN`, `.zh-TW`; the owner-local `README.MD_LMS_HUB_SIMPLE.md` was removed from disk 15.10 and is git-excluded — out of scope): two new rows inserted at the TOP of the Release-Highlights table (`v1.9.20` release-move digest + `v1.9.19` unreleased-label row), each localized to match that file's existing style; `.bak` baseline per edit (house rule).
+- **Rotation-missed stale links repaired in the same pass** (the 15.10 rotation re-pointed only the section headers — audit found these leftovers): (a) broken Docs-row href `<a href="CHANGELOG_v4.md">Changelog</a>` → `CHANGELOG_v5.md` in all six READMEs (target file no longer exists at root); (b) stale TOC entry "…CHANGELOG_v4.md (active/aktiv/activo/活跃), v1–v3…" re-pointed to CHANGELOG_v5 + v1–v4 in de/es/zh-CN/zh-TW, and README.md's broken in-page anchor (`#release-highlights-full-history--changelog_v4md--…`) shortened to `#release-highlights` (resolves against the current header).
+- **This file:** top entry's "Next owner-side steps" gains a dated CLOSED note for the doc item only (dist-reload/publish items remain open, unverified details not claimed); this release summary appended under Previous entries.
+
+**Verification:** pattern-scan audit — `| **v1.9.20** |` present in all six READMEs · zero remaining `href="CHANGELOG_v4.md"` or "v1–v3" TOC wording in live docs (residual hits confined to dated historical entries in `docs/history/*`, untouched per house rule) · EOL/BOM re-check post-edit on each touched file. Gate trio: NOT applicable — zero src/tests bytes changed.

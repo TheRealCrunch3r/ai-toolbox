@@ -369,4 +369,84 @@ describe('restore_session_context', () => {
       await fs.writeFile(storePath, encode(records));
     }
   });
+
+  // ==================== ARC-RESTORE F3 (16.10) — restore-side hardening: fraction staleness + age labels + top-N cap ====================
+
+  test('F3.R1 family staleness is the FRACTION of entries >3d (not newest-only), with per-entry age label', async () => {
+    // Seed has exactly 3 live context entries (2 fresh global auto-checkpoints + 1 decision). Aging ONLY the
+    // decision past 3 days must flip the family to stale AND surface 1/3 in both JSON and header.
+    const ctxPath = path.join(sessionCtxDir, '.ai_toolbox_memory.msgpack');
+    // CJS require (NOT native dynamic import) — same note as the other require() sites in this file.
+    const { decode } = require('@msgpack/msgpack') as typeof import('@msgpack/msgpack');
+    const originalBytes = await fs.readFile(ctxPath);
+    const ctxRecords = decode(originalBytes) as Array<Record<string, any>>;
+    const decIdx = ctxRecords.findIndex(r => r.id === 'ctx_dec_1');
+    expect(decIdx).toBeGreaterThanOrEqual(0);
+    ctxRecords[decIdx].timestamp = NOW - 5 * DAY_MS; // >3d stale (the other two entries stay fresh); restore is byte-based below
+    await fs.writeFile(ctxPath, encode(ctxRecords));
+
+    try {
+      const res = (await toolImpl!({})) as Record<string, unknown>;
+      const data = res.data as Record<string, any>;
+      expect(data.staleness.context_entries).toBe(true);            // boolean contract preserved (any stale)
+      expect(data.context_stale_fraction).toBeCloseTo(1 / 3, 2);    // NEW additive field: 1 of 3 live entries >3d
+      const dossier = data.dossier_text as string;
+      expect(dossier).toContain('context=true · 33% of entries >3d'); // fraction label in the header line
+      expect(dossier).toContain('· age 5d');                          // per-entry age label on the decision section
+    } finally {
+      await fs.writeFile(ctxPath, originalBytes);
+    }
+  });
+
+  test('F3.R2 substantive sections are capped at top-10 (newest first) with a pointer line for the rest', async () => {
+    const ctxPath = path.join(sessionCtxDir, '.ai_toolbox_memory.msgpack');
+    const { decode } = require('@msgpack/msgpack') as typeof import('@msgpack/msgpack');
+    const originalBytes = await fs.readFile(ctxPath);
+    // 12 fresh global-scope decisions, staggered hourly so i=0 is newest and all are <3d old.
+    const twelve: Array<Record<string, any>> = [];
+    for (let i = 0; i < 12; i++) {
+      twelve.push({
+        id: `ctx_f3_cap_${i}`, timestamp: NOW - (i + 1) * 3600 * 1000, date: 'f3-cap-date', type: 'decision',
+        title: `F3CAP decision ${i}`, content: `F3CAP-BODY-${i} unique body.`, tags: [], scope: 'global',
+        frequency: 1, project_path: STORE_STAMP,
+      });
+    }
+    await fs.writeFile(ctxPath, encode(twelve));
+
+    try {
+      const res = (await toolImpl!({})) as Record<string, unknown>;
+      const data = res.data as Record<string, any>;
+      expect(data.counts.non_auto_context_entries).toBe(12); // counts still reflect the FULL live set
+      const dossier = data.dossier_text as string;
+      for (let i = 0; i < 10; i++) expect(dossier).toContain(`F3CAP-BODY-${i}`);   // newest ten rendered in full
+      for (let i = 10; i < 12; i++) expect(dossier).not.toContain(`F3CAP-BODY-${i}`); // …and only those
+      expect(dossier).toContain('2 older substantive context entrie(s) omitted (top-10 shown, newest first)');
+      expect(dossier).toContain('· age fresh'); // per-entry age labels — hourly-fresh (<1d) entries render as "fresh" by design (fmtAgeDays)
+    } finally {
+      await fs.writeFile(ctxPath, originalBytes);
+    }
+  });
+
+  test('F3.R3 live verification_checkpoint entry is labeled ONE-SHOT (must not masquerade as a standing fact)', async () => {
+    const ctxPath = path.join(sessionCtxDir, '.ai_toolbox_memory.msgpack');
+    const { decode } = require('@msgpack/msgpack') as typeof import('@msgpack/msgpack');
+    const originalBytes = await fs.readFile(ctxPath);
+    // Session-scoped + 24h TTL (exactly what mergeEntriesWithTiers now stamps for the tag) so it stays LIVE here.
+    const vc: Record<string, any> = {
+      id: 'ctx_f3_vc_live', timestamp: NOW - DAY_MS / 2, date: 'f3-vc-date', type: 'decision',
+      title: 'C1 count-checkpoint (expect total_count=26; 27 = red flag)',
+      content: 'VC-UNIQUE-BODY first reader must evaluate once and supersede.',
+      tags: ['verification_checkpoint'], scope: 'session', ttl_ms: DAY_MS, frequency: 1, project_path: STORE_STAMP,
+    };
+    await fs.writeFile(ctxPath, encode([...(decode(originalBytes) as Array<Record<string, any>>), vc]));
+
+    try {
+      const res = (await toolImpl!({})) as Record<string, unknown>;
+      const dossier = (res.data as Record<string, any>).dossier_text as string;
+      expect(dossier).toContain('VC-UNIQUE-BODY'); // the checkpoint itself renders while live…
+      expect(dossier).toContain('ONE-SHOT VERIFICATION CHECKPOINT — evaluate once on first read'); // …but labeled one-shot
+    } finally {
+      await fs.writeFile(ctxPath, originalBytes);
+    }
+  });
 });

@@ -2,8 +2,8 @@
 <a href="README.md">English</a> · <a href="README.de.md">Deutsch</a> · <a href="README.es.md">Español</a> · <b>简体中文</b> · <a href="README.zh-TW.md">繁體中文</a><br/>
 <h1>AI Toolbox —— 面向 LM Studio 本地 LLM 的一体化自主 AI Agent & 工具插件</h1><hr/>
 <b>给你的本地 LLM 一双真正的手。</b> 最完整的 LM Studio Hub 插件——把任意本地模型变成能干、自管理的 AI 智能体。<br/>自管理上下文让马拉松式会话保持存活 · 一个插件，零胶水代码，默认完全离线。
-<br/><a href="#"><img src="https://img.shields.io/badge/version-v1.9.20-2f80ed?style=plastic" alt="version v1.9.20"/></a> <a href="#the-tool-arsenal-113-tools-across-every-family-all-yours-to-toggle"><img src="https://img.shields.io/badge/tools-113%20ready--made-7c3aed?style=plastic" alt="tools 113 ready-made"/></a> <a href="#quick-start-2-minutes"><img src="https://img.shields.io/badge/tests-72%20suites%20%C2%B7%201026%20green-3fb950?style=plastic" alt="tests 72 suites · 1026 green"/></a> <a href="#"><img src="https://img.shields.io/badge/LM%20Studio-Hub%20plugin-e84393?style=plastic" alt="LM Studio Hub plugin"/></a> <a href="LICENSE"><img src="https://img.shields.io/github/license/TheRealCrunch3r/ai-toolbox?style=plastic" alt="license MIT (live-verified from LICENSE)"/></a> <a href="#"><img src="https://img.shields.io/badge/runtime-Node%20%E2%89%A5%2020-83cd29?style=plastic&logo=node.js" alt="runtime Node ≥ 20"/></a><br/>
-<b>Docs:</b> <a href="DOCUMENTATION.md">Documentation</a> · <a href="QUICK_START.md">Quick Start</a> · <a href="ARCHITECTURE.md">Architecture</a> · <a href="TOOLS_REFERENCE.md">Tool Reference</a> · <a href="CHANGELOG_v4.md">Changelog</a><br/>
+<br/><a href="#"><img src="https://img.shields.io/badge/version-v1.9.20-2f80ed?style=plastic" alt="version v1.9.20"/></a> <a href="#the-tool-arsenal-113-tools-across-every-family-all-yours-to-toggle"><img src="https://img.shields.io/badge/tools-113%20ready--made-7c3aed?style=plastic" alt="tools 113 ready-made"/></a> <a href="#quick-start-2-minutes"><img src="https://img.shields.io/badge/tests-74%20suites%20%C2%B7%201064%20green-3fb950?style=plastic" alt="tests 74 suites · 1064 green"/></a> <a href="#"><img src="https://img.shields.io/badge/LM%20Studio-Hub%20plugin-e84393?style=plastic" alt="LM Studio Hub plugin"/></a> <a href="LICENSE"><img src="https://img.shields.io/github/license/TheRealCrunch3r/ai-toolbox?style=plastic" alt="license MIT (live-verified from LICENSE)"/></a> <a href="#"><img src="https://img.shields.io/badge/runtime-Node%20%E2%89%A5%2020-83cd29?style=plastic&logo=node.js" alt="runtime Node ≥ 20"/></a><br/>
+<b>Docs:</b> <a href="DOCUMENTATION.md">Documentation</a> · <a href="QUICK_START.md">Quick Start</a> · <a href="ARCHITECTURE.md">Architecture</a> · <a href="TOOLS_REFERENCE.md">Tool Reference</a> · <a href="CHANGELOG_v5.md">Changelog</a><br/>
 <a href="CONTRIBUTING.md">Contributing</a> · <a href="SECURITY.md">Security</a><br/>
 <br>
 <b>🚀 快速安装：</b> <a href="https://lmstudio.ai/crunch3r/ai-toolbox">从 LM Studio Hub 获取 AI Toolbox</a> <br> OR </br>
@@ -16,7 +16,7 @@
 
 **给你的本地 LLM 装上真正的手。** LM Studio Hub 上最完整的插件 —— 把任意本地模型变成一个有能力、自我管理的 AI Agent，具备安全的文件编辑、绝不挂起的代码库搜索、后台构建、无头浏览器自动化、Git & GitHub 工作流、OCR、图表生成和语义 RAG；**自管理上下文**让马拉松式会话保持存活。一个插件，零胶水代码，默认完全离线。
 
-> `v1.9.20` · `113 个即用工具` · `1026 项测试通过（72 个套件）` · `5 种语言本地化` · `MIT` · `Node 20+`
+> `v1.9.20` · `113 个即用工具` · `1064 项测试通过（74 个套件）` · `5 种语言本地化` · `MIT` · `Node 20+`
 
 > ⚠️ **译文声明** —— 本文件为 [README.md](README.md) 的简体中文版。英文版为准（canonical），如有出入以 README.md 为准；原文变更时请同步更新本文件。
 
@@ -24,7 +24,7 @@
 
 ## 目录
 
-[为什么选 AI Toolbox（对比其他插件）] · [正面对比评测] · [功能概览] · [快速上手（2 分钟）] · [配置与工具开关 —— 完全控制，零代码] · [安全姿态 —— 按重要标准打造] · [架构内幕（供好奇者）] · [工具军火库：113 个工具] · [版本亮点 —— 完整历史见 CHANGELOG_v4.md（活跃），v1–v3 在 docs/history/]
+[为什么选 AI Toolbox（对比其他插件）] · [正面对比评测] · [功能概览] · [快速上手（2 分钟）] · [配置与工具开关 —— 完全控制，零代码] · [安全姿态 —— 按重要标准打造] · [架构内幕（供好奇者）] · [工具军火库：113 个工具] · [版本亮点 —— 完整历史 → CHANGELOG_v5.md —— 活跃；v1–v4 在 docs/history/]
 
 *目录为纯文本列表（无锚点链接）；各节标题对应下文标题。*
 
@@ -61,7 +61,7 @@ Hub 上最接近的直接竞品：同样的活儿（给本地 LLM 提供工具�
 | ✅ **AST 级重构**（重命名、移动函数、清理无用 import）—— 语法安全变换带自动回滚，不是字符串编辑 |
 | ✅ **真正的 RAG：** 基于 PDF / DOCX / XLSX 的本地向量索引，带页级溯源 —— 不只是关键词搜索 |
 | ✅ **图像与数据可视化：** 对截图和屏幕捕捉做 OCR、图片元数据 + 对比、图表生成 |
-| ✅ **113 个工具** vs ~49 —— 由 72 个套件共 1026 项通过的测试支撑 |
+| ✅ **113 个工具** vs ~49 —— 由 74 个套件共 1064 项通过的测试支撑 |
 | ✅ **崩溃 resilient 的写入 + 失败回滚：** 一次失败的编辑永远不会损坏你的文件 |
 
 我们此前的 i18n 缺口已关闭：**现在提供 5 种语言**（en · de · es · zh-CN · zh-TW），每种都是完整翻译集 —— 并且有反 stub 测试守护套件，保证别名/回退语言不会静默退化。我们宁可直接告诉你，也不假装它不存在。
@@ -116,7 +116,7 @@ PDF、Word 文档与电子表格 → **本地语义向量搜索**（数据不出
 ```bash
 # Developing instead of using?
 npm install && npm run build   # ESM + CJS via tsup
-npm test                        # full suite: 72 suites / 1026 tests green (owner-verified 10.11 TOKEN-DIVERGENCE arc — Class A agentic-density recalibration + Class B wire-shape credit, gate GREEN ~20:1x; prior canon 71/1020 @ 10.10 [TWO-TIER CLOSE-OUT r3] · prior arcs: 68/990 @ 08.10 [LEVER-1], 68/987 @ 07.10 [Arc C sweep — entry unlogged], 65/952 @ 06.10 [DOC-PIN gate] 64/941 @ 06.10 [i18n gate], 64/938 @ 06.10 ×2 [F1 ~16:57 · PLAN-SEAM ~18:0x], 63/931 @ 05.10, 63/930 @ 04.10 ×3, 61/917 @ 04.10, 893/59 @ 02.10, 874/58 @ ~21.5 s on 01.10, 860/56 @ 29.09, 857/56 @ 28.09)
+npm test                        # full suite: 74 suites / 1064 tests green (owner-verified 16.10 ARC-RESTORE gate ~20:3x, +6 tests; prior canon 74/1058 @ 15.10 [SESSION-MEMORY ARC-C close-out ~18:2x + density arc], owner-verified 15.10 — SESSION-MEMORY ARC-C gate ~18:2x, then +1 density setter test in the v5 rotation entry with second trio GREEN ~19:3x/~19:52; prior canon 74/1057 @ 15.10 [SESSION-MEMORY ARC-C], 73/1035 @ 14.10 [ARC-B supersede-on-close-out], 73/1031 @ 14.10 [ARC-A + density restore], 72/1026 @ 10.11 [TOKEN-DIVERGENCE], 71/1020 @ 10.10 [TWO-TIER CLOSE-OUT r3] · prior arcs: 68/990 @ 08.10 [LEVER-1], 68/987 @ 07.10 [Arc C sweep — entry unlogged], 65/952 @ 06.10 [DOC-PIN gate] 64/941 @ 06.10 [i18n gate], 64/938 @ 06.10 ×2 [F1 ~16:57 · PLAN-SEAM ~18:0x], 63/931 @ 05.10, 63/930 @ 04.10 ×3, 61/917 @ 04.10, 893/59 @ 02.10, 874/58 @ ~21.5 s on 01.10, 860/56 @ 29.09, 857/56 @ 28.09)
 ```
 
 ---
@@ -185,6 +185,8 @@ npm test                        # full suite: 72 suites / 1026 tests green (owne
 
 | 版本 | 头条 |
 |---|---|
+| **v1.9.20** | 📦 版本迁移发布 —— 自上次 GitHub 发布（rev 30，15.09）以来的 rev-3x 积压在一次性迁移中合并：会话记忆弧 A/B/C 收尾（TTL 生命周期 + 收尾时取代 + 索引去重/工件剥离）、固定 95% 的抢先中段循环压缩与用户可见阈值通知、工具循环期间的 tier-2 强制保存、可测量 token 估算器（`AGENTIC_CHARS_PER_TOKEN` 3.2 → 用户可编辑 3.6）· 🔍 FIX-35c 防挂起 ReDoS 门禁 + pattern_scan WALK-ABORT（28.09，已归档至 CHANGELOG_v3）· 基准 **74 suites / 1064 tests** — 15.10 owner gate 两次 GREEN |
+| **v1.9.19** | 📦 未发布的标签 —— package.json 已于 06.10 从 v1.9.18 → v1.9.20（解锁 rev）；manifest 的 `version` 字段保持 v1.9.19，直到 15.10 的版本迁移，其 rev-0 unstick 翻转（owner 指令 15.10 ~18:4x）使累积积压对 Hub 发布可检测 —— 此标签下未发布任何代码；见上方 v1.9.20 |
 | **v1.9.18** | 🔒 Suite D 共享文件丢失写修复 —— snap→rename 临界区上的按路径进程内锁（新增 `sharedFileLock.ts`，接入两个写入方）· 🧾 EOL-FIX v4 —— 混合/CRLF 文件上 `replace_text_in_file` 的字节级精确行尾往返 + 经 `get_file_metadata` 报告的编辑前 eol/bom 可见性（同弧内关闭 TS7022 tsc gate 阻塞）· 🧯 PIPELINE HYGIENE D 25.09 —— Tool Execution Pipeline 统一结果分类学 + finalizeContent 不变量、按回合重置 toolsProvider guard、describeError lint 清零、jest RC#4 mapper；全套 836/51 绿 + eslint 干净；docs CHANGELOG_v3 + ARCHITECTURE 已更新 |
 | **v1.9.17** | 💾 工具门控配置档 —— 持久化工具开关（rev 29，14.09 发布）· 🔍 ripgrep TOOL SWAP + 统一项目注册表 + worker 池抖动修复（rev 30，最后一次 GitHub 发布于 15.09）—— 全部 rev-31 工作（DE-STRAngle、AutoTracker F1+F2、聚类感知工具排序、CWD 状态迁移、SPEC-C）随 v1.9.18 交付；⏳ v1.9.18 / rev 33 发布待定（owner 决定） |
 | **v1.9.16** | 🔍 `web_search` 零结果回退修复 —— 死/空引擎不再中断链条 · rev 28：重装 + 重启当天现场验证（被阻塞的 `ddg-api` 跳过 → `ddg-fetch` 返回结果） |

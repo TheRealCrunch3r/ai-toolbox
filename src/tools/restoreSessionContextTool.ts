@@ -34,7 +34,7 @@ import type { StateManager } from '../stateManager.js';
 // name StateManager uses for its writes, not a hardcoded one (see RESEARCH_session-memory-contamination §4).
 import { resolveProjectName } from '../stateManager.js';
 import { getWorkingDir } from '../workingDir.js';
-import { ContextStorageManager, SessionIndexManager } from './contextManagementTools.js';
+import { ContextStorageManager, SessionIndexManager, VERIFICATION_CHECKPOINT_TAG } from './contextManagementTools.js';
 import type { SessionSummaryData } from './contextManagementTools.js';
 import { PlanStorageManager } from './taskPlanningTools.js';
 import type { ActivePlan } from './taskPlanningTools.js';
@@ -51,6 +51,22 @@ const MIN_MAX_CHARS = 1000;
 
 /** Sessions-index depth in the dossier (full history stays reachable via list_sessions/search_sessions). */
 const SESSIONS_INDEX_DEPTH = 8;
+
+// 🔹 ARC-RESTORE (16.10, F3): cap on FULLY RENDERED substantive context sections per restore (newest first —
+// same sort order as before, so the N shown are the N newest). Beyond the cap a single pointer line names the
+// omitted ids and steers to get_context_memory / search_context for targeted recall. Without this bound, mature
+// stores pushed lower-priority families (memory facts, sessions index) past max_chars into the truncation list —
+// observed live 16.10: 8 sections omitted on a ~37-entry store at the default 12k budget.
+const TOP_N_SUBSTANTIVE = 10;
+
+/** 🔹 ARC-RESTORE (16.10, F3): one-shot verification checkpoints (tag `verification_checkpoint`, F2 protocol) get
+ * an explicit "close me once" label while live — they are read-instructions for the FIRST reader, not standing facts. */
+const VERIFICATION_CHECKPOINT_NOTE = 'ONE-SHOT VERIFICATION CHECKPOINT — evaluate once on first read, then supersede with a dated closure entry (F2 protocol)';
+
+function fmtAgeDays(ms: number): string {
+  const d = Math.floor(ms / 86_400_000);
+  return d >= 1 ? `${d}d` : 'fresh';
+}
 
 interface StateEntry { key: string; value: unknown; timestamp: number }
 
@@ -111,7 +127,7 @@ export function registerRestoreSessionContextTool(
 CONTENTS (in priority order when truncation applies):
 1. Latest session summary (full fields + staleness flag)
 2. Persisted execution plans (.ai_toolbox_plans.json — goal, step statuses, progress; "no active plans" when absent)
-3. Context entries in FULL: decisions, patterns, configurations, file changes, errors, manual summaries — newest first. Auto-generated token-threshold checkpoints (tag auto_checkpoint) are collapsed into a single count + date-range + peak-usage line instead of N near-identical blobs
+3. Context entries: decisions, patterns, configurations, file changes, errors, manual summaries — newest first with per-entry age labels; at most ${TOP_N_SUBSTANTIVE} substantive sections render in full (older ones get a pointer line to get_context_memory / search_context). Auto-generated token-threshold checkpoints (tag auto_checkpoint) are collapsed into a single count + date-range + peak-usage line instead of N near-identical blobs
 4. Explicit memory facts (save_memory records)
 5. Recent sessions index (top 8; use list_sessions/search_sessions for older history)
 
@@ -264,6 +280,9 @@ PARAMS: include_sessions_index (default true), max_chars (hard dossier budget, d
 
       // ==================== 3. Context entries — load() ONLY (read tool must not trigger the prune-save of getRecentEntries) ====================
       let contextStale = false;
+      // 🔹 ARC-RESTORE (16.10, F3): family staleness is the FRACTION of live entries older than 3 days (not
+      // newest-only) — one fresh entry no longer masks an otherwise-stale store in the header.
+      let contextStaleFraction = 0;
       try {
         const ctxStore = new ContextStorageManager();
         const allEntries = await ctxStore.load();
@@ -275,8 +294,13 @@ PARAMS: include_sessions_index (default true), max_chars (hard dossier budget, d
         }
         counts.context_entries_total = live.length;
 
-        const newestTs = live.reduce((mx, e) => Math.max(mx, typeof e.timestamp === 'number' ? e.timestamp : 0), 0);
-        contextStale = live.length > 0 && (now - newestTs) > STALE_THRESHOLD_MS; // mirrors ContextStorageManager._isStale
+        // 🔹 ARC-RESTORE (16.10): stale-fraction below replaces the former newest-only `newestTs` comparison — that variable is gone with it.
+        if (live.length > 0) {
+          const staleCount = live.filter(e => typeof e.timestamp === 'number' && now - e.timestamp > STALE_THRESHOLD_MS).length;
+          contextStaleFraction = staleCount / live.length;
+          // Boolean keeps the existing JSON contract + "context=true" text pin stable: true when ANY entry is >3d.
+          contextStale = staleCount > 0;
+        }
 
         const checkpoints: ContextEntryLike[] = [];
         const substantive: ContextEntryLike[] = [];
@@ -289,11 +313,23 @@ PARAMS: include_sessions_index (default true), max_chars (hard dossier budget, d
 
         // Substantive entries first, newest-first: decisions/insights are the highest-value continuity content.
         substantive.sort((a, b) => (typeof b.timestamp === 'number' ? b.timestamp : 0) - (typeof a.timestamp === 'number' ? a.timestamp : 0));
-        for (const e of substantive) {
+        const rendered = substantive.slice(0, TOP_N_SUBSTANTIVE); // 🔹 ARC-RESTORE (16.10, F3): top-N bound
+        for (const e of rendered) {
           const tagLine = Array.isArray(e.tags) && e.tags.length > 0 ? ` \`${e.tags.join(' ')}\`` : '';
+          const ageNote = typeof e.timestamp === 'number' ? ` · age ${fmtAgeDays(now - e.timestamp)}` : ''; // 🔹 F3: per-entry age label
+          const checkpointNote = Array.isArray(e.tags) && e.tags.includes(VERIFICATION_CHECKPOINT_TAG)
+            ? `\n⚠️ ${VERIFICATION_CHECKPOINT_NOTE}`
+            : ''; // 🔹 F3: one-shot read-instructions must not masquerade as standing facts
           sections.push({
             name: `context_entry:${typeof e.id === 'string' ? e.id : 'unknown'}`,
-            text: `### [${e.type ?? 'summary'}] ${e.title ?? '(untitled)'} — ${e.date ?? (typeof e.timestamp === 'number' ? fmtDate(e.timestamp) : 'unknown')}${tagLine}\n${e.content ?? ''}`,
+            text: `### [${e.type ?? 'summary'}] ${e.title ?? '(untitled)'} — ${e.date ?? (typeof e.timestamp === 'number' ? fmtDate(e.timestamp) : 'unknown')}${tagLine}${ageNote}\n${e.content ?? ''}${checkpointNote}`,
+          });
+        }
+        const omittedSubstantive = substantive.length - rendered.length;
+        if (omittedSubstantive > 0) {
+          sections.push({
+            name: 'substantive_older',
+            text: `### ${omittedSubstantive} older substantive context entrie(s) omitted (top-${TOP_N_SUBSTANTIVE} shown, newest first) — targeted recall via get_context_memory or search_context`,
           });
         }
 
@@ -390,10 +426,14 @@ PARAMS: include_sessions_index (default true), max_chars (hard dossier budget, d
       };
 
       // ==================== Render within budget (sections keep their priority order) ====================
+      // 🔹 ARC-RESTORE (16.10, F3): fraction-based header label — declared BEFORE first use in the staleness line below (gate round 1 TDZ fix).
+      const staleFractionPct = Math.round(contextStaleFraction * 100);
       const headerLines = [
         `# Session Memory Dossier — ${path.basename(wd)} @ ${fmtDate(now)}`,
         `Project: \`${wd}\``,
-        `Staleness (>3 days): summary=${staleness.session_summary === 'missing' ? 'MISSING' : String(staleness.session_summary)} context=${String(staleness.context_entries)} plans=${String(staleness.persisted_plans)} index=${String(staleness.sessions_index)}`,
+        // 🔹 ARC-RESTORE (16.10, F3): boolean flag semantics unchanged; the fraction label shows HOW MUCH of the
+        // family is stale (e.g. "context=false · 0% >3d" vs "context=true · 87% >3d").
+        `Staleness (>3 days): summary=${staleness.session_summary === 'missing' ? 'MISSING' : String(staleness.session_summary)} context=${String(staleness.context_entries)}${staleFractionPct > 0 || counts.context_entries_total > 0 ? ` · ${staleFractionPct}% of entries >3d` : ''} plans=${String(staleness.persisted_plans)} index=${String(staleness.sessions_index)}`,
       ];
       if (counts.expired_session_entries_skipped > 0) {
         headerLines.push(`Note: ${counts.expired_session_entries_skipped} expired session-scoped context entrie(s) skipped locally (TTL; NOT persisted — read-only tool)`);
@@ -433,6 +473,7 @@ PARAMS: include_sessions_index (default true), max_chars (hard dossier budget, d
           max_chars,
           truncated,
           counts,
+          context_stale_fraction: contextStaleFraction, // additive JSON field (0 = all live entries ≤3d)
           staleness,
           ...(sectionNotes.length > 0 ? { section_notes: sectionNotes } : {}),
           dossier_text: dossierText,

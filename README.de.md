@@ -2,8 +2,8 @@
 <a href="README.md">English</a> · <b>Deutsch</b> · <a href="README.es.md">Español</a> · <a href="README.zh-CN.md">简体中文</a> · <a href="README.zh-TW.md">繁體中文</a><br/>
 <h1>AI Toolbox — All-in-One autonomes KI-Agenten- & Tool-Plugin für lokale LLMs in LM Studio</h1><hr/>
 <b>Lokalen LLM echte Hände.</b> Das vollständigste LM-Studio-Hub-Plugin — macht jedes lokale Modell zu einem fähigen, selbstverwaltenden AI-Agenten.<br/>Selbstverwaltender Kontext hält Marathon-Sessions am Leben · ein Plugin, kein Glue-Code, standardmäßig vollständig offline.
-<br/><a href="#"><img src="https://img.shields.io/badge/version-v1.9.20-2f80ed?style=plastic" alt="version v1.9.20"/></a> <a href="#the-tool-arsenal-113-tools-across-every-family-all-yours-to-toggle"><img src="https://img.shields.io/badge/tools-113%20ready--made-7c3aed?style=plastic" alt="tools 113 ready-made"/></a> <a href="#quick-start-2-minutes"><img src="https://img.shields.io/badge/tests-72%20suites%20%C2%B7%201026%20green-3fb950?style=plastic" alt="tests 72 suites · 1026 green"/></a> <a href="#"><img src="https://img.shields.io/badge/LM%20Studio-Hub%20plugin-e84393?style=plastic" alt="LM Studio Hub plugin"/></a> <a href="LICENSE"><img src="https://img.shields.io/github/license/TheRealCrunch3r/ai-toolbox?style=plastic" alt="license MIT (live-verified from LICENSE)"/></a> <a href="#"><img src="https://img.shields.io/badge/runtime-Node%20%E2%89%A5%2020-83cd29?style=plastic&logo=node.js" alt="runtime Node ≥ 20"/></a><br/>
-<b>Docs:</b> <a href="DOCUMENTATION.md">Documentation</a> · <a href="QUICK_START.md">Quick Start</a> · <a href="ARCHITECTURE.md">Architecture</a> · <a href="TOOLS_REFERENCE.md">Tool Reference</a> · <a href="CHANGELOG_v4.md">Changelog</a><br/>
+<br/><a href="#"><img src="https://img.shields.io/badge/version-v1.9.20-2f80ed?style=plastic" alt="version v1.9.20"/></a> <a href="#the-tool-arsenal-113-tools-across-every-family-all-yours-to-toggle"><img src="https://img.shields.io/badge/tools-113%20ready--made-7c3aed?style=plastic" alt="tools 113 ready-made"/></a> <a href="#quick-start-2-minutes"><img src="https://img.shields.io/badge/tests-74%20suites%20%C2%B7%201064%20green-3fb950?style=plastic" alt="tests 74 suites · 1064 green"/></a> <a href="#"><img src="https://img.shields.io/badge/LM%20Studio-Hub%20plugin-e84393?style=plastic" alt="LM Studio Hub plugin"/></a> <a href="LICENSE"><img src="https://img.shields.io/github/license/TheRealCrunch3r/ai-toolbox?style=plastic" alt="license MIT (live-verified from LICENSE)"/></a> <a href="#"><img src="https://img.shields.io/badge/runtime-Node%20%E2%89%A5%2020-83cd29?style=plastic&logo=node.js" alt="runtime Node ≥ 20"/></a><br/>
+<b>Docs:</b> <a href="DOCUMENTATION.md">Documentation</a> · <a href="QUICK_START.md">Quick Start</a> · <a href="ARCHITECTURE.md">Architecture</a> · <a href="TOOLS_REFERENCE.md">Tool Reference</a> · <a href="CHANGELOG_v5.md">Changelog</a><br/>
 <a href="CONTRIBUTING.md">Contributing</a> · <a href="SECURITY.md">Security</a><br/>
 <br>
 <b>🚀 Einfache Installation:</b> <a href="https://lmstudio.ai/crunch3r/ai-toolbox">AI Toolbox aus dem LM Studio Hub</a> <br> OR </br>
@@ -16,7 +16,7 @@
 
 **Geben Sie Ihrem lokalen LLM echte Hände.** Das vollständigste Plugin im LM Studio Hub — verwandelt jedes lokale Modell in einen fähigen, selbstverwaltenden KI-Agenten mit sicherer Dateibearbeitung, hang-sicherer Codebase-Suche, Hintergrund-Builds, headloser Browser-Automatisierung, Git- & GitHub-Workflows, OCR, Chart-Erstellung und semantischem RAG; **selbstverwaltender Kontext** hält Marathon-Sitzungen am Leben. Ein Plugin, null Klebcode, standardmäßig vollständig offline.
 
-> `v1.9.20` · `113 fertige Tools` · `1026 Tests grün (72 Suiten)` · `5 Lokalisationen` · `MIT` · `Node 20+`
+> `v1.9.20` · `113 fertige Tools` · `1064 Tests grün (74 Suiten)` · `5 Lokalisationen` · `MIT` · `Node 20+`
 
 > ⚠️ **Übersetzung** — Deutsche Fassung von [README.md](README.md). Englisch ist die maßgebliche Version (canonical); bei Abweichungen gilt README.md. Diese Datei bei Änderungen am Original mit synchronisieren.
 
@@ -24,7 +24,7 @@
 
 ## Inhalt
 
-[Warum AI Toolbox (im Vergleich zu anderen Plugins)] · [Direktvergleich] · [Funktionen im Überblick] · [Schnellstart (2 Minuten)] · [Konfiguration & Tool-Umschalter — volle Kontrolle, null Code] · [Sicherheitslage — gebaut wie es wichtig ist] · [Architektur für Neugierige] · [Waffenkammer: 113 Tools] · [Release-Highlights — vollständiger Verlauf in CHANGELOG_v4.md (aktiv), v1–v3 in docs/history/]
+[Warum AI Toolbox (im Vergleich zu anderen Plugins)] · [Direktvergleich] · [Funktionen im Überblick] · [Schnellstart (2 Minuten)] · [Konfiguration & Tool-Umschalter — volle Kontrolle, null Code] · [Sicherheitslage — gebaut wie es wichtig ist] · [Architektur für Neugierige] · [Waffenkammer: 113 Tools] · [Release-Highlights — vollständiger Verlauf → CHANGELOG_v5.md — aktiv; v1–v4 in docs/history/]
 
 *Verzeichnisliste ohne Ankerlinks; die Sektionstitel entsprechen den Überschriften weiter unten.*
 
@@ -61,7 +61,7 @@ Der nächstliegende direkte Wettbewerber im Hub: gleiche Aufgabe (Tools für lok
 | ✅ **AST-level Refactoring** (Rename, Funktionsverschiebung, Dead-Import-Cleanup) — syntaksichere Transformationen mit Auto-Rollback, keine String-Bearbeitungen |
 | ✅ **Echtes RAG:** lokaler Vektorindex über PDF / DOCX / XLSX mit Seitenebenen-Provenienz — nicht nur Keyword-Suche |
 | ✅ **Bilder & Data-Viz:** OCR auf Screenshots und Aufnahmen, Bild-Metadaten + Vergleich, Chart-Erstellung |
-| ✅ **113 Tools** vs ~49 — gestützt durch 1026 bestandene Tests in 72 Suiten |
+| ✅ **113 Tools** vs ~49 — gestützt durch 1064 bestandene Tests in 74 Suiten |
 | ✅ **Crash-resiliente Schreibvorgänge + Rollback bei Fehlschlag:** eine missglückte Bearbeitung kann Ihre Datei nie korrupt machen |
 
 Unsere frühere i18n-Lücke ist geschlossen: **wir liefern jetzt 5 Lokalisationen** (en · de · es · zh-CN · zh-TW), jeweils ein vollständiger Übersetzungssatz — und Anti-Stub-Tests bewachen die Suite, damit Alias-/Fallback-Sprachen nie stillschweigend regressieren. Wir sagen Ihnen das lieber, als zu behaupten, es gäbe sie nicht.
@@ -116,7 +116,7 @@ Charts aus Rohdaten gerendert zu Bilddateien (Balken/Linie/Kreis/Donut/Streuung/
 ```bash
 # Developing instead of using?
 npm install && npm run build   # ESM + CJS via tsup
-npm test                        # full suite: 72 suites / 1026 tests green (owner-verified 10.11 TOKEN-DIVERGENCE arc — Class A agentic-density recalibration + Class B wire-shape credit, gate GREEN ~20:1x; prior canon 71/1020 @ 10.10 [TWO-TIER CLOSE-OUT r3] · prior arcs: 68/990 @ 08.10 [LEVER-1], 68/987 @ 07.10 [Arc C sweep — entry unlogged], 65/952 @ 06.10 [DOC-PIN gate] 64/941 @ 06.10 [i18n gate], 64/938 @ 06.10 ×2 [F1 ~16:57 · PLAN-SEAM ~18:0x], 63/931 @ 05.10, 63/930 @ 04.10 ×3, 61/917 @ 04.10, 893/59 @ 02.10, 874/58 @ ~21.5 s on 01.10, 860/56 @ 29.09, 857/56 @ 28.09)
+npm test                        # full suite: 74 suites / 1064 tests green (owner-verified 16.10 ARC-RESTORE gate ~20:3x, +6 tests; prior canon 74/1058 @ 15.10 [SESSION-MEMORY ARC-C close-out ~18:2x + density arc], owner-verified 15.10 — SESSION-MEMORY ARC-C gate ~18:2x, then +1 density setter test in the v5 rotation entry with second trio GREEN ~19:3x/~19:52; prior canon 74/1057 @ 15.10 [SESSION-MEMORY ARC-C], 73/1035 @ 14.10 [ARC-B supersede-on-close-out], 73/1031 @ 14.10 [ARC-A + density restore], 72/1026 @ 10.11 [TOKEN-DIVERGENCE], 71/1020 @ 10.10 [TWO-TIER CLOSE-OUT r3] · prior arcs: 68/990 @ 08.10 [LEVER-1], 68/987 @ 07.10 [Arc C sweep — entry unlogged], 65/952 @ 06.10 [DOC-PIN gate] 64/941 @ 06.10 [i18n gate], 64/938 @ 06.10 ×2 [F1 ~16:57 · PLAN-SEAM ~18:0x], 63/931 @ 05.10, 63/930 @ 04.10 ×3, 61/917 @ 04.10, 893/59 @ 02.10, 874/58 @ ~21.5 s on 01.10, 860/56 @ 29.09, 857/56 @ 28.09)
 ```
 
 ---
@@ -185,6 +185,8 @@ Ein Plugin ersetzt eine ganze Regalwand. Hier ist jede Familie, was sie abdeckt 
 
 | Version | Schlagzeile |
 |---|---|
+| **v1.9.20** | 📦 Versions-Verlagerungs-Release — der rev-3x-Stapel seit der letzten GitHub-Publikation (rev 30, 15.09) wird in einer Verlagerung zusammengeführt: Session-Memory-Arcs A/B/C Close-out (TTL-Lebenszyklus + Supersede-on-Close-Out + Index-Dedupe / Artefakt-Strip), präemptive Mid-Loop-Kompression bei fixen 95 % und nutzer-sichtbare Schwellen-Benachrichtigung, Tier-2-Zwangs-Save während des Tool-Loops, messender Token-Schätzer (`AGENTIC_CHARS_PER_TOKEN` 3.2 → benutzer-editierbar 3.6) · 🔍 FIX-35c hang-fester ReDoS-Gate + pattern_scan WALK-ABORT (28.09, archiviert in CHANGELOG_v3) · Canon **74 Suiten / 1064 Tests** — Owner-Gates zweimal GREEN am 15.10 |
+| **v1.9.19** | 📦 Nie veröffentlichtes Label — package.json sprang 06.10 bereits von v1.9.18 → v1.9.20 (Rev-Lock-Auflösung); das `version`-Feld der Manifest blieb bei v1.9.19 bis zur Versions-Verlagerung vom 15.10, und sein rev-0-Unstick-Flip (Owner-Anweisung 15.10 ~18:4x) machte den angesammelten Stapel für die Hub-Publikation erkennbar — unter diesem Label wurde kein Code ausgeliefert; siehe v1.9.20 oben |
 | **v1.9.18** | 🔒 Suite D shared-file lost-write fix — pro-Pfad-In-Prozess-Sperre auf die snap→rename-Kritiksektion (neues `sharedFileLock.ts`, in beide Writer eingewickelt) · 🧾 EOL-FIX v4 — byte-exakter Zeilenende-Roundtrip für `replace_text_in_file` auf gemischten/CRLF-Dateien + Pre-Edit eol/bom-Sichtbarkeit via `get_file_metadata`-Report (TS7022 tsc-Gate-Blocker im selben Bogen geschlossen) · 🧯 PIPELINE HYGIENE D 25.09 — Tool Execution Pipeline vereinte Outcome-Taxonomie + finalizeContent-Invariante, pro-Zug-toolsProvider-Guard-Reset, describeError lint clean, jest RC#4 mapper; volle Suite 836/51 grün + eslint clean; docs CHANGELOG_v3 + ARCHITECTURE aktualisiert |
 | **v1.9.17** | 💾 Tool Gating Profile — persistente Tool-Umschalter (rev 29, publiziert 14.09) · 🔍 ripgrep TOOL SWAP + vereinte Projekt-Registry + Worker-Pool-Flattern-Fix (rev 30, letzte GitHub-Publikation am 15.09) — alle rev-31-Arbeiten (DE-STRAngle, AutoTracker F1+F2, cluster-bewusste Tool-Reihenfolge, CWD-Zustandsverlagerung, SPEC-C) in v1.9.18 ausgeliefert; ⏳ v1.9.18 / rev 33 Publikation ausstehend (Eigentümerentscheidung) |
 | **v1.9.16** | 🔍 `web_search` Zero-Ergebnis-Fallback-Fix — toter/leerer Engine stoppt die Kette nicht mehr · rev 28: Reinstall + Restart am selben Tag live-verifiziert (blockierter `ddg-api` übersprungen → `ddg-fetch` lieferte Ergebnisse) |

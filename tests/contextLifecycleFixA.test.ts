@@ -209,3 +209,86 @@ describe('FIX-A (14.10) — ContextStorageManager.addEntry lifecycle', () => {
     expect(ids.length).toBe(2);
   });
 });
+
+describe('ARC-RESTORE F3 (16.10) — one-shot verification-checkpoint lifecycle', () => {
+  // Same conventions as the FIX-A suite above: real class, tmp "ai_toolbox" dir, path-drift guard, canonical stamp.
+  let tmpRoot: string;
+  let wdDir: string;
+  let filePath: string;
+  let csm: ContextStorageManager;
+
+  beforeEach(() => {
+    tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'arcf3-'));
+    wdDir = path.join(tmpRoot, 'ai_toolbox');
+    fs.mkdirSync(path.join(wdDir, '.session_context'), { recursive: true });
+    filePath = path.join(wdDir, '.session_context', '.ai_toolbox_memory.msgpack');
+    setWorkingDir(wdDir); // BEFORE construction — ctor captures getWorkingDir()
+    csm = new ContextStorageManager();
+    const wdPath = (csm as unknown as { workingDirPath: string }).workingDirPath;
+    expect(path.resolve(wdPath)).toBe(filePath);
+  });
+
+  afterEach(() => {
+    resetWorkingDir();
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  });
+
+  function seed(records: object[]): void {
+    fs.writeFileSync(filePath, encode(records));
+  }
+
+  /** Plain-object fixture WITHOUT a scope key — the default-scope path under test (entryFixture always emits one). */
+  function vcEntry(id: string, ts: number, ttlMs?: number): Record<string, unknown> {
+    return {
+      id,
+      timestamp: ts,
+      date: new Date(ts).toLocaleString(),
+      type: 'summary',
+      title: `One-shot verification checkpoint ${id}`,
+      content: 'expect X / Y = red flag (F2 protocol: evaluate once, supersede with dated closure)',
+      tags: ['verification_checkpoint'],
+      ...(ttlMs !== undefined ? { ttl_ms: ttlMs } : {}), // emit only when set — msgpack nil/undefined drift lesson
+      frequency: 1,
+    };
+  }
+
+  function readEntry(id: string): Record<string, unknown> | null {
+    const decoded = decode(fs.readFileSync(filePath));
+    if (!Array.isArray(decoded)) throw new Error('store is not a record array');
+    const hit = (decoded as Array<unknown>).find(r => contextShaped(r) && r.id === id);
+    return hit ? (hit as Record<string, unknown>) : null;
+  }
+
+  it('(F3.1) checkpoint-tagged entry with NO scope gets session scope + exact 24h TTL on disk', async () => {
+    const now = Date.now();
+    await csm.addEntry(vcEntry('ctx_f3_vc_default_scope', now) as never);
+
+    const stored = readEntry('ctx_f3_vc_default_scope');
+    expect(stored).not.toBeNull(); // entry persisted (store was empty pre-add)
+    expect(stored!.scope).toBe('session');   // the F3 default — pre-fix this rode on 'global' forever
+    expect(stored!.ttl_ms).toBe(DAY_MS);     // exact SESSION_TTL_MS, not a shorter/longer guess
+  });
+
+  it('(F3.2) EXPLICIT writer scope on a checkpoint-tagged entry is respected (no silent override)', async () => {
+    const now = Date.now();
+    await csm.addEntry({ ...vcEntry('ctx_f3_vc_explicit_global', now), scope: 'global' } as never);
+
+    const stored = readEntry('ctx_f3_vc_explicit_global');
+    expect(stored!.scope).toBe('global'); // deliberate choice wins over the lifecycle default
+    expect((stored!.ttl_ms ?? null)).toBeNull(); // no TTL silently attached to a global-scoped entry
+  });
+
+  it('(F3.3) expired verification checkpoint is reaped inline on the next addEntry; fresh one survives', async () => {
+    const now = Date.now();
+    seed([
+      { ...vcEntry('ctx_f3_vc_expired', now - 2 * 60 * 60 * 1000, 60 * 1000), scope: 'session' }, // post-fix disk shape (scope stamped on write); age 2h > ttl 60s — must be reaped
+      { ...vcEntry('ctx_f3_vc_fresh', now), scope: 'session' },                                  // fresh checkpoint, post-fix shape — survives (_isExpired needs scope + TTL)
+    ]);
+
+    await csm.addEntry(vcEntry('ctx_f3_vc_trigger_write', now) as never); // any write funnels through addEntry
+
+    expect(readEntry('ctx_f3_vc_expired')).toBeNull();          // reaped by the same _isExpired pass as auto-checkpoints
+    expect(readEntry('ctx_f3_vc_fresh')?.scope).toBe('session'); // untouched (age 0 < 24h TTL)
+    expect(readEntry('ctx_f3_vc_trigger_write')?.scope).toBe('session');
+  });
+});

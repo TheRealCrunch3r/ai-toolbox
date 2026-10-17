@@ -41,3 +41,6 @@ install-state.json
 
 # Local Hub-simple README artifact (owner-local working copy - never commit/push)
 README.MD_LMS_HUB_SIMPLE.md
+
+# LM Studio Hub listing mirror (local artifact, EN-only per owner decision 16.10 — never commit/push)
+readme_lm.md

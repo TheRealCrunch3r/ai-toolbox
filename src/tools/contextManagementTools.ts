@@ -80,6 +80,14 @@ interface ContextSummary {
 /** Default TTL for session-scoped memories (24 hours) */
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
 
+// 🔹 ARC-RESTORE (16.10, F3): tag marking a ONE-SHOT verification checkpoint written under the F2 protocol
+// ("expect X / Y = red flag" read-instructions). Such entries are single-use by definition — evaluate once, then
+// supersede with a dated closure entry — so they must carry the same machine lifecycle as auto-checkpoints:
+// session scope → SESSION_TTL_MS (24h) default → inline reap on the next addEntry. Pre-fix, these lived in
+// 'global' scope forever and resurfaced verbatim in every restore_session_context (root cause of the stale C1
+// count-checkpoint false alarm, 16.10: "expect total_count=26 / 27 = red flag" was ~40h stale by first read).
+export const VERIFICATION_CHECKPOINT_TAG = 'verification_checkpoint';
+
 // 🔹 FIX-A (14.10): retention cap for SUBSTANTIVE entries (not auto-checkpoint-tagged, not session-scoped).
 // Session-scoped entries self-expire via TTL; checkpoints are machine noise bounded by the same TTL. What grew
 // without bound before this fix were global-scope decisions/patterns/summaries (31 of them + 271 >7d-old records
@@ -394,6 +402,13 @@ export class ContextStorageManager {
     const cloned = { ...newEntry };
 
     // Apply defaults
+    // 🔹 ARC-RESTORE (16.10, F3): one-shot verification checkpoints default to session scope (→ 24h TTL below +
+    // addEntry's inline reap), so a stale read-instruction can never outlive its verification window in 'global'
+    // scope. Deliberate writer choice wins: an EXPLICIT non-default scope on a checkpoint-tagged entry is
+    // respected as-is (no silent override) — the lifecycle rule covers only the previously-immortal default path.
+    if (!cloned.scope && Array.isArray(cloned.tags) && cloned.tags.includes(VERIFICATION_CHECKPOINT_TAG)) {
+      cloned.scope = 'session';
+    }
     if (!cloned.scope) cloned.scope = 'global';
     if (!cloned.project_path) cloned.project_path = this.workingDirPath;
     if (cloned.scope === 'session' && !cloned.ttl_ms) cloned.ttl_ms = SESSION_TTL_MS;
