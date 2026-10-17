@@ -2,7 +2,7 @@
 
 The project vocabulary for sessions, agents, and humans working in this repo. Goal: one precise word where ten vague ones would do (per the "ubiquitous language" pattern — concision compounds session after session). Read this before decoding a CHANGELOG_v4 entry, session summary, or memory fact; update it when a new term earns a slot.
 
-**Status:** v1 · created 10.10.2026 ~16:3x · canon at time of writing: **74 suites / 1058 tests** (15.10 — SESSION-MEMORY ARC-C + v5 rotation density setter test, owner trio GREEN ~19:52; prior 74/1057 @ 15.10 [ARC-C], 73/1035 @ 14.10 [ARC-B], 73/1031 @ 14.10 [ARC-A], 72/1026 @ 10.11, 71/1020 @ round 3)
+**Status:** v1 · created 10.10.2026 ~16:3x · canon at time of writing: **74 suites / 1064 tests** (16.10 — ARC-RESTORE F3 gate ~20:3x, +6 F3/F3.R tests; prior 74/1058 @ 15.10 [ARC-C trio ~18:2x + v5 rotation density setter test, owner trio GREEN ~19:52], 74/1057 @ 15.10 [ARC-C], 73/1035 @ 14.10 [ARC-B], 73/1031 @ 14.10 [ARC-A], 72/1026 @ 10.11, 71/1020 @ round 3)
 **Conventions:** LF line endings, no BOM (house style). New entries go in the right section, alphabetically; when a term dies, strike it through rather than deleting (provenance).
 
 ---
@@ -24,7 +24,7 @@ The project vocabulary for sessions, agents, and humans working in this repo. Go
 | **gate trio** | The three verification gates: `npx tsc --noEmit` → `npm run lint` (0 problems) → full `jest`. Agents self-audit first, then hand off the trio to the owner. |
 | **self-audit** | Pre-handoff review of one's own diff per file against its `.bak` (or a git ref when `.bak`s are stale by design): logic check + EOL/BOM integrity. |
 | **GREEN round** | A full gate-trio pass that established a verified baseline state; numbered ("GREEN round 3"). |
-| **canon** | The canonical test-suite count at the last GREEN round (currently **74 suites / 1058 tests**, since the 15.10 v5-rotation density setter test on top of the SESSION-MEMORY ARC-C canon; prior 74/1057 @ 15.10 [ARC-C], 73/1035 @ 14.10, 72/1026 @ 10.11 [TOKEN-DIVERGENCE]). Docs-only edits do not move it; any code change requires re-gating before the canon changes. |
+| **canon** | The canonical test-suite count at the last GREEN round (currently **74 suites / 1064 tests**, since the 16.10 ARC-RESTORE F3 gate ~20:3x (+6 F3/F3.R tests) on top of the 15.10 canon; prior 74/1058 @ 15.10 [v5 rotation density setter test, owner trio GREEN ~19:52], 74/1057 @ 15.10 [ARC-C], 73/1035 @ 14.10, 72/1026 @ 10.11 [TOKEN-DIVERGENCE]). Docs-only edits do not move it; any code change requires re-gating before the canon changes. |
 | **provenance** | The evidence trail proving a state: artifact mtime, byte-level grep anchors (e.g., `Fix A 🔔 notice @L56991`), git refs, memory-fact IDs. Provenance without shell access is an accepted verification method. |
 | **handoff** | Closing a session with the next one ready to resume: session summary saved, pending tasks listed, context pointers exact (paths + anchors, no transcripts). |
 | **dossier** | What `restore_session_context` returns — the per-project resume pack (latest summary + persisted plans + decisions + memory facts), budgeted and truncation-aware. |
