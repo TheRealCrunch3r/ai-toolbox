@@ -10,48 +10,32 @@
 import { tool, type Tool } from '@lmstudio/sdk';
 import { z } from 'zod';
 import * as fs from 'fs/promises';
-import path from 'path';
 import type { PluginConfig } from '../config.js';
 import { getWorkingDir, resolvePath } from '../workingDir.js';
+import { findBakFiles } from '../utils/bakScan';
 
 /**
- * Scan the working directory for all .bak backup files.
- * Returns structured data about available backups.
+ * Scan the working directory RECURSIVELY for all .bak backup files.
+ * Returns structured data about available backups (paths relative to the working dir).
  */
 async function scanBakFiles(): Promise<Array<{ file: string; backupFile: string; sizeBytes: number }>> {
   const workingDir = getWorkingDir();
-  let entries: string[];
+  let entries;
 
   try {
-    entries = await fs.readdir(workingDir);
+    await fs.stat(workingDir); // missing working dir → same [] contract as before
+    // Recursive walker (21.10 fix): finds nested backups like src/tools/x.ts.bak that the old
+    // single-level readdir missed. Excludes node_modules/.git/plugin-state dirs; never follows symlinks.
+    entries = await findBakFiles(workingDir);
   } catch {
     return [];
   }
 
-  const bakFiles: Array<{ file: string; backupFile: string; sizeBytes: number }> = [];
-
-  for (const entry of entries) {
-    if (entry.endsWith('.bak')) {
-      // Extract original filename by removing .bak suffix
-      const originalFile = entry.slice(0, -4);
-      const bakPath = path.join(workingDir, entry);
-      
-      try {
-        const stats = await fs.stat(bakPath);
-        if (stats.isFile()) {
-          bakFiles.push({
-            file: originalFile,
-            backupFile: entry,
-            sizeBytes: stats.size,
-          });
-        }
-      } catch {
-        // Skip inaccessible files
-      }
-    }
-  }
-
-  return bakFiles;
+  return entries.map(e => ({
+    file: e.originalRelPath,   // relative to working dir — root-level files keep the legacy bare-filename form
+    backupFile: e.relPath,     // disambiguates same-basename backups in different subdirs
+    sizeBytes: e.sizeBytes,
+  }));
 }
 
 export function registerRestoreFromBakTools(_config: PluginConfig): Tool[] {
@@ -171,22 +155,26 @@ RESTRICTIONS:
 
   tools.push(tool({
     name: 'list_available_bak_backups',
-    description: `Scan the current working directory for all .bak backup files created by file-modifying tools.
+    description: `Recursively scan under the current working directory for all .bak backup files created by file-modifying tools.
 
 USE WHEN:
 - You need to know what backups are available before restoring
 - A file is corrupted and you want to see if a .bak exists
 - You're troubleshooting which edits have backups available
 
+SCAN SCOPE:
+- Recursive through subdirectories (e.g. src/tools/x.ts.bak)
+- Never descends into node_modules, .git, or plugin state dirs (.session_context, .ai_toolbox_backups)
+
 RETURNS:
-- Array of { file, backupFile, sizeBytes } for each .bak found
-- Empty array if no .bak files exist in the working directory
+- Array of { file, backupFile, sizeBytes } for each .bak found; paths are relative to the working directory
+- Empty array if no .bak files exist under the working directory
 
 EXAMPLE OUTPUT:
 {
   "success": true,
   "backups": [
-    {"file": "src/tools/fileSystemTools.ts", "backupFile": "fileSystemTools.ts.bak", "sizeBytes": 45678}
+    {"file": "src/tools/fileSystemTools.ts", "backupFile": "src/tools/fileSystemTools.ts.bak", "sizeBytes": 45678}
   ]
 }`,
     parameters: {},

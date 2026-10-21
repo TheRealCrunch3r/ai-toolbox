@@ -8,6 +8,7 @@ import { z } from 'zod';
 import * as fs from 'fs/promises';
 import path from 'path';
 import { getWorkingDir } from '../workingDir';
+import { findBakFiles } from '../utils/bakScan';
 import type { PluginConfig } from '../config.js';
 
 export function registerCleanupBackupsTool(_config: PluginConfig): Tool[] {
@@ -16,8 +17,12 @@ export function registerCleanupBackupsTool(_config: PluginConfig): Tool[] {
     description: `List and optionally delete .bak backup files created by edit operations.
 
 BEHAVIOR:
-- Without confirm=true: Lists all .bak files in the working directory (shows what would be deleted)
-- With confirm=true: Deletes all .bak files in the working directory
+- Without confirm=true: Recursively lists all .bak files under the working directory (shows what would be deleted)
+- With confirm=true: Deletes every listed .bak file, including nested ones (e.g. src/tools/x.ts.bak)
+
+SCAN SCOPE:
+- Recursive from the working directory through all subdirectories
+- Never descends into node_modules, .git, or plugin state dirs (.session_context, .ai_toolbox_backups)
 
 SAFETY:
 - confirm=false (default): DRY-RUN mode — lists backups for inspection only
@@ -33,29 +38,17 @@ USE THIS TOOL AFTER verifying that all edits made by other tools were correct.`,
       try {
         const workingDir = getWorkingDir();
 
-        // List all .bak files in the working directory
+        // List all .bak files under the working directory (RECURSIVE — 21.10 fix for missed nested backups)
         let bakFiles: Array<{ path: string; size: number; modifiedAt: string }>;
 
         try {
           await fs.stat(workingDir);
-          const entries = await fs.readdir(workingDir, { withFileTypes: true });
-          
-          bakFiles = (await Promise.all(
-            entries
-              .filter(e => e.isFile() && e.name.endsWith('.bak'))
-              .map(async (e) => {
-                try {
-                  const stat = await fs.stat(path.join(workingDir, e.name));
-                  return {
-                    path: path.join(workingDir, e.name),
-                    size: stat.size,
-                    modifiedAt: stat.mtime.toISOString(),
-                  };
-                } catch {
-                  return null;
-                }
-              })
-          )).filter(Boolean) as Array<{ path: string; size: number; modifiedAt: string }>;
+          const entries = await findBakFiles(workingDir); // recursive; excludes node_modules/.git/plugin-state dirs
+          bakFiles = entries.map(e => ({
+            path: path.join(workingDir, e.relPath),
+            size: e.sizeBytes,
+            modifiedAt: e.modifiedAtIso,
+          }));
         } catch {
           bakFiles = [];
         }
