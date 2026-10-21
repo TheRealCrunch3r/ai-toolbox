@@ -1,8 +1,14 @@
 # 🚀 Quick Start Guide - AI Toolbox Plugin
 
-## ✅ All Tools Enabled by Default (v1.6.4+)
+## What's ON by Default (v1.9.x)
 
-Starting with v1.6.4, the Tool Priority System was removed. **All enabled tools are now exposed directly to the LLM** without arbitrary truncation or priority-based filtering. Schema minification (`toolsSchemaMinifier.ts`) handles grammar parser compatibility automatically.
+Every tool category has its own toggle in the plugin settings; what you enable is exposed directly to the LLM — since v1.6.4 no priority tiers or arbitrary truncation apply, and schema minification (`toolsSchemaMinifier.ts`) handles grammar parser compatibility automatically. Default state per `DEFAULT_CONFIG` (src/config.ts), re-grounded 21.10 against v1.9.21 source:
+
+| ON by default | OFF by default (opt-in) |
+|---|---|
+| fileSystem · webSearch · documentParsing · imageProcessing · vectorRAG · uiGeneration · contextManagement · textProcessing · refactorCode · utility · taskPlanning | browserAutomation · gitOperations · packageManage · databaseQueries · backgroundCommands · httpClient |
+
+Within Execution: sandboxed `run_javascript` / `run_python` are ON; terminal, shell and the test runner start OFF. **🛡️ God Mode** bypasses every toggle at once (power users only).
 
 ## How to Use
 
@@ -25,7 +31,7 @@ All enabled tools are registered directly with the LM Studio SDK. No filtering o
 ### General Development
 ```
 fileSystem: true, webSearch: true, documentParsing: true, imageProcessing: true
-vectorRag: true, contextManagement: true, textProcessing: true, astRefactoring: true
+vectorRAG: true, contextManagement: true, uiGeneration: true, taskPlanning: true, textProcessing: true, refactorCode: true
 executionJavaScript: true, executionPython: true
 browserAutomation: false, gitOperations: false, databaseQueries: false
 backgroundCommands: false, httpClient: false
@@ -41,7 +47,7 @@ httpClient: true (for API testing)
 ### Data Science
 ```
 executionPython: true, databaseQueries: true
-vectorRag: true (for semantic search over datasets)
+vectorRAG: true (for semantic search over datasets)
 imageProcessing: true (for OCR and image analysis)
 ```
 
