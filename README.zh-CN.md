@@ -20,7 +20,7 @@
 
 > ⚠️ **译文声明** —— 本文件为 [README.md](README.md) 的简体中文版。英文版为准（canonical），如有出入以 README.md 为准；原文变更时请同步更新本文件。
 
-<div align="center"><table><tr><td style="border-left:4px solid #d1242f; background:#ffebe9; padding:8px 16px;"><b>⚠️ LM Studio 不支持自动更新。</b><br/>如遇问题，请先手动更新：移除当前版本并从插件网站重新下载。即使你的版本已过时，LM Studio 仍可能显示"已安装"提示。</td></tr></table></div>
+<div align="center"><table><tr><td style="border-left:4px solid #d1242f; padding:8px 16px;"><b>⚠️ LM Studio 不支持自动更新。</b><br/>如遇问题，请先手动更新：移除当前版本并从插件网站重新下载。即使你的版本已过时，LM Studio 仍可能显示"已安装"提示。</td></tr></table></div>
 
 ## 目录
 

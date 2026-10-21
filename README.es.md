@@ -20,7 +20,7 @@
 
 > ⚠️ **Traducción** — Versión española de [README.md](README.md). El inglés es la versión canónica; en caso de divergencia prevalece README.md. Mantener esta archivo sincronizado cuando el original cambie.
 
-<div align="center"><table><tr><td style="border-left:4px solid #d1242f; background:#ffebe9; padding:8px 16px;"><b>⚠️ LM Studio NO admite actualizaciones automáticas.</b><br/>Si encuentras problemas, actualiza primero manualmente: elimina la versión actual y vuelve a descargarla desde el sitio del plugin. Ten en cuenta que LM Studio puede mostrar un tooltip de «ya instalado» aunque tu versión esté desactualizada.</td></tr></table></div>
+<div align="center"><table><tr><td style="border-left:4px solid #d1242f; padding:8px 16px;"><b>⚠️ LM Studio NO admite actualizaciones automáticas.</b><br/>Si encuentras problemas, actualiza primero manualmente: elimina la versión actual y vuelve a descargarla desde el sitio del plugin. Ten en cuenta que LM Studio puede mostrar un tooltip de «ya instalado» aunque tu versión esté desactualizada.</td></tr></table></div>
 
 ## Contenido
 
