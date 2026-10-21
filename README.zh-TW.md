@@ -2,7 +2,7 @@
 <a href="README.md">English</a> · <a href="README.de.md">Deutsch</a> · <a href="README.es.md">Español</a> · <a href="README.zh-CN.md">简体中文</a> · <b>繁體中文</b><br/>
 <h1>AI Toolbox —— 面向 LM Studio 本地 LLM 的一體化自主 AI Agent & 工具外掛</h1><hr/>
 <b>給你的本地 LLM 一雙真正的手。</b> 最完整的 LM Studio Hub 外掛——把任意本地模型變成能幹、自管理的 AI 智能體。<br/>自管理上下文讓馬拉松式會話保持存活 · 一個外掛，零膠水程式碼，預設完全離線。
-<br/><a href="#"><img src="https://img.shields.io/badge/version-v1.9.21-2f80ed?style=plastic" alt="version v1.9.21"/></a> <a href="#the-tool-arsenal-115-tools-across-every-family-all-yours-to-toggle"><img src="https://img.shields.io/badge/tools-115%20ready--made-7c3aed?style=plastic" alt="tools 115 ready-made"/></a> <a href="#quick-start-2-minutes"><img src="https://img.shields.io/badge/tests-76%20suites%20%C2%B7%201109%20green-3fb950?style=plastic" alt="tests 76 suites · 1109 green"/></a> <a href="#"><img src="https://img.shields.io/badge/LM%20Studio-Hub%20plugin-e84393?style=plastic" alt="LM Studio Hub plugin"/></a> <a href="LICENSE"><img src="https://img.shields.io/github/license/TheRealCrunch3r/ai-toolbox?style=plastic" alt="license MIT (live-verified from LICENSE)"/></a> <a href="#"><img src="https://img.shields.io/badge/runtime-Node%20%E2%89%A5%2020-83cd29?style=plastic&logo=node.js" alt="runtime Node ≥ 20"/></a><br/>
+<br/><a href="#"><img src="https://img.shields.io/badge/version-v1.9.21-2f80ed?style=plastic" alt="version v1.9.21"/></a> <a href="#the-tool-arsenal-115-tools-across-every-family-all-yours-to-toggle"><img src="https://img.shields.io/badge/tools-115%20ready--made-7c3aed?style=plastic" alt="tools 115 ready-made"/></a> <a href="#quick-start-2-minutes"><img src="https://img.shields.io/badge/tests-77%20suites%20%C2%B7%201119%20green-3fb950?style=plastic" alt="tests 77 suites · 1119 green"/></a> <a href="#"><img src="https://img.shields.io/badge/LM%20Studio-Hub%20plugin-e84393?style=plastic" alt="LM Studio Hub plugin"/></a> <a href="LICENSE"><img src="https://img.shields.io/github/license/TheRealCrunch3r/ai-toolbox?style=plastic" alt="license MIT (live-verified from LICENSE)"/></a> <a href="#"><img src="https://img.shields.io/badge/runtime-Node%20%E2%89%A5%2020-83cd29?style=plastic&logo=node.js" alt="runtime Node ≥ 20"/></a><br/>
 <b>Docs:</b> <a href="DOCUMENTATION.md">Documentation</a> · <a href="QUICK_START.md">Quick Start</a> · <a href="ARCHITECTURE.md">Architecture</a> · <a href="TOOLS_REFERENCE.md">Tool Reference</a> · <a href="CHANGELOG_v5.md">Changelog</a><br/>
 <a href="CONTRIBUTING.md">Contributing</a> · <a href="SECURITY.md">Security</a><br/>
 <br>
@@ -16,7 +16,7 @@
 
 **給你的本地 LLM 裝上真正的手。** LM Studio Hub 上最完整的外掛 —— 把任意本地模型變成一個有能力、自我管理的 AI Agent，具備安全的檔案編輯、絕不掛起的程式庫搜尋、背景建置、無頭瀏覽器自動化、Git & GitHub 工作流、OCR、圖表產生和語意 RAG；**自管理上下文**讓馬拉松式會話保持存活。一個外掛，零膠水程式碼，預設完全離線。
 
-> `v1.9.21` · `115 個即用工具` · `1109 項測試通過（76 個套件）` · `5 種語言本機化` · `MIT` · `Node 20+`
+> `v1.9.21` · `115 個即用工具` · `1119 項測試通過（77 個套件）` · `5 種語言本機化` · `MIT` · `Node 20+`
 
 > ⚠️ **譯文聲明** —— 本檔案為 [README.md](README.md) 的繁體中文版。英文版為準（canonical），如有出入以 README.md 為準；原文變更時請同步更新本檔案。
 
@@ -61,7 +61,7 @@ Hub 上最接近的直接競爭者：同樣的活兒（給本地 LLM 提供工�
 | ✅ **AST 級重構**（重新命名、移動函式、清理無用 import）—— 語法安全變換帶自動回滾，不是字串編輯 |
 | ✅ **真正的 RAG：** 基於 PDF / DOCX / XLSX 的本機向量索引，帶頁級溯源 —— 不只是關鍵字搜尋 |
 | ✅ **影像與資料視覺化：** 對截圖和螢幕擷取做 OCR、圖片中繼資料 + 對比、圖表產生 |
-| ✅ **115 個工具** vs ~49 —— 由 76 個套件共 1109 項通過的測試支撐 |
+| ✅ **115 個工具** vs ~49 —— 由 77 個套件共 1119 項通過的測試支撐 |
 | ✅ **崩潰 resilient 的寫入 + 失敗回滾：** 一次失敗的編輯永遠不會損毀你的檔案 |
 
 我們此前的 i18n 缺口已關閉：**現在提供 5 種語言**（en · de · es · zh-CN · zh-TW），每種都是完整翻譯集 —— 並且有反 stub 測試守護套件，保證別名/回退語言不會靜默退化。我們寧可直接告訴你，也不假裝它不存在。
@@ -116,7 +116,7 @@ PDF、Word 文件與試算表 → **本機語意向量搜尋**（資料不出你
 ```bash
 # Developing instead of using?
 npm install && npm run build   # ESM + CJS via tsup
-npm test                        # full suite: 76 suites / 1109 tests green (owner-gated GREEN twice on 21.10 — update-check arc family + version move v1.9.20 → v1.9.21, zero drift; prior canon 74/1064 @ 16.10 [ARC-RESTORE] · 74/1058 @ 15.10 [SESSION-MEMORY ARC-C close-out ~18:2x + density arc], owner-verified 15.10 — SESSION-MEMORY ARC-C gate ~18:2x, then +1 density setter test in the v5 rotation entry with second trio GREEN ~19:3x/~19:52; prior canon 74/1057 @ 15.10 [SESSION-MEMORY ARC-C], 73/1035 @ 14.10 [ARC-B supersede-on-close-out], 73/1031 @ 14.10 [ARC-A + density restore], 72/1026 @ 10.11 [TOKEN-DIVERGENCE], 71/1020 @ 10.10 [TWO-TIER CLOSE-OUT r3] · prior arcs: 68/990 @ 08.10 [LEVER-1], 68/987 @ 07.10 [Arc C sweep — entry unlogged], 65/952 @ 06.10 [DOC-PIN gate] 64/941 @ 06.10 [i18n gate], 64/938 @ 06.10 ×2 [F1 ~16:57 · PLAN-SEAM ~18:0x], 63/931 @ 05.10, 63/930 @ 04.10 ×3, 61/917 @ 04.10, 893/59 @ 02.10, 874/58 @ ~21.5 s on 01.10, 860/56 @ 29.09, 857/56 @ 28.09)
+npm test                        # full suite: 77 suites / 1119 tests green (owner-gated GREEN twice on 21.10 — update-check arc family + version move v1.9.20 → v1.9.21, zero drift; prior canon 74/1064 @ 16.10 [ARC-RESTORE] · 74/1058 @ 15.10 [SESSION-MEMORY ARC-C close-out ~18:2x + density arc], owner-verified 15.10 — SESSION-MEMORY ARC-C gate ~18:2x, then +1 density setter test in the v5 rotation entry with second trio GREEN ~19:3x/~19:52; prior canon 74/1057 @ 15.10 [SESSION-MEMORY ARC-C], 73/1035 @ 14.10 [ARC-B supersede-on-close-out], 73/1031 @ 14.10 [ARC-A + density restore], 72/1026 @ 10.11 [TOKEN-DIVERGENCE], 71/1020 @ 10.10 [TWO-TIER CLOSE-OUT r3] · prior arcs: 68/990 @ 08.10 [LEVER-1], 68/987 @ 07.10 [Arc C sweep — entry unlogged], 65/952 @ 06.10 [DOC-PIN gate] 64/941 @ 06.10 [i18n gate], 64/938 @ 06.10 ×2 [F1 ~16:57 · PLAN-SEAM ~18:0x], 63/931 @ 05.10, 63/930 @ 04.10 ×3, 61/917 @ 04.10, 893/59 @ 02.10, 874/58 @ ~21.5 s on 01.10, 860/56 @ 29.09, 857/56 @ 28.09)
 ```
 
 ---

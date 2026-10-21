@@ -78,7 +78,7 @@ executionTerminal: true (for shell scripting)
 
 ## Documentation
 
-- **Tool Reference**: `TOOLS_REFERENCE.md` — Complete parameter documentation for all 124 distinct tool names / 115 locale entries (re-grounded 06.10 against live source; superseded the stale 04.09 stamp "129 entries / 127 names, v1.9.17" — see TOOLS_REFERENCE.md header for audit lineage). Includes the v1.9.8-era Graphify-Inspired Suite: Confidence-Tagged Results, Hub-Exclusion Clustering, Project Auto-Detection, Context Tier Provenance, Cluster-Aware Tool Priority.
+- **Tool Reference**: `TOOLS_REFERENCE.md` — Complete parameter documentation for all 115 distinct tool names / 115 locale entries (re-grounded 06.10 against live source; counts re-synced 21.10 with the TOOLS_REFERENCE header — supersedes the stale 04.09 stamp "129 entries / 127 names, v1.9.17" — see TOOLS_REFERENCE.md header for audit lineage). Includes the v1.9.8-era Graphify-Inspired Suite: Confidence-Tagged Results, Hub-Exclusion Clustering, Project Auto-Detection, Context Tier Provenance, Cluster-Aware Tool Priority.
 - **Architecture**: `ARCHITECTURE.md` — System design, registration pattern, data flows
 - **Security**: `SECURITY.md` — Threat model, input validation, secure defaults
 - **Contributing**: `CONTRIBUTING.md` — Development workflow, adding new tools

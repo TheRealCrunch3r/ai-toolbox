@@ -2,7 +2,7 @@
 <a href="README.md">English</a> · <a href="README.de.md">Deutsch</a> · <b>Español</b> · <a href="README.zh-CN.md">简体中文</a> · <a href="README.zh-TW.md">繁體中文</a><br/>
 <h1>AI Toolbox — Plugin todo-en-uno de agentes y herramientas de IA autónomos para LLMs locales en LM Studio</h1><hr/>
 <b>Dale manos reales a tu LLM local.</b> El plugin más completo del Hub de LM Studio — convierte cualquier modelo local en un agente de IA capaz y autosuficiente.<br/>Contexto autogestionado mantiene vivas las sesiones maratón · un solo plugin, sin pegamento, completamente offline por defecto.
-<br/><a href="#"><img src="https://img.shields.io/badge/version-v1.9.21-2f80ed?style=plastic" alt="version v1.9.21"/></a> <a href="#the-tool-arsenal-115-tools-across-every-family-all-yours-to-toggle"><img src="https://img.shields.io/badge/tools-115%20ready--made-7c3aed?style=plastic" alt="tools 115 ready-made"/></a> <a href="#quick-start-2-minutes"><img src="https://img.shields.io/badge/tests-76%20suites%20%C2%B7%201109%20green-3fb950?style=plastic" alt="tests 76 suites · 1109 green"/></a> <a href="#"><img src="https://img.shields.io/badge/LM%20Studio-Hub%20plugin-e84393?style=plastic" alt="LM Studio Hub plugin"/></a> <a href="LICENSE"><img src="https://img.shields.io/github/license/TheRealCrunch3r/ai-toolbox?style=plastic" alt="license MIT (live-verified from LICENSE)"/></a> <a href="#"><img src="https://img.shields.io/badge/runtime-Node%20%E2%89%A5%2020-83cd29?style=plastic&logo=node.js" alt="runtime Node ≥ 20"/></a><br/>
+<br/><a href="#"><img src="https://img.shields.io/badge/version-v1.9.21-2f80ed?style=plastic" alt="version v1.9.21"/></a> <a href="#the-tool-arsenal-115-tools-across-every-family-all-yours-to-toggle"><img src="https://img.shields.io/badge/tools-115%20ready--made-7c3aed?style=plastic" alt="tools 115 ready-made"/></a> <a href="#quick-start-2-minutes"><img src="https://img.shields.io/badge/tests-77%20suites%20%C2%B7%201119%20green-3fb950?style=plastic" alt="tests 77 suites · 1119 green"/></a> <a href="#"><img src="https://img.shields.io/badge/LM%20Studio-Hub%20plugin-e84393?style=plastic" alt="LM Studio Hub plugin"/></a> <a href="LICENSE"><img src="https://img.shields.io/github/license/TheRealCrunch3r/ai-toolbox?style=plastic" alt="license MIT (live-verified from LICENSE)"/></a> <a href="#"><img src="https://img.shields.io/badge/runtime-Node%20%E2%89%A5%2020-83cd29?style=plastic&logo=node.js" alt="runtime Node ≥ 20"/></a><br/>
 <b>Docs:</b> <a href="DOCUMENTATION.md">Documentation</a> · <a href="QUICK_START.md">Quick Start</a> · <a href="ARCHITECTURE.md">Architecture</a> · <a href="TOOLS_REFERENCE.md">Tool Reference</a> · <a href="CHANGELOG_v5.md">Changelog</a><br/>
 <a href="CONTRIBUTING.md">Contributing</a> · <a href="SECURITY.md">Security</a><br/>
 <br>
@@ -16,7 +16,7 @@
 
 **Dale manos reales a tu LLM local.** El plugin más completo del Hub de LM Studio — convierte cualquier modelo local en un agente IA capaz y auto-gestionado con edición segura de archivos, búsqueda a prueba de cuelgues, builds en segundo plano, automatización de navegador headless, flujos de Git & GitHub, OCR, gráficos y RAG semántico; el **contexto auto-gestionado** mantiene vivas las sesiones maraton. Un plugin, cero código pegajoso, totalmente offline por defecto.
 
-> `v1.9.21` · `115 herramientas listas` · `1109 tests en verde (76 suites)` · `5 localizaciones` · `MIT` · `Node 20+`
+> `v1.9.21` · `115 herramientas listas` · `1119 tests en verde (77 suites)` · `5 localizaciones` · `MIT` · `Node 20+`
 
 > ⚠️ **Traducción** — Versión española de [README.md](README.md). El inglés es la versión canónica; en caso de divergencia prevalece README.md. Mantener esta archivo sincronizado cuando el original cambie.
 
@@ -61,7 +61,7 @@ El competidor directo más cercano en el Hub: mismo oficio (herramientas para LL
 | ✅ **Refactorización a nivel AST** (renombrar, mover funciones, limpiar imports muertos) — transformaciones seguras sintácticamente con rollback automático, no ediciones de cadena |
 | ✅ **RAG real:** índice vectorial local sobre PDF / DOCX / XLSX con procedencia por página — no solo búsqueda por palabras clave |
 | ✅ **Imagen y data-viz:** OCR en capturas y tomas, metadatos + comparación de imágenes, generación de gráficos |
-| ✅ **115 herramientas** vs ~49 — respaldadas por 1109 tests superados en 76 suites |
+| ✅ **115 herramientas** vs ~49 — respaldadas por 1119 tests superados en 77 suites |
 | ✅ **Escrituras resistentes a crash + rollback ante fallo:** una edición fallida nunca puede corromper tu archivo |
 
 Nuestra brecha de i18n anterior está cerrada: **ahora publicamos 5 localizaciones** (en · de · es · zh-CN · zh-TW), cada una un conjunto de traducción completo — y tests anti-stub custodian la suite para que los idiomas alias/fallback nunca regredan en silencio. Preferimos decírtelo a fingir que no existe.
@@ -116,7 +116,7 @@ Gráficos renderizados a archivos de imagen desde datos crudos (barras/líneas/c
 ```bash
 # Developing instead of using?
 npm install && npm run build   # ESM + CJS via tsup
-npm test                        # full suite: 76 suites / 1109 tests green (owner-gated GREEN twice on 21.10 — update-check arc family + version move v1.9.20 → v1.9.21, zero drift; prior canon 74/1064 @ 16.10 [ARC-RESTORE] · 74/1058 @ 15.10 [SESSION-MEMORY ARC-C close-out ~18:2x + density arc], owner-verified 15.10 — SESSION-MEMORY ARC-C gate ~18:2x, then +1 density setter test in the v5 rotation entry with second trio GREEN ~19:3x/~19:52; prior canon 74/1057 @ 15.10 [SESSION-MEMORY ARC-C], 73/1035 @ 14.10 [ARC-B supersede-on-close-out], 73/1031 @ 14.10 [ARC-A + density restore], 72/1026 @ 10.11 [TOKEN-DIVERGENCE], 71/1020 @ 10.10 [TWO-TIER CLOSE-OUT r3] · prior arcs: 68/990 @ 08.10 [LEVER-1], 68/987 @ 07.10 [Arc C sweep — entry unlogged], 65/952 @ 06.10 [DOC-PIN gate] 64/941 @ 06.10 [i18n gate], 64/938 @ 06.10 ×2 [F1 ~16:57 · PLAN-SEAM ~18:0x], 63/931 @ 05.10, 63/930 @ 04.10 ×3, 61/917 @ 04.10, 893/59 @ 02.10, 874/58 @ ~21.5 s on 01.10, 860/56 @ 29.09, 857/56 @ 28.09)
+npm test                        # full suite: 77 suites / 1119 tests green (owner-gated GREEN twice on 21.10 — update-check arc family + version move v1.9.20 → v1.9.21, zero drift; prior canon 74/1064 @ 16.10 [ARC-RESTORE] · 74/1058 @ 15.10 [SESSION-MEMORY ARC-C close-out ~18:2x + density arc], owner-verified 15.10 — SESSION-MEMORY ARC-C gate ~18:2x, then +1 density setter test in the v5 rotation entry with second trio GREEN ~19:3x/~19:52; prior canon 74/1057 @ 15.10 [SESSION-MEMORY ARC-C], 73/1035 @ 14.10 [ARC-B supersede-on-close-out], 73/1031 @ 14.10 [ARC-A + density restore], 72/1026 @ 10.11 [TOKEN-DIVERGENCE], 71/1020 @ 10.10 [TWO-TIER CLOSE-OUT r3] · prior arcs: 68/990 @ 08.10 [LEVER-1], 68/987 @ 07.10 [Arc C sweep — entry unlogged], 65/952 @ 06.10 [DOC-PIN gate] 64/941 @ 06.10 [i18n gate], 64/938 @ 06.10 ×2 [F1 ~16:57 · PLAN-SEAM ~18:0x], 63/931 @ 05.10, 63/930 @ 04.10 ×3, 61/917 @ 04.10, 893/59 @ 02.10, 874/58 @ ~21.5 s on 01.10, 860/56 @ 29.09, 857/56 @ 28.09)
 ```
 
 ---
