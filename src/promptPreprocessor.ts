@@ -23,6 +23,9 @@ import { getWorkingDir, setWorkingDir, listRegisteredProjects } from './workingD
 // CONTAMINATION-FIX Part A (01.10): identity rebind after Step 0.7 CWD switches. No import cycle: only index.ts
 // imports both modules; toolsProvider does not reference promptPreprocessor.
 import { getStateManager } from './toolsProvider.js';
+// UPDATE-ANNOUNCE (19.10, owner GO): one-shot in-chat update announcement accessor — direct import of the pure state+fetch module is safe here
+// (no cycle; toolsProvider already imports it). Jest resolution: this specifier matches the existing '^\.\/updateChecker\.js$' mapper entry (Phase-1), so no new config.
+import { getPendingUpdateAnnouncement, LOCAL_VERSION } from './updateChecker.js';
 // Arc C (07.10): forced structured session-memory save at the compression trigger — persists via the canonical
 // save_session_summary writer path (see src/sessionSummaryPersist.ts); cycle-free edge set (only index.ts imports both sides).
 import { persistGeneratedSessionSummary } from './sessionSummaryPersist.js';
@@ -1138,6 +1141,19 @@ export async function preprocess(
       if (midLoopNotice) {
         userPrompt += midLoopNotice;
         console.log("[AutoTracker] ✅ Mid-loop crossing notice appended to this turn's model input (FIX-A one-shot)");
+      }
+
+      // 🔹 UPDATE-ANNOUNCE (19.10, owner GO): users with OS/desktop notifications disabled never see the toast — every turn still passes
+      // through preprocess(), so a pending update is announced IN CHAT here instead: the model tells them and gives them the clickable link.
+      // F1-style straight onto userPrompt (the checkpointSuffix route would be silently dropped by its hasPendingWarning()-gated return
+      // paths). getPendingUpdateAnnouncement() latches once per process lifetime per version inside updateChecker → at most one short line
+      // (~25 tokens) until plugin reload or a newer release; dismissed versions are honored here too (zero network — cached state only).
+      // SPEC A XOR (21.10): pass the LIVE panel toggle so channel selection reaches the accessor — an explicit OFF makes in-chat THE
+      // channel (announces even a previously-toasted version, once per process); undefined/ON keeps pre-fix mutual exclusion byte-exactly.
+      const updateNotice = getPendingUpdateAnnouncement(pluginConfig.get('notificationsEnabled'));
+      if (updateNotice) {
+        userPrompt += `\n[AI Toolbox] New version available: v${updateNotice.version} (installed ${LOCAL_VERSION}). Mention this to the user once and give them this link: ${updateNotice.url ?? 'https://github.com/crunch3r/ai_toolbox/releases'}`;
+        console.log(`[AI Toolbox] [UPDATE-CHECK] In-chat announcement appended to this turn's model input (once per process for v${updateNotice.version})`);
       }
 
     } catch (e) {

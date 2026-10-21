@@ -187,6 +187,8 @@ export const deTranslations: FullTranslationSet = {
     tools: [
     { toolName: 'markdown_preview', description: 'Markdown-Datei als HTML rendern und im Standardbrowser öffnen', parameters: ['file_path'] },
     { toolName: 'get_repeat_tool_advice', description: 'Gibt den aktuellen Zustand der Wiederholungs-Werkzeug-Erinnerung inkl. aktiver Hinweise aus; prüft, ob das Modell in einer Wiederholungsschleife steckt', parameters: ['toolName, args (optional)'] },
+      { toolName: 'get_update_info', description: 'Liest den aktuellen AI-Toolbox-Updatestatus ohne Änderungen ab: installierte Version, ob eine neuere veröffentlichte Version bekannt ist (24h-cached Prüfung gegen die Hub-.VERSION-Datei) und deren Marketplace-Seiten-URL bei Verfügbarkeit — als klickbaren Link im Chat rendern', parameters: [] },
+      { toolName: 'dismiss_update_reminder', description: 'Bucht „nicht jetzt" für eine Update-Erinnerungsversion, damit sie nicht bei jedem Turn erneut benachrichtigt; diese Version bleibt dauerhaft still, strikt neuere Releases benachrichtigen weiterhin', parameters: ['version'] },
     ],
   },
   imageProcessing: {

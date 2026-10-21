@@ -187,6 +187,8 @@ export const zhCNTranslations: FullTranslationSet = {
     tools: [
     { toolName: 'markdown_preview', description: '将 Markdown 文件渲染为 HTML，并在默认浏览器中打开', parameters: ['file_path'] },
     { toolName: 'get_repeat_tool_advice', description: '返回重复工具提醒的当前状态与活动提示；用于检查模型是否陷入重复循环', parameters: ['toolName, args (optional)'] },
+      { toolName: 'get_update_info', description: '读取 AI Toolbox 当前更新状态（不产生任何更改）：已安装版本、是否有已知的新发布版本（针对 hub .VERSION 文件的 24 小时缓存检查），以及可用时的 marketplace 页面 URL — 请在聊天中将其渲染为可点击链接', parameters: [] },
+      { toolName: 'dismiss_update_reminder', description: '对某个更新提醒版本记录"暂不"，使其不再在每个回合重复通知；该版本将永久保持静默，严格更新的版本仍会通知', parameters: ['version'] },
     ],
   },
   imageProcessing: {

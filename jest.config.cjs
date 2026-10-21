@@ -74,6 +74,12 @@ module.exports = {
     // new .js-suffixed import without mapper entry -> "Cannot find module" in 3 suites) ──
     '^\\.\\/toolOverhead\\.js$': '<rootDir>/src/toolOverhead.ts',
 
+    // UPDATE-CHECK (19.10): src/toolsProvider.ts statically imports './updateChecker.js' for getUpdateStatus/LOCAL_VERSION — same RC#4 class; real-src target (pure state+fetch module, no mock needed)
+    '^\\.\\/updateChecker\\.js$': '<rootDir>/src/updateChecker.ts',
+// UPDATE-CHECK PHASE 2 (19.10): src/toolsProvider.ts statically imports './tools/updateReminderTools.js' — same RC#4 per-file class as above.
+'^\\.\\/tools\\/updateReminderTools\\.js$': '<rootDir>/src/tools/updateReminderTools.ts',
+// PHASE-2 FOLLOW-UP (19.10 17:0x): mapper matches RAW REQUEST strings, not resolved paths — updateReminderTools.ts lives in src/tools/, so its own `../updateChecker.js` request needs THIS second entry; the Phase-1 one only matched toolsProvider's './' form.
+'^\\.\\./updateChecker\\.js$': '<rootDir>/src/updateChecker.ts',
     // ── FIX #20 (23.08.2026): tokenStatsManager imports './lmStudioApi.js' — first test suite to load this chain
     // (fix20_midloop_token_counting.test.ts); same RC#4 class as the entries above ──
     '^\\.\\/lmStudioApi\\.js$': '<rootDir>/src/lmStudioApi.ts',

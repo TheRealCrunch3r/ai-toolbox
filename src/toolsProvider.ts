@@ -44,6 +44,10 @@ import { registerRestoreSessionContextTool } from './tools/restoreSessionContext
 // and the minifier is a pure module (type-only imports), so static loading is safe and cheap.
 import { minifyTools } from './toolsSchemaMinifier.js';
 import { reportToolSchemas } from './toolOverhead.js';
+// 📦 UPDATE-CHECK (19.10): quiet GitHub Releases check + in-app notify — non-fatal side effect hosted at provider exit; module is a pure state+fetch helper (no tool registration, no cycles).
+import { getUpdateStatus, hasBeenNotified, markNotified, markToastDispatched, LOCAL_VERSION } from './updateChecker.js'; // UPDATE-ANNOUNCE (19.10): the announcement accessor is consumed by promptPreprocessor.ts via its OWN direct updateChecker import — deliberately NOT re-exported through here (eslint no-unused-vars would flag it; 21:0x)
+// 📦 UPDATE-CHECK PHASE 2 (19.10, owner GO): dismiss-reminder tool — the user-facing half of the dismissed[] machinery Phase 1 built without a caller; same gate as the check itself.
+import { registerUpdateReminderTools } from './tools/updateReminderTools.js';
 // FIX #20 (A1+A2): mid-loop context growth — payload bookkeeping + proactive checkpoint guard.
 import { autoTracker } from './autoTracker.js';
 import { TokenStatsManager, estimateTokensFromChars } from './tokenStatsManager.js';
@@ -76,7 +80,14 @@ type ContextMessageLike = { role?: string; content?: unknown; [key: string]: unk
  * PluginContext with llm.history(): Promise<ChatHistory>; this file does NOT import the SDK type for that node (the existing tier-2 block
  * treats `ctx` as unknown too), so every hop is optional-chained and duck-typed at use — a host shape without history support simply takes
  * compressMidLoop's documented no-swap fallback instead of a hard failure. */
-type PluginContextLike = { client?: { llm?: { history?: () => Promise<{ getLength(): number; pop(): unknown; append(m: unknown): void }> } }; };
+type PluginContextLike = {
+  client?: {
+    llm?: { history?: () => Promise<{ getLength(): number; pop(): unknown; append(m: unknown): void }> };
+    // UPDATE-CHECK (19.10): duck-typed SystemNamespace.notify hop — shape verified against the installed @lmstudio/sdk d.ts
+    // (BackendNotification = { title, description?, noAutoDismiss? }); optional-chained at use so harness stubs and older hosts skip deterministically.
+    system?: { notify?: (n: { title: string; description?: string; noAutoDismiss?: boolean }) => Promise<void> | void };
+  };
+};
 import { analyzeAiToolboxDependencies } from './utils/hubExclusionClustering.js';
 import { sortToolsByClusterAwarePriority } from './tools/toolPriority.js';
 
@@ -218,6 +229,8 @@ export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[
     stateMaxSize: pluginConfig.get('stateMaxSize'),
     language: pluginConfig.get('language') as 'en' | 'de' | 'zh-CN' | 'zh-TW',
     notificationsEnabled: pluginConfig.get('notificationsEnabled'),
+    // 📦 UPDATE-CHECK (19.10): quiet GitHub Releases check — exhaustive-literal completeness after config.ts schema extension (see src/updateChecker.ts)
+    updateCheckEnabled: pluginConfig.get('updateCheckEnabled'),
     temporalAwareness: pluginConfig.get('temporalAwareness'),
     dateFormatStyle: pluginConfig.get('dateFormatStyle') as 'standard' | 'heuteIst',
     contextGuardEnabled: pluginConfig.get('contextGuardEnabled'),
@@ -289,6 +302,8 @@ export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[
     { key: 'uiGeneration', register: () => registerUiGenerationTools(config) },
     { key: 'vectorRAG', register: () => registerRagTools(config) },
     { key: 'webSearch', register: () => registerWebResearchTools(config) },
+    // 📦 UPDATE-CHECK PHASE 2 (19.10): dismiss-reminder tool — gated by the SAME updateCheckEnabled toggle as the provider IIFE check above; godMode enables it like every other entry.
+    { key: 'updateCheckEnabled', register: () => registerUpdateReminderTools(config) },
   ];
 
   // --- Declarative Registry Loop (Covers most tools) ---
@@ -680,6 +695,64 @@ export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[
 
     return { ...t, implementation: wrapped } as Tool;
   });
+
+  // ==================== 📦 UPDATE-CHECK (19.10): quiet GitHub Releases check + in-app notify ====================
+  // Runs once per provider invocation (= new turn / session start) — the only spot with both the live config and the host client hop.
+  // QUIET by design: at most one outbound request per machine per day (24h TTL inside getUpdateStatus, stamped on every attempt incl. failures);
+  // no new LLM tool is registered; nothing here may delay or break the tools array — fire-and-forget, non-fatal by house rule (warn + skip).
+  // CHANNEL SELECTION (21.10 owner spec A, GO): the plugin-panel "Desktop Notifications" toggle picks exactly ONE surface
+  // per session for update messages — ON: desktop toast below; OFF: no notify hop and NO latches written, so promptPreprocessor's
+  // in-chat UPDATE-ANNOUNCE line (once-per-process) is free to fire. Never both channels. getUpdateStatus() ALWAYS runs when
+  // updateCheckEnabled — its knob/real-path now persists latestVersion (CHANNEL-FEED), which the chat layer needs as input. `!== false`
+  // (not strict ===true): undefined/partial harness configs keep current ON behavior — only an explicit OFF switches channel.
+  if (config.updateCheckEnabled === true) {
+    void (async () => {
+      try {
+        const status = await getUpdateStatus();
+        // CHANNEL SELECTION (21.10 owner spec A): desktop notifications OFF -> chat is the ONLY channel this session: no notify hop and NO
+        // latches written at all, so promptPreprocessor's in-chat UPDATE-ANNOUNCE line may fire (its once-per-process latch guarantees ONE
+        // message per session/version). The check above already persisted latestVersion for that layer (CHANNEL-FEED in updateChecker);
+        // null-status outcomes return silently below regardless of channel. Strict === false mirrors the tier-2 house gate convention.
+        if (config.notificationsEnabled === false && status !== null) return;
+        if (!status) return; // fresh cache / same-or-older / dismissed / transient failure — silent by design
+        // NOTIF-DEDUPE (19.10, E2E-discovered): the host re-invokes this provider on EVERY model step of an agentic
+        // turn, so without a latch the owner would get one notification per tool call for the same release (24h TTL caps
+        // FETCHES only). At most ONE notify per version; a strictly-newer release carries a different version string and re-fires.
+        if (!hasBeenNotified(status.version)) {
+          markNotified(status.version); // latch BEFORE the await: a failing/crashing hop must not re-fire next step for this version
+          console.log(`[AI Toolbox] [UPDATE-CHECK] Newer release available: v${status.version} (installed ${LOCAL_VERSION})`);
+          const notify = (ctl as unknown as PluginContextLike).client?.system?.notify; // duck-typed hop (see type doc above) — stubs/older hosts skip deterministically
+          if (typeof notify === 'function') {
+            // REPO-LINK A+B (19.10, owner GO) [SUPERSEDED by TOAST COPY v3 below — no URL in the final toast]: originally surfaced the GitHub release page as plain text — SDK 1.5.0's
+            // BackendNotification is { title, description?, noAutoDismiss? } with NO url/action field (verified against the
+            // installed d.ts AND upstream lmstudio-js main), so whether that URL renders clickable is host behavior, not a
+            // plugin API; option B1 provides the genuinely-clickable surface in-chat via get_update_info. status.url = the
+            // release html_url already returned by getUpdateStatus() (previously unused — the key gap).
+            // REPO-LINK A+B v2 (19.10 owner GO): human, action-oriented copy — the desktop notification CANNOT carry a clickable link
+            // (BackendNotification has no url/action field; verified against installed d.ts + live E2E 19.10), so no URL here: point at
+            // where updates actually happen and let get_update_info be the in-chat clickable surface for the release page.
+            // TOAST COPY v3 (19.10, owner GO): rephrased per owner spec — title = "An Update is available for AI Toolbox
+            // (vX) !" + body = completed uninstall/reinstall instructions (Variant B, single flowing sentence). Copy-only:
+            // no latch/gate/logic change; still NO url field (BackendNotification cannot carry clickable links — v2 finding stands).
+            await notify.call(ctl.client?.system, {
+              title: `An Update is available for AI Toolbox (v${status.version}) !`,
+              description: `- Please uninstall the old one first, then install v${status.version} again from the plugin page — settings and saved data survive the reinstall.`,
+            });
+            // MUTUAL EXCLUSION (19.10 owner GO): record the successful desktop dispatch so the in-chat announcement layer stays quiet for
+            // this version; hosts without system.notify take the warn branch below and NEVER set it → their users get the chat channel instead.
+            markToastDispatched(status.version);
+          } else {
+            console.warn('[AI Toolbox] [UPDATE-CHECK] client.system.notify unavailable — update found but NOT notified (log-only)');
+          }
+        } else {
+          console.log(`[AI Toolbox] [UPDATE-CHECK] v${status.version} already notified this release cycle — duplicate notify suppressed`);
+        }
+      } catch (err) {
+        // getUpdateStatus is non-fatal by construction; this outer guard makes "never throw into the turn" absolute.
+        console.warn(`[AI Toolbox] [UPDATE-CHECK] Check failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`);
+      }
+    })();
+  }
 
   console.log(`[AI Toolbox] Exposed ${instrumented.length} tools to LLM.`);
   return instrumented;

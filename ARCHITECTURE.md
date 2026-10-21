@@ -124,7 +124,7 @@ export function main(context: PluginContext) {
 }
 ```
 
-### 2. Tool Registration Flow (Current State — full re-audit **28.09** against live `toolsProvider.ts`; version stamp v1.9.20 / manifest rev 0)
+### 2. Tool Registration Flow (Current State — full re-audit **28.09** against live `toolsProvider.ts`, +`updateReminderTools.ts` module since; version stamp **v1.9.21** / manifest rev 0, synced 21.10)
 
 ```
 toolsProvider() called by LM Studio SDK

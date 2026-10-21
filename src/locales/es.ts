@@ -187,6 +187,8 @@ export const esTranslations: FullTranslationSet = {
     tools: [
     { toolName: 'markdown_preview', description: 'Representa un archivo Markdown como HTML y lo abre en el navegador predeterminado', parameters: ['file_path'] },
     { toolName: 'get_repeat_tool_advice', description: 'Devuelve el estado actual del recordatorio de herramientas repetidas y avisos activos; sirve para comprobar si el modelo está en bucle de repetición', parameters: ['toolName, args (optional)'] },
+      { toolName: 'get_update_info', description: 'Lee el estado actual de actualización de AI Toolbox sin cambios: versión instalada, si se conoce una versión publicada más nueva (comprobación con caché de 24 h contra el archivo .VERSION del hub) y su URL de página de marketplace cuando esté disponible — renderízala como enlace clicable en el chat', parameters: [] },
+      { toolName: 'dismiss_update_reminder', description: 'Registra "ahora no" para una versión de recordatorio de actualización para que deje de notificar cada turno; esa versión queda silenciada de forma permanente, las versiones estrictamente nuevas siguen notificando', parameters: ['version'] },
     ],
   },
   imageProcessing: {

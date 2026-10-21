@@ -23,8 +23,14 @@
  *      function or absent implementation (wrapper contract; in production this covers all ~78 tools).
  */
 
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+
 import { toolsProvider } from '../src/toolsProvider.js';
 import { DEFAULT_CONFIG } from '../src/config.js';
+import { setDataDirOverride } from '../src/dataDir.js';
+import { LOCAL_VERSION } from '../src/updateChecker.js';
 
 import { TokenStatsManager } from '../src/tokenStatsManager.js';
 // NOTE: import the stub via './__mocks__/markdownPreviewTools.js' — jest.config.cjs maps THIS specifier and
@@ -40,6 +46,24 @@ jest.mock('./__mocks__/markdownPreviewTools.js', () => ({
 }));
 
 const mockedRegister = registerMarkdownPreviewTools as unknown as jest.Mock;
+
+// UPDATE-CHECK (19.10): this suite's configs spread DEFAULT_CONFIG → updateCheckEnabled === true → the provider's
+// fire-and-forget GitHub check would touch REAL network + data dir without a guard. Pin both hermetically for the
+// whole file: quiet same-version release response (→ deterministic null, zero console noise) + temp state dir that
+// is never the developer's real ~/.lmstudio data dir. Both restored in afterAll so no other suite inherits them.
+const origFetch = globalThis.fetch;
+let updTmpDir: string | undefined;
+beforeAll(() => {
+  updTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'atb-updt-transparency-'));
+  setDataDirOverride(updTmpDir);
+  // .VERSION body === LOCAL_VERSION (v-prefixed house format) → getUpdateStatus() is ALWAYS quiet (same version) — no warn lines, no side effects.
+  globalThis.fetch = (async () => ({ ok: true, text: async () => LOCAL_VERSION })) as typeof fetch;
+});
+afterAll(() => {
+  setDataDirOverride(undefined); // never leak an override into other suites
+  globalThis.fetch = origFetch; // restore the environment fetch exactly
+  if (updTmpDir) fs.rmSync(updTmpDir, { recursive: true, force: true });
+});
 
 /** Same mock controller shape as tests/toolsProvider.test.ts — keep conventions identical. */
 function createMockController(config: Record<string, unknown>) {

@@ -139,6 +139,9 @@ export const ConfigSchema = z.object({
 
   notificationsEnabled: z.boolean().default(true),
 
+  // 📦 PLUGIN UPDATE CHECK (19.10; source switched to the published hub .VERSION file per owner GO, see src/updateChecker.ts): quiet hub check — notify only when a strictly-newer release exists
+  updateCheckEnabled: z.boolean().default(true).describe('Quietly check the LM Studio hub for newer plugin releases (published .VERSION file) and show an in-app notification or in-chat line when one is found'),
+
   // Temporal Awareness (merged from up_to_date)
   temporalAwareness: z.boolean().default(true).describe('Enable automatic date/time injection into prompts'),
   dateFormatStyle: z.enum(['standard', 'heuteIst']).default('standard').describe('Date format style for temporal awareness'),
@@ -262,6 +265,9 @@ stateMaxSize: 262144,
   language: 'en',
 
   notificationsEnabled: true,
+
+  // 📦 19.10 plugin update check (src/updateChecker.ts; hub .VERSION source per owner GO): quiet hub check + in-app/in-chat notify — matches the zod default above
+  updateCheckEnabled: true,
 
   temporalAwareness: true,
 
@@ -718,6 +724,13 @@ export const configSchematics = createConfigSchematics()
 
 
   .field('notificationsEnabled', 'boolean', { displayName: '🔔 Desktop Notifications', hint: 'Show system notifications' }, DEFAULT_CONFIG.notificationsEnabled)
+
+  // ── 📦 PLUGIN UPDATE CHECK (19.10) ───────────────────────────────
+  .field('updateCheckEnabled', 'boolean', {
+    displayName: '🔄 Plugin Update Check',
+    subtitle: 'Quiet LM Studio hub .VERSION check — no new tools, no OS permissions',
+    hint: "Once per day the plugin quietly checks the published LM Studio hub .VERSION file for a strictly-newer release. If one exists it notifies via desktop toast (Desktop Notifications ON) or a single in-chat line (OFF). Silent when you are up to date or on a dismissed version; state survives reinstalls.",
+  }, DEFAULT_CONFIG.updateCheckEnabled)
 
   // ⏰ TEMPORAL AWARENESS (from up_to_date)
   .field('temporalAwareness', 'boolean', {

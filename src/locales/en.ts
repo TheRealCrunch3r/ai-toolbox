@@ -187,6 +187,8 @@ export const enTranslations: FullTranslationSet = {
     tools: [
     { toolName: 'markdown_preview', description: 'Render a Markdown file to HTML and open it in the default browser', parameters: ['file_path'] },
     { toolName: 'get_repeat_tool_advice', description: 'Returns current repeat-tool reminder state and any active nudges; use to check if the model is in a repetition loop', parameters: ['toolName, args (optional)'] },
+      { toolName: 'get_update_info', description: 'Read the current AI Toolbox update status without changing anything: installed version, whether a strictly-newer published version is known (24h-cached check against the hub .VERSION file), and its marketplace page URL when available - render it as a clickable link in chat', parameters: [] },
+      { toolName: 'dismiss_update_reminder', description: 'Records "not now" for an update-reminder version so it stops re-notifying on every turn; that version stays quiet forever, strictly-newer releases still notify', parameters: ['version'] },
     ],
   },
   imageProcessing: {
