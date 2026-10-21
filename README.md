@@ -2,7 +2,7 @@
 <b>English</b> · <a href="README.de.md">Deutsch</a> · <a href="README.es.md">Español</a> · <a href="README.zh-CN.md">简体中文</a> · <a href="README.zh-TW.md">繁體中文</a><br/>
 <h1>AI Toolbox — All-in-One Autonomous AI Agent & Tool Plugin for Local LLMs in LM Studio</h1><hr/>
 <b>Give your local LLM real hands.</b> The most complete LM Studio Hub plugin — turns any local model into a capable, self-managing AI agent.<br/>Self-managing context keeps marathon sessions alive · one plugin, zero glue code, fully offline by default.
-<br/><a href="#"><img src="https://img.shields.io/badge/version-v1.9.21-2f80ed?style=plastic" alt="version v1.9.21"/></a> <a href="#the-tool-arsenal-113-tools-across-every-family-all-yours-to-toggle"><img src="https://img.shields.io/badge/tools-113%20ready--made-7c3aed?style=plastic" alt="tools 113 ready-made"/></a> <a href="#quick-start-2-minutes"><img src="https://img.shields.io/badge/tests-74%20suites%20%C2%B7%201064%20green-3fb950?style=plastic" alt="tests 74 suites · 1064 green"/></a> <a href="#"><img src="https://img.shields.io/badge/LM%20Studio-Hub%20plugin-e84393?style=plastic" alt="LM Studio Hub plugin"/></a> <a href="LICENSE"><img src="https://img.shields.io/github/license/TheRealCrunch3r/ai-toolbox?style=plastic" alt="license MIT (live-verified from LICENSE)"/></a> <a href="#"><img src="https://img.shields.io/badge/runtime-Node%20%E2%89%A5%2020-83cd29?style=plastic&logo=node.js" alt="runtime Node ≥ 20"/></a><br/>
+<br/><a href="#"><img src="https://img.shields.io/badge/version-v1.9.21-2f80ed?style=plastic" alt="version v1.9.21"/></a> <a href="#the-tool-arsenal-115-tools-across-every-family-all-yours-to-toggle"><img src="https://img.shields.io/badge/tools-115%20ready--made-7c3aed?style=plastic" alt="tools 115 ready-made"/></a> <a href="#quick-start-2-minutes"><img src="https://img.shields.io/badge/tests-76%20suites%20%C2%B7%201109%20green-3fb950?style=plastic" alt="tests 76 suites · 1109 green"/></a> <a href="#"><img src="https://img.shields.io/badge/LM%20Studio-Hub%20plugin-e84393?style=plastic" alt="LM Studio Hub plugin"/></a> <a href="LICENSE"><img src="https://img.shields.io/github/license/TheRealCrunch3r/ai-toolbox?style=plastic" alt="license MIT (live-verified from LICENSE)"/></a> <a href="#"><img src="https://img.shields.io/badge/runtime-Node%20%E2%89%A5%2020-83cd29?style=plastic&logo=node.js" alt="runtime Node ≥ 20"/></a><br/>
 <b>Docs:</b> <a href="DOCUMENTATION.md">Documentation</a> · <a href="QUICK_START.md">Quick Start</a> · <a href="ARCHITECTURE.md">Architecture</a> · <a href="TOOLS_REFERENCE.md">Tool Reference</a> · <a href="CHANGELOG_v5.md">Changelog</a><br/>
 <a href="CONTRIBUTING.md">Contributing</a> · <a href="SECURITY.md">Security</a><br/>
 <br>
@@ -12,7 +12,7 @@
 </div>
 
 
-**AI agent toolkit for LM Studio** — 113 local-LLM tools: file editing, codebase search, RAG, browser automation, Git & GitHub.
+**AI agent toolkit for LM Studio** — 115 local-LLM tools: file editing, codebase search, RAG, browser automation, Git & GitHub.
 
 **Give your local LLM real hands.** The most complete LM Studio Hub plugin — turns any local model into a capable, self-managing AI agent with safe file editing, hang-proof codebase search, background builds, headless browser automation, Git & GitHub workflows, OCR, charting and semantic RAG; **self-managing context** keeps marathon sessions alive. One plugin, zero glue code, fully offline by default.
 
@@ -22,7 +22,7 @@
 
 ## Contents
 
-[Why AI Toolbox (vs other plugins)](#why-ai-toolbox-vs-other-lm-studio-plugins) · [Head-to-head comparison](#head-to-head-comparison-vs-beledarians-lm-studio-tools) · [Feature overview](#feature-overview) · [Quick start (2 minutes)](#quick-start-2-minutes) · [Configuration & tool toggles](#configuration--tool-toggles--total-control-zero-code) · [Security posture](#security-posture--built-like-it-matters) · [Architecture](#architecture-under-the-hood-for-the-curious) · [Tool arsenal (113 tools)](#the-tool-arsenal-113-tools-across-every-family-all-yours-to-toggle) · [Release highlights](#release-highlights)
+[Why AI Toolbox (vs other plugins)](#why-ai-toolbox-vs-other-lm-studio-plugins) · [Head-to-head comparison](#head-to-head-comparison-vs-beledarians-lm-studio-tools) · [Feature overview](#feature-overview) · [Quick start (2 minutes)](#quick-start-2-minutes) · [Configuration & tool toggles](#configuration--tool-toggles--total-control-zero-code) · [Security posture](#security-posture--built-like-it-matters) · [Architecture](#architecture-under-the-hood-for-the-curious) · [Tool arsenal (115 tools)](#the-tool-arsenal-115-tools-across-every-family-all-yours-to-toggle) · [Release highlights](#release-highlights)
 
 ---
 
@@ -35,7 +35,7 @@
 |---|---|---|
 | 🧠 **Self-managing context** (`AutoTracker` + `ContextGuard`) | Token thresholds fire *mid-tool-chain* (75% / 90%), auto-summarizing and compressing the conversation before overflow — long agent sessions keep working instead of dying. Project-keyword detection in the prompt pipeline. | ⭐ **No surveyed rival has any context/token management** — every other "memory" tool is bare save/list/search CRUD |
 | 🌐 **Cross-project memory** (`switch_context`, project registry) | Recall what *another* registered project decided last week. Recency×frequency scoring, TTL pruning, confirm-first switching (Step 0.7). | ⭐ **Absent from every surveyed plugin** |
-| 🏷️ **Confidence-tagged results + cluster-aware tool selection** (`confidenceTypes`, `toolPriority`) | Every auto-tracked fact is labeled EXTRACTED vs INFERRED vs AMBIGUOUS — so you can separate what the agent *knows* from what it's guessing; and when 113 tools compete for a turn, cluster-aware priority keeps the right ones in reach under grammar limits. | 🥇 **No surveyed rival tags result confidence** — and none fits this many tools without dropping them at context limits |
+| 🏷️ **Confidence-tagged results + cluster-aware tool selection** (`confidenceTypes`, `toolPriority`) | Every auto-tracked fact is labeled EXTRACTED vs INFERRED vs AMBIGUOUS — so you can separate what the agent *knows* from what it's guessing; and when 115 tools compete for a turn, cluster-aware priority keeps the right ones in reach under grammar limits. | 🥇 **No surveyed rival tags result confidence** — and none fits this many tools without dropping them at context limits |
 | 🧬 **AST-based code refactoring** (`refactor_code`) | Rename / move-function / extract-function / dead-import cleanup — syntax-safe AST transforms with **auto-rollback on failure**, not regex text hacking. | 🥇 **The only AST-based refactoring across ~115 surveyed plugins** |
 | 🔍 **Search that cannot hang** (`ripgrep`, `find_replace_all`) | Native ripgrep in an isolated worker off the host thread with a 3 s wall-clock watchdog; Rust-dialect regexes auto-demote to fixed strings and say so via `pattern_mode`; dry-run multi-file replace. | 🛡️ Rivals ship unbounded grep loops — this one physically can't spin forever |
 | 💾 **Safe file editing** (`replace_text_in_file`, `line_operations`) | `.bak` backup on every edit, pattern-anchored inserts, line-fingerprint verification, MD5 post-write integrity check. Restore any file in one call (`restore_from_bak`). | 🛡️ **3-layer guardrails** against stale-line-number corruption — rivals offer at best rename-backup shims |
@@ -57,7 +57,7 @@ The closest direct competitor on the Hub: same job (tools for local LLMs), very 
 | ✅ **AST-level refactoring** (rename, move functions, dead-import cleanup) — syntax-safe transforms with auto-rollback, not string edits |
 | ✅ **Real RAG:** local vector index over PDF / DOCX / XLSX with page-level provenance — not just keyword search |
 | ✅ **Image & data viz:** OCR on screenshots and captures, image metadata + comparison, chart generation |
-| ✅ **113 tools** vs ~49 — backed by 1064 passing tests across 74 suites |
+| ✅ **115 tools** vs ~49 — backed by 1109 passing tests across 76 suites |
 | ✅ **Crash-resilient writes + rollback on failure:** a botched edit can never corrupt your file |
 
 Our previous i18n gap is closed: **we now ship 5 locales** (en · de · es · zh-CN · zh-TW), each a full translation set — and anti-stub tests guard the suite so alias/fallback languages can never silently regress. We'd rather tell you than pretend it doesn't exist.
@@ -107,12 +107,12 @@ Charts rendered to image files from raw data (bar/line/pie/doughnut/scatter/rada
 1. **Install** — drop the folder in, enable the plugin in LM Studio's settings
 2. **Toggle** — flip on the tool categories you want (Execution & Browser start disabled by design)
 3. *(Optional)* `gh auth login` once in a terminal to unlock GitHub remote tools
-4. **Chat** — your agent now has **113 tools** in reach, gated exactly as you configured
+4. **Chat** — your agent now has **115 tools** in reach, gated exactly as you configured
 
 ```bash
 # Developing instead of using?
 npm install && npm run build   # ESM + CJS via tsup
-npm test                        # full suite: 74 suites / 1064 tests green (owner-verified 16.10 ARC-RESTORE gate ~20:3x, +6 tests; prior canon 74/1058 @ 15.10 [SESSION-MEMORY ARC-C close-out ~18:2x + density arc], owner-verified 15.10 — SESSION-MEMORY ARC-C gate ~18:2x, then +1 density setter test in the v5 rotation entry with second trio GREEN ~19:3x/~19:52; prior canon 74/1057 @ 15.10 [SESSION-MEMORY ARC-C], 73/1035 @ 14.10 [ARC-B supersede-on-close-out], 73/1031 @ 14.10 [ARC-A + density restore], 72/1026 @ 10.11 [TOKEN-DIVERGENCE], 71/1020 @ 10.10 [TWO-TIER CLOSE-OUT r3] · prior arcs: 68/990 @ 08.10 [LEVER-1], 68/987 @ 07.10 [Arc C sweep — entry unlogged], 65/952 @ 06.10 [DOC-PIN gate] 64/941 @ 06.10 [i18n gate], 64/938 @ 06.10 ×2 [F1 ~16:57 · PLAN-SEAM ~18:0x], 63/931 @ 05.10, 63/930 @ 04.10 ×3, 61/917 @ 04.10, 893/59 @ 02.10, 874/58 @ ~21.5 s on 01.10, 860/56 @ 29.09, 857/56 @ 28.09)
+npm test                        # full suite: 76 suites / 1109 tests green (owner-gated GREEN twice on 21.10 — update-check arc family + version move v1.9.20 → v1.9.21, zero drift; prior canon 74/1064 @ 16.10 [ARC-RESTORE] · 74/1058 @ 15.10 [SESSION-MEMORY ARC-C close-out ~18:2x + density arc], owner-verified 15.10 — SESSION-MEMORY ARC-C gate ~18:2x, then +1 density setter test in the v5 rotation entry with second trio GREEN ~19:3x/~19:52; prior canon 74/1057 @ 15.10 [SESSION-MEMORY ARC-C], 73/1035 @ 14.10 [ARC-B supersede-on-close-out], 73/1031 @ 14.10 [ARC-A + density restore], 72/1026 @ 10.11 [TOKEN-DIVERGENCE], 71/1020 @ 10.10 [TWO-TIER CLOSE-OUT r3] · prior arcs: 68/990 @ 08.10 [LEVER-1], 68/987 @ 07.10 [Arc C sweep — entry unlogged], 65/952 @ 06.10 [DOC-PIN gate] 64/941 @ 06.10 [i18n gate], 64/938 @ 06.10 ×2 [F1 ~16:57 · PLAN-SEAM ~18:0x], 63/931 @ 05.10, 63/930 @ 04.10 ×3, 61/917 @ 04.10, 893/59 @ 02.10, 874/58 @ ~21.5 s on 01.10, 860/56 @ 29.09, 857/56 @ 28.09)
 ```
 
 ---
@@ -146,7 +146,7 @@ Deep dive → [ARCHITECTURE.md](ARCHITECTURE.md) · Dev guide in this file below
 
 ---
 
-## The Tool Arsenal: 113 Tools Across Every Family, All Yours to Toggle
+## The Tool Arsenal: 115 Tools Across Every Family, All Yours to Toggle
 
 One plugin replaces an entire shelf. Here's every family, what it covers, and its default state:
 
@@ -181,6 +181,7 @@ One plugin replaces an entire shelf. Here's every family, what it covers, and it
 
 | Version | Headline |
 |---|---|
+| **v1.9.21** | 📡 Update-check arc family (owner-GO'd 19.10, committed + pushed 21.10 as `f108f35`) — desktop toast ↔ in-chat announce made mutually exclusive per version (SPEC A XOR: the plugin-panel Desktop Notifications setting picks exactly one surface; hosts without system.notify always fall back to chat) · 🧾 DEFECT #2 — `update-check.json` no longer rewritten on every model step of an agentic turn (state file touched only when content changes) · 🏷️ HUB .VERSION source switch — production update check now reads the published LM Studio hub `.VERSION` file instead of GitHub `releases/latest` (which never existed: repo anonymous-404), notifications deep-link to the marketplace page; strict shape-1 / noise-tolerant shape-2 parsing, worst case warn+skip · 🧩 +2 tools with locale parity in all 5 sets (utilities) · version move v1.9.20 → **v1.9.21** rev 0 — canon **76 suites / 1109 tests**, owner gate GREEN twice on 21.10, zero drift |
 | **v1.9.20** | 📦 Version-move release — the rev-3x pile since the last GitHub publish (rev 30, 15.09) folds into one move: session-memory arc A/B/C close-out (TTL lifecycle + supersede-on-close-out + index dedupe / artifact strip), pre-emptive mid-loop compression at fixed 95% and a user-visible threshold notice, tier-2 forced save during the tool loop, measured token estimator (`AGENTIC_CHARS_PER_TOKEN` 3.2 → user-editable 3.6) · 🔍 FIX-35c hang-proof ReDoS gate + pattern_scan WALK-ABORT (28.09, archived in CHANGELOG_v3) · canon **74 suites / 1064 tests** — owner gates GREEN twice on 15.10 |
 | **v1.9.19** | 📦 Unreleased label — package.json had already jumped v1.9.18 → v1.9.20 on 06.10 (rev-lock lift); the manifest's `version` field stayed at v1.9.19 until the 15.10 version move, and its rev-0 unstick flip (owner order 15.10 ~18:4x) made the accumulated pile detectable for the Hub publish — no code shipped under this label; see v1.9.20 above |
 | **v1.9.18** | 🔒 Suite D shared-file lost-write fix — per-path in-process lock on the snap→rename critical section (new `sharedFileLock.ts`, wired into both writers) · 🧾 EOL-FIX v4 — byte-exact line-ending round-trip for `replace_text_in_file` on mixed/CRLF files + pre-edit eol/bom visibility via `get_file_metadata` reporting (TS7022 tsc gate blocker closed in the same arc) · 🧯 PIPELINE HYGIENE D 25.09 — Tool Execution Pipeline unified outcome taxonomy + finalizeContent invariant, per-turn toolsProvider guard reset, describeError lint clean, jest RC#4 mapper; full suite 836/51 green + eslint clean; docs CHANGELOG_v3 + ARCHITECTURE updated |
@@ -211,4 +212,4 @@ One plugin replaces an entire shelf. Here's every family, what it covers, and it
 
 ---
 
-*AI Toolbox is an all-in-one LM Studio plugin and AI agent toolkit for local LLMs: safe file tools, hang-proof codebase search, background builds, headless browser automation, Git & GitHub workflows, OCR, data visualization, local semantic RAG over PDF/DOCX/XLSX, cross-project memory, self-managing context windows — 113 ready-made tool calls your model can use with zero glue code.*
+*AI Toolbox is an all-in-one LM Studio plugin and AI agent toolkit for local LLMs: safe file tools, hang-proof codebase search, background builds, headless browser automation, Git & GitHub workflows, OCR, data visualization, local semantic RAG over PDF/DOCX/XLSX, cross-project memory, self-managing context windows — 115 ready-made tool calls your model can use with zero glue code.*

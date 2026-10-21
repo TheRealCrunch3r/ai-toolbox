@@ -2,7 +2,7 @@
 <a href="README.md">English</a> · <a href="README.de.md">Deutsch</a> · <a href="README.es.md">Español</a> · <a href="README.zh-CN.md">简体中文</a> · <b>繁體中文</b><br/>
 <h1>AI Toolbox —— 面向 LM Studio 本地 LLM 的一體化自主 AI Agent & 工具外掛</h1><hr/>
 <b>給你的本地 LLM 一雙真正的手。</b> 最完整的 LM Studio Hub 外掛——把任意本地模型變成能幹、自管理的 AI 智能體。<br/>自管理上下文讓馬拉松式會話保持存活 · 一個外掛，零膠水程式碼，預設完全離線。
-<br/><a href="#"><img src="https://img.shields.io/badge/version-v1.9.21-2f80ed?style=plastic" alt="version v1.9.21"/></a> <a href="#the-tool-arsenal-113-tools-across-every-family-all-yours-to-toggle"><img src="https://img.shields.io/badge/tools-113%20ready--made-7c3aed?style=plastic" alt="tools 113 ready-made"/></a> <a href="#quick-start-2-minutes"><img src="https://img.shields.io/badge/tests-74%20suites%20%C2%B7%201064%20green-3fb950?style=plastic" alt="tests 74 suites · 1064 green"/></a> <a href="#"><img src="https://img.shields.io/badge/LM%20Studio-Hub%20plugin-e84393?style=plastic" alt="LM Studio Hub plugin"/></a> <a href="LICENSE"><img src="https://img.shields.io/github/license/TheRealCrunch3r/ai-toolbox?style=plastic" alt="license MIT (live-verified from LICENSE)"/></a> <a href="#"><img src="https://img.shields.io/badge/runtime-Node%20%E2%89%A5%2020-83cd29?style=plastic&logo=node.js" alt="runtime Node ≥ 20"/></a><br/>
+<br/><a href="#"><img src="https://img.shields.io/badge/version-v1.9.21-2f80ed?style=plastic" alt="version v1.9.21"/></a> <a href="#the-tool-arsenal-115-tools-across-every-family-all-yours-to-toggle"><img src="https://img.shields.io/badge/tools-115%20ready--made-7c3aed?style=plastic" alt="tools 115 ready-made"/></a> <a href="#quick-start-2-minutes"><img src="https://img.shields.io/badge/tests-76%20suites%20%C2%B7%201109%20green-3fb950?style=plastic" alt="tests 76 suites · 1109 green"/></a> <a href="#"><img src="https://img.shields.io/badge/LM%20Studio-Hub%20plugin-e84393?style=plastic" alt="LM Studio Hub plugin"/></a> <a href="LICENSE"><img src="https://img.shields.io/github/license/TheRealCrunch3r/ai-toolbox?style=plastic" alt="license MIT (live-verified from LICENSE)"/></a> <a href="#"><img src="https://img.shields.io/badge/runtime-Node%20%E2%89%A5%2020-83cd29?style=plastic&logo=node.js" alt="runtime Node ≥ 20"/></a><br/>
 <b>Docs:</b> <a href="DOCUMENTATION.md">Documentation</a> · <a href="QUICK_START.md">Quick Start</a> · <a href="ARCHITECTURE.md">Architecture</a> · <a href="TOOLS_REFERENCE.md">Tool Reference</a> · <a href="CHANGELOG_v5.md">Changelog</a><br/>
 <a href="CONTRIBUTING.md">Contributing</a> · <a href="SECURITY.md">Security</a><br/>
 <br>
@@ -12,7 +12,7 @@
 </div>
 
 
-**LM Studio 的 AI Agent 工具箱** —— 113 個本地 LLM 工具：檔案編輯、程式庫搜尋、RAG、瀏覽器自動化、Git & GitHub。
+**LM Studio 的 AI Agent 工具箱** —— 115 個本地 LLM 工具：檔案編輯、程式庫搜尋、RAG、瀏覽器自動化、Git & GitHub。
 
 **給你的本地 LLM 裝上真正的手。** LM Studio Hub 上最完整的外掛 —— 把任意本地模型變成一個有能力、自我管理的 AI Agent，具備安全的檔案編輯、絕不掛起的程式庫搜尋、背景建置、無頭瀏覽器自動化、Git & GitHub 工作流、OCR、圖表產生和語意 RAG；**自管理上下文**讓馬拉松式會話保持存活。一個外掛，零膠水程式碼，預設完全離線。
 
@@ -24,7 +24,7 @@
 
 ## 目錄
 
-[為什麼選 AI Toolbox（對比其他外掛）] · [正面對比評測] · [功能概觀] · [快速上手（2 分鐘）] · [設定與工具開關 —— 完全控制，零程式碼] · [安全姿態 —— 按重要標準打造] · [架構內幕（供好奇者）] · [工具軍火庫：113 個工具] · [版本亮點 —— 完整歷史 → CHANGELOG_v5.md —— 活躍；v1–v4 在 docs/history/]
+[為什麼選 AI Toolbox（對比其他外掛）] · [正面對比評測] · [功能概觀] · [快速上手（2 分鐘）] · [設定與工具開關 —— 完全控制，零程式碼] · [安全姿態 —— 按重要標準打造] · [架構內幕（供好奇者）] · [工具軍火庫：115 個工具] · [版本亮點 —— 完整歷史 → CHANGELOG_v5.md —— 活躍；v1–v4 在 docs/history/]
 
 *目錄為純文字列表（無錨點連結）；各節標題對應下文標題。*
 
@@ -39,7 +39,7 @@
 |---|---|---|
 | 🧠 **自管理上下文**（`AutoTracker` + `ContextGuard`） | Token 閾值在*工具鏈中途*觸發（75% / 90%），自動摘要並壓縮對話，先於溢出 —— 長 Agent 會話持續工作而不是死掉。Prompt 管線內建專案關鍵字偵測。 | ⭐ **沒有任何一家被調研的競爭者有任何上下文/token 管理** —— 其他所有「記憶」工具都只是裸的存/列/查 CRUD |
 | 🌐 **跨專案記憶**（`switch_context`、專案登錄表） | 回憶*另一個*已註冊專案上週做了什麼決定。新近度×頻率評分、TTL 修剪、切換前先確認（Step 0.7）。 | ⭐ **所有被調研外掛中均不存在** |
-| 🏷️ **帶信心度標籤的結果 + 叢集感知的工具選擇**（`confidenceTypes`、`toolPriority`） | 每條自動追蹤的事實都標註 EXTRACTED / INFERRED / AMBIGUOUS —— 讓你能區分 Agent *知道*的和它在猜的；當 113 個工具競爭一個回合時，叢集感知優先級保證正確的工具在文法限制下依然可用。 | 🥇 **沒有任何被調研的競爭者對結果信心度做標籤** —— 也沒有其他外掛能在不丟棄工具的情況下塞進這麼多 |
+| 🏷️ **帶信心度標籤的結果 + 叢集感知的工具選擇**（`confidenceTypes`、`toolPriority`） | 每條自動追蹤的事實都標註 EXTRACTED / INFERRED / AMBIGUOUS —— 讓你能區分 Agent *知道*的和它在猜的；當 115 個工具競爭一個回合時，叢集感知優先級保證正確的工具在文法限制下依然可用。 | 🥇 **沒有任何被調研的競爭者對結果信心度做標籤** —— 也沒有其他外掛能在不丟棄工具的情況下塞進這麼多 |
 | 🧬 **基於 AST 的程式碼重構**（`refactor_code`） | 重新命名 / 移動函式 / 擷取函式 / 清理無用 import —— 語法安全的 AST 變換，失敗時**自動回滾**，不是正規表示式文字瞎改。 | 🥇 **約 115 個被調研外掛中唯一基於 AST 的重構工具** |
 | 🔍 **不可能掛起的搜尋**（`ripgrep`、`find_replace_all`） | 原生 ripgrep 跑在與宿主執行緒隔離的 worker 裡，帶 3 秒牆鐘看門狗；Rust 方言正規表示式自動降級為固定字串並透過 `pattern_mode` 說明；多檔案取代支援 dry-run。 | 🛡️ 競爭者提供的是無界 grep 迴圈 —— 這個在物理上不可能無限轉圈 |
 | 💾 **安全檔案編輯**（`replace_text_in_file`、`line_operations`） | 每次編輯都先寫 `.bak` 備份，模式錨定插入，行指紋校驗，寫入後 MD5 完整性檢查。一次呼叫即可還原任何檔案（`restore_from_bak`）。 | 🛡️ **三層護欄**防舊行號損毀 —— 競爭者最多提供重新命名式備份外殼 |
@@ -61,7 +61,7 @@ Hub 上最接近的直接競爭者：同樣的活兒（給本地 LLM 提供工�
 | ✅ **AST 級重構**（重新命名、移動函式、清理無用 import）—— 語法安全變換帶自動回滾，不是字串編輯 |
 | ✅ **真正的 RAG：** 基於 PDF / DOCX / XLSX 的本機向量索引，帶頁級溯源 —— 不只是關鍵字搜尋 |
 | ✅ **影像與資料視覺化：** 對截圖和螢幕擷取做 OCR、圖片中繼資料 + 對比、圖表產生 |
-| ✅ **113 個工具** vs ~49 —— 由 74 個套件共 1064 項通過的測試支撐 |
+| ✅ **115 個工具** vs ~49 —— 由 76 個套件共 1109 項通過的測試支撐 |
 | ✅ **崩潰 resilient 的寫入 + 失敗回滾：** 一次失敗的編輯永遠不會損毀你的檔案 |
 
 我們此前的 i18n 缺口已關閉：**現在提供 5 種語言**（en · de · es · zh-CN · zh-TW），每種都是完整翻譯集 —— 並且有反 stub 測試守護套件，保證別名/回退語言不會靜默退化。我們寧可直接告訴你，也不假裝它不存在。
@@ -111,12 +111,12 @@ PDF、Word 文件與試算表 → **本機語意向量搜尋**（資料不出你
 1. **安裝** —— 把資料夾放進去，在 LM Studio 設定中啟用外掛
 2. **開關** —— 開啟你想要的工具類別（Execution & Browser 按設計預設關閉）
 3. *（可選）* 在終端執行一次 `gh auth login` 解鎖 GitHub 遠端工具
-4. **開始聊** —— 你的 Agent 現在手邊有 **113 個工具**，嚴格按你的設定門控
+4. **開始聊** —— 你的 Agent 現在手邊有 **115 個工具**，嚴格按你的設定門控
 
 ```bash
 # Developing instead of using?
 npm install && npm run build   # ESM + CJS via tsup
-npm test                        # full suite: 74 suites / 1064 tests green (owner-verified 16.10 ARC-RESTORE gate ~20:3x, +6 tests; prior canon 74/1058 @ 15.10 [SESSION-MEMORY ARC-C close-out ~18:2x + density arc], owner-verified 15.10 — SESSION-MEMORY ARC-C gate ~18:2x, then +1 density setter test in the v5 rotation entry with second trio GREEN ~19:3x/~19:52; prior canon 74/1057 @ 15.10 [SESSION-MEMORY ARC-C], 73/1035 @ 14.10 [ARC-B supersede-on-close-out], 73/1031 @ 14.10 [ARC-A + density restore], 72/1026 @ 10.11 [TOKEN-DIVERGENCE], 71/1020 @ 10.10 [TWO-TIER CLOSE-OUT r3] · prior arcs: 68/990 @ 08.10 [LEVER-1], 68/987 @ 07.10 [Arc C sweep — entry unlogged], 65/952 @ 06.10 [DOC-PIN gate] 64/941 @ 06.10 [i18n gate], 64/938 @ 06.10 ×2 [F1 ~16:57 · PLAN-SEAM ~18:0x], 63/931 @ 05.10, 63/930 @ 04.10 ×3, 61/917 @ 04.10, 893/59 @ 02.10, 874/58 @ ~21.5 s on 01.10, 860/56 @ 29.09, 857/56 @ 28.09)
+npm test                        # full suite: 76 suites / 1109 tests green (owner-gated GREEN twice on 21.10 — update-check arc family + version move v1.9.20 → v1.9.21, zero drift; prior canon 74/1064 @ 16.10 [ARC-RESTORE] · 74/1058 @ 15.10 [SESSION-MEMORY ARC-C close-out ~18:2x + density arc], owner-verified 15.10 — SESSION-MEMORY ARC-C gate ~18:2x, then +1 density setter test in the v5 rotation entry with second trio GREEN ~19:3x/~19:52; prior canon 74/1057 @ 15.10 [SESSION-MEMORY ARC-C], 73/1035 @ 14.10 [ARC-B supersede-on-close-out], 73/1031 @ 14.10 [ARC-A + density restore], 72/1026 @ 10.11 [TOKEN-DIVERGENCE], 71/1020 @ 10.10 [TWO-TIER CLOSE-OUT r3] · prior arcs: 68/990 @ 08.10 [LEVER-1], 68/987 @ 07.10 [Arc C sweep — entry unlogged], 65/952 @ 06.10 [DOC-PIN gate] 64/941 @ 06.10 [i18n gate], 64/938 @ 06.10 ×2 [F1 ~16:57 · PLAN-SEAM ~18:0x], 63/931 @ 05.10, 63/930 @ 04.10 ×3, 61/917 @ 04.10, 893/59 @ 02.10, 874/58 @ ~21.5 s on 01.10, 860/56 @ 29.09, 857/56 @ 28.09)
 ```
 
 ---
@@ -150,7 +150,7 @@ npm test                        # full suite: 74 suites / 1064 tests green (owne
 
 ---
 
-## 工具軍火庫：橫跨所有家族的 113 個工具，全部由你開關
+## 工具軍火庫：橫跨所有家族的 115 個工具，全部由你開關
 
 一個外掛替代一整面貨架。以下是每個家族、它覆蓋什麼、以及預設狀態：
 
@@ -185,6 +185,7 @@ npm test                        # full suite: 74 suites / 1064 tests green (owne
 
 | 版本 | 頭條 |
 |---|---|
+| **v1.9.21** | 📡 更新檢查弧家族（owner 於 19.10 GO，21.10 以 `f108f35` 提交並推送）—— 桌面 toast ↔ 聊天內公告按版本互斥（SPEC A XOR：外掛面板的 "Desktop Notifications" 設定恰好選擇一個介面；無 system.notify 的主機始終回落到聊天）· 🧾 DEFECT #2 — `update-check.json` 不再在代理回合的每個模型步重新寫入（狀態檔案僅在內容變化時觸碰）· 🏷️ HUB .VERSION 源切換 —— 生產環境更新檢查現在讀取已發布的 LM Studio hub `.VERSION` 檔，而非 GitHub `releases/latest`（其從未存在：倉庫匿名 404），通知深鏈到市場頁面；嚴格 shape-1 / 噪聲容忍 shape-2 解析，最壞情況 warn+skip · 🧩 +2 工具，在全部 5 個語言包中保持本地化對齊（utilities）· 版本遷移 v1.9.20 → **v1.9.21** rev 0 —— 基準 **76 suites / 1109 tests**，owner gate 於 21.10 兩次 GREEN，零漂移 |
 | **v1.9.20** | 📦 版本遷移發布 —— 自上次 GitHub 發布（rev 30，15.09）以來的 rev-3x 積壓在一次性遷移中合併：會話記憶弧 A/B/C 收尾（TTL 生命週期 + 收尾時取代 + 索引去重/工件剝離）、固定 95% 的搶先中段循環壓縮與使用者可見閾值通知、工具循環期間的 tier-2 強制保存、可測量 token 估算器（`AGENTIC_CHARS_PER_TOKEN` 3.2 → 使用者可編輯 3.6）· 🔍 FIX-35c 防掛起 ReDoS 門禁 + pattern_scan WALK-ABORT（28.09，已歸檔至 CHANGELOG_v3）· 基準 **74 suites / 1064 tests** — 15.10 owner gate 兩次 GREEN |
 | **v1.9.19** | 📦 未發布的標籤 —— package.json 已於 06.10 從 v1.9.18 → v1.9.20（解鎖 rev）；manifest 的 `version` 欄位保持 v1.9.19，直到 15.10 的版本遷移，其 rev-0 unstick 翻轉（owner 指令 15.10 ~18:4x）使累積積壓對 Hub 發布可偵測 —— 此標籤下未發布任何程式碼；見上方 v1.9.20 |
 | **v1.9.18** | 🔒 Suite D 共用檔案遺失寫修復 —— snap→rename 臨界區上的按路徑程序內鎖（新增 `sharedFileLock.ts`，接入兩個寫入方）· 🧾 EOL-FIX v4 —— 混合/CRLF 檔案上 `replace_text_in_file` 的位元組級精確行尾往返 + 經 `get_file_metadata` 報告的編輯前 eol/bom 可見性（同弧內關閉 TS7022 tsc gate 阻塞）· 🧯 PIPELINE HYGIENE D 25.09 —— Tool Execution Pipeline 統一結果分類學 + finalizeContent 不變量、按回合重置 toolsProvider guard、describeError lint 清零、jest RC#4 mapper；全套 836/51 綠 + eslint 乾淨；docs CHANGELOG_v3 + ARCHITECTURE 已更新 |
@@ -215,4 +216,4 @@ npm test                        # full suite: 74 suites / 1064 tests green (owne
 
 ---
 
-*AI Toolbox 是一個一體化 LM Studio 外掛與本地 LLM 的 AI Agent 工具箱：安全的檔案工具、絕不掛起的程式庫搜尋、背景建置、無頭瀏覽器自動化、Git & GitHub 工作流、OCR、資料視覺化、覆蓋 PDF/DOCX/XLSX 的本機語意 RAG、跨專案記憶、自管理上下文視窗 —— 113 個即用工具呼叫，你的模型零膠水程式碼即可使用。*
+*AI Toolbox 是一個一體化 LM Studio 外掛與本地 LLM 的 AI Agent 工具箱：安全的檔案工具、絕不掛起的程式庫搜尋、背景建置、無頭瀏覽器自動化、Git & GitHub 工作流、OCR、資料視覺化、覆蓋 PDF/DOCX/XLSX 的本機語意 RAG、跨專案記憶、自管理上下文視窗 —— 115 個即用工具呼叫，你的模型零膠水程式碼即可使用。*

@@ -85,6 +85,17 @@
 
 Full history up to v1.9.19: [`docs/history/CHANGELOG_v4.md`](docs/history/CHANGELOG_v4.md) (archived 15.10 rotation; older volumes in `docs/history/`).
 
+### [21.10.2026 ~17:5x] — README v1.9.21 doc-sync completion: Release-Highlights `v1.9.21` row added to all five live READMEs + owner-local hub-simple · stale tool-count (113→115) and test-canon (74/1064 → 76/1109) surfaces reconciled
+
+**Scope:** docs-only — zero code/tests touched, gate trio not applicable by construction. Closes the carried item "Release Highlights table missing v1.9.21 row": f108f35's doc-sync was scoped to 'README x6 badges+counts' only (no highlights-row step existed in the arc plan), and the consolidated arc entry has no per-version section to mirror — the table therefore lagged by design until this pass.
+
+**Changes:**
+- **All five live READMEs** (`README.md`, `.de`, `.es`, `.zh-CN`, `.zh-TW`) + owner-local `README.MD_LMS_HUB_SIMPLE.md` (on disk, git-excluded): new top-of-table row `v1.9.21` (arc-family digest: SPEC A XOR toast↔chat mutual exclusion · DEFECT #2 per-step write churn · HUB .VERSION source switch with marketplace deep link · +2 tools / locale parity in all 5 sets · version move rev 0 · canon **76 suites / 1109 tests**, owner gate GREEN twice on 21.10, zero drift), each localized to match that file's existing row style; `.bak` baseline per edit (house rule).
+- **Stale current-state surfaces reconciled in the same pass** (f108f35 had re-stamped version badge + quote block only): tool count 113 → 115 and test canon 74 suites / 1064 → 76 suites / 1109 across badges, TOC anchors + arsenal headings, the confidence-tag WHY-row, head-to-head row, quick-start step, `npm test` comment pin (dated history tail preserved), and closing footer lines — in all six files.
+- v1.9.20/v1.9.19 rows and dated gate history untouched per house rule (historical).
+
+**Verification:** pattern-scan audit — zero residual `113` hits across the six READMEs · `| **v1.9.21** |` present in all six tables, each immediately above its v1.9.20 row · badge URLs byte-verified intact (`tools-115%20ready--made`, `tests-76%20suites…1109`) · zero NBSP/ZWSP introduced · EOL style preserved (CRLF ×5 / LF hub-simple, no lone-LF lines). Gate trio: NOT applicable — zero src/tests bytes changed.
+
 ### [16.10.2026 ~17:5x] — README Release-Highlights close-out (pending #2): v1.9.20 + v1.9.19 rows added to all six locales · release summary pinned here · rotation-missed stale changelog links repaired
 
 **Scope:** docs-only — zero code/tests touched, gate trio not applicable by construction. Closes the carried item "README Release-Highlights table still missing v1.9.20/v1.9.19 rows (+ localized mirrors)".
