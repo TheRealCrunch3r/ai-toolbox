@@ -37,7 +37,7 @@ export const ConfigSchema = z.object({
   httpClient: z.boolean().default(false).describe('Enable generic HTTP client for REST API calls'),
 
   vectorRAG: z.boolean().default(true).describe('Enable semantic search with vector embeddings'),
-  uiGeneration: z.boolean().default(false).describe('Enable interactive UI generation and rendering tools'),
+  uiGeneration: z.boolean().default(true).describe('Enable interactive UI generation and rendering tools (ON by default since 10.10, owner decision — aligns with DEFAULT_CONFIG / schematics)'),
   contextManagement: z.boolean().default(true).describe('Enable automatic context tracking and memory management'),
 
   textProcessing: z.boolean().default(true).describe('Enable text processing tools (sed/awk equivalents)'),
