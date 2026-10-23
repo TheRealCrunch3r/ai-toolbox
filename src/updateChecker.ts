@@ -21,14 +21,15 @@ import * as path from 'path';
 import { getDataDir } from './dataDir.js';
 
 /**
- * Single source for the installed plugin version INSIDE THE CODE (19.10): becomes file #3 on the
- * version-bump checklist alongside package.json and manifest.json — all three must move together on
- * every bump (mechanically guarded by tests/updateChecker.test.ts, which fails loud on any drift).
+ * Single source for the installed plugin version INSIDE THE CODE (19.10): member of the 4-file
+ * version-stamp contract — package.json + manifest.json (+ revision reset) + this constant + repo-root
+ * .VERSION, ALL identical v-prefixed value on every bump. Canonical home: GLOSSARY.md "version-bump rule"
+ * (mechanically guarded by tests/updateChecker.test.ts, which fails loud on any drift).
  */
 export const LOCAL_VERSION = 'v1.9.21';
 
 /** Published .VERSION file on the LM Studio hub (20.10 owner GO — supersedes the GitHub releases endpoint): the single line of
- * text is THE current published version, maintained with every publish exactly like package.json/LOCAL_VERSION (3-file bump rule). */
+ * text is THE current published version — member of the 4-file version-stamp contract (identical v-prefixed value on every release move; canonical home: GLOSSARY.md "version-bump rule"). */
 const PUBLISHED_VERSION_URL = 'https://lmstudio.ai/crunch3r/ai-toolbox/files/.VERSION';
 
 /** Hub marketplace landing page for this artifact — the deep link surfaced in update notifications (users install/update from here, not
