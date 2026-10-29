@@ -2,6 +2,22 @@
 
 > Supersedes `CHANGELOG_v4.md`. Active changelog for version 1.9.21.
 
+## [29.10.2026 ~17:5x–18:1x] — UL-v2 STEP-6 byte-pin arc: new hermetic locale-pinning suite (canon 77/1119 → **79 suites / 1182 tests**) + plan-store cleanup
+
+**Scope:** closes the UNIFIED LANGUAGE v2 arc — step 6 was its last engineering step. NEW `tests/ulv2BytePin.test.ts` (4 describe blocks / 23 tests, hermetic) byte-pins all five locale bundles against exactly the EN-leak class tsc cannot catch (all-optional `UiFieldLabels` → a missing `ui?.…` prefix compiles clean): language-code triplication across four copies (zod enum === `resolveTurnLanguage` domain === `mapConfiguredUiLanguage` range === languageRow options, canonical five + `auto`) · EN full-schematics byte pin over all 62 fields (plain literals vs en-bundle bake — `fields` is a REAL JS Map(62), pins walk `Map.entries()` field-by-field because whole-object stringify would be vacuous) · option-set + display-name pins (language/safesearch/dateFormatStyle/searchFallbackChain) · RuntimeTexts S1–S6+RAG+answerLanguageLine verbatim EN pin, template placeholders intact, deliberately-neutral S4 checkpoint header asserted identical in all five locales · uiLabels key-set + per-field shape parity across all five bundles (59 label keys incl. `languageRow`; `vectorRag` bundle-key vs `vectorRAG` config-key aliasing pinned as designed). The two 28.10 audit gaps (`contextGuardCompressionPercent.hint` hardcoded EN; S1 WD-banner rendered from literals) get dedicated regression-lock tests.
+
+**Verification:** RED-GREEN liveness agent-side ~18:05 — single mutation of the EN-pinned byte `rt.workingDirDetected` in `src/locales/en.ts` → suite RED at exactly the 3 expected `.toBe()` sites, zero collateral; revert byte-identical (grep `WORKING DIRECTORY DETECTED` back to en.ts + suite pin). Green side = **OWNER GATE GREEN 29.10 ~18:07**: full chain `npm run typecheck && lint && test && build` (owner confirmation) — live jest over real bundles is the strongest possible pass matrix; zero EN drift (arc acceptance bar).
+
+**Canon:** **79 suites / 1182 tests** (prior canon 77/1119 + exactly one new suite / +23 tests = `tests/ulv2BytePin.test.ts`; delta fully explained, zero drift).
+
+**Docs sync in the same pass:** re-stamped to 79/1182 — all six README variants (badge URL+alt · quote block · head-to-head row · `npm test` comment pin, dated history tail preserved) + GLOSSARY's two canon lines ("currently" definition + status header) + TOOLS_REFERENCE header stamp. Dated historical entries untouched per house rule. EOL/BOM audit post-edit: CRLF ×5 / LF hub-simple, no BOMs — a transient utf-8-sig write in the agent harness had added BOMs to five READMEs mid-pass; detected against two pre-edit zip backups and stripped byte-exact (sizes verified = pre-edit + intended stamp deltas only).
+
+**Plan store:** 10 → **one** active plan — removed 9 on owner GO: Loop-Abort `gkyr3uc24` (closed) · UL-v2 STEP-4/5/Resume (`axnxhbyq5`, `d72svgif5`, `gj2h0e7p0` — owner-verified done) · six obsolete 26.10 UL v1/v2 drafts. B1 housekeeping closed in-window (stale `src/contextGuard.ts.bak` deleted, zero `.bak` residue); the temp gate script `scripts/_ulv2_tsc_gate.js` was already absent from tree (owner-removed after its gate run).
+
+**Still open (B1 live proof, owner-gated):** next session crossing ≥95% must log `[ContextGuard] [B1] Using caller-provided shared-density count …` → `✅ Mid-loop compression complete`, FAIL-LOUD absent. No version bump — v1.9.21 sticky (no-bump rev-only policy).
+
+---
+
 ## [21.10.2026 ~19:4x–19:5x] — RECURSIVE `.bak` SCAN: `cleanup_backups` + `list_available_bak_backups` walk the full working-dir tree (fix for missed nested backups) · canon 76/1109 → **77 suites / 1119 tests**
 
 **Scope:** owner-order fix ("found that cleanup_backups only scans the root directory and missed nested backups"): both `.bak` scan sites used a single-level `fs.readdir(workingDir)` — nested edit backups (e.g. `src/config.ts.bak`) were invisible to listing AND deletion; live-observed the same session (edits under `src/tools/` left `.bak` baselines no sweep could ever see).
