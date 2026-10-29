@@ -49,7 +49,10 @@
 
 import { type PluginContext } from '@lmstudio/sdk';
 import { toolsProvider } from './toolsProvider';
-import { configSchematics } from './config';
+import { buildConfigSchematics, configSchematics } from './config';
+// UNIFIED LANGUAGE v2 step 5 (27.10): boot-time UI-label bake — panel labels follow the resolved language chain
+// (persisted concrete pick → LM Studio host preference → OS locale first tag → English) instead of EN literals only.
+import { getUiLabels, readPersistedUiLanguageCode, resolvePanelUiLanguage } from './uiLabelBake'; // persistConcretePick lives in promptPreprocessor (per-turn sync — the only layer with config access)
 import { preprocess, setContextGuard } from './promptPreprocessor';
 import { ContextGuard } from './contextGuard';
 import { TokenStatsManager } from './tokenStatsManager';
@@ -85,8 +88,21 @@ export function main(context: PluginContext) {
     logger.warn(`CWD restore failed (non-fatal): ${e instanceof Error ? e.message : String(e)}`);
   }
 
-  // Register the configuration schematics (makes toggles appear in UI)
-  context.withConfigSchematics(configSchematics);
+  // UNIFIED LANGUAGE v2 step 5 (27.10): bake the panel labels from the resolved language chain BEFORE registering
+  // the config schematics — persisted concrete pick → LM Studio host preference → OS locale first tag → English
+  // ('auto' falls through by construction and can never reach a bundle). EN byte-safety: en resolution renders the
+  // pre-v2 literals plus the new 'auto' option only. The panel is registered ONCE at boot, so a concrete pick chosen
+  // mid-session takes effect on reload (the per-turn state-file sync in promptPreprocessor keeps that pick durable);
+  // prompt texts follow configuration immediately via step 4's per-turn wiring — by design.
+  try {
+    const bakedLang = resolvePanelUiLanguage(readPersistedUiLanguageCode());
+    context.withConfigSchematics(buildConfigSchematics(getUiLabels(bakedLang)));
+    logger.info(`[UL-v2] Panel UI labels baked for '${bakedLang}' (chain: persisted pick → host locale → OS first tag → en)`);
+  } catch (e) {
+    // i18n must never block plugin boot — fall back to the pre-v2 EN-literal schematics.
+    logger.warn(`[UL-v2] UI-label bake failed (falling back to EN literals): ${e instanceof Error ? e.message : String(e)}`);
+    context.withConfigSchematics(configSchematics);
+  }
   
   // Initialize ContextGuard with default settings
   const contextGuard = new ContextGuard({

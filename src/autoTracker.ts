@@ -13,6 +13,11 @@
  */
 
 import { z } from 'zod';
+// UNIFIED LANGUAGE v2 (step 4, 27.10): pure helpers + the English bundle for the identity-based locale probe below —
+// extensionless relative imports mirror src/locales/index.ts's own convention; jest transpiles this file directly to CJS
+// require('./locales/en') → resolves to en.ts without any moduleNameMapper entry (verified: no locales-mapper entry exists).
+import { fillTemplate, getRuntimeTexts } from './locales';
+import type { RuntimeTexts } from './locales/types.js'; // type-only — erased at runtime (RC#4-avoidance: never jest-resolved)
 
 // ==================== CONSTANTS ====================
 
@@ -304,10 +309,16 @@ export class AutoTracker {
   // defaults to today's exact wording so every other caller/tests stay byte-identical until wired up.
   private confirmationWords: { yes: string; no: string } = { yes: 'YES', no: 'NO' };
 
+  // UNIFIED LANGUAGE v2 (step 4): language of the LAST rendered warning — a locale SET drift while that warning is
+  // still pending gets one console.warn per cycle (flag cleared in onContextCompressed() / resetCounter()).
+  private lastWarningLanguage = '';
+  private _localeDriftWarned = false;
+
   checkAndGeneratePrompt(
     currentTokens: number,
     maxTokens: number,
     words?: { yes: string; no: string },
+    runtimeTexts?: RuntimeTexts,
   ): { triggered: boolean; warning?: string } {
     // Subtract ContextGuard's fixed BOS/system overhead for accurate percentage calculation
     const effectiveTokens = Math.max(0, currentTokens - CONTEXT_GUARD_OVERHEAD);
@@ -351,8 +362,22 @@ export class AutoTracker {
     this.transitionTo(AutoTrackState.THRESHOLD_REACHED, `first_trigger=${usagePercentage.toFixed(1)}%`);
     
     const bufferedCount = this.actionBuffer.length;
-    const warning = `⚠️ SESSION WARNING: You have reached ${usagePercentage.toFixed(0)}% of your token limit. It is highly recommended to save session memory before continuing.\n\nAuto-tracked events in buffer (will be saved with checkpoint): ${bufferedCount}\n\nDo you want to proceed with a context save? Reply '${this.confirmationWords.yes}' to trigger the session memory save, or '${this.confirmationWords.no}' to continue.`;
-    
+    // UNIFIED LANGUAGE v2 (step 4): render from per-turn RuntimeTexts when supplied — the pre-v2 literal EXACTLY as
+    // fallback keeps every caller/test that passes no texts byte-identical (en bundle renders to it by contract).
+    let warning: string;
+    if (runtimeTexts) {
+      const rtLang = (Object.keys({ en: 1, de: 1, es: 1, 'zh-CN': 1, 'zh-TW': 1 }) as Array<'en' | 'de' | 'es' | 'zh-CN' | 'zh-TW'>).find((code) => getRuntimeTexts(code) === runtimeTexts) ?? 'en'; // identity probe for the drift warn below (bundles are singletons per locale — same instances as promptPreprocessor's)
+      warning = fillTemplate(runtimeTexts.sessionWarningHead, { pct: usagePercentage.toFixed(0) }) + '\n\n' +
+        fillTemplate(runtimeTexts.bufferedEventsLine, { count: String(bufferedCount) }) + '\n\n' +
+        fillTemplate(runtimeTexts.contextSaveQuestion, { yes: this.confirmationWords.yes, no: this.confirmationWords.no });
+      if (this.pendingCheckpointWarning !== undefined && this.lastWarningLanguage !== rtLang && !this._localeDriftWarned) {
+        console.warn(`[AutoTracker] [UL-v2] Locale drift while a checkpoint warning is still pending (${this.lastWarningLanguage} → ${rtLang}) — the pending text keeps its original language until consumed`);
+        this._localeDriftWarned = true; // one warn per cycle (cleared in onContextCompressed() / resetCounter())
+      }
+    } else {
+      warning = `⚠️ SESSION WARNING: You have reached ${usagePercentage.toFixed(0)}% of your token limit. It is highly recommended to save session memory before continuing.\n\nAuto-tracked events in buffer (will be saved with checkpoint): ${bufferedCount}\n\nDo you want to proceed with a context save? Reply '${this.confirmationWords.yes}' to trigger the session memory save, or '${this.confirmationWords.no}' to continue.`;
+    }
+
     this.pendingCheckpointWarning = warning;
     debugLog('[PROMPT]', 'Generated checkpoint prompt for user confirmation');
 
@@ -788,6 +813,8 @@ export class AutoTracker {
    */
   resetCounter(): void {
     this.messageCount = 0;
+    this._localeDriftWarned = false; // UNIFIED LANGUAGE v2 (step 4): one drift warn per cycle — new session re-arms it
+    this.lastWarningLanguage = '';
     this._midLoopGuardedAt = 0; // FIX #20 A2 — new session, guard re-arms from zero
     debugLog('[RESET]', 'Message counter reset');
     // Also reset FSM to IDLE on new session
@@ -834,6 +861,8 @@ export class AutoTracker {
     // Clear buffer since old actions are now invalid (context was compressed)
     this.actionBuffer = [];
     this._nearThresholdWarned = false;
+    this._localeDriftWarned = false; // UNIFIED LANGUAGE v2 (step 4): one drift warn per cycle — fresh context re-arms it
+    this.lastWarningLanguage = '';
     this._midLoopGuardedAt = 0; // FIX #20 A2 — fresh context, guard may re-arm on the new baseline
     
     // 🔹 FIX RC-1/RC-3: A live pending confirmation survives compression. The user was already asked

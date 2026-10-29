@@ -24,12 +24,14 @@ describe('I18nManager', () => {
   });
 
   test('should throw on unsupported language', () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect(() => manager.setLanguage('fr' as any)).toThrow();
   });
 
   test('should get translations by category', () => {
     const fileSystem = manager.get('fileSystem');
     expect(fileSystem).toBeDefined();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect((fileSystem as any).categoryTitle).toContain('File System');
   });
 
@@ -48,9 +50,11 @@ describe('I18nManager', () => {
 
   test('should return different translations for different languages', () => {
     manager.setLanguage('en');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const enTitle = (manager.get('fileSystem') as any).categoryTitle;
     
     manager.setLanguage('de');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const deTitle = (manager.get('fileSystem') as any).categoryTitle;
     
     expect(enTitle).not.toBe(deTitle);
@@ -66,6 +70,14 @@ describe('I18nManager translation coverage guards (anti-stub)', () => {
 
   const hanCount = (s: string): number => (s.match(/[\u4E00-\u9FFF]/g) ?? []).length;
 
+  // UNIFIED LANGUAGE v2 (26.10): FullTranslationSet additionally carries two NON-tool categories —
+  // runtimeTexts (prompt-injection strings, flat key→string map) and uiLabels (config-panel label
+  // bundles). They have no .tools/.categoryTitle shape, so every guard below skips them; their
+  // completeness is tsc-enforced (REQUIRED on the type for all five locales) and byte-pinned by the
+  // step-6 test suites. The top-level key-set equality check in 'exact category + tool structure'
+  // still covers v2 key parity across languages.
+  const NON_TOOL_CATS = new Set(['general', 'runtimeTexts', 'uiLabels']);
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const asAny = (x: unknown): any => x;
 
@@ -78,7 +90,7 @@ describe('I18nManager translation coverage guards (anti-stub)', () => {
       const set = asAny(m.getTranslations());
       expect(Object.keys(set).sort()).toEqual(Object.keys(base).sort());
       for (const cat of Object.keys(base)) {
-        if (cat === 'general') continue;
+        if (NON_TOOL_CATS.has(cat)) continue;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const baseTools: string[] = base[cat].tools.map((t: any) => t.toolName);
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -97,7 +109,7 @@ describe('I18nManager translation coverage guards (anti-stub)', () => {
       m.setLanguage(lang);
       const set = asAny(m.getTranslations());
       for (const cat of Object.keys(base)) {
-        if (cat === 'general') continue;
+        if (NON_TOOL_CATS.has(cat)) continue;
         if (set[cat].categoryTitle === base[cat].categoryTitle) {
           violations.push(`${lang}/${cat}: category title identical to English`);
         }
@@ -116,7 +128,7 @@ describe('I18nManager translation coverage guards (anti-stub)', () => {
         violations.push(`${lang}/general: pluginName lacks CJK text`);
       }
       for (const cat of Object.keys(set)) {
-        if (cat === 'general') continue;
+        if (NON_TOOL_CATS.has(cat)) continue;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const tools: any[] = set[cat].tools;
         for (const t of tools) {
@@ -140,7 +152,7 @@ describe('I18nManager translation coverage guards (anti-stub)', () => {
     const tw = asAny(twM.getTranslations());
     let diffs = 0;
     for (const cat of Object.keys(cn)) {
-      if (cat === 'general') continue;
+      if (NON_TOOL_CATS.has(cat)) continue;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       cn[cat].tools.forEach((t: any, i: number) => {
         if (tw[cat].tools[i].description !== t.description) diffs++;

@@ -110,7 +110,10 @@ module.exports = {
     // getContextGetter() inside the tool wrapper closure; CJS circular partial-exports resolve before any call site runs.
     '^\\./promptPreprocessor\\.js$': '<rootDir>/src/promptPreprocessor.ts',
 
-
+    // UNIFIED LANGUAGE v2 STEP 4 (26.10): src/promptPreprocessor.ts value-imports './hostLanguage.js' for the per-turn
+    // host-locale resolver — same RC#4 class as every entry in this file; per-file form only (G9 round-2: no generic rule),
+    // real-src target (pure fs/os/path read-only module, no mock needed). First emitter is promptPreprocessor itself.
+    '^\\./hostLanguage\\.js$': '<rootDir>/src/hostLanguage.ts',
 
     // ── Tool modules statically imported by toolsProvider.ts (NodeNext .js specifiers; dynamic-import comment superseded 03.10) ──
     // These are resolved relative to <rootDir>/src/, so the path is './tools/xxx.js'

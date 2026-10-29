@@ -11,7 +11,7 @@
  *   a locale added later is accepted automatically.
  */
 
-import type { FullTranslationSet, LanguageCode } from './types';
+import type { FullTranslationSet, LanguageCode, RuntimeTexts, UiLabels } from './types';
 import { enTranslations } from './en';
 import { deTranslations } from './de';
 import { esTranslations } from './es';
@@ -54,3 +54,44 @@ export const ALL_CONFIRM_WORDS: ReadonlySet<string> = buildAcceptedWords((s) => 
 
 /** Every decline word in every shipped language. Canonical members: NO, NEIN, 取消 (Spanish 'NO' dedupes onto English). */
 export const ALL_DECLINE_WORDS: ReadonlySet<string> = buildAcceptedWords((s) => s.general.noWord);
+
+
+// ---- UNIFIED LANGUAGE v2 (step 4, 27.10): runtime-text access for the per-turn message layer ----------
+// The resolver itself lives in promptPreprocessor.ts ('message layer' placement — Option B) so this file
+// stays hostLanguage-free and no additional jest mapper entries are needed; it only hands out bundle data.
+
+/**
+ * The RUNTIME texts (prompt banners, warnings, answer-language line) for a language code or raw config
+ * value: unknown/unset values fall back to English via resolveSet() — same contract as getConfirmationWords().
+ */
+export function getRuntimeTexts(language?: string | null): RuntimeTexts {
+  return resolveSet(language).runtimeTexts;
+}
+
+/** Human-readable display names per shipped locale (v2: feeds the answerLanguageLine's {language} slot). */
+export const LANGUAGE_DISPLAY_NAMES: Readonly<Record<LanguageCode, string>> = {
+  en: 'English',
+  de: 'Deutsch',
+  es: 'Español',
+  'zh-CN': '简体中文',
+  'zh-TW': '繁體中文',
+};
+
+/**
+ * The SETTINGS-PANEL labels (displayName/subtitle/hint per config row) for a language code or raw config
+ * value: unknown/unset values fall back to English via resolveSet() — same contract as getRuntimeTexts().
+ * UNIFIED LANGUAGE v2 step 5 (27.10): the boot-time baker consumes this (uiLabelBake.ts); buildConfigSchematics()
+ * falls back to EN literals field-by-field when called without a bundle, so an absent argument is byte-safe.
+ */
+export function getUiLabels(language?: string | null): UiLabels {
+  return resolveSet(language).uiLabels;
+}
+
+/**
+ * Fill `{name}` placeholders in a runtime-text template with the given values. Unknown placeholders are
+ * left VERBATIM (visible drift over silent loss) — no en template contains stray braces, so this is safe.
+ */
+export function fillTemplate(template: string, values: Record<string, string>): string {
+  // typeof guard first: the regex capture is typed `any` — accessing [k] directly trips @typescript-eslint/no-unsafe-member-access.
+  return template.replace(/\{(\w+)\}/g, (m, k) => (typeof k === 'string' && k in values ? values[k] : m));
+}

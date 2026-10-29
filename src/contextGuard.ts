@@ -473,13 +473,32 @@ export class ContextGuard {
    * the in-flight summarization prediction stops immediately and the documented fallback summary is
    * used instead. Independently of this signal, the prediction is hard-capped at
    * COMPRESSION_PREDICTION_MAX_MS so a slow summary model can never block preprocessing forever.
+   * @param trustedTokenCount B1 (29.10, owner GO — dual-counter divergence fix): authoritative token
+   * count computed by the CALLER with the SAME shared agentic-density estimator that armed this call
+   * (only compressMidLoop passes it today — its wrapper projection). When present and > 0 it is used
+   * VERBATIM for the threshold decision: one counter, one text set, one live density → the "gate fired
+   * but internal recount vetoed" divergence of 29.10 (projection ~141.9k ≥ 95% gate while an independent
+   * SDK/tiktoken recount sat below the 90% trigger) becomes arithmetically impossible on this path.
+   * Absent/invalid → legacy behavior byte-for-byte: countTokens() re-counts (PART B boundary calls and
+   * every external consumer are untouched).
    */
   async compressHistory(
     messages: ContextMessage[],
     abortSignal?: AbortSignal,
+    trustedTokenCount?: number,
   ): Promise<ContextMessage[]> {
-    // 🔹 FIX #2: Pass summaryModel to countTokens so SDK-native counting is used during threshold check
-    const currentTokens = await this.countTokens(messages, 0, this.config.summaryModel);
+    // B1 (29.10) — single-counter contract: when the caller supplies its authoritative shared-density count
+    // (only compressMidLoop does today), it IS this decision's count and NO independent recount runs at all
+    // (saves an SDK/tiktoken pass over the full history mid-loop and removes that path's throw surface from
+    // the tool-call loop). It feeds THIS threshold check only — never display figures or any other path.
+    let currentTokens: number;
+    if (trustedTokenCount != null && Number.isFinite(trustedTokenCount) && trustedTokenCount > 0) {
+      currentTokens = Math.round(trustedTokenCount);
+      console.log(`[ContextGuard] [B1] Using caller-provided shared-density count ${currentTokens.toLocaleString('en-US')} for the compression decision (single-counter contract; independent recount suppressed)`);
+    } else {
+      // 🔹 FIX #2 (legacy path, byte-for-byte pre-B1): Pass summaryModel to countTokens so SDK-native counting is used during threshold check.
+      currentTokens = await this.countTokens(messages, 0, this.config.summaryModel);
+    }
     // 📊 Percent-based trigger (07.10): compression at `compressionPercent` % of the effective window
     // (default 90% — numerically identical to the former hardcoded *0.9).
     const threshold = this.config.tokenLimit * (this.config.compressionPercent / 100);
@@ -878,16 +897,19 @@ ${historyText}`;
       }
     }
 
-    // (4) The compression itself — compressHistory() re-counts internally against ITS OWN threshold and returns the input UNCHANGED
-    // when the authoritative count is below it (the wrapper's char-heuristic projection can overestimate), falls back to its own
-    // summary on prediction failure, and fires onCompression() → autoTracker.onContextCompressed() exactly like the boundary path.
-    const compressedMessages = await this.compressHistory(messages, opts?.abortSignal);
+    // (4) The compression itself — B1 (29.10, owner GO): compressHistory() decides against the SAME shared-density count that armed
+    // THIS call (opts.currentTokens = the wrapper's live projection → one counter for gate and decision; the 29.10 divergence where an
+    // independent SDK/tiktoken recount vetoed a fired pre-emptive gate is impossible on this path by construction), falls back to its own
+    // summary on prediction failure, and fires onCompression() → autoTracker.onContextCompressed() exactly like the boundary path. When no
+    // valid count was passed (legacy callers / stubs without opts) compressHistory keeps its pre-B1 independent recount byte-for-byte.
+    const b1TrustedCount = typeof opts?.currentTokens === 'number' && Number.isFinite(opts.currentTokens) ? opts.currentTokens : undefined;
+    const compressedMessages = await this.compressHistory(messages, opts?.abortSignal, b1TrustedCount);
 
     // Read-after-await in a single-threaded gap: no interleaving possible — _lastCompressionInfo is set by compressHistory itself on
     // EVERY return path (including the below-threshold no-op). Claiming `compressed:true` without this check would lie to the wrapper.
     const info = this.getLastCompressionInfo();
     if (!info?.compressed) {
-      console.warn('[ContextGuard] [TIER-2-COMPACT] FAIL-LOUD: projection crossed the pre-emptive threshold but compressHistory\'s internal recount was below its own trigger — NO compression ran, history kept verbatim (safe direction; re-evaluated on the next tool result)');
+      console.warn('[ContextGuard] [TIER-2-COMPACT] FAIL-LOUD: pre-emptive gate armed mid-loop compression but compressHistory\'s authoritative count was below its own trigger — NO compression ran, history kept verbatim (safe direction; re-evaluated on the next tool result)');
       return { compressed: false, messages };
     }
 

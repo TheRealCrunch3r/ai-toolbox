@@ -1,6 +1,7 @@
 ﻿import { z } from 'zod';
 
 import { createConfigSchematics } from '@lmstudio/sdk';
+import type { UiLabels } from './locales/types.js'; // UL-v2 step-5 (27.10): type-only — erased at runtime, never jest-resolved (same convention as hostLanguage.ts)
 
 
 
@@ -131,7 +132,10 @@ export const ConfigSchema = z.object({
 
   // i18n Settings
 
-  language: z.enum(['en', 'de', 'es', 'zh-CN', 'zh-TW']).default('en'),
+  // 🌐 UNIFIED LANGUAGE v2 (step 5, 27.10): 'auto' = follow the chain — LM Studio host language → OS locale first tag → English.
+  // Per-turn prompt texts resolve fresh each turn in promptPreprocessor.resolveTurnLanguage() ('auto' falls through by
+  // construction — it is not a shipped locale code); panel labels are baked ONCE per boot from the same chain (src/uiLabelBake.ts).
+  language: z.enum(['auto', 'en', 'de', 'es', 'zh-CN', 'zh-TW']).default('auto').describe("'auto' follows the LM Studio host language, then your OS locale, and falls back to English. Pick a concrete language to pin both prompt texts and panel labels."),
 
 
 
@@ -262,7 +266,8 @@ export const DEFAULT_CONFIG: PluginConfig = {
   // 🔹 SPEC-C (20.09): matches the zod default above — 262144 (was 51200). See spec C / memory-store incident.
 stateMaxSize: 262144,
 
-  language: 'en',
+  // 🌐 UL-v2 step-5 (27.10): default raised 'en' → 'auto' — follows the host app / OS locale chain; concrete picks persist to .ai_toolbox_state.json (see uiLabelBake.ts)
+  language: 'auto',
 
   notificationsEnabled: true,
 
@@ -336,7 +341,15 @@ export function hasAnyExecutionTool(config: PluginConfig): boolean {
 
 
 
-export const configSchematics = createConfigSchematics()
+/**
+ * UNIFIED LANGUAGE v2 (step 5, 27.10): settings-panel schematics builder. When a locale's UiLabels bundle is
+ * passed, every panel label (displayName/subtitle/hint + localized select options) comes from it; without one the
+ * English literals below are used — byte-identical to the pre-v2 panel text. Field KEYS, types and default values
+ * never change between builds: only human-readable strings do. The 'language' row gains the step-5 'auto' option.
+ * searchFallbackChain options stay English by design (brand/engine names — see types.ts UiLabels docblock).
+ */
+export function buildConfigSchematics(ui?: UiLabels) {
+  return createConfigSchematics()
 
 
 
@@ -344,20 +357,14 @@ export const configSchematics = createConfigSchematics()
 
   .field('language', 'select', {
 
-    displayName: '🌐 Language',
+    displayName: ui?.languageRow.displayName ?? '🌐 Language',
 
-    options: [
-
-      { value: 'en', displayName: 'English' },
-
-      { value: 'de', displayName: 'Deutsch (German)' },
-
-      { value: 'es', displayName: 'Español' },
-
-      { value: 'zh-CN', displayName: 'Simplified Chinese' },
-
-      { value: 'zh-TW', displayName: 'Traditional Chinese' },
-
+    options: [      { value: 'auto', displayName: ui?.languageRow.options.auto ?? 'Automatic (follows LM Studio)' },
+      { value: 'en', displayName: ui?.languageRow.options.en ?? 'English' },
+      { value: 'de', displayName: ui?.languageRow.options.de ?? 'Deutsch (German)' },
+      { value: 'es', displayName: ui?.languageRow.options.es ?? 'Español' },
+      { value: 'zh-CN', displayName: ui?.languageRow.options.zhCN ?? 'Simplified Chinese' },
+      { value: 'zh-TW', displayName: ui?.languageRow.options.zhTW ?? 'Traditional Chinese' },
     ],
 
   }, DEFAULT_CONFIG.language)
@@ -368,11 +375,11 @@ export const configSchematics = createConfigSchematics()
 
   .field('godMode', 'boolean', { 
 
-    displayName: '⚡⚠️ GOD MODE - Enable ALL Tools ⚠️⚡',
+    displayName: ui?.godMode.displayName ?? '⚡⚠️ GOD MODE - Enable ALL Tools ⚠️⚡',
 
-    subtitle: 'WARNING: Activates every tool category instantly. Use with caution.',
+    subtitle: ui?.godMode.subtitle ?? 'WARNING: Activates every tool category instantly. Use with caution.',
 
-    hint: 'When enabled, ALL individual toggles are bypassed and every tool is activated regardless of settings.',
+    hint: ui?.godMode.hint ?? 'When enabled, ALL individual toggles are bypassed and every tool is activated regardless of settings.',
 
   }, DEFAULT_CONFIG.godMode)
 
@@ -380,57 +387,57 @@ export const configSchematics = createConfigSchematics()
 
   // 🎛️ TOOL CATEGORIES (Hauptschalter) 🎛️
 
-  .field('fileSystem', 'boolean', { displayName: '📁 File System Tools', hint: 'Enable file read/write/search operations' }, DEFAULT_CONFIG.fileSystem)
+  .field('fileSystem', 'boolean', { displayName: ui?.fileSystem.displayName ?? '📁 File System Tools', hint: ui?.fileSystem.hint ?? 'Enable file read/write/search operations' }, DEFAULT_CONFIG.fileSystem)
 
-  .field('webSearch', 'boolean', { displayName: '🌐 Web & Research Tools', hint: 'Enable DuckDuckGo/Wikipedia search' }, DEFAULT_CONFIG.webSearch)
+  .field('webSearch', 'boolean', { displayName: ui?.webSearch.displayName ?? '🌐 Web & Research Tools', hint: ui?.webSearch.hint ?? 'Enable DuckDuckGo/Wikipedia search' }, DEFAULT_CONFIG.webSearch)
 
   // 🐙 GIT & GITHUB TOOLS (visuelle Gruppierung) 🐙
 
     .field('packageManage', 'boolean', { 
-    displayName: 'Package Management Tools', 
-    subtitle: 'npm/pip/cargo operations',
-    hint: 'Enable package manager tools. Disabled by default for security.',
+    displayName: ui?.packageManage.displayName ?? 'Package Management Tools', 
+    subtitle: ui?.packageManage.subtitle ?? 'npm/pip/cargo operations',
+    hint: ui?.packageManage.hint ?? 'Enable package manager tools. Disabled by default for security.',
   }, DEFAULT_CONFIG.packageManage)
 
   .field('gitOperations', 'boolean', { 
 
-    displayName: '🐙 Git & GitHub Tools', 
+    displayName: ui?.gitOperations.displayName ?? '🐙 Git & GitHub Tools', 
 
-    subtitle: 'Version Control & API',
+    subtitle: ui?.gitOperations.subtitle ?? 'Version Control & API',
 
-    hint: 'Enable git operations and GitHub API access.',
+    hint: ui?.gitOperations.hint ?? 'Enable git operations and GitHub API access.',
 
   }, DEFAULT_CONFIG.gitOperations)
 
   .field('gitAutoCommit', 'boolean', { 
 
-    displayName: '💾 Git Auto-Commit', 
+    displayName: ui?.gitAutoCommit.displayName ?? '💾 Git Auto-Commit', 
 
-    subtitle: '⚙️ Part of Git & GitHub Tools',
+    subtitle: ui?.gitAutoCommit.subtitle ?? '⚙️ Part of Git & GitHub Tools',
 
-    hint: 'Automatically commit changes after operations',
+    hint: ui?.gitAutoCommit.hint ?? 'Automatically commit changes after operations',
 
   }, DEFAULT_CONFIG.gitAutoCommit)
 
   .field('defaultBranch', 'string', { 
 
-    displayName: '🌿 Default Branch', 
+    displayName: ui?.defaultBranch.displayName ?? '🌿 Default Branch', 
 
     placeholder: 'main',
 
-    subtitle: '⚙️ Part of Git & GitHub Tools',
+    subtitle: ui?.defaultBranch.subtitle ?? '⚙️ Part of Git & GitHub Tools',
 
-    hint: 'Branch name for new repositories and git operations',
+    hint: ui?.defaultBranch.hint ?? 'Branch name for new repositories and git operations',
 
   }, DEFAULT_CONFIG.defaultBranch)
 
 
 
-  .field('databaseQueries', 'boolean', { displayName: '🗄️ Database Queries', hint: 'Enable read-only SQLite queries' }, DEFAULT_CONFIG.databaseQueries)
+  .field('databaseQueries', 'boolean', { displayName: ui?.databaseQueries.displayName ?? '🗄️ Database Queries', hint: ui?.databaseQueries.hint ?? 'Enable read-only SQLite queries' }, DEFAULT_CONFIG.databaseQueries)
 
-  .field('documentParsing', 'boolean', { displayName: '📄 Document Parsing', hint: 'Enable PDF/DOCX document reading' }, DEFAULT_CONFIG.documentParsing)
+  .field('documentParsing', 'boolean', { displayName: ui?.documentParsing.displayName ?? '📄 Document Parsing', hint: ui?.documentParsing.hint ?? 'Enable PDF/DOCX document reading' }, DEFAULT_CONFIG.documentParsing)
 
-  .field('backgroundCommands', 'boolean', { displayName: '⏳ Background Commands', hint: 'Enable long-running process tracking' }, DEFAULT_CONFIG.backgroundCommands)
+  .field('backgroundCommands', 'boolean', { displayName: ui?.backgroundCommands.displayName ?? '⏳ Background Commands', hint: ui?.backgroundCommands.hint ?? 'Enable long-running process tracking' }, DEFAULT_CONFIG.backgroundCommands)
 
 
 
@@ -438,11 +445,11 @@ export const configSchematics = createConfigSchematics()
 
   .field('imageProcessing', 'boolean', { 
 
-    displayName: '🖼️ Image Processing Tools', 
+    displayName: ui?.imageProcessing.displayName ?? '🖼️ Image Processing Tools', 
 
-    subtitle: 'OCR, Screenshots & Comparison',
+    subtitle: ui?.imageProcessing.subtitle ?? 'OCR, Screenshots & Comparison',
 
-    hint: 'Enable image OCR (Tesseract.js), screenshot capture, and image comparison tools.',
+    hint: ui?.imageProcessing.hint ?? 'Enable image OCR (Tesseract.js), screenshot capture, and image comparison tools.',
 
   }, DEFAULT_CONFIG.imageProcessing)
 
@@ -450,11 +457,11 @@ export const configSchematics = createConfigSchematics()
 
   .field('httpClient', 'boolean', { 
 
-    displayName: '🔌 HTTP Client Tools', 
+    displayName: ui?.httpClient.displayName ?? '🔌 HTTP Client Tools', 
 
-    subtitle: 'Generic REST API Client',
+    subtitle: ui?.httpClient.subtitle ?? 'Generic REST API Client',
 
-    hint: 'Enable generic HTTP client for making requests to any REST API (GET, POST, PUT, DELETE).',
+    hint: ui?.httpClient.hint ?? 'Enable generic HTTP client for making requests to any REST API (GET, POST, PUT, DELETE).',
 
   }, DEFAULT_CONFIG.httpClient)
 
@@ -462,22 +469,22 @@ export const configSchematics = createConfigSchematics()
 
   .field('vectorRAG', 'boolean', { 
 
-    displayName: '📊 Vector RAG / Semantic Search', 
+    displayName: ui?.vectorRag.displayName ?? '📊 Vector RAG / Semantic Search', 
 
-    subtitle: 'Semantic Document Search',
+    subtitle: ui?.vectorRag.subtitle ?? 'Semantic Document Search',
 
-    hint: 'Enable semantic search with vector embeddings for intelligent document retrieval.',
+    hint: ui?.vectorRag.hint ?? 'Enable semantic search with vector embeddings for intelligent document retrieval.',
 
   }, DEFAULT_CONFIG.vectorRAG)
   .field('uiGeneration', 'boolean', { 
-    displayName: '🎨 Interactive UI Generation Tools', 
-    subtitle: 'Generate and render interactive UI components',
-    hint: 'Enable tools for generating HTML/CSS/JS components (buttons, forms, charts, dashboards) and rendering them in the browser.',
+    displayName: ui?.uiGeneration.displayName ?? '🎨 Interactive UI Generation Tools', 
+    subtitle: ui?.uiGeneration.subtitle ?? 'Generate and render interactive UI components',
+    hint: ui?.uiGeneration.hint ?? 'Enable tools for generating HTML/CSS/JS components (buttons, forms, charts, dashboards) and rendering them in the browser.',
   }, DEFAULT_CONFIG.uiGeneration)
   .field('contextManagement', 'boolean', { 
-    displayName: '🧠 Auto-Context Management Tools', 
-    subtitle: 'Automatic session tracking and memory management',
-    hint: 'Enable tools for automatically saving important decisions, patterns, and configurations to persistent memory.',
+    displayName: ui?.contextManagement.displayName ?? '🧠 Auto-Context Management Tools', 
+    subtitle: ui?.contextManagement.subtitle ?? 'Automatic session tracking and memory management',
+    hint: ui?.contextManagement.hint ?? 'Enable tools for automatically saving important decisions, patterns, and configurations to persistent memory.',
   }, DEFAULT_CONFIG.contextManagement)
 
 
@@ -489,28 +496,28 @@ export const configSchematics = createConfigSchematics()
   // 📚 DOCUMENT RAG / CHAT WITH FILES 📚
 
   .field('documentRAG', 'boolean', { 
-    displayName: '📚 Document RAG / Chat with Files', 
-    subtitle: 'Enable file indexing and semantic search for chat',
-    hint: 'Attach documents to your chat messages. The plugin will automatically retrieve relevant content from attached files using semantic search.',
+    displayName: ui?.documentRAG.displayName ?? '📚 Document RAG / Chat with Files', 
+    subtitle: ui?.documentRAG.subtitle ?? 'Enable file indexing and semantic search for chat',
+    hint: ui?.documentRAG.hint ?? 'Attach documents to your chat messages. The plugin will automatically retrieve relevant content from attached files using semantic search.',
   }, DEFAULT_CONFIG.documentRAG)
 
 
   .field('textProcessing', 'boolean', { 
-    displayName: '📝 Text Processing Tools (sed/awk equivalents)', 
-    subtitle: 'Regex-based text transformations and field extraction',
-    hint: 'Enable tools for bulk text replacement, pattern matching, and structured data extraction without shell dependencies.',
+    displayName: ui?.textProcessing.displayName ?? '📝 Text Processing Tools (sed/awk equivalents)', 
+    subtitle: ui?.textProcessing.subtitle ?? 'Regex-based text transformations and field extraction',
+    hint: ui?.textProcessing.hint ?? 'Enable tools for bulk text replacement, pattern matching, and structured data extraction without shell dependencies.',
   }, DEFAULT_CONFIG.textProcessing)
 
   .field('refactorCode', 'boolean', { 
-    displayName: '🔧 AST Code Refactoring Tools', 
-    subtitle: 'Rename, move, extract functions & clean unused imports',
-    hint: 'Enable AST-based code refactoring tools (rename_identifier, move_function, extract_function, unused_import_cleanup).',
+    displayName: ui?.refactorCode.displayName ?? '🔧 AST Code Refactoring Tools', 
+    subtitle: ui?.refactorCode.subtitle ?? 'Rename, move, extract functions & clean unused imports',
+    hint: ui?.refactorCode.hint ?? 'Enable AST-based code refactoring tools (rename_identifier, move_function, extract_function, unused_import_cleanup).',
   }, DEFAULT_CONFIG.refactorCode)
 
   .field('utility', 'boolean', {
-    displayName: '🛠️ Utility & Maintenance Tools',
-    subtitle: 'Backup, chart generation, markdown preview, line operations',
-    hint: 'Enable utility tools (create_backup, list_backups, restore_backup, delete_backup, cleanup_backups, generate_chart, markdown_preview).',
+    displayName: ui?.utility.displayName ?? '🛠️ Utility & Maintenance Tools',
+    subtitle: ui?.utility.subtitle ?? 'Backup, chart generation, markdown preview, line operations',
+    hint: ui?.utility.hint ?? 'Enable utility tools (create_backup, list_backups, restore_backup, delete_backup, cleanup_backups, generate_chart, markdown_preview).',
     }, DEFAULT_CONFIG.utility)
 
 
@@ -518,11 +525,11 @@ export const configSchematics = createConfigSchematics()
 
   .field('taskPlanning', 'boolean', {
 
-    displayName: '📋 Task Planning Tools',
+    displayName: ui?.taskPlanning.displayName ?? '📋 Task Planning Tools',
 
-    subtitle: 'Structured multi-step workflow tools',
+    subtitle: ui?.taskPlanning.subtitle ?? 'Structured multi-step workflow tools',
 
-    hint: 'Enable create_plan, update_plan_step, and get_plan tools for structured task execution.',
+    hint: ui?.taskPlanning.hint ?? 'Enable create_plan, update_plan_step, and get_plan tools for structured task execution.',
 
   }, DEFAULT_CONFIG.taskPlanning)
 
@@ -530,11 +537,11 @@ export const configSchematics = createConfigSchematics()
 
   .field('clusterAwareToolOrder', 'boolean', {
 
-    displayName: '🧭 Cluster-Aware Tool Ordering',
+    displayName: ui?.clusterAwareToolOrder.displayName ?? '🧭 Cluster-Aware Tool Ordering',
 
-    subtitle: 'Sort exposed tools by priority tier + module centrality instead of alphabetically.',
+    subtitle: ui?.clusterAwareToolOrder.subtitle ?? 'Sort exposed tools by priority tier + module centrality instead of alphabetically.',
 
-    hint: 'Uses the static ARCHITECTURE.md dependency graph (no fs I/O). Disable to restore legacy alphabetical order.',
+    hint: ui?.clusterAwareToolOrder.hint ?? 'Uses the static ARCHITECTURE.md dependency graph (no fs I/O). Disable to restore legacy alphabetical order.',
 
   }, DEFAULT_CONFIG.clusterAwareToolOrder)
 
@@ -545,13 +552,13 @@ export const configSchematics = createConfigSchematics()
 
   .field('retrievalLimit', 'numeric', { 
 
-    displayName: '🔢 Retrieval Limit', 
+    displayName: ui?.retrievalLimit.displayName ?? '🔢 Retrieval Limit', 
 
-    subtitle: 'Max chunks to return per query',
+    subtitle: ui?.retrievalLimit.subtitle ?? 'Max chunks to return per query',
 
     min: 1, max: 20, int: true,
 
-    hint: 'Maximum number of relevant document chunks to retrieve for each query.',
+    hint: ui?.retrievalLimit.hint ?? 'Maximum number of relevant document chunks to retrieve for each query.',
 
   }, DEFAULT_CONFIG.retrievalLimit)
 
@@ -559,13 +566,13 @@ export const configSchematics = createConfigSchematics()
 
   .field('retrievalAffinityThreshold', 'numeric', { 
 
-    displayName: '🎯 Retrieval Affinity Threshold', 
+    displayName: ui?.retrievalAffinityThreshold.displayName ?? '🎯 Retrieval Affinity Threshold', 
 
-    subtitle: 'Minimum relevance score (0-1)',
+    subtitle: ui?.retrievalAffinityThreshold.subtitle ?? 'Minimum relevance score (0-1)',
 
     min: 0.0, max: 1.0, step: 0.01,
 
-    hint: 'Chunks below this similarity score will be filtered out. Lower = more results but potentially less relevant.',
+    hint: ui?.retrievalAffinityThreshold.hint ?? 'Chunks below this similarity score will be filtered out. Lower = more results but potentially less relevant.',
 
   }, DEFAULT_CONFIG.retrievalAffinityThreshold)
 
@@ -573,49 +580,49 @@ export const configSchematics = createConfigSchematics()
 
   .field('executionJavaScript', 'boolean', {
 
-    displayName: '⚡ Allow JavaScript Execution',
+    displayName: ui?.executionJavaScript.displayName ?? '⚡ Allow JavaScript Execution',
 
-    subtitle: "Enables the 'run_javascript' tool",
+    subtitle: ui?.executionJavaScript.subtitle ?? "Enables the 'run_javascript' tool",
 
-    hint: 'WARNING: code runs on your machine.',
+    hint: ui?.executionJavaScript.hint ?? 'WARNING: code runs on your machine.',
 
   }, DEFAULT_CONFIG.executionJavaScript)
 
   .field('executionPython', 'boolean', {
 
-    displayName: '🐍 Allow Python Execution',
+    displayName: ui?.executionPython.displayName ?? '🐍 Allow Python Execution',
 
-    subtitle: "Enables the 'run_python' tool",
+    subtitle: ui?.executionPython.subtitle ?? "Enables the 'run_python' tool",
 
-    hint: 'WARNING: code runs on your machine.',
+    hint: ui?.executionPython.hint ?? 'WARNING: code runs on your machine.',
 
   }, DEFAULT_CONFIG.executionPython)
 
   .field('executionTerminal', 'boolean', {
 
-    displayName: '💻 Allow Terminal Execution',
+    displayName: ui?.executionTerminal.displayName ?? '💻 Allow Terminal Execution',
 
-    subtitle: "Enables the 'run_in_terminal' tool",
+    subtitle: ui?.executionTerminal.subtitle ?? "Enables the 'run_in_terminal' tool",
 
-    hint: 'Opens real terminal windows.',
+    hint: ui?.executionTerminal.hint ?? 'Opens real terminal windows.',
 
   }, DEFAULT_CONFIG.executionTerminal)
 
   .field('executionShell', 'boolean', {
 
-    displayName: '🔧 Allow Shell Command Execution',
+    displayName: ui?.executionShell.displayName ?? '🔧 Allow Shell Command Execution',
 
-    subtitle: "Enables the 'execute_command' tool",
+    subtitle: ui?.executionShell.subtitle ?? "Enables the 'execute_command' tool",
 
-    hint: 'WARNING: commands run on your machine.',
+    hint: ui?.executionShell.hint ?? 'WARNING: commands run on your machine.',
 
   }, DEFAULT_CONFIG.executionShell)
 
 
   .field('executionTests', 'boolean', {
-    displayName: '🧪 Allow Test Execution',
-    subtitle: "Enables the 'run_tests' tool",
-    hint: 'WARNING: runs npm jest / pytest / go test — can install packages and execute code.',
+    displayName: ui?.executionTests.displayName ?? '🧪 Allow Test Execution',
+    subtitle: ui?.executionTests.subtitle ?? "Enables the 'run_tests' tool",
+    hint: ui?.executionTests.hint ?? 'WARNING: runs npm jest / pytest / go test — can install packages and execute code.',
   }, DEFAULT_CONFIG.executionTests)
 
 
@@ -625,9 +632,9 @@ export const configSchematics = createConfigSchematics()
 
   .field('searchFallbackChain', 'select', {
 
-    displayName: '🔍 Search Fallback Chain',
+    displayName: ui?.searchFallbackChain.displayName ?? '🔍 Search Fallback Chain',
 
-    hint: 'Primary search engine. Auto-falls back to others if unavailable.',
+    hint: ui?.searchFallbackChain.hint ?? 'Primary search engine. Auto-falls back to others if unavailable.',
 
     options: [
 
@@ -647,16 +654,11 @@ export const configSchematics = createConfigSchematics()
 
   .field('safesearch', 'select', {
 
-    displayName: '🛡️ Safe Search',
+    displayName: ui?.safesearch.displayName ?? '🛡️ Safe Search',
 
-    options: [
-
-      { value: '0', displayName: 'Off' },
-
-      { value: '1', displayName: 'Moderate' },
-
-      { value: '2', displayName: 'Strict' },
-
+    options: [      { value: '0', displayName: ui?.safesearch.options.off ?? 'Off' },
+      { value: '1', displayName: ui?.safesearch.options.moderate ?? 'Moderate' },
+      { value: '2', displayName: ui?.safesearch.options.strict ?? 'Strict' },
     ],
 
   }, DEFAULT_CONFIG.safesearch)
@@ -667,11 +669,11 @@ export const configSchematics = createConfigSchematics()
 
   .field('browserAutomation', 'boolean', { 
 
-    displayName: '🖥️ Browser Automation Tools', 
+    displayName: ui?.browserAutomation.displayName ?? '🖥️ Browser Automation Tools', 
 
-    subtitle: 'Headless browser control & automation',
+    subtitle: ui?.browserAutomation.subtitle ?? 'Headless browser control & automation',
 
-    hint: 'Enable Puppeteer-based headless browser automation for web scraping, testing, and UI interaction.',
+    hint: ui?.browserAutomation.hint ?? 'Enable Puppeteer-based headless browser automation for web scraping, testing, and UI interaction.',
 
   }, DEFAULT_CONFIG.browserAutomation)
 
@@ -679,13 +681,13 @@ export const configSchematics = createConfigSchematics()
 
   .field('browserTimeout', 'numeric', { 
 
-    displayName: '⏱️ Browser Timeout', 
+    displayName: ui?.browserTimeout.displayName ?? '⏱️ Browser Timeout', 
 
-    subtitle: '⚙️ Part of Browser Automation Tools',
+    subtitle: ui?.browserTimeout.subtitle ?? '⚙️ Part of Browser Automation Tools',
 
     min: 1000, max: 30000, int: true,
 
-    hint: 'Maximum time (ms) to wait for browser operations before timing out.',
+    hint: ui?.browserTimeout.hint ?? 'Maximum time (ms) to wait for browser operations before timing out.',
 
   }, DEFAULT_CONFIG.browserTimeout)
 
@@ -693,11 +695,11 @@ export const configSchematics = createConfigSchematics()
 
   .field('headlessMode', 'boolean', { 
 
-    displayName: '👻 Headless Mode', 
+    displayName: ui?.headlessMode.displayName ?? '👻 Headless Mode', 
 
-    subtitle: '⚙️ Part of Browser Automation Tools',
+    subtitle: ui?.headlessMode.subtitle ?? '⚙️ Part of Browser Automation Tools',
 
-    hint: 'Run browser without GUI (recommended for automation).',
+    hint: ui?.headlessMode.hint ?? 'Run browser without GUI (recommended for automation).',
 
   }, DEFAULT_CONFIG.headlessMode)
 
@@ -705,11 +707,11 @@ export const configSchematics = createConfigSchematics()
 
   // 🔒 SECURITY SETTINGS 🔒
 
-  .field('pathValidationEnabled', 'boolean', { displayName: '🔒 Path Validation', hint: 'Prevent directory traversal attacks' }, DEFAULT_CONFIG.pathValidationEnabled)
+  .field('pathValidationEnabled', 'boolean', { displayName: ui?.pathValidationEnabled.displayName ?? '🔒 Path Validation', hint: ui?.pathValidationEnabled.hint ?? 'Prevent directory traversal attacks' }, DEFAULT_CONFIG.pathValidationEnabled)
 
-  .field('binaryFileDetection', 'boolean', { displayName: '📁 Binary File Detection', hint: 'Detect binary files via null byte check' }, DEFAULT_CONFIG.binaryFileDetection)
+  .field('binaryFileDetection', 'boolean', { displayName: ui?.binaryFileDetection.displayName ?? '📁 Binary File Detection', hint: ui?.binaryFileDetection.hint ?? 'Detect binary files via null byte check' }, DEFAULT_CONFIG.binaryFileDetection)
 
-  .field('regexReDoSProtection', 'boolean', { displayName: '🛡️ ReDoS Protection', hint: 'Protect against regex denial-of-service' }, DEFAULT_CONFIG.regexReDoSProtection)
+  .field('regexReDoSProtection', 'boolean', { displayName: ui?.regexReDoSProtection.displayName ?? '🛡️ ReDoS Protection', hint: ui?.regexReDoSProtection.hint ?? 'Protect against regex denial-of-service' }, DEFAULT_CONFIG.regexReDoSProtection)
 
   .field('maxRegexLength', 'numeric', { min: 1, max: 1000, int: true }, DEFAULT_CONFIG.maxRegexLength)
 
@@ -717,156 +719,157 @@ export const configSchematics = createConfigSchematics()
 
   // 💽 STATE MANAGEMENT 💽
 
-  .field('statePersistenceEnabled', 'boolean', { displayName: '💽 State Persistence', hint: 'Persist tool execution state between sessions' }, DEFAULT_CONFIG.statePersistenceEnabled)
+  .field('statePersistenceEnabled', 'boolean', { displayName: ui?.statePersistenceEnabled.displayName ?? '💽 State Persistence', hint: ui?.statePersistenceEnabled.hint ?? 'Persist tool execution state between sessions' }, DEFAULT_CONFIG.statePersistenceEnabled)
 
   .field('stateMaxSize', 'numeric', { min: 1024, max: 1048576, int: true }, DEFAULT_CONFIG.stateMaxSize)
 
 
 
-  .field('notificationsEnabled', 'boolean', { displayName: '🔔 Desktop Notifications', hint: 'Show system notifications' }, DEFAULT_CONFIG.notificationsEnabled)
+  .field('notificationsEnabled', 'boolean', { displayName: ui?.notificationsEnabled.displayName ?? '🔔 Desktop Notifications', hint: ui?.notificationsEnabled.hint ?? 'Show system notifications' }, DEFAULT_CONFIG.notificationsEnabled)
 
   // ── 📦 PLUGIN UPDATE CHECK (19.10) ───────────────────────────────
   .field('updateCheckEnabled', 'boolean', {
-    displayName: '🔄 Plugin Update Check',
-    subtitle: 'Quiet LM Studio hub .VERSION check — no new tools, no OS permissions',
-    hint: "Once per day the plugin quietly checks the published LM Studio hub .VERSION file for a strictly-newer release. If one exists it notifies via desktop toast (Desktop Notifications ON) or a single in-chat line (OFF). Silent when you are up to date or on a dismissed version; state survives reinstalls.",
+    displayName: ui?.updateCheckEnabled.displayName ?? '🔄 Plugin Update Check',
+    subtitle: ui?.updateCheckEnabled.subtitle ?? 'Quiet LM Studio hub .VERSION check — no new tools, no OS permissions',
+    hint: ui?.updateCheckEnabled.hint ?? "Once per day the plugin quietly checks the published LM Studio hub .VERSION file for a strictly-newer release. If one exists it notifies via desktop toast (Desktop Notifications ON) or a single in-chat line (OFF). Silent when you are up to date or on a dismissed version; state survives reinstalls.",
   }, DEFAULT_CONFIG.updateCheckEnabled)
 
   // ⏰ TEMPORAL AWARENESS (from up_to_date)
   .field('temporalAwareness', 'boolean', {
-    displayName: '⏰ Temporal Awareness',
-    subtitle: 'Injects current date/time into every message',
-    hint: 'Enables the AI to know the current time.',
+    displayName: ui?.temporalAwareness.displayName ?? '⏰ Temporal Awareness',
+    subtitle: ui?.temporalAwareness.subtitle ?? 'Injects current date/time into every message',
+    hint: ui?.temporalAwareness.hint ?? 'Enables the AI to know the current time.',
   }, DEFAULT_CONFIG.temporalAwareness)
   .field('dateFormatStyle', 'select', {
-    displayName: '📅 Date Format Style',
-    options: [
-      { value: 'standard', displayName: 'Standard ([Zeit: ...])' },
-      { value: 'heuteIst', displayName: 'HEUTE IST Mode (Prominent)' },
+    displayName: ui?.dateFormatStyle.displayName ?? '📅 Date Format Style',
+    options: [      { value: 'standard', displayName: ui?.dateFormatStyle.options.standard ?? 'Standard ([Zeit: ...])' },
+      { value: 'heuteIst', displayName: ui?.dateFormatStyle.options.heuteIst ?? 'HEUTE IST Mode (Prominent)' },
     ],
   }, DEFAULT_CONFIG.dateFormatStyle)
 
 
   // ── 🧠 CONTEXT GUARD SETTINGS ───────────────────────────────────
   .field('contextGuardEnabled', 'boolean', {
-    displayName: '🧠 ContextGuard Token Management',
-    subtitle: 'Automatic history compression & smart reading',
-    hint: 'Automatically compresses chat history when token limit is reached. Enables smart file reading and terminal output filtering.',
+    displayName: ui?.contextGuardEnabled.displayName ?? '🧠 ContextGuard Token Management',
+    subtitle: ui?.contextGuardEnabled.subtitle ?? 'Automatic history compression & smart reading',
+    hint: ui?.contextGuardEnabled.hint ?? 'Automatically compresses chat history when token limit is reached. Enables smart file reading and terminal output filtering.',
   }, DEFAULT_CONFIG.contextGuardEnabled)
 
   .field('contextGuardCompressionPercent', 'numeric', {
-    displayName: '📊 Compression Trigger (% of Context Window)',
-    subtitle: '⚙️ ContextGuard Setting',
+    displayName: ui?.contextGuardCompressionPercent.displayName ?? '📊 Compression Trigger (% of Context Window)',
+    subtitle: ui?.contextGuardCompressionPercent.subtitle ?? '⚙️ ContextGuard Setting',
     min: 50, max: 100, int: true,
-    hint: 'History compression triggers when context usage reaches this percentage of the active model\'s context window. If LM Studio reports the model\'s real window it is used; otherwise a built-in 30k fallback applies.',
+    hint: ui?.contextGuardCompressionPercent.hint ?? 'History compression triggers when context usage reaches this percentage of the active model\'s context window. If LM Studio reports the model\'s real window it is used; otherwise a built-in 30k fallback applies.',
   }, DEFAULT_CONFIG.contextGuardCompressionPercent)
 
   // 🔢 Agentic chars-per-token density (15.10 owner request "make it user editable"): reseeded per turn into the
   // tokenStatsManager live state by promptPreprocessor.preprocess(); changing it here NEVER requires a test edit.
   .field('contextGuardAgenticDensity', 'numeric', {
-    displayName: '🔢 Agentic Chars-per-Token Density',
-    subtitle: '⚙️ ContextGuard Setting',
+    displayName: ui?.contextGuardAgenticDensity.displayName ?? '🔢 Agentic Chars-per-Token Density',
+    subtitle: ui?.contextGuardAgenticDensity.subtitle ?? '⚙️ ContextGuard Setting',
     min: 1, max: 20, step: 0.1,
-    hint: 'Chars per token used to estimate tokens from character length (agentic mix of prose + tool output; live-measured band ~3.2-3.4 — default 3.6 is owner-set above that band). Higher = denser content = fewer estimated tokens; lower estimates more and triggers compaction earlier.',
+    hint: ui?.contextGuardAgenticDensity.hint ?? 'Chars per token used to estimate tokens from character length (agentic mix of prose + tool output; live-measured band ~3.2-3.4 — default 3.6 is owner-set above that band). Higher = denser content = fewer estimated tokens; lower estimates more and triggers compaction earlier.',
   }, DEFAULT_CONFIG.contextGuardAgenticDensity)
 
   // 💾 Arc C (07.10): forced structured session-memory save at the compression trigger — generated + persisted BEFORE history destruction (see persistGeneratedSessionSummary); non-fatal by design, the telemetry checkpoint stays as fallback.
   .field('contextGuardForceSummaryOnCompress', 'boolean', {
-    displayName: '💾 Force Session-Memory Save Before Compression',
-    subtitle: '⚙️ ContextGuard Setting',
-    hint: "When context reaches your Compression Trigger, a structured session summary (task description, accomplishments, pending tasks) is generated with the Summary Model and persisted BEFORE history is compressed. Non-fatal: on any failure the previous telemetry checkpoint still runs.",
+    displayName: ui?.contextGuardForceSummaryOnCompress.displayName ?? '💾 Force Session-Memory Save Before Compression',
+    subtitle: ui?.contextGuardForceSummaryOnCompress.subtitle ?? '⚙️ ContextGuard Setting',
+    hint: ui?.contextGuardForceSummaryOnCompress.hint ?? "When context reaches your Compression Trigger, a structured session summary (task description, accomplishments, pending tasks) is generated with the Summary Model and persisted BEFORE history is compressed. Non-fatal: on any failure the previous telemetry checkpoint still runs.",
   }, DEFAULT_CONFIG.contextGuardForceSummaryOnCompress)
 
   .field('contextGuardSmartReading', 'boolean', {
-    displayName: '🔍 Smart File Reading',
-    subtitle: '⚙️ ContextGuard Setting',
-    hint: 'Extracts keywords from user queries to read only relevant portions of files. Saves tokens and speeds up responses.',
+    displayName: ui?.contextGuardSmartReading.displayName ?? '🔍 Smart File Reading',
+    subtitle: ui?.contextGuardSmartReading.subtitle ?? '⚙️ ContextGuard Setting',
+    hint: ui?.contextGuardSmartReading.hint ?? 'Extracts keywords from user queries to read only relevant portions of files. Saves tokens and speeds up responses.',
   }, DEFAULT_CONFIG.contextGuardSmartReading)
 
   .field('contextGuardSummaryModel', 'string', {
-    displayName: '🤖 Summary Model Name',
-    subtitle: '⚙️ ContextGuard Setting',
+    displayName: ui?.contextGuardSummaryModel.displayName ?? '🤖 Summary Model Name',
+    subtitle: ui?.contextGuardSummaryModel.subtitle ?? '⚙️ ContextGuard Setting',
     placeholder: '(leave empty for current chat model)',
-    hint: 'LM Studio model name used for history summarization. Leave empty to use your current chat model.',
+    hint: ui?.contextGuardSummaryModel.hint ?? 'LM Studio model name used for history summarization. Leave empty to use your current chat model.',
   }, DEFAULT_CONFIG.contextGuardSummaryModel)
 
   .field('contextGuardTerminalFilterEnabled', 'boolean', {
-    displayName: '📌 Terminal Output Filtering',
-    subtitle: '⚙️ ContextGuard Setting',
-    hint: 'Automatically truncates long terminal outputs to save tokens.',
+    displayName: ui?.contextGuardTerminalFilterEnabled.displayName ?? '📌 Terminal Output Filtering',
+    subtitle: ui?.contextGuardTerminalFilterEnabled.subtitle ?? '⚙️ ContextGuard Setting',
+    hint: ui?.contextGuardTerminalFilterEnabled.hint ?? 'Automatically truncates long terminal outputs to save tokens.',
   }, DEFAULT_CONFIG.contextGuardTerminalFilterEnabled)
 
   .field('contextGuardTerminalFilterLength', 'numeric', {
-    displayName: '📏 Max Terminal Output Length',
-    subtitle: '⚙️ ContextGuard Setting',
+    displayName: ui?.contextGuardTerminalFilterLength.displayName ?? '📏 Max Terminal Output Length',
+    subtitle: ui?.contextGuardTerminalFilterLength.subtitle ?? '⚙️ ContextGuard Setting',
     min: 100, max: 20000, int: true,
-    hint: 'Maximum characters before terminal output is truncated and summarized.',
+    hint: ui?.contextGuardTerminalFilterLength.hint ?? 'Maximum characters before terminal output is truncated and summarized.',
   }, DEFAULT_CONFIG.contextGuardTerminalFilterLength)
 
   // ── C COMPACTION FAMILY (24.09): pre-summarization pruning of oversized tool payloads ──
   .field('compactionEnabled', 'boolean', {
-    displayName: '✂️ Compaction Pre-Summarization Pruning',
-    subtitle: '⚙️ C Compaction Family',
-    hint: 'Before history is summarized, tool payloads above the byte budget are replaced by a head/tail preview plus an opaque locator; the full result stays stored verbatim in .ai_toolbox/compaction/.',
+    displayName: ui?.compactionEnabled.displayName ?? '✂️ Compaction Pre-Summarization Pruning',
+    subtitle: ui?.compactionEnabled.subtitle ?? '⚙️ C Compaction Family',
+    hint: ui?.compactionEnabled.hint ?? 'Before history is summarized, tool payloads above the byte budget are replaced by a head/tail preview plus an opaque locator; the full result stays stored verbatim in .ai_toolbox/compaction/.',
   }, DEFAULT_CONFIG.compactionEnabled)
 
   .field('compactionMaxResultBytes', 'numeric', {
-    displayName: '📏 Max Tool Result Before Pruning (bytes)',
-    subtitle: '⚙️ C Compaction Family',
+    displayName: ui?.compactionMaxResultBytes.displayName ?? '📏 Max Tool Result Before Pruning (bytes)',
+    subtitle: ui?.compactionMaxResultBytes.subtitle ?? '⚙️ C Compaction Family',
     min: 1024, max: 1048576, int: true,
-    hint: 'Byte budget per tool-result payload in chat history. Results above this are pruned to preview + locator before summarization (verbatim copy stored on disk).',
+    hint: ui?.compactionMaxResultBytes.hint ?? 'Byte budget per tool-result payload in chat history. Results above this are pruned to preview + locator before summarization (verbatim copy stored on disk).',
   }, DEFAULT_CONFIG.compactionMaxResultBytes)
 
   // ── LLM-SIDE LIMIT AWARENESS (02.10; widened 03.10 per option B): context-usage footer on ALL tool results ──
   .field('contextUsageFooter', 'boolean', {
-    displayName: '📊 Context Usage Footer in Tool Results',
-    subtitle: '⚙️ LLM-side Limit Awareness',
-    hint: "Once projected context usage crosses half of the model's window, every tool result gains a short footer like [ctx ~48.3k/64k = 76%] — appended to string results and added as an additive ctx_footer field on plain-object results (every registered tool returns one) — so the model always sees current token usage. At >=90% a near-limit advisory is added.",
+    displayName: ui?.contextUsageFooter.displayName ?? '📊 Context Usage Footer in Tool Results',
+    subtitle: ui?.contextUsageFooter.subtitle ?? '⚙️ LLM-side Limit Awareness',
+    hint: ui?.contextUsageFooter.hint ?? "Once projected context usage crosses half of the model's window, every tool result gains a short footer like [ctx ~48.3k/64k = 76%] — appended to string results and added as an additive ctx_footer field on plain-object results (every registered tool returns one) — so the model always sees current token usage. At >=90% a near-limit advisory is added.",
   }, DEFAULT_CONFIG.contextUsageFooter)
 
   // ── 🤖 AUTO-TRACKING SETTINGS ───────────────────────────────────
   .field('autoTrackingEnabled', 'boolean', {
-    displayName: '🤖 Auto-Tracking Enabled',
-    subtitle: 'Automatically remember important events',
-    hint: 'Silently tracks decisions, completions, and bug fixes in the background. Enabled by default.',
+    displayName: ui?.autoTrackingEnabled.displayName ?? '🤖 Auto-Tracking Enabled',
+    subtitle: ui?.autoTrackingEnabled.subtitle ?? 'Automatically remember important events',
+    hint: ui?.autoTrackingEnabled.hint ?? 'Silently tracks decisions, completions, and bug fixes in the background. Enabled by default.',
   }, DEFAULT_CONFIG.autoTrackingEnabled)
 
   .field('autoTrackTokenThreshold', 'numeric', {
-    displayName: 'Auto-Track Token Threshold',
-    subtitle: 'Auto-Tracking Setting',
+    displayName: ui?.autoTrackTokenThreshold.displayName ?? 'Auto-Track Token Threshold',
+    subtitle: ui?.autoTrackTokenThreshold.subtitle ?? 'Auto-Tracking Setting',
     min: 10, max: 100, int: true,
-    hint: 'Trigger session memory save when token usage reaches this percentage (default: 75%). Helps prevent context overflow.',
+    hint: ui?.autoTrackTokenThreshold.hint ?? 'Trigger session memory save when token usage reaches this percentage (default: 75%). Helps prevent context overflow.',
   }, DEFAULT_CONFIG.autoTrackTokenThreshold)
 
   .field('autoTrackDecisions', 'boolean', {
-    displayName: '📌 Track Decisions Automatically',
-    subtitle: '⚙️ Auto-Tracking Setting',
-    hint: 'Detects phrases like "I decided", "conclusion", "going with".',
+    displayName: ui?.autoTrackDecisions.displayName ?? '📌 Track Decisions Automatically',
+    subtitle: ui?.autoTrackDecisions.subtitle ?? '⚙️ Auto-Tracking Setting',
+    hint: ui?.autoTrackDecisions.hint ?? 'Detects phrases like "I decided", "conclusion", "going with".',
   }, DEFAULT_CONFIG.autoTrackDecisions)
 
   .field('autoTrackCompletions', 'boolean', {
-    displayName: '✅ Track Completions Automatically',
-    subtitle: '⚙️ Auto-Tracking Setting',
-    hint: 'Detects phrases like "successfully completed", "finished implementing".',
+    displayName: ui?.autoTrackCompletions.displayName ?? '✅ Track Completions Automatically',
+    subtitle: ui?.autoTrackCompletions.subtitle ?? '⚙️ Auto-Tracking Setting',
+    hint: ui?.autoTrackCompletions.hint ?? 'Detects phrases like "successfully completed", "finished implementing".',
   }, DEFAULT_CONFIG.autoTrackCompletions)
 
   .field('autoTrackErrors', 'boolean', {
-    displayName: '🐛 Track Bug Fixes Automatically',
-    subtitle: '⚙️ Auto-Tracking Setting',
-    hint: 'Detects phrases like "fixed the bug", "resolved the issue".',
+    displayName: ui?.autoTrackErrors.displayName ?? '🐛 Track Bug Fixes Automatically',
+    subtitle: ui?.autoTrackErrors.subtitle ?? '⚙️ Auto-Tracking Setting',
+    hint: ui?.autoTrackErrors.hint ?? 'Detects phrases like "fixed the bug", "resolved the issue".',
   }, DEFAULT_CONFIG.autoTrackErrors)
 
   .field('autoSummaryInterval', 'numeric', {
-    displayName: '📊 Session Summary Interval',
-    subtitle: '⚙️ Auto-Tracking Setting',
+    displayName: ui?.autoSummaryInterval.displayName ?? '📊 Session Summary Interval',
+    subtitle: ui?.autoSummaryInterval.subtitle ?? '⚙️ Auto-Tracking Setting',
     min: 10, max: 200, int: true,
-    hint: 'Number of messages between automatic session summaries. Higher = less frequent.',
+    hint: ui?.autoSummaryInterval.hint ?? 'Number of messages between automatic session summaries. Higher = less frequent.',
   }, DEFAULT_CONFIG.autoSummaryInterval)
 
 
   // ── 🛠️ GRAMMAR PARSER LIMITS (P0 Fix) ──────────────────────────────
 
   .build();
+}
+
 
 // ==================== Utility Functions ====================
 
@@ -894,3 +897,6 @@ export function isToolEnabled(config: PluginConfig, category: keyof PluginConfig
   const value = config[category];
   return typeof value === 'boolean' && value === true;
 }
+
+/** Module-level English build — consumed by promptPreprocessor.ts and the tests. Keys/types/defaults are identical across all locale builds; only label strings differ (see buildConfigSchematics above). */
+export const configSchematics = buildConfigSchematics(); // EN literals (byte-identical to the pre-v2 panel text except the new auto option + default)

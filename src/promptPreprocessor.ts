@@ -12,7 +12,43 @@ import type { ContextGuard } from './contextGuard';
 import { setAttachments, listAttachments } from './attachmentManager';
 // i18n-CONFIRM arc (06.10): confirmation prompts follow the user's configured language ("🌐 Language" menu);
 // acceptance stays multilingual via the derived union sets — single source of truth in src/locales/.
-import { getConfirmationWords, ALL_CONFIRM_WORDS, ALL_DECLINE_WORDS } from './locales';
+import { getConfirmationWords, ALL_CONFIRM_WORDS, ALL_DECLINE_WORDS, getRuntimeTexts, LANGUAGE_DISPLAY_NAMES, fillTemplate } from './locales';
+// UNIFIED LANGUAGE v2 (step 4, 27.10): per-turn host/OS language fallback chain — the existing '^\.\/hostLanguage\.js$'
+// jest mapper entry resolves this; no new config needed (verified 26.10). Option B: the turn resolver below consumes it here ('message layer').
+import { getHostLocale, getOsLocale } from './hostLanguage.js';
+// UNIFIED LANGUAGE v2 step 5 (27.10): per-turn state-file sync — extensionless on purpose: ts-jest resolves it via
+// moduleFileExtensions and tsup/tsc accept the form ('./locales' precedent), so NO jest mapper entry is required.
+import { persistConcretePick } from './uiLabelBake';
+import type { LanguageCode, RuntimeTexts } from './locales/types.js'; // type-only — erased at runtime, never jest-resolved (RC#4 class avoided)
+
+/** Shipped locale IDs keyed by their lowercase config form — the concrete values resolveTurnLanguage() accepts. */
+const SHIPPED_LANGUAGE_CODES: Readonly<Record<string, LanguageCode>> = {
+  en: 'en',
+  de: 'de',
+  es: 'es',
+  'zh-cn': 'zh-CN',
+  'zh-tw': 'zh-TW',
+};
+
+/**
+ * UNIFIED LANGUAGE v2 (step 4): resolve the language for THIS turn's injected runtime texts.
+ * Chain: (a) a concretely configured language (trimmed/lowercased, matched against the shipped set — ANY
+ * non-matching value falls through by construction; step 5 will add 'auto', which must keep falling
+ * through); (b) the LM Studio host preference (getHostLocale() !== ''); (c) the OS locale's first tag
+ * ('de-DE' → 'de') matched against the same set; (d) English. Pure function of its inputs — exported so the
+ * fallback chain stays jest-testable without SDK mocks.
+ */
+export function resolveTurnLanguage(configured?: string | null): LanguageCode {
+  if (typeof configured === 'string') {
+    const code = SHIPPED_LANGUAGE_CODES[configured.trim().toLowerCase()];
+    if (code) return code; // concrete pick wins — anything else (incl. future 'auto') falls through by design
+  }
+  const hostLocale = getHostLocale();
+  if (hostLocale !== '') return hostLocale;
+  const osTag = getOsLocale().split('-')[0];
+  return SHIPPED_LANGUAGE_CODES[osTag] ?? 'en';
+}
+
 import { autoTracker } from './autoTracker';
 import { TokenStatsManager, drainActiveToolTurns, estimateTokensFromChars, setAgenticCharsPerToken } from './tokenStatsManager';
 // C compaction family (24.09): pre-summarization pruning of oversized tool payloads (DeepSeek harness item C)
@@ -254,35 +290,37 @@ function detectDirectoryPath(text: string): string | null {
 
 // 🔹 i18n-CONFIRM arc (06.10): option words follow the user's configured language when passed;
 // without them the legacy bilingual wording is preserved byte-for-byte for any other caller/test.
+// UNIFIED LANGUAGE v2 (step 4, 27.10): banner texts come from the per-turn RuntimeTexts when passed — the box-drawing
+// separators and indentation stay OUTSIDE those strings by design; the 'en' render MUST equal the pre-v2 output byte-for-byte.
 function injectWorkingDirectoryPrompt(
   originalMessage: string,
   detectedPath: string,
   words?: { yes: string; no: string },
+  runtimeTexts?: RuntimeTexts,
 ): string {
+  const rt = runtimeTexts ?? getRuntimeTexts('en'); // absent → English bundle (byte-identical to the pre-v2 literals)
   const replyHint = words
-    ? `Reply '${words.yes}' to confirm, or '${words.no}' to decline.`
-    : "Reply 'yes' or 'ja' to confirm, or 'no'/'nein' to decline.";
+    ? fillTemplate(rt.workingDirReplyHint, { yes: words.yes, no: words.no })
+    : "Reply 'yes' or 'ja' to confirm, or 'no'/'nein' to decline."; // legacy bilingual fallback preserved byte-for-byte
   const instruction = `
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-⚠️ WORKING DIRECTORY DETECTED
+${rt.workingDirDetected}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-The user mentioned a directory path in their message:
+${rt.workingDirMentionedLine}
 
     ${detectedPath}
 
-Please ask the user for confirmation before changing the working directory.
-Example response:
+${rt.workingDirConfirmAsk}
+${rt.workingDirExampleLabel}
 
-"I noticed you mentioned the directory '${detectedPath}'. 
-Would you like me to set this as your working directory? 
-All subsequent file operations will use this directory as the base.
+"${fillTemplate(rt.workingDirExampleText, { path: detectedPath })}
 
 ${replyHint}"
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-User's original message:
+${rt.workingDirOriginalMessageLabel}
 ${originalMessage}
 `;
   
@@ -581,12 +619,15 @@ function extractLatestSessionSummary(decoded: unknown): string | undefined {
  */
 // CONTAMINATION-FIX follow-up C (01.10): exported for the hermetic session-memory read-guard tests
 // (tests/sessionMemoryReadGuards.test.ts) — the confirm-first flow in preprocess() stays the only production caller.
+// UNIFIED LANGUAGE v2 (step 4): optional per-turn RuntimeTexts for the session-memory banners below — absent →
+// English bundle via getRuntimeTexts('en') (byte-identical to the pre-v2 literals; keeps non-preprocess callers/tests untouched).
 export async function executeProjectSwitch(
   newCwd: string,
   userPrompt: string,
   attachmentNotice: string,
   checkpointSuffix: string,
   ctl: PromptPreprocessorController,
+  runtimeTexts?: RuntimeTexts,
 ): Promise<string> {
   console.log(`[ProjectAutoDetect] Switching working directory to: ${newCwd}`);
 
@@ -636,8 +677,10 @@ export async function executeProjectSwitch(
                   // If found, inject session summary context into the prompt
                     if (latestSummary && latestSummary.length > 0) {
                       console.log(`[ProjectAutoDetect] Loaded session memory from ${newCwd}`);
-                      
-                      const sessionContext = `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 SESSION MEMORY LOADED\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\nPrevious session summary:\n${latestSummary}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
+
+                      // UNIFIED LANGUAGE v2 (step 4): banner title/label from the per-turn RuntimeTexts — 📋 + box-drawing structure stays literal here.
+                      const memRt = runtimeTexts ?? getRuntimeTexts('en');
+                      const sessionContext = `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n${memRt.sessionMemoryLoadedTitle}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n${memRt.previousSessionLabel}\n${latestSummary}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
                       
                       return `${userPrompt}${sessionContext}${attachmentNotice}${checkpointSuffix}`.trim() + getTemporalSuffix(ctl);
                     } else {
@@ -655,8 +698,10 @@ export async function executeProjectSwitch(
 
                   if (summaryText && summaryText.length > 0) {
                     console.log(`[ProjectAutoDetect] Loaded session memory from ${newCwd} (JSON fallback)`);
-                    
-                    const sessionContext = `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 SESSION MEMORY LOADED\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\nPrevious session summary:\n${summaryText}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
+
+                    // UNIFIED LANGUAGE v2 (step 4): same RuntimeTexts-driven banner as the msgpack path above.
+                    const memRt = runtimeTexts ?? getRuntimeTexts('en');
+                    const sessionContext = `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n${memRt.sessionMemoryLoadedTitle}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n${memRt.previousSessionLabel}\n${summaryText}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
                     
                     return `${userPrompt}${sessionContext}${attachmentNotice}${checkpointSuffix}`.trim() + getTemporalSuffix(ctl);
                   }
@@ -723,6 +768,21 @@ export async function preprocess(
     const rawText = await Promise.resolve(userMessage.getText());
     userPrompt = typeof rawText === 'string' ? rawText : String(rawText ?? '');
   } catch {}
+
+  // UNIFIED LANGUAGE v2 (step 4, 27.10): resolve THIS turn's injected-text language ONCE at the top of the message layer —
+  // chain = concretely configured value → LM Studio host preference → OS locale first tag → English fallback
+  // (see resolveTurnLanguage()). MUST sit before any consumer below: the S5 autoTracker call and the answer-language line
+  // live INSIDE the ContextGuard try-block, whose finally runs well before Step 0.6+. One extra config fetch vs. a later
+  // site — negligible per turn (config reads are fresh per call elsewhere in this file too).
+  const turnLang = resolveTurnLanguage(ctl.getPluginConfig(configSchematics).get('language'));
+  const rt = getRuntimeTexts(turnLang);
+
+  // UNIFIED LANGUAGE v2 step 5 (27.10): keep the boot-bake state file in sync with THIS session's effective language —
+  // after any reload, panel labels and prompt texts render in the same locale. persistConcretePick() is change-aware
+  // (no write while the value is unchanged) and non-throwing by contract; i18n persistence must never break a turn.
+  try {
+    persistConcretePick(turnLang);
+  } catch { /* non-fatal by design — the boot chain re-resolves on next load */ }
 
   // ✅ DIAGNOSTIC: Verify preprocessor is actually being called by LM Studio
   console.log(`✅ [Preprocessor] Called. Message length: ${userPrompt.length}`);
@@ -935,10 +995,12 @@ export async function preprocess(
         try {
           // i18n-CONFIRM arc (06.10): the checkpoint question is DISPLAYED in the user's configured
           // language ("🌐 Language" menu); reply parsing stays multilingual inside Step 0.6 below.
+          // UNIFIED LANGUAGE v2 (step 4): S5 runtime texts ride along so the threshold warning renders in this turn's language.
           const promptResult = autoTracker.checkAndGeneratePrompt(
             tokenCount,
             maxTokens,
             getConfirmationWords(autoTrackingConfig.get('language')),
+            rt,
           );
           if (promptResult.triggered && promptResult.warning) {
             pendingWarning = promptResult.warning;
@@ -1143,6 +1205,15 @@ export async function preprocess(
         console.log("[AutoTracker] ✅ Mid-loop crossing notice appended to this turn's model input (FIX-A one-shot)");
       }
 
+      // 🔹 UNIFIED LANGUAGE v2 (step 4, owner GO): per-turn answer-language instruction — F1-style straight onto
+      // userPrompt (NOT via checkpointSuffix: its hasPendingWarning()-gated return paths drop notices). Appended once
+      // per turn after the FIX-A block; rt is guaranteed non-empty for every shipped locale.
+      const answerLine = fillTemplate(rt.answerLanguageLine, { language: LANGUAGE_DISPLAY_NAMES[turnLang] });
+      if (answerLine) {
+        userPrompt += '\n\n' + answerLine;
+        console.log('[UL-v2] Answer-language line appended (' + turnLang + ')');
+      }
+
       // 🔹 UPDATE-ANNOUNCE (19.10, owner GO): users with OS/desktop notifications disabled never see the toast — every turn still passes
       // through preprocess(), so a pending update is announced IN CHAT here instead: the model tells them and gives them the clickable link.
       // F1-style straight onto userPrompt (the checkpointSuffix route would be silently dropped by its hasPendingWarning()-gated return
@@ -1176,21 +1247,24 @@ export async function preprocess(
     }
   }
 
+
   // 🔹 UNIFIED CHECKPOINT WARNING INJECTION (Fixes missing prompt when RAG disabled or no files found)
   // CRITICAL FIX: Previous approach appended plain text trailing content — LLMs reliably ignored it.
   // New format uses explicit <SYSTEM_INSTRUCTION> XML-style markers + imperative directives that LLMs process as role-level instructions.
   let checkpointSuffix = '';
   if (pendingWarning) {
+    // UNIFIED LANGUAGE v2 (step 4, 27.10): wrapper wording from the per-turn RuntimeTexts (en render byte-identical);
+    // `<SYSTEM_INSTRUCTION>` markers + '---' separator stay literal here by design — they are structure, not text.
     checkpointSuffix = `\n\n<SYSTEM_INSTRUCTION>\n` +
-      `TOKEN LIMIT WARNING — ACKNOWLEDGE BEFORE RESPONDING:\n` +
+      `${rt.checkpointWarningHeader}\n` +
       `${pendingWarning}\n` +
       `---\n` +
-      `ACTION REQUIRED: Before responding to the user's message, explicitly acknowledge this token limit warning.\n` +
+      `${rt.checkpointActionRequiredLead}\n` +
       // i18n-CONFIRM arc (06.10): wording is language-agnostic on purpose — the parser accepts every shipped
       // confirmation word, so reference the options above instead of duplicating one language's words here.
-      `If the user replied with one of the confirmation options shown in the warning above → trigger the context management save tool now.\n` +
-      `If the user declined or did NOT give a confirmation reply → ask them if they want to proceed with a context save.\n` +
-      `Do not proceed with normal conversation until this warning has been addressed.\n` +
+      `${rt.checkpointIfConfirmedLine}\n` +
+      `${rt.checkpointIfDeclinedLine}\n` +
+      `${rt.checkpointDoNotProceedLine}\n` +
       `</SYSTEM_INSTRUCTION>`;
     pendingWarning = undefined; // Clear to prevent duplication in Step 1/2
   }
@@ -1285,8 +1359,9 @@ export async function preprocess(
   // Build attachment notice to inject into prompt
   let attachmentNotice = '';
   if (allFiles.length > 0) {
+    // UNIFIED LANGUAGE v2 (step 4): title + lead-in from the per-turn RuntimeTexts (en render byte-identical).
     const fileNames = listAttachments();
-    attachmentNotice = `\n\n📎 ATTACHED FILES AVAILABLE:\nYou have access to the following attached files. You can read them using the read_document tool by filename:\n${fileNames.map(name => `- ${name}`).join('\n')}`;
+    attachmentNotice = `\n\n${rt.attachedFilesTitle}\n${rt.attachedFilesLead}\n${fileNames.map(name => `- ${name}`).join('\n')}`;
   }
   
   // Step 0.7: Project keyword detection — check registered projects before path detection
@@ -1315,7 +1390,9 @@ export async function preprocess(
 
       // Include the checkpoint warning only if it is still live after Step 0.6 ran this turn (avoids re-asking a consumed prompt).
       const activeSuffix = autoTracker.hasPendingWarning() ? checkpointSuffix : '';
-      const projectInjectPrompt = `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n⚠️ REGISTERED PROJECT DETECTED\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\nI found a registered project matching your message:\n\nProject: "${projectMatch.name}"\nPath: ${projectMatch.path}\n\nWould you like me to switch your working directory to this project?\nReply '${confWords.yes}' to confirm, or '${confWords.no}' to decline.\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\nUser's original message:\n${userPrompt}${attachmentNotice}\n`;
+      // UNIFIED LANGUAGE v2 (step 4): banner wording from the per-turn RuntimeTexts; box-drawing separators stay
+      // literal in this template by design — they sit outside the dict strings.
+      const projectInjectPrompt = `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n${rt.projectDetectedTitle}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n${rt.projectFoundLead}\n\n${fillTemplate(rt.projectNameLabel, { name: projectMatch.name })}\n${fillTemplate(rt.projectPathLabel, { path: projectMatch.path })}\n\n${rt.projectSwitchQuestion}\nReply '${confWords.yes}' to confirm, or '${confWords.no}' to decline.\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\nUser's original message:\n${userPrompt}${attachmentNotice}\n`;
       return `${projectInjectPrompt.trim()}${activeSuffix}`.trim() + getTemporalSuffix(ctl);
     } else if (decision.kind === 'declined') {
       console.log(`[ProjectAutoDetect] Switch to "${projectMatch.name}" declined — keeping current working directory`);
@@ -1330,7 +1407,7 @@ export async function preprocess(
         const activeSuffix = autoTracker.hasPendingWarning() ? checkpointSuffix : '';
         pendingProjectSwitch = null;
         console.log(`[ProjectAutoDetect] User confirmed — executing one-shot switch to: ${projectMatch.path}`);
-        return await executeProjectSwitch(projectMatch.path, userPrompt, attachmentNotice, activeSuffix, ctl);
+        return await executeProjectSwitch(projectMatch.path, userPrompt, attachmentNotice, activeSuffix, ctl, rt);
       }
     }
   } else if (pendingProjectSwitch) {
@@ -1345,7 +1422,7 @@ export async function preprocess(
       const target = pendingProjectSwitch;
       pendingProjectSwitch = null;
       console.log(`[ProjectAutoDetect] User confirmed — executing one-shot switch to: ${target.path}`);
-      return await executeProjectSwitch(target.path, userPrompt, attachmentNotice, activeSuffix, ctl);
+      return await executeProjectSwitch(target.path, userPrompt, attachmentNotice, activeSuffix, ctl, rt);
     } else if (normalized === 'NO' || normalized === 'NEIN') {
       console.log(`[ProjectAutoDetect] Switch to "${pendingProjectSwitch.name}" declined — keeping current working directory`);
       pendingProjectSwitch = null;
@@ -1363,7 +1440,7 @@ export async function preprocess(
   if (detectedPath) {
     // i18n-CONFIRM arc (06.10): the directory banner's reply options also follow the configured language.
     const dirWords = getConfirmationWords(ctl.getPluginConfig(configSchematics).get('language'));
-    let base = injectWorkingDirectoryPrompt(userPrompt + attachmentNotice, detectedPath, dirWords) + checkpointSuffix;
+    let base = injectWorkingDirectoryPrompt(userPrompt + attachmentNotice, detectedPath, dirWords, rt) + checkpointSuffix; // UL-v2 step-4 completion (28.10): per-turn RuntimeTexts — without rt the helper fell back to getRuntimeTexts('en') and this banner stayed English in all other locales; EN render byte-identical (rt === en bundle when turnLang='en', same object as the old fallback)
     
     return base + getTemporalSuffix(ctl);
   }
@@ -1448,7 +1525,8 @@ export async function preprocess(
       contextInjection += `\n${result.content}\n---\n`;
     }
 
-    return `${finalMessage}\n\n--- RELEVANT DOCUMENT CONTEXT ---\n${contextInjection.trim()}` + getTemporalSuffix(ctl);
+    // UNIFIED LANGUAGE v2 (step 4): RAG section header from the per-turn RuntimeTexts (en render byte-identical).
+    return `${finalMessage}\n\n${rt.ragContextHeader}\n${contextInjection.trim()}` + getTemporalSuffix(ctl);
   }
 
   // If no results found, return original message with attachment notice
