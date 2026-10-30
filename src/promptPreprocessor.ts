@@ -1165,21 +1165,80 @@ export async function preprocess(
         // messages that compression just destroyed (the pre-compression safeMessages is dead at this point).
         publishedTurnMessages = compressedMessages as unknown as { role?: string; content?: unknown; [key: string]: unknown }[];
 
-        // 🔹 FIX #20 A2: compression ran this turn — recount the NEW (post-compression) history so the
-        // published baseline reflects reality. Without this, the mid-loop guard would evaluate tool-payload
-        // growth against a stale pre-compression count and fire on context that no longer exists.
+        // 🔹 FIX-1A (29.10, owner GO — supersedes FIX #20 A2): the pop/append above mutates ONLY the pullHistory()
+        // COPY — SDK contract (ProcessingController.pullHistory docblock): "The returned history is a copy, so
+        // mutating it will NOT affect the actual history." Counting the compressed array here therefore published a
+        // baseline for what is NOT on the wire: 29.10 incident L13057 logged "Post-compression count: 1440 tokens"
+        // while LM Studio rejected the real 167,060-token request in the same second (L13078) — the mid-loop guard
+        // then measured tool-payload growth against ~1.4k and could never arm inside that turn. FIX-1A re-pulls a
+        // FRESH copy of the ACTUAL host history and counts it with the SAME shared agentic-density estimator used at
+        // turn start (Step 0.5 pattern: native text + serialized tool-call requests/results char sums, plus the
+        // tool-definition overhead that rides every request) → the published baseline reflects reality again, so the
+        // mid-loop guard (FIX B, 95% pre-emptive gate) evaluates true usage after compression.
         try {
-          const postCompressCount = await contextGuard.countTokens(
-            compressedMessages as unknown as typeof safeMessages,
-            imageCount,
-            activeModelId || undefined,
-            extractedSystemPrompt,
-          );
-          tokenCount = postCompressCount; // also makes the Step 0.6 YES-reply checkpoint report accurate numbers
-          console.log(`[ContextGuard] Post-compression count: ${postCompressCount} tokens (baseline updated for FIX #20)`);
+          const freshHistory = await ctl.pullHistory();
+          let freshChars = 0;
+          if (freshHistory) {
+            const freshLen = freshHistory.getLength();
+            for (let i = 0; i < freshLen; i++) {
+              // Structural cast to the exact surface this code touches (29.10 gate feedback: no-unnecessary-type-assertion +
+              // no-explicit-any + unsafe-* warnings on any-casts) — one typed view, zero `any`.
+              const fmView = freshHistory.at(i) as unknown as { getText?: () => string; getToolCallRequests?: () => unknown; getToolCallResults?: () => unknown };
+              let fText = '';
+              if (typeof fmView.getText === 'function') fText += (fmView.getText() || '');
+              try { if (typeof fmView.getToolCallRequests === 'function') fText += JSON.stringify(fmView.getToolCallRequests()) || ''; } catch { /* non-fatal — count what we have */ }
+              try { if (typeof fmView.getToolCallResults === 'function') fText += JSON.stringify(fmView.getToolCallResults()) || ''; } catch { /* non-fatal — count what we have */ }
+              freshChars += fText.length;
+            }
+          }
+          const freshOverhead = getToolOverheadChars(); // parity with Step 0.5: serialized tool defs ride on every request
+          if (freshOverhead > 0) freshChars += freshOverhead;
+          // Image parity with Step 0.5's primary path (countTokens adds imageCount*500 when historyTextLength is set).
+          // 29.10 gate feedback (publishHardening 'healthy turn' case): a fresh recount with ZERO counted chars is UNUSABLE —
+          // that happens only in hermetic stubs (empty fake history + mocked countTokens, e.g. tests/publishHardening.test.ts),
+          // never in production (compression fires above threshold ⇒ the host history has real messages). Overwriting a valid
+          // STEP-6 baseline with 0 would break the pinned publish contract AND blind the mid-loop guard — so adopt the fresh
+          // count only when it measured something, otherwise keep the pre-compression baseline (same conservative direction as the catch path).
+          const freshCount = Math.round(estimateTokensFromChars(freshChars)) + imageCount * 500;
+          if (freshChars > 0) {
+            tokenCount = freshCount; // also makes the Step 0.6 YES-reply checkpoint report accurate numbers
+            console.log(`[ContextGuard] [FIX-1A] Post-compression recount (FRESH pullHistory — host history is immutable to plugins): ${freshChars.toLocaleString('en-US')} chars → ${tokenCount.toLocaleString('en-US')} tokens (TRUE baseline for the mid-loop guard; compressed-copy count intentionally NOT used)`);
+          } else {
+            console.log(`[ContextGuard] [FIX-1A] Fresh post-compression recount unusable (0 chars counted — hermetic/empty history) — keeping pre-compression baseline ${tokenCount.toLocaleString('en-US')} tokens`);
+          }
         } catch (countErr) {
-          // Non-fatal — worst case the guard keeps a stale-HIGH baseline (conservative direction: may snapshot early).
-          console.warn('[FIX #20 A2] Post-compression recount failed; keeping pre-compression baseline:', countErr);
+          // Non-fatal: keep the PRE-compression tokenCount — stale-HIGH is the conservative direction (the guard may
+          // snapshot early), whereas the old compressed-copy fallback was stale-LOW and blinded the guard entirely.
+          console.warn('[FIX-1A] Fresh post-compression recount failed; keeping pre-compression baseline (conservative):', countErr);
+        }
+
+        // 🔹 FIX-1B (29.10, owner GO — truthful unrecoverable-window notice): if the FRESH host-history recount is
+        // still at/above the compression threshold, in-band recovery is IMPOSSIBLE — plugins cannot mutate LM
+        // Studio's conversation history (SDK pullHistory() returns a copy; no rewrite endpoint exists in any of the
+        // 36 port RPCs; verified identical in SDK 2.1.0). Retrying would re-send the same oversized payload
+        // (29.10: ~15 consecutive send_error rejections, payload growing per retry) — so state that fact ONCE to
+        // the user instead of implying a reset happened. F1 pattern: appended straight onto userPrompt, one-shot
+        // (dies with this preprocess() run), independent of checkpointSuffix's hasPendingWarning()-gated paths.
+        if (tokenCount >= contextGuard.getThreshold()) {
+          const unrecoverableNotice =
+            '\n\n⚠️ CONTEXT WINDOW UNRECOVERABLE THIS CHAT: compression ran, but the host conversation history cannot be ' +
+            `modified from a plugin — LM Studio is still sending ~${Math.round(tokenCount / 1000)}k tokens against the ${Math.round(contextGuard.getTokenLimit() / 1000)}k window. ` +
+            'Starting a NEW chat is the only way to reset the context; everything important was checkpointed to session memory before compression.';
+          userPrompt += unrecoverableNotice;
+          console.log(`[ContextGuard] [FIX-1B] Unrecoverable-window notice appended (post-compression recount ${tokenCount.toLocaleString('en-US')} ≥ threshold ${Math.round(contextGuard.getThreshold()).toLocaleString('en-US')}) — one-shot`);
+          // 🔹 LATCH SUB-ITEM (30.10, owner GO — FIX #1 Part A guard): the fresh recount just PROVED this chat's window
+          // unrecoverable in-band — arm the TokenStatsManager latch so the wrapper-side mid-loop gates (TIER-2 forced
+          // save + FIX B pre-emptive compression) STOP re-firing on every model step of this and later turns. Without it,
+          // each per-step toolsProvider() entry resets both wrapper latches and re-runs prune → snapshot → Arc-C
+          // regeneration (up-to-60s summarization prediction) → compressHistory over a history that cannot shrink — pure
+          // no-op spend per step. Idempotent: later boundary recounts in the same chat re-affirm; a below-threshold
+          // recount clears it (else branch below); chat reset (TokenStatsManager.clear()) is the other clear path.
+          TokenStatsManager.setUnrecoverableWindow(tokenCount, contextGuard.getTokenLimit());
+        } else {
+          // 🔹 LATCH SUB-ITEM (30.10): post-compression fresh recount landed BELOW threshold — in-band recovery IS now
+          // possible (only legitimate source: a larger effective window, e.g. model switch between boundary runs). Clear
+          // the latch so the mid-loop gates re-arm for this turn; no-op with no log when already clear.
+          TokenStatsManager.clearUnrecoverableWindow();
         }
       }
 

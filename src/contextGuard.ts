@@ -515,7 +515,11 @@ export class ContextGuard {
     debugLog('[COMPRESS]', `Compressing history: ${messages.length} messages, ${currentTokens} tokens (threshold: ${threshold})`);
     
     // Notify user in chat via system prompt instead of stderr logging
-    const thresholdWarning = `⚠️ Context window threshold reached (${originalTokenCount.toLocaleString('en-US')} tokens). Token counter reset. Please start a completely new session.`;
+    // FIX-1B (29.10, owner GO — truthfulness): the old text claimed "Token counter reset", which never happened for the
+    // request actually sent: pullHistory() is an immutable-to-plugins COPY (SDK contract), so host history keeps riding
+    // every payload even after compression (29.10 incident: 167k-token rejection immediately after a "successful"
+    // compression). State the real limitation instead of a phantom reset — verified unfixable via any plugin API version.
+    const thresholdWarning = `⚠️ Context window threshold reached (${originalTokenCount.toLocaleString('en-US')} tokens). Note: in-chat compression cannot shrink the history LM Studio sends (plugin-API limitation) — please start a completely new session to reset context.`;
     console.log(`[ContextGuard] ${thresholdWarning}`);
 
     const keepLast = 10;

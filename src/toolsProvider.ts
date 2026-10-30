@@ -512,6 +512,11 @@ export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[
               if (!forcedSaveFiredThisTurn
                   && config.contextGuardEnabled === true
                   && limit > 0
+                  // LATCH SUB-ITEM (30.10, owner GO — FIX #1 Part A guard): PART B's FRESH boundary recount has already
+                  // proven this chat's window unrecoverable in-band — the TIER-2 save cannot shrink host history either,
+                  // and per-step provider re-entry would reset forcedSaveFiredThisTurn below and re-run Arc-C regeneration
+                  // (up to a 60s summarization prediction) on EVERY model step. Skip with the one-shot log in the else-if.
+                  && !TokenStatsManager.getUnrecoverableWindow()
                   && typeof percent === 'number' && Number.isFinite(percent) && percent > 0
                   && projected >= (limit * percent / 100)) {
                 const guard = getContextGetter();
@@ -549,6 +554,14 @@ export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[
                     console.warn(`[AI Toolbox] [TIER-2] Mid-loop forced session-memory save failed (non-fatal): ${tierErr instanceof Error ? tierErr.message : String(tierErr)}`);
                   }
                 } // else: guard not yet constructed (null) or a stub instance without the method — deterministic skip, logged by no one (pre-startup window is harmless; PART B covers it)
+          } else if (config.contextGuardEnabled === true
+                  && limit > 0
+                  // LATCH SUB-ITEM (30.10): the TIER-2 gate above with its latch condition inverted — i.e. this pass would have fired but the proven-unrecoverable window withheld it. Mirroring every other condition keeps the log honest: no "skipped" line when the gate wouldn't have crossed anyway (toggle off, percent raised above usage).
+                  // DELIBERATELY EXCLUDES !forcedSaveFiredThisTurn (gate-4 fix 30.10): that wrapper-local flag resets at EVERY toolsProvider() entry — exactly the per-step re-entry bug this latch exists for — so it cannot be part of the skip condition without defeating one-shot logging across provider re-entries. One-shotness lives in TokenStatsManager's module-level unrecoverableSkipLoggedTier2 (survives provider re-entry; reset only by set/clear transitions).
+                  && typeof percent === 'number' && Number.isFinite(percent) && percent > 0
+                  && projected >= (limit * percent / 100)) {
+            // One-shot FAIL-LOUD skip log per transition (the module-level flag resets on clear/set, so later model steps stay silent instead of re-spending the pipeline or repeating this line).
+            TokenStatsManager.logUnrecoverableSkip('tier2');
           }
 
           // FIX B (09.10, owner GO — pre-emptive mid-loop compression): when the shared projection crosses PREEMPTIVE_COMPRESSION_PERCENT
@@ -564,6 +577,12 @@ export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[
           if (!midLoopCompactionFiredThisTurn
               && config.contextGuardEnabled === true
               && limit > 0
+              // LATCH SUB-ITEM (30.10, owner GO — FIX #1 Part A guard): PART B's FRESH boundary recount has already proven
+              // this chat's window unrecoverable in-band — the full mid-loop pipeline (prune → snapshot → Arc-C regeneration
+              // up to a 60s summarization prediction → compressHistory) is provably no-op on host history and would re-fire on
+              // EVERY model step via per-step provider re-entry resetting midLoopCompactionFiredThisTurn. Skip with the one-
+              // shot log in the else-if below.
+              && !TokenStatsManager.getUnrecoverableWindow()
               && projected >= preemptiveLimit) {
             const compactGuard = getContextGetter();
             if (compactGuard !== null && typeof compactGuard.compressMidLoop === 'function') {
@@ -620,6 +639,13 @@ export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[
                 console.warn(`[AI Toolbox] [TIER-2-COMPACT] Mid-loop compression failed (non-fatal): ${compactErr instanceof Error ? compactErr.message : String(compactErr)}`);
               }
             } // else: guard not yet constructed (null) or a stub without the method — deterministic skip (tests / pre-startup window; PART B covers it)
+          } else if (config.contextGuardEnabled === true
+              && limit > 0
+              // LATCH SUB-ITEM (30.10): the FIX B gate above with its latch condition inverted — this pass would have fired but the proven-unrecoverable window withheld it; mirroring every other condition keeps the log honest (no "skipped" line when the toggle is off or the projection hasn't crossed 95%).
+              // DELIBERATELY EXCLUDES !midLoopCompactionFiredThisTurn (gate-4 fix 30.10) — same per-entry reset argument as the TIER-2 skip branch above; one-shotness lives in TokenStatsManager's module-level unrecoverableSkipLoggedFixb.
+              && projected >= preemptiveLimit) {
+            // One-shot FAIL-LOUD skip log per transition (the module-level flag resets on clear/set, so later model steps stay silent instead of re-running the pipeline or repeating this line).
+            TokenStatsManager.logUnrecoverableSkip('fixb');
           }
         }
 

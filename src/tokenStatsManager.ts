@@ -51,6 +51,25 @@ let maxContextTokens = 0;
 // exclusion is applied caller-side at consumption time). null = no list published for this turn yet.
 let publishedTurnMessages: ReadonlyArray<Record<string, unknown>> | null = null;
 
+// LATCH SUB-ITEM (30.10, owner GO — FIX #1 Part A guard): proven-unrecoverable window latch. Set by PART B in
+// promptPreprocessor once a FRESH pullHistory() post-compression recount is still >= the compression threshold:
+// at that point the host conversation history CANNOT be shrunk in-band (SDK contract — plugins only ever see a
+// copy), so every mid-loop re-fire of TIER-2's forced save and FIX B's pre-emptive compression pipeline inside the
+// agentic turn is provably no-op work (summarization spend, Arc-C regenerations/persists, host-history swaps over
+// an immutable history) that repeats PER MODEL STEP — the host re-invokes toolsProvider() on every model step and
+// each entry resets both wrapper latches (forcedSaveFiredThisTurn / midLoopCompactionFiredThisTurn). While set,
+// the wrapper's two gate blocks skip with a one-time FAIL-LOUD log line instead. Lifecycle: cleared by clear()
+// (chat reset — the only true in-band recovery) and re-evaluated at every PART B boundary run (each user message
+// re-compresses + fresh-recounts; still >= threshold → re-set, below → clearUnrecoverableWindow() inside the same
+// run). Deliberately NOT cleared by resetMidLoopDelta(): within one turn no legitimate path can shrink host history
+// back under the threshold. Provenance (set tokens/limit) is retained for log lines only — never feeds gate math.
+let unrecoverableWindow = false;
+let unrecoverableSetTokens = 0;
+let unrecoverableLimit = 0;
+/** LATCH SUB-ITEM (30.10) — per-gate skip-log latch: once logUnrecoverableSkip(gate) has logged for the CURRENT window, later model steps stay silent (one line per gate per transition). Reset by every set/clear so a fresh window re-logs. */
+let unrecoverableSkipLoggedTier2 = false;
+let unrecoverableSkipLoggedFixb = false;
+
 // ==================== Token estimation ratio — SINGLE SOURCE OF TRUTH (TOKEN-DIVERGENCE arc, 10.11 owner GO) ====================
 //
 // MEASURED density of this plugin's agentic content mix: a verbatim session sample (prose + JSON tool output +
@@ -397,6 +416,95 @@ export class TokenStatsManager {
     return publishedTurnMessages;
   }
 
+  // --- LATCH SUB-ITEM (30.10): proven-unrecoverable window state for the wrapper-side mid-loop gates ---
+
+  /**
+   * LATCH SUB-ITEM (30.10) — mark this chat's context window as PROVEN UNRECOVERABLE: called from PART B in
+   * promptPreprocessor when its FRESH pullHistory() post-compression recount is still >= the compression threshold.
+   * While set, toolsProvider's TIER-2 forced-save gate and FIX B pre-emptive compression gate skip with a one-time
+   * FAIL-LOUD log line (both would otherwise re-fire on EVERY model step — per-step provider re-entry resets their
+   * own latches — spending summarization predictions + Arc-C regenerations on work that cannot shrink host history).
+   * The provenance numbers are retained for the skip log lines only, never fed into gate math. Setting is idempotent;
+   * non-finite/≤0 values keep the previously recorded provenance (callers may pass what they lack as 0).
+   */
+  static setUnrecoverableWindow(tokens: number, limit: number): void {
+    const firstTime = !unrecoverableWindow;
+    unrecoverableWindow = true;
+    unrecoverableSkipLoggedTier2 = false; // fresh transition ⇒ the per-gate skip line may fire exactly once in this window
+    unrecoverableSkipLoggedFixb = false;
+    if (Number.isFinite(tokens) && tokens > 0) unrecoverableSetTokens = Math.round(tokens);
+    if (Number.isFinite(limit) && limit > 0) unrecoverableLimit = Math.round(limit);
+    console.log(
+      `[TokenStatsManager] [LATCH-UNRECOVERABLE] ${firstTime ? 'SET' : 're-affirmed'} — post-compression fresh recount ` +
+      `${unrecoverableSetTokens.toLocaleString('en-US')} tok vs limit ${unrecoverableLimit.toLocaleString('en-US')} tok (>= threshold): ` +
+      'mid-loop TIER-2 save + FIX B compression suppressed until chat reset or a PART B boundary recounts below threshold',
+    );
+  }
+
+  /**
+   * LATCH SUB-ITEM (30.10) — clear the proven-unrecoverable latch: called from PART B when its FRESH post-compression
+   * recount lands BELOW the compression threshold (recovery by a bigger window / model switch is the only legitimate
+   * in-band path), and by clear() on chat reset. Logs once per transition so log lines never repeat every boundary.
+   */
+  static clearUnrecoverableWindow(): void {
+    if (!unrecoverableWindow) return; // no-op when already clear — keeps the log line one-shot per transition
+    unrecoverableWindow = false;
+    unrecoverableSetTokens = 0;
+    unrecoverableLimit = 0;
+    unrecoverableSkipLoggedTier2 = false;
+    unrecoverableSkipLoggedFixb = false;
+    console.log('[TokenStatsManager] [LATCH-UNRECOVERABLE] CLEARED — mid-loop gates re-arm (PART B recounted below threshold or chat reset)');
+  }
+
+  /** LATCH SUB-ITEM (30.10) — true while the host history is proven unrecoverable; consumed by both wrapper gate blocks. */
+  static getUnrecoverableWindow(): boolean {
+    return unrecoverableWindow;
+  }
+
+  /**
+   * LATCH SUB-ITEM (30.10) — one-time-per-window FAIL-LOUD skip log for a suppressed mid-loop gate: the FIRST call
+   * after any set/clear transition logs; every later call in the same window is a no-op (per-gate state
+   * unrecoverableSkipLoggedTier2/Fixb), so at most one line per gate per unrecoverable window lands in the host log
+   * while later model steps stay silent instead of re-spending the pipeline. Exported for tests to pin the exact
+   * line contract and to prove silence-on-repeat.
+   */
+  static logUnrecoverableSkip(gate: 'tier2' | 'fixb'): void {
+    // LATCH SUB-ITEM (30.10 gate-4 fix): the skip line is only meaningful WHILE the latch holds — a call after any
+    // clear (PART B recovery or chat reset) would claim an unrecoverable window that no longer exists, and its static
+    // phrasing ("window proven unrecoverable this chat") would leave a misleading record with zero provenance behind.
+    // Production reach in the CLEAR state is real, not hypothetical: with latch clear the wrapper's mirror else-if can
+    // still be reached on a pass where the original gate was already consumed (its per-entry flag set) while the
+    // threshold remains crossed — exactly why this guard returns silent without consuming one-shot state.
+    if (!unrecoverableWindow) return;
+    // One-shot enforcement (the docblock contract): the per-gate flag is set by the first call after any transition,
+    // so later model steps in the same window stay silent. Both flags reset on every set/clear above.
+    if (gate === 'tier2') {
+      if (unrecoverableSkipLoggedTier2) return; // one-shot consumed for this transition — silence thereafter
+      unrecoverableSkipLoggedTier2 = true;
+    } else {
+      if (unrecoverableSkipLoggedFixb) return;
+      unrecoverableSkipLoggedFixb = true;
+    }
+    const provenance =
+      unrecoverableSetTokens > 0 && unrecoverableLimit > 0
+        ? ` (proven ${unrecoverableSetTokens.toLocaleString('en-US')}/${unrecoverableLimit.toLocaleString('en-US')} tok at set)`
+        : '';
+    console.warn(
+      `[TokenStatsManager] [LATCH-UNRECOVERABLE] FAIL-LOUD: mid-loop ${gate === 'tier2' ? 'TIER-2 forced save' : 'FIX B compression'} ` +
+      `skipped — window proven unrecoverable this chat${provenance}; the pipeline cannot shrink host history in-band (plugin-API limitation). ` +
+      'Re-arm is owned by a PART B boundary recount or chat reset only. Suppressed until then.',
+    );
+  }
+
+  /** Test hook: force the latch to a known state (mirrors clearActiveToolCallsForTests; resets provenance too). */
+  static setUnrecoverableWindowForTests(value: boolean): void {
+    unrecoverableWindow = value;
+    unrecoverableSetTokens = 0;
+    unrecoverableLimit = 0;
+    unrecoverableSkipLoggedTier2 = false;
+    unrecoverableSkipLoggedFixb = false;
+  }
+
   /** FIX #20 A2 — token count at the start of the current turn (before any tool calls). */
   static getTurnBaseline(): number {
     return turnBaselineTokens;
@@ -420,6 +528,14 @@ export class TokenStatsManager {
     maxContextTokens = 0;
     publishedTurnMessages = null; // FIX #21 (09.10) — chat reset ⇒ previous conversation's array must not leak into the new one
     activeToolCalls = 0; // C compaction (24.09) — fresh session ⇒ no in-flight tool loop
+    unrecoverableWindow = false; // LATCH SUB-ITEM (30.10) — chat reset is the only true in-band recovery: fresh history, gates re-arm (direct assign keeps clear() silent like every other state zero here)
+    unrecoverableSetTokens = 0;
+    unrecoverableLimit = 0;
+    // LATCH SUB-ITEM (30.10 gate-4 fix): the per-gate skip-log latches are PART of the reset — a fresh chat's
+    // first suppressed gate must be able to log again exactly like every other one-shot in this method. clear()
+    // is silent by design here too, so the flags alone carry the re-arm; no line change.
+    unrecoverableSkipLoggedTier2 = false;
+    unrecoverableSkipLoggedFixb = false;
   }
 
   /**
