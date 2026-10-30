@@ -1,7 +1,7 @@
 <div align="center">
 <a href="README.md">English</a> · <a href="README.de.md">Deutsch</a> · <b>Español</b> · <a href="README.zh-CN.md">简体中文</a> · <a href="README.zh-TW.md">繁體中文</a><br/>
 <h1>AI Toolbox — Plugin todo-en-uno de agentes y herramientas de IA autónomos para LLMs locales en LM Studio</h1><hr/>
-<b>Dale manos reales a tu LLM local.</b> El plugin más completo del Hub de LM Studio — convierte cualquier modelo local en un agente de IA capaz y autosuficiente.<br/>Contexto autogestionado mantiene vivas las sesiones maratón · un solo plugin, sin pegamento, completamente offline por defecto.
+<b>115 herramientas. Un plugin. Sin nube.</b> El plugin más completo del Hub de LM Studio — convierte cualquier modelo local en un agente de IA capaz y autosuficiente.<br/>Contexto autogestionado mantiene vivas las sesiones maratón · un solo plugin, sin pegamento, completamente offline por defecto.
 <br/><a href="#"><img src="https://img.shields.io/badge/version-v1.9.21-2f80ed?style=plastic" alt="version v1.9.21"/></a> <a href="#the-tool-arsenal-115-tools-across-every-family-all-yours-to-toggle"><img src="https://img.shields.io/badge/tools-115%20ready--made-7c3aed?style=plastic" alt="tools 115 ready-made"/></a> <a href="#quick-start-2-minutes"><img src="https://img.shields.io/badge/tests-79%20suites%20%C2%B7%201182%20green-3fb950?style=plastic" alt="tests 79 suites · 1182 green"/></a> <a href="#"><img src="https://img.shields.io/badge/LM%20Studio-Hub%20plugin-e84393?style=plastic" alt="LM Studio Hub plugin"/></a> <a href="LICENSE"><img src="https://img.shields.io/github/license/TheRealCrunch3r/ai-toolbox?style=plastic" alt="license MIT (live-verified from LICENSE)"/></a> <a href="#"><img src="https://img.shields.io/badge/runtime-Node%20%E2%89%A5%2020-83cd29?style=plastic&logo=node.js" alt="runtime Node ≥ 20"/></a><br/>
 <b>Docs:</b> <a href="DOCUMENTATION.md">Documentation</a> · <a href="QUICK_START.md">Quick Start</a> · <a href="ARCHITECTURE.md">Architecture</a> · <a href="TOOLS_REFERENCE.md">Tool Reference</a> · <a href="CHANGELOG_v5.md">Changelog</a><br/>
 <a href="CONTRIBUTING.md">Contributing</a> · <a href="SECURITY.md">Security</a><br/>
@@ -14,7 +14,7 @@
 
 **Kit de herramientas de agentes IA para LM Studio** — 115 herramientas para LLMs locales: edición de archivos, búsqueda en la codebase, RAG, automatización del navegador, Git & GitHub.
 
-**Dale manos reales a tu LLM local.** El plugin más completo del Hub de LM Studio — convierte cualquier modelo local en un agente IA capaz y auto-gestionado con edición segura de archivos, búsqueda a prueba de cuelgues, builds en segundo plano, automatización de navegador headless, flujos de Git & GitHub, OCR, gráficos y RAG semántico; el **contexto auto-gestionado** mantiene vivas las sesiones maraton. Un plugin, cero código pegajoso, totalmente offline por defecto.
+**115 herramientas. Un plugin. Sin nube.** El plugin más completo del Hub de LM Studio — convierte cualquier modelo local en un agente IA capaz y auto-gestionado con edición segura de archivos, búsqueda a prueba de cuelgues, builds en segundo plano, automatización de navegador headless, flujos de Git & GitHub, OCR, gráficos y RAG semántico; el **contexto auto-gestionado** mantiene vivas las sesiones maraton. Un plugin, cero código pegajoso, totalmente offline por defecto.
 
 > `v1.9.21` · `115 herramientas listas` · `1182 tests en verde (79 suites)` · `5 localizaciones` · `MIT` · `Node 20+`
 

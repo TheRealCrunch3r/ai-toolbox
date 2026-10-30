@@ -1,7 +1,7 @@
 <div align="center">
 <b>English</b> · <a href="README.de.md">Deutsch</a> · <a href="README.es.md">Español</a> · <a href="README.zh-CN.md">简体中文</a> · <a href="README.zh-TW.md">繁體中文</a><br/>
 <h1>AI Toolbox — All-in-One Autonomous AI Agent & Tool Plugin for Local LLMs in LM Studio</h1><hr/>
-<b>Give your local LLM real hands.</b> The most complete LM Studio Hub plugin — turns any local model into a capable, self-managing AI agent.<br/>Self-managing context keeps marathon sessions alive · one plugin, zero glue code, fully offline by default.
+<b>115 tools. One plugin. Zero cloud required.</b> The most complete LM Studio Hub plugin — turns any local model into a capable, self-managing AI agent.<br/>Self-managing context keeps marathon sessions alive · one plugin, zero glue code, fully offline by default.
 <br/><a href="#"><img src="https://img.shields.io/badge/version-v1.9.21-2f80ed?style=plastic" alt="version v1.9.21"/></a> <a href="#the-tool-arsenal-115-tools-across-every-family-all-yours-to-toggle"><img src="https://img.shields.io/badge/tools-115%20ready--made-7c3aed?style=plastic" alt="tools 115 ready-made"/></a> <a href="#quick-start-2-minutes"><img src="https://img.shields.io/badge/tests-79%20suites%20%C2%B7%201182%20green-3fb950?style=plastic" alt="tests 79 suites · 1182 green"/></a> <a href="#"><img src="https://img.shields.io/badge/LM%20Studio-Hub%20plugin-e84393?style=plastic" alt="LM Studio Hub plugin"/></a> <a href="LICENSE"><img src="https://img.shields.io/github/license/TheRealCrunch3r/ai-toolbox?style=plastic" alt="license MIT (live-verified from LICENSE)"/></a> <a href="#"><img src="https://img.shields.io/badge/runtime-Node%20%E2%89%A5%2020-83cd29?style=plastic&logo=node.js" alt="runtime Node ≥ 20"/></a><br/>
 <b>Docs:</b> <a href="DOCUMENTATION.md">Documentation</a> · <a href="QUICK_START.md">Quick Start</a> · <a href="ARCHITECTURE.md">Architecture</a> · <a href="TOOLS_REFERENCE.md">Tool Reference</a> · <a href="CHANGELOG_v5.md">Changelog</a><br/>
 <a href="CONTRIBUTING.md">Contributing</a> · <a href="SECURITY.md">Security</a><br/>
@@ -14,7 +14,7 @@
 
 **AI agent toolkit for LM Studio** — 115 local-LLM tools: file editing, codebase search, RAG, browser automation, Git & GitHub.
 
-**Give your local LLM real hands.** The most complete LM Studio Hub plugin — turns any local model into a capable, self-managing AI agent with safe file editing, hang-proof codebase search, background builds, headless browser automation, Git & GitHub workflows, OCR, charting and semantic RAG; **self-managing context** keeps marathon sessions alive. One plugin, zero glue code, fully offline by default.
+**115 tools. One plugin. Zero cloud required.** The most complete LM Studio Hub plugin — turns any local model into a capable, self-managing AI agent with safe file editing, hang-proof codebase search, background builds, headless browser automation, Git & GitHub workflows, OCR, charting and semantic RAG; **self-managing context** keeps marathon sessions alive. One plugin, zero glue code, fully offline by default.
 
 > `v1.9.21` · `115 ready-made tools` · `1182 tests green (79 suites)` · `5 locales` · `MIT` · `Node 20+`
 
