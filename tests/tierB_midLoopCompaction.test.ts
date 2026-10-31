@@ -21,6 +21,7 @@
 import { toolsProvider, resetForcedSaveFlagForTests, resetMidLoopCompactionFlagForTests } from '../src/toolsProvider.js';
 import { setContextGuard } from '../src/promptPreprocessor.js';
 import { TokenStatsManager, estimateTokensFromChars } from '../src/tokenStatsManager.js';
+import { getToolOverheadChars } from '../src/toolOverhead.js'; // CTX-EST B2 (31.10): the fresh-count expectation derives tool-def overhead through the SAME function the wrapper reads live — one source of truth, no re-typed literal
 import { FOOTER_TOKEN_ESTIMATE } from '../src/utils/contextUsageFooter.js';
 import { DEFAULT_CONFIG } from '../src/config.js';
 
@@ -57,15 +58,20 @@ function stubProbeImplementation(implementation: (...args: unknown[]) => Promise
   ]);
 }
 
-/** Fake ContextGuard exposing the FIX B surface (compressMidLoop + countTokens for the wrapper's recount). */
-function makeCompactGuard(impl: (...args: unknown[]) => Promise<unknown> | unknown, countResult = 20_000): {
+/** Fake ContextGuard exposing the FIX B surface (compressMidLoop + countTokens for the wrapper's recount).
+ * CTX-EST B1 (31.10, owner GO): optional `threshold` — when provided the guard ALSO exposes getThreshold(), so the
+ * wrapper's intra-turn latch branch (`typeof compactGuard.getThreshold === 'function'`) goes live; absent it keeps
+ * its deterministic typeof-gate skip in every pre-existing test (zero behavior delta for them). */
+function makeCompactGuard(impl: (...args: unknown[]) => Promise<unknown> | unknown, countResult = 20_000, threshold?: number): {
   guard: Record<string, unknown>;
   compact: jest.Mock;
   count: jest.Mock;
 } {
   const compact = jest.fn(impl);
   const count = jest.fn(async () => countResult);
-  return { guard: { compressMidLoop: compact, countTokens: count } as unknown as Record<string, unknown>, compact, count };
+  const surface: Record<string, unknown> = { compressMidLoop: compact, countTokens: count };
+  if (threshold !== undefined) surface.getThreshold = () => threshold; // only-when-provided per stored spec — the typeof gate is exactly what production duck-checks
+  return { guard: surface as unknown as Record<string, unknown>, compact, count };
 }
 
 /** Fake ContextGuard exposing BOTH tier-2 and FIX B surfaces — the independence test needs both on one instance. */
@@ -154,6 +160,7 @@ describe('FIX B (09.10) — pre-emptive mid-loop compression @95% — wrapper in
 
   beforeEach(() => {
     TokenStatsManager.resetMidLoopDelta(); // fresh turn state — no baseline/limit/delta/message-list leaks between cases
+    TokenStatsManager.setUnrecoverableWindowForTests(false); // CTX-EST B3 (31.10): the LATCH is module state too — every test must start with a provably clear window regardless of what earlier tests left behind
     resetForcedSaveFlagForTests(); // re-arm tier-2's independent latch (module state in toolsProvider.ts)
     resetMidLoopCompactionFlagForTests(); // re-arm FIX B's independent latch
     setContextGuard(null); // no guard installed unless a test installs its fake explicitly
@@ -386,5 +393,85 @@ describe('FIX B (09.10) — pre-emptive mid-loop compression @95% — wrapper in
     expect(compact).toHaveBeenCalledTimes(1);
     const [, passedOpts] = compact.mock.calls[0] as [unknown, Record<string, unknown>];
     expect(passedOpts.forceSummaryOnCompress).toBe(true); // strict ===true read forwarded verbatim — Arc C gate parity with PART B
+  });
+
+  it('CTX-EST B2 (31.10): at-view FRESH recount is ADOPTED as the baseline and the intra-turn latch ARMS with a model-visible NEW-chat notice', async () => {
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    // Step 1 — provider run (default probe impl): primes the tool-overhead cache for THIS suite's one-tool signature and yields the wrapped implementation.
+    const call = await getProbeImplementation({ guardEnabled: true });
+
+    // freshCount derives EXACTLY like the wrapper does on this path: post-swap length 14 × at-view payload (64 chars) + tool-def overhead, through the shared density estimator — never a re-typed literal.
+    const replacement = makeTurnMessages(14);
+    const freshChars = 14 * HOST_MSG_TEXT_LEN + getToolOverheadChars();
+    const freshCount = estimateTokensFromChars(freshChars);
+
+    // Step 2 — guard WITH getThreshold one token below the projected adoption ⇒ intra-turn window proven unrecoverable.
+    const { guard, compact, count } = makeCompactGuard(async () => ({ compressed: true, messages: replacement }), 20_000, freshCount - 1);
+    setContextGuard(guard);
+
+    TokenStatsManager.setTurnEvaluation(61_500, LIMIT); // +payload est(16 chars)=5 + footer 25 → projected ≈ 61_530 ≥ B_LINE (same construction as the re-targeted pin above)
+    const published = makeTurnMessages(24); // > keepLast(10) ⇒ compression runs for real this pass
+    TokenStatsManager.setTurnMessages(published);
+
+    const host = makeHostHistory(24, true); // at-view ON: getText() present ⇒ the fresh recount path is LIVE (the whole point of this pin)
+    const result = (await call({}, { client: { llm: { history: async () => host.obj } } })) as Record<string, unknown>;
+
+    expect(result.executedTool).toBe('tierb_probe_tool'); // tool outcome flows through normally…
+    expect(compact).toHaveBeenCalledTimes(1); // …compression ran…
+    expect(host.state.len).toBe(replacement.length); // …the at-view host history was swapped to the 14-message replacement…
+    // FRESH adoption: baseline republished from the live recount — NOT the removed compressed-array path (countTokens stays uncalled on this branch by design) and not the pre-compression value.
+    expect(count).not.toHaveBeenCalled();
+    expect(TokenStatsManager.getTurnBaseline()).toBe(freshCount);
+    expect(TokenStatsManager.getMaxContextTokens()).toBe(LIMIT);
+    // LATCH TRUE: adopted fresh count ≥ threshold ⇒ window proven unrecoverable intra-turn…
+    expect(TokenStatsManager.getUnrecoverableWindow()).toBe(true);
+    const latchLines = [...logSpy.mock.calls].map((c) => String(c[0])).filter((l) => l.includes('[TIER-2-COMPACT]'));
+    expect(latchLines.some((l) => l.includes('intra-turn unrecoverable window PROVEN'))).toBe(true); // …and the deterministic log line fired…
+    // …with a model-visible notice riding this ONE plain-object envelope, telling the user to start a NEW chat.
+    const notice = result.context_guard_notice;
+    expect(typeof notice).toBe('string');
+    expect((notice as string).length).toBeGreaterThan(0);
+    expect(notice).toContain('NEW chat');
+  });
+
+  it('CTX-EST B2 sub-cases (31.10): getThreshold ABOVE the fresh count ⇒ latch stays FALSE + no notice; getThreshold ABSENT ⇒ branch silent, adoption unchanged', async () => {
+    // Sub-case a — threshold present but one token ABOVE the adopted fresh count: the intra-turn condition fails…
+    const callA = await getProbeImplementation({ guardEnabled: true });
+    const replacementA = makeTurnMessages(14);
+    const freshCountA = estimateTokensFromChars(14 * HOST_MSG_TEXT_LEN + getToolOverheadChars());
+    const { guard: gA, compact: cA } = makeCompactGuard(async () => ({ compressed: true, messages: replacementA }), 20_000, freshCountA + 50);
+    setContextGuard(gA);
+
+    TokenStatsManager.setTurnEvaluation(61_500, LIMIT);
+    TokenStatsManager.setTurnMessages(makeTurnMessages(24));
+    const hostA = makeHostHistory(24, true);
+    const resultA = (await callA({}, { client: { llm: { history: async () => hostA.obj } } })) as Record<string, unknown>;
+
+    expect(cA).toHaveBeenCalledTimes(1); // adoption still happens — the fresh recount is independent of the latch math…
+    expect(TokenStatsManager.getTurnBaseline()).toBe(freshCountA); // …same adopted baseline…
+    expect(TokenStatsManager.getUnrecoverableWindow()).toBe(false); // …but NO latch (fresh count < threshold)…
+    expect(resultA.context_guard_notice).toBeUndefined(); // …and NO model-visible notice (the E-house-rule counterpart of the negative branch)
+
+    TokenStatsManager.setUnrecoverableWindowForTests(false); // module-state hygiene between sub-cases inside ONE test — beforeEach cannot see here; the latch flag (not provenance) is what must be provably reset for sub-case b's assertions
+
+    // Sub-case b — getThreshold ABSENT: the wrapper's typeof gate skips the branch silently; adoption is unaffected and no line claims a proven window.
+    const callB = await getProbeImplementation({ guardEnabled: true });
+    const logSpyB = jest.spyOn(console, 'log').mockImplementation(() => undefined);
+    const freshCountB = estimateTokensFromChars(14 * HOST_MSG_TEXT_LEN + getToolOverheadChars());
+    const { guard: gB, compact: cB } = makeCompactGuard(async () => ({ compressed: true, messages: replacementA }), 20_000); // NO third arg
+    setContextGuard(gB);
+
+    TokenStatsManager.setTurnEvaluation(61_500, LIMIT);
+    TokenStatsManager.setTurnMessages(makeTurnMessages(24));
+    const hostB = makeHostHistory(24, true);
+    const resultB = (await callB({}, { client: { llm: { history: async () => hostB.obj } } })) as Record<string, unknown>;
+
+    expect(cB).toHaveBeenCalledTimes(1);
+    expect(TokenStatsManager.getTurnBaseline()).toBe(freshCountB); // adoption identical with or without getThreshold…
+    expect(TokenStatsManager.getUnrecoverableWindow()).toBe(false); // …latch untouched (no getThreshold ⇒ no proof possible)…
+    expect(resultB.context_guard_notice).toBeUndefined(); // …and silence — the [TIER-2-COMPACT] PROVEN line must NOT appear without a threshold to prove against.
+    const provenLines = [...logSpyB.mock.calls].map((c) => String(c[0])).filter((l) => l.includes('intra-turn unrecoverable window PROVEN'));
+    expect(provenLines).toHaveLength(0);
   });
 });
