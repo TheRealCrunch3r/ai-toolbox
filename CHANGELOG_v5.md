@@ -1,6 +1,21 @@
 # Changelog — ai_toolbox v1.9.21
 
 > Supersedes `CHANGELOG_v4.md`. Active changelog for version 1.9.21.
+## [31.10.2026 ~17:3x–18:3x] — CTX-EST B close-out (tierB mid-loop compaction suite) + FIX #2 intra-turn gate on honest baseline · canon 80/1190 → **80 suites / 1193 tests**
+
+**Scope:** closes the ContextGuard mid-loop compaction test arc (CTX-EST: A/B1 landed earlier in the window, B2 = tierB fold complete). Three pieces: (1) **FIX #2** — the FIX B 95% mid-loop compression gate in `src/toolsProvider.ts` now measures against an HONEST baseline (fresh per-call recount when a usable one is available instead of trusting a stale in-memory estimate across tool calls), so intra-turn growth cannot silently push real usage past the gate threshold; (2) tierB suite fold — `withAtView()` fresh-recount happy-path pin + `getThreshold` latch sub-pin committed into `tests/tierB_midLoopCompaction.test.ts`; (3) **tierB B2** — three new tests pinning that the FIX B gate's baseline is the freshly recounted honest count, not a stale pre-call estimate.
+
+**Verification:** agent in-sandbox FULL jest runInBand 31.10 = **80 suites / 1193 tests all passing (21 s)**; tsc clean on touched surfaces; ESLint warnings-only house baseline unchanged (tests/ ignore-patterned). Prior canon 80/1190 zero drift + exactly +3 = the tierB B2 describe block; delta fully explained.
+
+**Canon:** **80 suites / 1193 tests** (prior canon 80/1190 @ 30.10 LATCH arc commit sweep; suite count unchanged — all three new tests live in existing `tests/tierB_midLoopCompaction.test.ts`).
+
+**Docs sync in the same pass (31.10, agent-side pre-owner-gate):** re-stamped current-state surfaces to 80/1193 — six README variants (badge URL+alt · quote block · head-to-head row · `npm test` comment pin; dated history tails preserved), GLOSSARY's two canon lines, TOOLS_REFERENCE header stamp, ARCHITECTURE.md tree comment, package.json description field. Dated historical entries untouched per house rule. **Owner gate (typecheck + lint + full jest) still owed before this entry is final** — agent-side run above is the in-sandbox evidence only.
+
+**Commit set (local main; push owner-side per house pattern):** FIX #2 code + tierB fold committed (`7de55b8`, `77be613`); B2 tests + docs re-stamp land with this entry's sweep commit. No version bump — v1.9.21 sticky (no-bump rev-only policy).
+
+---
+
+
 
 ## [30.10.2026 ~19:0x–19:4x] — FIX #1 RE-TARGETED complete + LATCH sub-item (unrecoverable-window latch) · canon 79/1182 → **80 suites / 1190 tests**
 
