@@ -80,14 +80,19 @@ function makeBothGuard(impl: (...args: unknown[]) => Promise<unknown> | unknown)
   return { guard: { generateSessionContinuity: generate, compressMidLoop: compact, countTokens: count } as unknown as Record<string, unknown>, generate, compact };
 }
 
-/** Duck-typed host history (the shape the wrapper's PluginContextLike hop reaches): mutable length + append log. */
-function makeHostHistory(initialLength: number): { obj: object; appended: unknown[]; state: { len: number } } {
+/** Duck-typed host history (the shape the wrapper's PluginContextLike hop reaches): mutable length + append log.
+ * FIX #2 (30.10): optional `at` view — when present, each i-th message exposes a getText() returning fixed 64-char text
+ * so the fresh host-history recount is deterministic (freshChars = len×64 + tool-overhead); absent ⇒ the wrapper takes
+ * its documented keep-pre-compression-baseline fallback (pinned below). */
+const HOST_MSG_TEXT_LEN = 64; // per-message getText() payload length for the at-view — expected values derive from this, never a re-typed literal
+function makeHostHistory(initialLength: number, withAtView = false): { obj: object; appended: unknown[]; state: { len: number } } {
   const state = { len: initialLength };
   const appended: unknown[] = [];
   return {
     state,
     appended,
     obj: {
+      at: withAtView ? (() => ({ getText: () => 'H'.repeat(HOST_MSG_TEXT_LEN) })) : undefined, // constant payload — uniform for every index
       getLength: () => state.len,
       pop: (): void => {
         state.len -= 1;
@@ -164,6 +169,9 @@ describe('FIX B (09.10) — pre-emptive mid-loop compression @95% — wrapper in
 
   it('fires ONCE at projected >= 95%: compressMidLoop with PART-parity opts, host-history swap, republish + recount', async () => {
     const replacement = makeTurnMessages(14); // post-compression array the fake produces (summary msg + keepLast-style tail)
+
+    // FIX #2 (30.10): the keep-baseline fallback WARN is what this re-target pins — console.warn must be spied from the top of the test call
+    const warnSpyFixB = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
     const { guard, compact, count } = makeCompactGuard(async () => ({ compressed: true, messages: replacement }), 20_000);
     setContextGuard(guard);
 
@@ -188,13 +196,14 @@ describe('FIX B (09.10) — pre-emptive mid-loop compression @95% — wrapper in
     // Host history swap — EXACTLY PART B's pop-to-zero/append pattern: old 24 gone, the replacement array in.
     expect(host.state.len).toBe(replacement.length);
     expect(host.appended).toEqual(replacement);
-    // Republish + recount re-publish: guard state now reflects POST-compression reality (conservative-direction input).
     expect(TokenStatsManager.getTurnMessages()).toEqual(replacement);
-    expect(count).toHaveBeenCalledTimes(1);
-    const [countArg] = count.mock.calls[0] as [unknown];
-    expect(countArg).toEqual(replacement); // recount ran over the NEW array, not the destroyed one
-    expect(TokenStatsManager.getTurnBaseline()).toBe(20_000);
+    // FIX #2 (30.10, owner GO) — contract re-target: the old pin measured the REMOVED compressed-array recount
+    // (compactGuard.countTokens(outcome.messages)) — that stale-LOW republish WAS the defect: both per-turn latches already consumed ⇒ rest of turn blind to the 100% wall. New contract on a stub whose host history exposes no .at() view: keep PRE-COMPRESSION baseline (stale-HIGH, conservative) + warn; countTokens must NEVER run now.
+    expect(count).not.toHaveBeenCalled();
+    expect(TokenStatsManager.getTurnBaseline()).toBe(61_500); // unchanged pre-compression value — stale-HIGH is the conservative direction (PART B catch-path parity)
     expect(TokenStatsManager.getMaxContextTokens()).toBe(LIMIT);
+    const fix2Fallback = [...warnSpyFixB.mock.calls].map((c) => String(c[0])).filter((l) => l.includes('[TIER-2-COMPACT]'));
+    expect(fix2Fallback.some((l) => l.includes('FIX #2 fresh host-history recount unavailable'))).toBe(true);
   });
 
   it('fires INCLUSIVELY at exactly projected === limit*95/100 and stays silent one token below', async () => {

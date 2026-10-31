@@ -43,7 +43,7 @@ import { registerRestoreSessionContextTool } from './tools/restoreSessionContext
 // jest.config.cjs already maps './toolsSchemaMinifier.js' -> src/toolsSchemaMinifier.ts,
 // and the minifier is a pure module (type-only imports), so static loading is safe and cheap.
 import { minifyTools } from './toolsSchemaMinifier.js';
-import { reportToolSchemas } from './toolOverhead.js';
+import { reportToolSchemas, getToolOverheadChars } from './toolOverhead.js'; // FIX #2 (30.10): fresh host-history recount needs the tool-definition overhead parity with PART B's Step 0.5 / FIX-1A char sums
 // 📦 UPDATE-CHECK (19.10): quiet GitHub Releases check + in-app notify — non-fatal side effect hosted at provider exit; module is a pure state+fetch helper (no tool registration, no cycles).
 import { getUpdateStatus, hasBeenNotified, markNotified, markToastDispatched, LOCAL_VERSION } from './updateChecker.js'; // UPDATE-ANNOUNCE (19.10): the announcement accessor is consumed by promptPreprocessor.ts via its OWN direct updateChecker import — deliberately NOT re-exported through here (eslint no-unused-vars would flag it; 21:0x)
 // 📦 UPDATE-CHECK PHASE 2 (19.10, owner GO): dismiss-reminder tool — the user-facing half of the dismissed[] machinery Phase 1 built without a caller; same gate as the check itself.
@@ -82,7 +82,7 @@ type ContextMessageLike = { role?: string; content?: unknown; [key: string]: unk
  * compressMidLoop's documented no-swap fallback instead of a hard failure. */
 type PluginContextLike = {
   client?: {
-    llm?: { history?: () => Promise<{ getLength(): number; pop(): unknown; append(m: unknown): void }> };
+    llm?: { history?: () => Promise<{ getLength(): number; pop(): unknown; append(m: unknown): void; at?(i: number): unknown }> }; // FIX #2 (30.10): optional .at() — the fresh host-history recount indexes messages like PART B's FIX-1A fmView loop; hosts/stubs without it take the 0-char fallback
     // UPDATE-CHECK (19.10): duck-typed SystemNamespace.notify hop — shape verified against the installed @lmstudio/sdk d.ts
     // (BackendNotification = { title, description?, noAutoDismiss? }); optional-chained at use so harness stubs and older hosts skip deterministically.
     system?: { notify?: (n: { title: string; description?: string; noAutoDismiss?: boolean }) => Promise<void> | void };
@@ -619,15 +619,64 @@ export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[
                     // FIX #20 A2 parity: recount the NEW history so the republished baseline reflects post-compression reality. The wrapper has no
                     // imageCount/historyTextLength inputs, so countTokens() takes its SDK-native/tiktoken path over the array — the same class of
                     // estimate PART B's own FIX #20 A2 recount accepts (it is a conservative guard input, never a display figure).
+                    // 🔹 FIX #2 (30.10, owner GO — intra-turn gate on honest baseline; supersedes the pre-FIX-#2 compressed-array republish): counting outcome.messages measured what is NOT on the wire — SDK contract: llm.history()/pullHistory() are COPIES, so the pop/append swap above cannot shrink LM Studio's real history (29.10 incident class). Publishing that low count while BOTH per-turn gates were already latched left the rest of the turn running blind straight into the 100% wall rejection with zero in-band notice (the one-shot unrecoverable notice lives at PART B's user boundary only). FIX #2 re-pulls a FRESH host-history read via the same duck-typed hop the swap used, char-sums it exactly like PART B's FIX-1A (getText + serialized tool requests/results + tool-definition overhead) and publishes THAT as the turn baseline — then proves recovery in-band or arms the shared latch.
+                    let freshChars = 0;
+                    let freshReadFailed = false;
                     try {
-                      // No cast needed (10.10 tsc gate round 1): compressMidLoop's return already types messages as
-                      // ContextMessage[] — an `as unknown[]` downcast broke assignability against countTokens' parameter.
+                      const maybeCtxFresh = ctx as PluginContextLike | null; // same structural view + optional hops as the swap above
+                      const hostHistoryFresh = await maybeCtxFresh?.client?.llm?.history?.();
+                      if (hostHistoryFresh && typeof hostHistoryFresh.getLength === 'function' && typeof hostHistoryFresh.at === 'function') { // FIX #2: .at missing ⇒ documented fallback below instead of a TypeError mid-loop
+                        for (let i = 0; i < (hostHistoryFresh.getLength() ?? 0); i++) {
+                          // Structural cast — PART B FIX-1A's fmView idiom: one typed view, zero `any`.
+                          const fmfView = hostHistoryFresh.at(i) as { getText?: () => string; getToolCallRequests?: () => unknown; getToolCallResults?: () => unknown } // .at() is typed unknown in PluginContextLike — direct single assertion (the `as unknown` hop PART B needed was flagged unnecessary here 30.10 lint round 1);
+                          let fText = '';
+                          if (typeof fmfView.getText === 'function') fText += fmfView.getText() || '';
+                          try { if (typeof fmfView.getToolCallRequests === 'function') fText += JSON.stringify(fmfView.getToolCallRequests()) || ''; } catch { /* non-fatal — count what we have */ }
+                          try { if (typeof fmfView.getToolCallResults === 'function') fText += JSON.stringify(fmfView.getToolCallResults()) || ''; } catch { /* non-fatal — count what we have */ }
+                          freshChars += fText.length;
+                        }
+                      } else {
+                        freshReadFailed = true; // no usable handle (stubs / older hosts) — take the documented fallback below, same as the swap-fail path
+                      }
+                    } catch {
+                      freshReadFailed = true; // host read threw — non-fatal by owner spec: a recount failure must never break or delay the tool result
+                    }
+                    const overheadCharsFresh = getToolOverheadChars(); // PART B parity: serialized tool defs ride on every request
+                    if (overheadCharsFresh > 0) freshChars += overheadCharsFresh;
+                    let adoptedFresh = false;
+                    if (!freshReadFailed && freshChars > 0) {
+                      // FIX-1A adoption rule verbatim: a FRESH recount with ZERO counted chars is unusable (hermetic stubs only — production mid-loop compression always sits on real messages); adopting 0 would blind the guard, so the fallback below applies instead.
+                      const freshCount = Math.round(estimateTokensFromChars(freshChars));
+                      TokenStatsManager.setTurnEvaluation(freshCount, limit);
+                      adoptedFresh = true;
+                      console.log(`[AI Toolbox] [TIER-2-COMPACT] ✅ Pre-emptive mid-loop compression complete — baseline republished at ${freshCount.toLocaleString('en-US')} tokens from FRESH host-history recount (true usage on the wire; compressed-copy count intentionally NOT used)`);
+                    } else if (freshReadFailed) {
+                      // PART B catch-path parity: keep the PRE-compression turnBaseline as-is — stale-HIGH is the conservative direction. The pre-FIX-#2 fallback republish of the compressed-array count was removed deliberately (stale-LOW blinded the remaining per-turn gates).
+                      console.warn('[AI Toolbox] [TIER-2-COMPACT] ⚠️ FIX #2 fresh host-history recount unavailable (no handle or read failed) — keeping pre-compression baseline (conservative direction; compressed-array count intentionally NOT published)');
+                    } else {
+                      // 0 chars counted but the handle WAS readable → hermetic/empty view: last-resort fallback to the compressed-array estimate.
                       const postCompactCount = await compactGuard.countTokens(outcome.messages, 0);
                       TokenStatsManager.setTurnEvaluation(postCompactCount, limit);
-                      console.log(`[AI Toolbox] [TIER-2-COMPACT] ✅ Pre-emptive mid-loop compression complete — baseline republished at ${postCompactCount} tokens (was ≥${Math.round(preemptiveLimit)})`);
-                    } catch (recountErr) {
-                      // Non-fatal — worst case the guard keeps a stale-HIGH baseline (conservative direction: may snapshot early, PART B parity).
-                      console.warn(`[AI Toolbox] [TIER-2-COMPACT] Post-compression recount failed (non-fatal, keeping pre-compression baseline): ${recountErr instanceof Error ? recountErr.message : String(recountErr)}`);
+                      adoptedFresh = true;
+                      console.log(`[AI Toolbox] [TIER-2-COMPACT] ⚠️ Fresh host-history recount counted 0 chars (hermetic/empty view) — fallback baseline ${postCompactCount.toLocaleString('en-US')} tokens from compressed array`);
+                    }
+                    // 🔹 FIX #2 intra-turn latch + one-shot model-visible notice: if the FRESH recount proves the window unrecoverable INTRA-TURN, arm the shared latch (identical lifecycle to PART B's boundary set — TIER-2/FIX B per-step re-fire stops for the rest of this chat via the shipped skip branches; cleared by a below-threshold PART B recount or chat reset) and tell the model ONCE, on THIS result only.
+                    if (adoptedFresh && typeof compactGuard.getThreshold === 'function') {
+                      const intraTurnCount = TokenStatsManager.getTurnBaseline();
+                      const thresholdNow = compactGuard.getThreshold();
+                      if (thresholdNow > 0 && intraTurnCount >= thresholdNow) {
+                        TokenStatsManager.setUnrecoverableWindow(intraTurnCount, limit); // idempotent; re-affirmed by later boundary recounts, cleared on recovery/reset
+                        console.log(`[AI Toolbox] [TIER-2-COMPACT] 🔒 FIX #2 intra-turn unrecoverable window PROVEN (fresh ${intraTurnCount.toLocaleString('en-US')} ≥ threshold ${thresholdNow.toLocaleString('en-US')} tok) — mid-loop gates suppressed for the rest of this chat`);
+                        if (result !== null && typeof result === 'object' && !Array.isArray(result) && Object.getPrototypeOf(result) === Object.prototype) {
+                          const objResult = result as Record<string, unknown>;
+                          // Strictly additive + no-clobber: exactly one notice ever, on the compacting tool's own envelope; later steps of this turn already run suppressed (latch armed above).
+                          if (objResult.context_guard_notice === undefined) {
+                            objResult.context_guard_notice = '⚠️ CONTEXT WINDOW UNRECOVERABLE THIS TURN: mid-loop compression ran but LM Studio is still sending ~' + Math.round(intraTurnCount / 1000) + 'k tokens against the ' + Math.round(limit / 1000) + 'k window — host history cannot be shrunk from a plugin. Stop calling further tools and tell the user: starting a NEW chat is the only reset; everything important was checkpointed to session memory before compression.';
+                          }
+                        } else {
+                          console.warn('[AI Toolbox] [TIER-2-COMPACT] ⚠️ FIX #2 notice could not ride a plain-object envelope (unexpected result shape) — log-only fallback');
+                        }
+                      }
                     }
                   } else {
                     // compressMidLoop's internal authoritative recount came in below its own trigger — nothing ran; deterministic log lives there.
