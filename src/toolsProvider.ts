@@ -50,7 +50,7 @@ import { getUpdateStatus, hasBeenNotified, markNotified, markToastDispatched, LO
 import { registerUpdateReminderTools } from './tools/updateReminderTools.js';
 // FIX #20 (A1+A2): mid-loop context growth — payload bookkeeping + proactive checkpoint guard.
 import { autoTracker } from './autoTracker.js';
-import { TokenStatsManager, estimateTokensFromChars } from './tokenStatsManager.js';
+import { TokenStatsManager, estimateTokensFromChars, estimateTokensFromCharsOfClass } from './tokenStatsManager.js'; // CTX-EST A (31.10): class-aware variant for the mid-loop payload self-size term
 // FIX #21 (09.10, two-tier mid-loop save): guard-instance read access + the canonical Arc-C persist path for
 // the wrapper-side FORCED 90% session-memory save — same machinery PART B uses at compression time; both are
 // cycle-free here (only index.ts imports toolsProvider's module-level state via getStateManager).
@@ -474,7 +474,7 @@ export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[
           const projected =
             baseline +
             TokenStatsManager.getMidLoopDeltaTokens() +
-            estimateTokensFromChars(payloadChars) +
+            estimateTokensFromCharsOfClass(payloadChars, 'highEntropy') + // CTX-EST A (31.10): this payload is a tool result — same class as the recorded delta; bounded by HIGH_ENTROPY_DENSITY_FLOOR
             FOOTER_TOKEN_ESTIMATE;
 
           if (config.contextUsageFooter !== false && footerAppliesTo) {

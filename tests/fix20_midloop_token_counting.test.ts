@@ -17,6 +17,14 @@
  * const in tokenStatsManager.ts) therefore NEVER break this suite. What stays pinned EXACTLY is the
  * structural contract: fire line = floor(threshold%·limit) + CONTEXT_GUARD_OVERHEAD(8), one-cumulative-
  * token-below does not fire, hysteresis floor max(4096, 5%·limit), rollback-on-failed-save semantics.
+ *
+ * CTX-EST A (31.10, owner GO "Do A" — estimate hardening): recordToolResult now prices tool payloads in
+ * the 'highEntropy' class (bounded by HIGH_ENTROPY_DENSITY_FLOOR) because they are exactly the log/hex-dense
+ * content that undercounted ~3.2–3.9× in the 29.10 incident (guard est 41,116 tok vs LM Studio reject band
+ * 130,959–161,745). Every expectation below that measures a RECORDED payload is therefore derived through
+ * estimateTokensFromCharsOfClass(…, 'highEntropy') at runtime — same discipline as the 15.10 rewrite: zero
+ * hardcoded quotients, menu changes (contextGuardAgenticDensity) still cannot break this suite. The prose-class
+ * contract of estimateTokensFromChars() itself is pinned verbatim by the CTX-EST A test in the A1 block.
  */
 
 // Mocks must be declared before the imports below are evaluated by Jest.
@@ -35,7 +43,8 @@ jest.mock('../src/tools/contextManagementTools', () => {
 });
 
 import { AutoTracker, AutoTrackState } from '../src/autoTracker';
-import { TokenStatsManager, estimateTokensFromChars, getAgenticCharsPerToken, setAgenticCharsPerToken } from '../src/tokenStatsManager';
+// CTX-EST A (31.10): class-aware exports — recordToolResult prices tool payloads in the 'highEntropy' class since this arc; every expectation below that measures a recorded payload is derived through estimateTokensFromCharsOfClass(..., 'highEntropy') at runtime (same discipline as the 15.10 density-adaptive rewrite).
+import { TokenStatsManager, estimateTokensFromChars, estimateTokensFromCharsOfClass, getAgenticCharsPerToken, setAgenticCharsPerToken, HIGH_ENTROPY_DENSITY_BIAS, HIGH_ENTROPY_DENSITY_FLOOR } from '../src/tokenStatsManager';
 
 // Note: threshold boundary math below uses CONTEXT_GUARD_OVERHEAD (= 8, private in autoTracker) —
 // the same constant tests/autoTracker.test.ts pins (7508/10000 = exactly 75.0% effective).
@@ -110,21 +119,21 @@ describe('FIX #20 A1 — per-turn tool payload delta bookkeeping', () => {
     const first = TokenStatsManager.recordToolResult('read_file', 'x'.repeat(400));
     const second = TokenStatsManager.recordToolResult('grep_files', 'y'.repeat(800));
 
-    expect(first).toBe(estimateTokensFromChars(400)); // exact same-function parity (no hardcoded quotient)
-    expect(second).toBe(estimateTokensFromChars(800));
+    expect(first).toBe(estimateTokensFromCharsOfClass(400, 'highEntropy')); // CTX-EST A (31.10): recorded payloads are highEntropy-class — exact same-function parity (no hardcoded quotient)
+    expect(second).toBe(estimateTokensFromCharsOfClass(800, 'highEntropy'));
     // Per-record ceils accumulate — deliberately NOT re-estimated from total chars, because ceil is not additive
     // across FP boundaries. Do NOT "simplify" to exact integer math.
-    expect(TokenStatsManager.getMidLoopDeltaTokens()).toBe(estimateTokensFromChars(400) + estimateTokensFromChars(800));
+    expect(TokenStatsManager.getMidLoopDeltaTokens()).toBe(estimateTokensFromCharsOfClass(400, 'highEntropy') + estimateTokensFromCharsOfClass(800, 'highEntropy'));
     expect(TokenStatsManager.getMidLoopDeltaChars()).toBe(1200); // raw char sum — always density-independent
   });
 
   it('measures object payloads via JSON serialization and string arrays by summing', () => {
     const obj = TokenStatsManager.recordToolResult('list_directory', { success: true, files: ['a.ts', 'b.ts'] });
-    expect(obj).toBe(estimateTokensFromChars(JSON.stringify({ success: true, files: ['a.ts', 'b.ts'] }).length));
+    expect(obj).toBe(estimateTokensFromCharsOfClass(JSON.stringify({ success: true, files: ['a.ts', 'b.ts'] }).length, 'highEntropy')); // CTX-EST A (31.10)
 
     TokenStatsManager.resetMidLoopDelta();
     const arr = TokenStatsManager.recordToolResult('run_tests', ['line1', 'line2']);
-    expect(arr).toBe(estimateTokensFromChars('line1'.length + 'line2'.length));
+    expect(arr).toBe(estimateTokensFromCharsOfClass('line1'.length + 'line2'.length, 'highEntropy')); // CTX-EST A (31.10)
   });
 
   it('resets the per-turn delta so the next turn is not double-counted (A1 invariant)', () => {
@@ -169,6 +178,57 @@ describe('FIX #20 A1 — per-turn tool payload delta bookkeeping', () => {
       setAgenticCharsPerToken(prev); // restore — suite isolation (other suites must see the default)
     }
   });
+
+  it('CTX-EST A (31.10): highEntropy class is bounded, one-directional and menu-authoritative', () => {
+    // Structural contract of the CTX-EST A bias — all expectations DERIVED from the exported constants + live
+    // density at runtime (density-adaptive discipline; a future probe-driven BIAS/FLOOR change cannot break this test).
+    const d = getAgenticCharsPerToken();
+    try {
+      // Applied HE density is min(live, max(FLOOR, live × BIAS)) — with the shipped constants and ANY positive menu value:
+      const applied = Math.min(d, Math.max(HIGH_ENTROPY_DENSITY_FLOOR, d * HIGH_ENTROPY_DENSITY_BIAS));
+      expect(applied).toBeGreaterThan(0);
+
+      // (1) One-directional bias: highEntropy is NEVER less conservative than the prose path — for ANY chars.
+      const sweepEnd = Math.ceil(d * 40);
+      for (let chars = 0; chars <= sweepEnd; chars += 7) {
+        expect(estimateTokensFromCharsOfClass(chars, 'highEntropy')).toBeGreaterThanOrEqual(estimateTokensFromChars(chars));
+      }
+
+      // (2) Hard floor bound: output can never exceed the floor-priced quotient (worst case for any input is known).
+      const bigChars = 123_457;
+      expect(estimateTokensFromCharsOfClass(bigChars, 'highEntropy')).toBeLessThanOrEqual(Math.ceil(bigChars / HIGH_ENTROPY_DENSITY_FLOOR));
+
+      // (3) Menu authority preserved (15.10 contract): the applied HE density is min(live, max(FLOOR, live × BIAS)) —
+      // derived from the exported constants at runtime; a future probe-driven constant change cannot break these pins.
+      const prev = getAgenticCharsPerToken();
+      try {
+        // (3a) Bias branch: with the LIVE density the applied value is exactly max(FLOOR, d × BIAS), clamped ≤ live —
+        // pin via a boundary char count at that derived applied density (≥ n−1 … ≤ n+1 across the FP edge; here the
+        // one-sided direction suffices because chars = ceil(applied·n) can estimate AT MOST n+1 and MUST reach ≥ n):
+        const appliedLive = Math.min(prev, Math.max(HIGH_ENTROPY_DENSITY_FLOOR, prev * HIGH_ENTROPY_DENSITY_BIAS));
+        expect(appliedLive).toBeGreaterThan(0);
+        const nB = 37;
+        expect(estimateTokensFromCharsOfClass(Math.ceil(appliedLive * nB), 'highEntropy')).toBeGreaterThanOrEqual(nB - 1);
+
+        // (3b) Floor branch: drive the menu value so low that max(FLOOR, d × BIAS) IS the floor — then the unclamped
+        // bias (d × BIAS < FLOOR) must NOT be what prices. The discriminator: at exactly floor·k chars the estimate
+        // can never exceed ceil(floor·k / FLOOR); an un-clamped lower density would blow past that bound.
+        setAgenticCharsPerToken(2.0); // applied = min(2.0, max(FLOOR, 2.0 × BIAS)) — with shipped constants the floor wins
+        expect(getAgenticCharsPerToken()).toBe(2.0);
+        const kFloor = 33;
+        const cDisc = Math.ceil(HIGH_ENTROPY_DENSITY_FLOOR * kFloor); // boundary char count at the applied (=floor) density
+        expect(estimateTokensFromCharsOfClass(cDisc, 'highEntropy')).toBeLessThanOrEqual(Math.ceil((HIGH_ENTROPY_DENSITY_FLOOR * kFloor) / HIGH_ENTROPY_DENSITY_FLOOR));
+      } finally {
+        setAgenticCharsPerToken(prev); // restore — suite isolation (other suites must see the default)
+      }
+
+      // (4) Prose path parity: estimateTokensFromChars is byte-identical to the pre-A estimator for every input.
+      const c2 = 987;
+      expect(estimateTokensFromChars(c2)).toBe(Math.ceil(c2 / getAgenticCharsPerToken()));
+    } finally {
+      // no menu change survives this test (restored in the nested finally above)
+    }
+  });
 });
 
 // ==================== A2 — AutoTracker mid-loop guard ====================
@@ -206,12 +266,17 @@ describe('FIX #20 A2 — mid-loop proactive checkpoint (guardMidLoopThreshold)',
     );
   }
 
-  /** Chars needed so estimateTokensFromChars(chars) ≥ minEst — density-independent crossing payload. */
-  const charsForAtLeast = (minEst: number): number => Math.max(1, Math.ceil((minEst - 1) * getAgenticCharsPerToken()) + 1);
+  /** Chars needed so estimateTokensFromCharsOfClass(chars, 'highEntropy') ≥ minEst — density-independent crossing payload.
+   * CTX-EST A (31.10): runToolReturn records via recordToolResult — highEntropy-class since A, so the crossing size is
+   * derived at the APPLIED HE density (runtime-derived like everything else; bounded by HIGH_ENTROPY_DENSITY_FLOOR). */
+  const charsForAtLeast = (minEst: number): number => {
+    const applied = Math.min(getAgenticCharsPerToken(), Math.max(HIGH_ENTROPY_DENSITY_FLOOR, getAgenticCharsPerToken() * HIGH_ENTROPY_DENSITY_BIAS));
+    return Math.max(1, Math.ceil((minEst - 1) * applied) + 1);
+  };
 
   it('does NOT fire while cumulative usage stays below the threshold', async () => {
     // Turn started at 70% of a 10k window; a small tool result keeps us under the fire line (7508) for ANY density:
-    // est(240 chars) ≤ 240 tokens even at schema-min density 1 → cumulative ≤ 7240 < 7508.
+    // est_HE(240 chars) ≤ ceil(240 / FLOOR) = 240 tokens even at the hard floor → cumulative ≤ 7240 < 7508.
     TokenStatsManager.setTurnEvaluation(7000, LIMIT);
     const below = await runToolReturn('x'.repeat(240));
     expect(below.fired).toBe(false);
@@ -221,8 +286,8 @@ describe('FIX #20 A2 — mid-loop proactive checkpoint (guardMidLoopThreshold)',
   it('fires exactly at the threshold boundary (75.00% incl. overhead) and saves a checkpoint', async () => {
     // Boundary math mirrors tests/autoTracker.test.ts: effective = (cumulative − OVERHEAD) / maxTokens.
     // Fire needs cumulative ≥ FIRE_LINE (= floor(0.75·10k)+8 = 7508) at threshold 75% — density-INDEPENDENT;
-    // the payload size is derived so the cumulative lands EXACTLY on the fire line under the live density:
-    const e32ish = estimateTokensFromChars(charsForAtLeast(1)); // ≥1 est token for ANY density
+    // the payload size is derived so the cumulative lands EXACTLY on the fire line under the live HE density:
+    const e32ish = estimateTokensFromCharsOfClass(charsForAtLeast(1), 'highEntropy'); // ≥1 est token for ANY density (CTX-EST A)
     TokenStatsManager.setTurnEvaluation(FIRE_LINE - e32ish, LIMIT); // baseline + payload est = exactly FIRE_LINE
     const res = await runToolReturn('x'.repeat(charsForAtLeast(1)));
 
@@ -246,7 +311,7 @@ describe('FIX #20 A2 — mid-loop proactive checkpoint (guardMidLoopThreshold)',
     TokenStatsManager.clear();
     tracker.resetCounter();
     const payloadChars = charsForAtLeast(1);
-    const e = estimateTokensFromChars(payloadChars);
+    const e = estimateTokensFromCharsOfClass(payloadChars, 'highEntropy'); // CTX-EST A (31.10)
     TokenStatsManager.setTurnEvaluation(FIRE_LINE - e - 1, LIMIT);
     const below = await runToolReturn('x'.repeat(payloadChars)); // cumulative = FIRE_LINE − 1 (one token under the fire line)
     expect(TokenStatsManager.getMidLoopDeltaTokens()).toBe(e);
@@ -261,7 +326,7 @@ describe('FIX #20 A2 — mid-loop proactive checkpoint (guardMidLoopThreshold)',
 
     // First return crosses: payload derived so cumulative > FIRE_LINE for ANY density in [1, 20].
     TokenStatsManager.setTurnEvaluation(BASELINE, LIMIT);
-    const crossChars = charsForAtLeast(FIRE_LINE - BASELINE + 1); // est ≥ 509 ⇒ cumulative ≥ 7509 > fire line
+    const crossChars = charsForAtLeast(FIRE_LINE - BASELINE + 1); // est ≥ 509 ⇒ cumulative ≥ 7509 > fire line (HE-derived since CTX-EST A)
     const first = await runToolReturn('x'.repeat(crossChars));
     expect(first.fired).toBe(true);
     const guardedLevel = BASELINE + TokenStatsManager.getMidLoopDeltaTokens(); // armed here (density-derived, not hardcoded)
@@ -335,7 +400,7 @@ describe('FIX #20 A2 — mid-loop proactive checkpoint (guardMidLoopThreshold)',
   it('simulates the full tool loop from the plan: repeated large returns cross the threshold mid-loop', async () => {
     // Plan verification scenario (15.10 adaptive): turn starts at 60% of a 100k window; each tool call returns a payload
     // sized so its estimate ALONE crosses the fire line under ANY configured density — the loop must therefore fire on
-    // return #1 and bookkeep exactly 5 × est(payload) for whatever the live density is.
+    // return #1 and bookkeep exactly 5 × est(payload) for whatever the live HE density is (CTX-EST A).
     TokenStatsManager.setTurnEvaluation(60_000, 100_000);
 
     const FIRE_LINE_LOOP = Math.floor(0.75 * 100_000) + OVERHEAD; // 75080 — threshold/overhead math, density-independent
@@ -347,7 +412,7 @@ describe('FIX #20 A2 — mid-loop proactive checkpoint (guardMidLoopThreshold)',
       if (res.fired && res.saved) firePoints.push(i);
     }
 
-    expect(TokenStatsManager.getMidLoopDeltaTokens()).toBe(5 * estimateTokensFromChars(payloadChars)); // full loop bookkept (A1; derived, not hardcoded)
+    expect(TokenStatsManager.getMidLoopDeltaTokens()).toBe(5 * estimateTokensFromCharsOfClass(payloadChars, 'highEntropy')); // full loop bookkept (A1; derived, not hardcoded — CTX-EST A class)
     expect(firePoints.length).toBeGreaterThanOrEqual(1);              // at least one proactive snapshot…
     expect(firePoints[0]).toBeLessThanOrEqual(2);                     // …within the first two returns, not next turn
   });

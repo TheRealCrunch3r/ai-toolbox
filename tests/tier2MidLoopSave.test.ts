@@ -18,7 +18,10 @@
  */
 import { toolsProvider, resetForcedSaveFlagForTests } from '../src/toolsProvider.js';
 import { setContextGuard } from '../src/promptPreprocessor.js';
-import { TokenStatsManager, estimateTokensFromChars } from '../src/tokenStatsManager.js';
+// CTX-EST A (31.10): the wrapper prices its payload self-size in the 'highEntropy' class (toolsProvider's
+// shared projection, same class as recordToolResult's delta) — boundary fixtures MUST use the class-aware
+// estimator or their exact-threshold arithmetic drifts from the production math.
+import { TokenStatsManager, estimateTokensFromCharsOfClass } from '../src/tokenStatsManager.js';
 import { FOOTER_TOKEN_ESTIMATE } from '../src/utils/contextUsageFooter.js';
 import { DEFAULT_CONFIG } from '../src/config.js';
 
@@ -168,9 +171,11 @@ describe('FIX #21 tier-2 mid-loop forced session-memory save — wrapper integra
     mockPersist.mockResolvedValue({ saved: true });
 
     // Exact-threshold construction: probe returns a 100-char STRING (no object stamp, footer OFF → no ctx_footer),
-    // so projected = baseline + estimateTokensFromChars(100) + FOOTER_TOKEN_ESTIMATE — exactly the wrapper's math.
+    // so projected = baseline + est_high(100) + FOOTER_TOKEN_ESTIMATE — exactly the wrapper's math. CTX-EST A (31.10):
+    // that payload is priced in the 'highEntropy' class by toolsProvider's shared projection (same class as the
+    // recorded delta) — the fixture must mirror that estimator or this boundary is off by ~42 tokens at default density.
     stubProbeImplementation(async () => 'x'.repeat(100));
-    const exactBaseline = 57600 - (estimateTokensFromChars(100) + FOOTER_TOKEN_ESTIMATE);
+    const exactBaseline = 57600 - (estimateTokensFromCharsOfClass(100, 'highEntropy') + FOOTER_TOKEN_ESTIMATE);
     TokenStatsManager.setTurnEvaluation(exactBaseline, LIMIT);
     TokenStatsManager.setTurnMessages(makeTurnMessages(20));
 
@@ -183,8 +188,8 @@ describe('FIX #21 tier-2 mid-loop forced session-memory save — wrapper integra
     const { guard, generate } = makeGuard(async () => ({ task_description: 't' }) as never);
     setContextGuard(guard);
 
-    stubProbeImplementation(async () => 'x'.repeat(100)); // same payload as the boundary test above
-    const belowBaseline = 57600 - (estimateTokensFromChars(100) + FOOTER_TOKEN_ESTIMATE) - 1;
+    stubProbeImplementation(async () => 'x'.repeat(100)); // same payload as the boundary test above — priced highEntropy by the wrapper (CTX-EST A, 31.10)
+    const belowBaseline = 57600 - (estimateTokensFromCharsOfClass(100, 'highEntropy') + FOOTER_TOKEN_ESTIMATE) - 1; // strictly one token under AT THE WRAPPER'S OWN ESTIMATOR
     TokenStatsManager.setTurnEvaluation(belowBaseline, LIMIT);
     TokenStatsManager.setTurnMessages(makeTurnMessages(20));
 

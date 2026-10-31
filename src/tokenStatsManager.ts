@@ -118,8 +118,32 @@ export function getAgenticCharsPerToken(): number {
   return agenticCharsPerToken;
 }
 
+/** Content pricing class for the shared estimator (CTX-EST A, 31.10). 'prose' = today's exact math;
+ * 'highEntropy' applies a bounded conservative bias for log/hex/base64-dense tool payloads — the class that
+ * undercounted ~3.2–3.9× in the 29.10 incident (guard est 41,116 tok vs LM Studio reject band 130,959–161,745). */
+export type TokenEstimateClass = 'prose' | 'highEntropy';
+
+// CTX-EST A (31.10, owner GO "Do A"): bounded high-entropy bias constants — INCIDENT-DERIVED from the 29.10
+// root-cause-C ratio (real effective density on that log/hex content ≈ 0.9–1.1 chars/tok), NOT probe-justified:
+// a live /v1/chat/completions probe of a dense payload is PENDING and must confirm/replace BIAS/FLOOR before
+// either is treated as settled (density-provenance protocol, same discipline as the 15.10 3.6 raise).
+export const HIGH_ENTROPY_DENSITY_BIAS = 0.4;   // applied density = live density × 0.4 (default 3.6 ⇒ 1.44 c/tok)
+export const HIGH_ENTROPY_DENSITY_FLOOR = 1.0;  // hard floor (c/tok) — estimator output is BOUNDED: est ≤ chars/1.0
+
 export function estimateTokensFromChars(chars: number): number {
-  return Math.ceil(Math.max(0, chars) / agenticCharsPerToken);
+  return estimateTokensFromCharsOfClass(Math.max(0, chars), 'prose');
+}
+
+/** Class-aware variant (CTX-EST A). 'prose' is byte-identical to the pre-A estimator for every input. */
+export function estimateTokensFromCharsOfClass(chars: number, cls: TokenEstimateClass): number {
+  let density = agenticCharsPerToken;
+  if (cls === 'highEntropy') {
+    // One-directional bias: only ever MORE conservative than the live menu value, never less — and bounded by
+    // the floor so worst-case output for any input is chars / HIGH_ENTROPY_DENSITY_FLOOR. The user-editable
+    // contextGuardAgenticDensity stays authoritative (15.10 contract preserved).
+    density = Math.min(agenticCharsPerToken, Math.max(HIGH_ENTROPY_DENSITY_FLOOR, agenticCharsPerToken * HIGH_ENTROPY_DENSITY_BIAS));
+  }
+  return Math.ceil(Math.max(0, chars) / density);
 }
 
 /** Conditional verbose log for turn-state transitions (AI_TOOLBOX_DEBUG-gated; contextGuard convention). */
@@ -322,11 +346,13 @@ export class TokenStatsManager {
    * Call this for every tool invocation so the AutoTracker's mid-loop guard can see how much
    * context each tool call is consuming BEFORE the next user message triggers a recount.
    * @returns estimated tokens added to the current turn's delta
+   * CTX-EST A (31.10): deltas are priced in the 'highEntropy' class (bounded by HIGH_ENTROPY_DENSITY_FLOOR) —
+   * tool payloads are exactly the log/hex-dense content that undercounted 29.10; native recounts stay prose-priced.
    */
   static recordToolResult(toolName: string, payload: unknown): number {
     const chars = measurePayloadChars(payload);
     midLoopDeltaChars += chars;
-    const estTokens = estimateTokensFromChars(chars);
+    const estTokens = estimateTokensFromCharsOfClass(chars, 'highEntropy'); // CTX-EST A — bounded high-entropy pricing (see class docblock)
     midLoopEstTokens += estTokens;
     const deltaLogBase = `[AutoTracker] [DELTA] +${estTokens} tok from ${toolName} (${chars.toLocaleString('en-US')} chars, turn total ≈ ${midLoopEstTokens.toLocaleString('en-US')} tok`;
     if (turnBaselineTokens > 0) {

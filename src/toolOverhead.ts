@@ -28,6 +28,11 @@ import { zodToJsonSchema } from 'zod-to-json-schema';
 import type { ZodTypeAny } from 'zod';
 
 let cachedChars = 0;
+// CTX-EST A (31.10, owner GO "Package A hardened"): parallel cache of the concatenated wire text itself —
+// getToolOverheadText() returns EXACTLY the string whose .length equals cachedChars by construction (both are
+// assigned from the same parts array in reportToolSchemas below), so a content-aware estimator can scan the real
+// overhead span instead of an opaque char count. Never assign one without the other.
+let cachedText = '';
 let cachedSignature = '';
 let hasCache = false;
 
@@ -38,9 +43,10 @@ function isLiveZodSchema(schema: unknown): boolean {
   return typeof s.parse === 'function' && (typeof s.safeParse === 'function' || typeof s._def === 'object');
 }
 
-/** Wire-shape char credit for one tool: the JSON text the host would actually send. */
-function wireShapeChars(t: unknown): number {
-  if (!t || typeof t !== 'object') return 0;
+/** Wire-shape TEXT credit for one tool (CTX-EST A 31.10): the JSON string the host would actually send —
+ * callers derive the char count as .length, so text and chars can never drift apart. */
+function wireShapeText(t: unknown): string {
+  if (!t || typeof t !== 'object') return ''; // CTX-EST A (31.10) bugfix: text form — was returning number 0 from a string function (TS2322 broke the typecheck gate)
   const entry = t as Record<string, unknown>;
   const name = typeof entry.name === 'string' ? entry.name : '';
   const description = typeof entry.description === 'string' ? entry.description : '';
@@ -66,18 +72,18 @@ function wireShapeChars(t: unknown): number {
   if (description !== '') wire.description = description;
   if (parameters != null) wire.parameters = parameters;
   const s = JSON.stringify(wire);
-  return typeof s === 'string' ? s.length : 0;
+  return typeof s === 'string' ? s : ''; // CTX-EST A (31.10): text, not its length — the char count is the caller's .length
 }
 
 /** Legacy credit for entries without a live schema — preserves the pre-Class-B behavior. */
-function legacyChars(t: unknown): number {
+function legacyText(t: unknown): string {
   try {
     const s = JSON.stringify(t);
-    if (typeof s === 'string') return s.length;
+    if (typeof s === 'string') return s; // CTX-EST A (31.10): text form (see wireShapeText) — old char count is the caller's .length
   } catch {
     // Non-serializable entry — skip it.
   }
-  return 0;
+  return '';
 }
 
 /**
@@ -100,20 +106,22 @@ export function reportToolSchemas(tools: unknown[]): void {
 
   if (hasCache && signature === cachedSignature) return;
 
-  let chars = 0;
+  const parts: string[] = [];
   for (const t of tools) {
     try {
       const entry = (t && typeof t === 'object') ? (t as Record<string, unknown>) : null;
       const schema = entry ? (entry.parametersSchema ?? entry.parameters) : undefined;
       // Live zod schema → credit the wire shape only. Plain objects / JSON schemas keep legacy credit:
       // for those, stringify(t) already approximates the wire text and this preserves old behavior.
-      chars += isLiveZodSchema(schema) ? wireShapeChars(t) : legacyChars(t);
+      parts.push(isLiveZodSchema(schema) ? wireShapeText(t) : legacyText(t)); // CTX-EST A (31.10): texts, joined ONCE below
     } catch {
       // Non-serializable entry — skip it (never break the provider).
     }
   }
 
-  cachedChars = chars;
+  const joined = parts.join(''); // no separator: length MUST equal the historical per-entry char sum exactly
+  cachedChars = joined.length;
+  cachedText = joined; // CTX-EST A (31.10): single assignment site — chars and text can never drift apart
   cachedSignature = signature;
   hasCache = true;
 }
@@ -121,4 +129,10 @@ export function reportToolSchemas(tools: unknown[]): void {
 /** Reported overhead in characters (0 until the provider has run at least once this session). */
 export function getToolOverheadChars(): number {
   return cachedChars;
+}
+
+/** CTX-EST A (31.10) — reported overhead as TEXT ('' until the provider has run at least once this session).
+ * Invariant: getToolOverheadText().length === getToolOverheadChars() ALWAYS (single assignment site in reportToolSchemas). */
+export function getToolOverheadText(): string {
+  return cachedText;
 }
