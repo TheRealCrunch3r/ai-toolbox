@@ -37,8 +37,20 @@ import { __resetUpdateAnnouncementForTests, CACHE_TTL_MS, getPendingUpdateAnnoun
 
 const REPO_ROOT = path.join(__dirname, '..');
 
+// (01.11 v1.9.22 gate failure 1+2): the former literals '1.9.22'/'1.9.20' were pinned against LOCAL_VERSION = 'v1.9.21'
+// — they passed through the 21.10 v1.9.21 bump only because the literals happened to sit at exactly ±1 around it, and
+// detonated on this move (equality boundary → compareVersions returned 0; the dedupe suite's "newer release" mock was
+// no longer strictly newer than current). Derived from LOCAL_VERSION instead: baseline-independent by construction.
+function offsetLocalVersion(patchDelta: number): string {
+  const parts = LOCAL_VERSION.replace(/^v/i, '').split('.').map((s) => Number.parseInt(s, 10)); // bare x.y.z — shape pinned above in the version-bump rule suite
+  let major = parts[0]; let minor = parts[1]; let patch = (parts[2] ?? 0) + patchDelta;
+  while (patch < 0) { patch += 100; minor -= 1; } // walk down segments when patch underflows (house versions never sit at .0.0 in practice — kept correct anyway)
+  while (minor < 0) { minor += 100; major -= 1; }
+  return `${major}.${minor}.${patch}`;
+}
+
 /** Quiet same-version .VERSION body (house format is v-prefixed) — keeps suites hermetic with a deterministic null result. */
-const QUIET_BODY = LOCAL_VERSION; // 'v1.9.21'
+const QUIET_BODY = LOCAL_VERSION; // derived — always equal to current, whatever the bump is (was stale-pinned 'v1.9.21')
 
 /** Shape-1 response mock: hub serves the plain-text file content directly (the clean case). */
 function fakeVersionResponse(v: string): { ok: boolean; text: () => Promise<string> } {
@@ -69,8 +81,9 @@ describe('compareVersions (semver-ish x.y.z, v-prefix tolerant)', () => {
   test('numeric (not lexicographic) segment ordering', () => {
     expect(compareVersions('1.10.0', '1.9.9')).toBe(1); // lexicographic would say 1.10 < 1.9
     expect(compareVersions('2.0.0', '10.0.0')).toBe(-1);
-    expect(compareVersions('1.9.22', LOCAL_VERSION)).toBe(1);
-    expect(compareVersions('1.9.20', LOCAL_VERSION)).toBe(-1);
+    // (01.11 v1.9.22) derived from LOCAL_VERSION instead of fixed literals — see offsetLocalVersion provenance above
+    expect(compareVersions(offsetLocalVersion(+1), LOCAL_VERSION)).toBe(1);
+    expect(compareVersions(offsetLocalVersion(-1), LOCAL_VERSION)).toBe(-1);
   });
 
   test('shorter form is zero-padded (trailing segments count as 0)', () => {
@@ -243,7 +256,9 @@ describe('NOTIF-DEDUPE (19.10 E2E): per-version notify latch — the host re-inv
 
   test('provider-style repeat calls (one per model step) → notify exactly ONCE for the same release', async () => {
     // Simulate what toolsProvider does on each invocation: evaluate, latch-before-await, then notify (host hop faked).
-    globalThis.fetch = jest.fn().mockResolvedValue(fakeVersionResponse('v1.9.22')) as unknown as typeof fetch;
+    // (01.11 v1.9.22) was the literal 'v1.9.22' — pinned "one above" the then-current LOCAL_VERSION 'v1.9.21'; now EQUAL to current → getUpdateStatus() correctly quiet, latch never armed
+    const releaseUnderTest = `v${offsetLocalVersion(+1)}`; // strictly newer than LOCAL_VERSION by construction
+    globalThis.fetch = jest.fn().mockResolvedValue(fakeVersionResponse(releaseUnderTest)) as unknown as typeof fetch;
 
     let notificationsFired = 0;
     const providerStep = async () => {
@@ -261,7 +276,7 @@ describe('NOTIF-DEDUPE (19.10 E2E): per-version notify latch — the host re-inv
     expect(globalThis.fetch).toHaveBeenCalledTimes(1);
 
     const state = JSON.parse(readFileSync(path.join(tmp, 'update-check.json'), 'utf8')) as Record<string, unknown>;
-    expect(state.notifiedVersion).toBe('1.9.22'); // survives restarts — the latch is on disk, not in memory
+    expect(state.notifiedVersion).toBe(offsetLocalVersion(+1)); // bare x.y.z of releaseUnderTest persisted on disk (markNotified normalizes) — survives restarts: the latch is on disk, not in memory
   });
 });
 
@@ -323,7 +338,7 @@ describe('.VERSION test knob: one dummy version file gates getUpdateStatus (runt
 
   test('same-version dummy (= LOCAL_VERSION) → falls through to the real check (mocked same tag → quiet null)', async () => {
     globalThis.fetch = jest.fn().mockResolvedValue(fakeVersionResponse(LOCAL_VERSION)) as unknown as typeof fetch;
-    writeKnob(LOCAL_VERSION); // 'v1.9.21' — v-prefix tolerated on this path too
+    writeKnob(LOCAL_VERSION); // derived, always = current (was stale-pinned 'v1.9.21'); v-prefix tolerated on this path too
 
     expect(await getUpdateStatus()).toBeNull(); // not strictly newer → no synthetic status; real path also quiet here
   });

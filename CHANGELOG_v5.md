@@ -1,6 +1,12 @@
-# Changelog — ai_toolbox v1.9.21
+# Changelog — ai_toolbox v1.9.22
 
-> Supersedes `CHANGELOG_v4.md`. Active changelog for version 1.9.21.
+> Supersedes `CHANGELOG_v4.md`. Active changelog for version 1.9.22.
+
+### [01.11.2026 ~19:1x] — v1.9.22 version move + full docs sync to canon (CTX-EST A close-out window)
+
+**Scope:** Version move v1.9.21 → **v1.9.22**, owner-GO'd ("bump version and do all the docs"): `package.json` · `manifest.json` (`revision: 0`, version-move precedent matching how v1.9.21 landed) · `package-lock.json` (both `"version"` lines) · `.VERSION` · `LOCAL_VERSION = 'v1.9.22'` in `src/updateChecker.ts`. Docs sweep to canon **80 suites / 1193 tests**: only stale pin found+fixed = two "1190" lines of owner-local git-excluded `README.MD_LMS_HUB_SIMPLE.md`; all five live READMEs + TOOLS_REFERENCE + ARCHITECTURE verified already-canon (31.10 re-stamp). RELEASE_NOTES.md untouched — historical artifact per house pattern.
+**Context:** closes the CTX-EST A window opened 31.10: that arc's code+provenance work (probe-settled HIGH_ENTROPY_DENSITY_BIAS/FLOOR on qwen3.8-27b-ud + reproducible probe script) shipped in its own commit ~18:51 same day; this release is version move + docs sync only — zero runtime behavior change beyond the update-check baseline (`LOCAL_VERSION`).
+**Verification:** residual pattern-scan audit (v1.9.21 / 1190 in live files) before owner gate chain + commit/push, per house practice..
 ## [31.10.2026 ~17:3x–18:3x] — CTX-EST B close-out (tierB mid-loop compaction suite) + FIX #2 intra-turn gate on honest baseline · canon 80/1190 → **80 suites / 1193 tests**
 
 **Scope:** closes the ContextGuard mid-loop compaction test arc (CTX-EST: A/B1 landed earlier in the window, B2 = tierB fold complete). Three pieces: (1) **FIX #2** — the FIX B 95% mid-loop compression gate in `src/toolsProvider.ts` now measures against an HONEST baseline (fresh per-call recount when a usable one is available instead of trusting a stale in-memory estimate across tool calls), so intra-turn growth cannot silently push real usage past the gate threshold; (2) tierB suite fold — `withAtView()` fresh-recount happy-path pin + `getThreshold` latch sub-pin committed into `tests/tierB_midLoopCompaction.test.ts`; (3) **tierB B2** — three new tests pinning that the FIX B gate's baseline is the freshly recounted honest count, not a stale pre-call estimate.
