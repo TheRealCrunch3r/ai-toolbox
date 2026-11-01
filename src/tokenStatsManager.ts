@@ -123,10 +123,17 @@ export function getAgenticCharsPerToken(): number {
  * undercounted ~3.2–3.9× in the 29.10 incident (guard est 41,116 tok vs LM Studio reject band 130,959–161,745). */
 export type TokenEstimateClass = 'prose' | 'highEntropy';
 
-// CTX-EST A (31.10, owner GO "Do A"): bounded high-entropy bias constants — INCIDENT-DERIVED from the 29.10
-// root-cause-C ratio (real effective density on that log/hex content ≈ 0.9–1.1 chars/tok), NOT probe-justified:
-// a live /v1/chat/completions probe of a dense payload is PENDING and must confirm/replace BIAS/FLOOR before
-// either is treated as settled (density-provenance protocol, same discipline as the 15.10 3.6 raise).
+// CTX-EST A (31.10, owner GO "Do A"): bounded high-entropy bias constants — SETTLED 01.11 via live probe
+// (scripts/ctx_est_a_dense_payload_probe.mjs, /v1/chat/completions usage.prompt_tokens − wrapper-only baseline,
+// max_tokens=1): effective band 1.307–1.670 c/tok on qwen3.8-27b-ud across 4 deterministic dense families @8k chars —
+// HEXDUMP densest 1.307 · BASE64 1.352 · JSON_TOOL_RESULT 1.558 · LOGSTORM 1.670 (two byte-identical owner runs,
+// ~18:20 + ~18:36 → determinism confirmed; run-1's empty model label was a script bug, since fixed). CONFIRMED at the
+// default menu density: applied max(FLOOR 1.0, 3.6×BIAS 0.4)=1.44 c/tok sits INSIDE the measured band — no family below
+// FLOOR (densest holds ~24% headroom) and worst-case residual undercount vs applied ≈9%, orders of magnitude better than
+// the incident-derived 29.10 root-cause-C ratio (~0.9–1.1 c/tok, a 3.2–3.9× undercount that motivated this class). The
+// density-provenance protocol (same discipline as the 15.10 agentic-density raise) is satisfied: BIAS/FLOOR are now
+// PROBE-JUSTIFIED for qwen3.8-27b-ud; if a materially different tokenizer is probed, or the user's menu density leaves
+// the measured band, re-run the script and revisit in ONE dated edit (value + provenance together — never one alone).
 export const HIGH_ENTROPY_DENSITY_BIAS = 0.4;   // applied density = live density × 0.4 (default 3.6 ⇒ 1.44 c/tok)
 export const HIGH_ENTROPY_DENSITY_FLOOR = 1.0;  // hard floor (c/tok) — estimator output is BOUNDED: est ≤ chars/1.0
 
