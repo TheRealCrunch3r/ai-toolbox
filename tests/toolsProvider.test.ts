@@ -39,7 +39,7 @@ function createMockController(config: Record<string, unknown>) {
   };
 
   return {
-    getPluginConfig: jest.fn().mockReturnValue(mockPluginConfig),
+    getGlobalPluginConfig: jest.fn().mockReturnValue(mockPluginConfig),
     stateManager: {
       getState: jest.fn().mockReturnValue({}),
       setState: jest.fn(),
@@ -103,12 +103,12 @@ describe('toolsProvider', () => {
     expect(tools.length).toBeGreaterThan(0);
   });
 
-  test('should call getPluginConfig with configSchematics', async () => {
+  test('should call getGlobalPluginConfig with configSchematics', async () => {
     const ctl = createMockController({ ...DEFAULT_CONFIG, fileSystem: true });
     await toolsProvider(ctl);
 
-    // Verify the controller's getPluginConfig was called (it returns a mock)
-    expect(ctl.getPluginConfig).toHaveBeenCalled();
+    // Verify the controller's getGlobalPluginConfig was called (it returns a mock)
+    expect(ctl.getGlobalPluginConfig).toHaveBeenCalled();
   });
 
   test('should NOT register execute_command when executionShell is disabled', async () => {

@@ -145,7 +145,7 @@ describe('LATCH SUB-ITEM gate integration — toolsProvider wrapper (harness: ti
     base.contextGuardEnabled = opts.guardEnabled;
     if (opts.percent !== undefined) base.contextGuardCompressionPercent = opts.percent;
     return {
-      getPluginConfig: jest.fn().mockReturnValue({
+      getGlobalPluginConfig: jest.fn().mockReturnValue({
         get: (key: string) => base[key],
         set: jest.fn(),
         subscribe: jest.fn(),

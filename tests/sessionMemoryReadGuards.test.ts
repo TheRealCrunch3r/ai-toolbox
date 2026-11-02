@@ -62,7 +62,7 @@ const G = globalThis as Record<string, unknown>;
 /** Minimal PromptPreprocessorController stub: config.get() → undefined exercises the documented defaults
  * (temporalAwareness ON, style 'standard'). */
 function makeCtl(): PromptPreprocessorController {
-  return { getPluginConfig: () => ({ get: () => undefined }) } as unknown as PromptPreprocessorController;
+  return { getGlobalPluginConfig: () => ({ get: () => undefined }) } as unknown as PromptPreprocessorController;
 }
 
 const BANNER = '📋 SESSION MEMORY LOADED';

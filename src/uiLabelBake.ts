@@ -1,7 +1,7 @@
 /**
  * Boot-time UI-label bake (UNIFIED LANGUAGE v2, step 5 — 27.10).
  *
- * The settings panel is registered ONCE at boot via context.withConfigSchematics() and the SDK's
+ * The settings panel is registered ONCE at boot via context.withGlobalConfigSchematics() (Option A, 02.11 — global scope) and the SDK's
  * PluginContext exposes no config getter at that point (see index.ts note), so a user's concrete
  * language pick made in the UI cannot be read directly at load time. This module closes the gap:
  *

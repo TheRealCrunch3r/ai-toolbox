@@ -179,7 +179,8 @@ function getCachedDateTime(): DateTimeCache {
 }
 
 function getTemporalSuffix(ctl: PromptPreprocessorController): string {
-  const config = ctl.getPluginConfig(configSchematics);
+  // Option A (02.11): ALL read sites in this file use global scope — settings persist across chats and app restarts.
+  const config = ctl.getGlobalPluginConfig(configSchematics);
   
   // Use .get() method with proper defaults - more reliable than direct property access
   const temporalAwarenessEnabled = config.get('temporalAwareness') ?? true;
@@ -389,7 +390,7 @@ async function retrieveFromPdfs(
   query: string,
   pdfFiles: FileHandle[],
 ): Promise<RetrievalResult[]> {
-  const pluginConfig = ctl.getPluginConfig(configSchematics);
+  const pluginConfig = ctl.getGlobalPluginConfig(configSchematics);
   const retrievalLimit = pluginConfig.get('retrievalLimit') || 5;
   // Lower default threshold to catch more results - was too high at 0.6
   const retrievalAffinityThreshold = pluginConfig.get('retrievalAffinityThreshold') ?? 0.3;
@@ -774,7 +775,7 @@ export async function preprocess(
   // (see resolveTurnLanguage()). MUST sit before any consumer below: the S5 autoTracker call and the answer-language line
   // live INSIDE the ContextGuard try-block, whose finally runs well before Step 0.6+. One extra config fetch vs. a later
   // site — negligible per turn (config reads are fresh per call elsewhere in this file too).
-  const turnLang = resolveTurnLanguage(ctl.getPluginConfig(configSchematics).get('language'));
+  const turnLang = resolveTurnLanguage(ctl.getGlobalPluginConfig(configSchematics).get('language'));
   const rt = getRuntimeTexts(turnLang);
 
   // UNIFIED LANGUAGE v2 step 5 (27.10): keep the boot-bake state file in sync with THIS session's effective language —
@@ -885,8 +886,8 @@ export async function preprocess(
       console.log(`[TokenDebug] Total Tool calls: ${toolCallCount}, Total Files/Images: ${imageCount}`);
 
       // ✅ FIX: Dynamically resolve actual model context length before counting tokens
-      console.log('[ContextGuard DEBUG] Step 5: getPluginConfig()...');
-      const pluginConfig = ctl.getPluginConfig(configSchematics);
+      console.log('[ContextGuard DEBUG] Step 5: getGlobalPluginConfig()...');
+      const pluginConfig = ctl.getGlobalPluginConfig(configSchematics);
       // Inject LM Studio client from controller for dynamic model queries (SDK v1.x)
       if (ctl.client && contextGuard.setLMClient) {
         contextGuard.setLMClient(ctl.client);
@@ -989,7 +990,7 @@ export async function preprocess(
       console.log('[ContextGuard DEBUG] Step 8: checking auto-tracker config...');
       
       // 🔹 WIRE UP AUTO-TRACKER THRESHOLD PROMPT — Step 0.5b (uses correct maxTokens)
-      const autoTrackingConfig = ctl.getPluginConfig(configSchematics);
+      const autoTrackingConfig = ctl.getGlobalPluginConfig(configSchematics);
       if ((autoTrackingConfig.get('autoTrackingEnabled') ?? true) && maxTokens > 0) {
         console.log('[ContextGuard DEBUG] Step 9: calling checkAndGeneratePrompt()...');
         try {
@@ -1337,7 +1338,7 @@ export async function preprocess(
 
   // Step 0.6: Auto-tracking analysis + checkpoint reply handling
   try {
-    const pluginConfig = ctl.getPluginConfig(configSchematics);
+    const pluginConfig = ctl.getGlobalPluginConfig(configSchematics);
     const autoTrackingEnabled = pluginConfig.get('autoTrackingEnabled') ?? true; // Default to ON
     
     if (autoTrackingEnabled) {
@@ -1431,7 +1432,7 @@ export async function preprocess(
     // 🔹 Fix A (v1.9.8+ safety rule in index.ts): NEVER auto-switch on detection alone —
     // confirm-first banner; the CWD changes only after an explicit confirmation reply in a later message.
     // i18n-CONFIRM arc (06.10): options DISPLAYED in the user's configured language; parsing accepts all shipped words.
-    const confWords = getConfirmationWords(ctl.getPluginConfig(configSchematics).get('language'));
+    const confWords = getConfirmationWords(ctl.getGlobalPluginConfig(configSchematics).get('language'));
     const decision = decideProjectSwitch(projectMatch, userPrompt, getWorkingDir(), pendingProjectSwitch);
 
     if (decision.kind === 'skip') {
@@ -1498,14 +1499,14 @@ export async function preprocess(
   const detectedPath = detectDirectoryPath(userPrompt);
   if (detectedPath) {
     // i18n-CONFIRM arc (06.10): the directory banner's reply options also follow the configured language.
-    const dirWords = getConfirmationWords(ctl.getPluginConfig(configSchematics).get('language'));
+    const dirWords = getConfirmationWords(ctl.getGlobalPluginConfig(configSchematics).get('language'));
     let base = injectWorkingDirectoryPrompt(userPrompt + attachmentNotice, detectedPath, dirWords, rt) + checkpointSuffix; // UL-v2 step-4 completion (28.10): per-turn RuntimeTexts — without rt the helper fell back to getRuntimeTexts('en') and this banner stayed English in all other locales; EN render byte-identical (rt === en bundle when turnLang='en', same object as the old fallback)
     
     return base + getTemporalSuffix(ctl);
   }
   
   // Step 2: Document RAG processing (if enabled)
-  const pluginConfig = ctl.getPluginConfig(configSchematics);
+  const pluginConfig = ctl.getGlobalPluginConfig(configSchematics);
   const documentRAGEnabled = pluginConfig.get('documentRAG');
   
   console.log(`[RAG] documentRAG enabled: ${documentRAGEnabled}`);

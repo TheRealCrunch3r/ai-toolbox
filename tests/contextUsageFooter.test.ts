@@ -193,7 +193,7 @@ describe('toolsProvider CTX-FOOTER wrapper integration', () => {
     base.textProcessing = true;
     base.contextUsageFooter = contextUsageFooter;
     return {
-      getPluginConfig: jest.fn().mockReturnValue({
+      getGlobalPluginConfig: jest.fn().mockReturnValue({
         get: (key: string) => base[key],
         set: jest.fn(),
         subscribe: jest.fn(),

@@ -75,7 +75,7 @@ function createMockController(config: Record<string, unknown>) {
   };
 
   return {
-    getPluginConfig: jest.fn().mockReturnValue(mockPluginConfig),
+    getGlobalPluginConfig: jest.fn().mockReturnValue(mockPluginConfig),
     stateManager: {
       getState: jest.fn().mockReturnValue({}),
       setState: jest.fn(),

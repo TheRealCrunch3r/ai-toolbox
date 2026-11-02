@@ -109,8 +109,8 @@ npm run lint       # ESLint static analysis
 ```typescript
 // index.ts
 export function main(context: PluginContext) {
-  // 1. Register config schematics (UI toggles)
-  context.withConfigSchematics(configSchematics);
+  // 1. Register config schematics (UI toggles) — GLOBAL scope since Option A (02.11): settings persist across chats/app restarts
+  context.withGlobalConfigSchematics(configSchematics);
   
   // 2. Register prompt preprocessor (Document RAG + ContextGuard)
   context.withPromptPreprocessor(preprocess);
@@ -261,7 +261,7 @@ Central registry managing all tool instances using a **Declarative Registry Patt
 ```typescript
 // Simplified registration pattern (actual implementation uses closure-based registry)
 export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[]> {
-  const pluginConfig = ctl.getPluginConfig(configSchematics);
+  const pluginConfig = ctl.getGlobalPluginConfig(configSchematics); // Option A (02.11): global scope — settings persist across chats/app restarts
   
   // Construct typed PluginConfig from .get() calls
   const config: PluginConfig = { /* ... */ };

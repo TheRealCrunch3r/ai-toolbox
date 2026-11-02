@@ -95,13 +95,14 @@ export function main(context: PluginContext) {
   // mid-session takes effect on reload (the per-turn state-file sync in promptPreprocessor keeps that pick durable);
   // prompt texts follow configuration immediately via step 4's per-turn wiring — by design.
   try {
+    // Option A (02.11): global scope — settings register app-wide so toggles persist across chats and app restarts.
     const bakedLang = resolvePanelUiLanguage(readPersistedUiLanguageCode());
-    context.withConfigSchematics(buildConfigSchematics(getUiLabels(bakedLang)));
+    context.withGlobalConfigSchematics(buildConfigSchematics(getUiLabels(bakedLang)));
     logger.info(`[UL-v2] Panel UI labels baked for '${bakedLang}' (chain: persisted pick → host locale → OS first tag → en)`);
   } catch (e) {
     // i18n must never block plugin boot — fall back to the pre-v2 EN-literal schematics.
     logger.warn(`[UL-v2] UI-label bake failed (falling back to EN literals): ${e instanceof Error ? e.message : String(e)}`);
-    context.withConfigSchematics(configSchematics);
+    context.withGlobalConfigSchematics(configSchematics); // Option A (02.11): global scope — fallback keeps one registration mode with the primary path above
   }
   
   // Initialize ContextGuard with default settings

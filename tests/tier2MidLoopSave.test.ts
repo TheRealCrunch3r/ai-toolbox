@@ -95,7 +95,7 @@ describe('FIX #21 tier-2 mid-loop forced session-memory save — wrapper integra
     if (opts.percent !== undefined) base.contextGuardCompressionPercent = opts.percent; // LIVE read path under test
     base.contextUsageFooter = opts.footer ?? false; // OFF by default — tier-2 independence is the point of this suite
     return {
-      getPluginConfig: jest.fn().mockReturnValue({
+      getGlobalPluginConfig: jest.fn().mockReturnValue({
         get: (key: string) => base[key],
         set: jest.fn(),
         subscribe: jest.fn(),

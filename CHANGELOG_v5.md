@@ -2,6 +2,16 @@
 
 > Supersedes `CHANGELOG_v4.md`. Active changelog for version 1.9.22.
 
+### [02.11.2026 ~17:0x–17:2x] — Option A: per-chat → global config scope migration (settings persistence fix) · cross-chat validation PASSED, item CLOSED
+
+**Scope:** migrates all plugin configuration from per-chat SDK scope to the app-wide global config store as one dated change set: both `src/index.ts` registration call sites (`withConfigSchematics` → `withGlobalConfigSchematics`, UL-v2 primary + fallback line) plus every read site in `src/toolsProvider.ts` (L189) and `src/promptPreprocessor.ts` (`getPluginConfig` → `getGlobalPluginConfig`; the earlier "5 sites" dossier figure was an undercount — 10 swapped call sites total), with `src/uiLabelBake.ts` docstring sync. Test mock surfaces renamed across 10 files (13 surfaces). Per-chat values written pre-migration are orphaned by design (accepted decision); values set under the new build from 02.11 on are authoritative.
+**Motivation:** LM Studio's per-chat config silently fell back to schematic defaults in fresh chats — user-visible settings persistence fix; closes the LAST open item project-wide. The v1.9.17 rev-29 sticky-keys overlay mechanism remains intact underneath (reconcile/overlay unchanged).
+**Verification:** owner gate chain GREEN ~17:05 on this tree — tsc clean · lint clean · jest **80 suites / 1193 tests** canon unchanged · tsup build green; plugin reinstalled live ~17:09 under v1.9.22. The designed validation itself (cross-chat persistence test): owner set `execute_command=ON` via the settings panel in a fresh chat (~17:14) and then deleted that chat; the next session read it back ON without re-setting → **global-scope persistence across chat boundaries CONFIRMED 02.11 ~17:15** (owner "it works"). App-restart survival implied by the same store, not separately tested (optional bonus check).
+**Docs sync in the same pass:** ARCHITECTURE.md's two stale code snippets (§ Plugin Lifecycle init + § ToolRegistry) updated to the global variants with dated annotations; `docs/history/*` and RELEASE_NOTES.md untouched per house rule (dated history preserved; release-notes file a historical artifact).
+**Versioning / status:** no version bump — v1.9.22 sticky (no-bump rev-only policy); release-arc decision for this settings fix (v1.9.23 vs fold into next window) awaits owner call at close-out. Commit lands with the owner-GO'd sweep incl. `.bak` cleanup; explainer-file housekeeping (`option_a_scope_explainer.html/.png`, untracked repo root) remains a separate owner decision — deliberately excluded from this commit.
+
+---
+
 ### [01.11.2026 ~19:1x] — v1.9.22 version move + full docs sync to canon (CTX-EST A close-out window)
 
 **Scope:** Version move v1.9.21 → **v1.9.22**, owner-GO'd ("bump version and do all the docs"): `package.json` · `manifest.json` (`revision: 0`, version-move precedent matching how v1.9.21 landed) · `package-lock.json` (both `"version"` lines) · `.VERSION` · `LOCAL_VERSION = 'v1.9.22'` in `src/updateChecker.ts`. Docs sweep to canon **80 suites / 1193 tests**: only stale pin found+fixed = two "1190" lines of owner-local git-excluded `README.MD_LMS_HUB_SIMPLE.md`; all five live READMEs + TOOLS_REFERENCE + ARCHITECTURE verified already-canon (31.10 re-stamp). RELEASE_NOTES.md untouched — historical artifact per house pattern.

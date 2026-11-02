@@ -96,7 +96,7 @@ function createHarness(opts: WireOpts) {
     // Minimal plugin-config stub — documentRAG=false takes the fast return path after Step 0.6;
     // temporalAwareness=false keeps the returned prompt deterministic. The arc-C key is served from opts so
     // both the `=== true` positive and the `undefined`/`false` strict-gate negatives are exercisable.
-    getPluginConfig: (_schematics: unknown) => ({
+    getGlobalPluginConfig: (_schematics: unknown) => ({
       get: (key: string): unknown => {
         switch (key) {
           case 'autoTrackingEnabled': return true;

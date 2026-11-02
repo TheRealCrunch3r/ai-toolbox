@@ -185,7 +185,8 @@ export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[
   midLoopCompactionFiredThisTurn = false;
 
   // 1. Get current configuration (respects UI toggles) — use .get() method!
-  const pluginConfig = ctl.getPluginConfig(configSchematics);
+  // Option A (02.11): global scope — settings persist across chats and app restarts (was per-chat).
+  const pluginConfig = ctl.getGlobalPluginConfig(configSchematics);
   
   // Construct typed PluginConfig from ParsedConfig .get() calls
   const config: PluginConfig = {

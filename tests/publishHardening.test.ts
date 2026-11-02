@@ -81,7 +81,7 @@ function makeCtl(history: Record<string, unknown>): PreprocessCtl {
     client: undefined,
     abortSignal: new AbortController().signal,
     pullHistory: async (): Promise<Record<string, unknown>> => history,
-    getPluginConfig: (_schematics: unknown) => ({ get: (k: string): unknown => values[k] }),
+    getGlobalPluginConfig: (_schematics: unknown) => ({ get: (k: string): unknown => values[k] }),
   } as unknown as PreprocessCtl;
 }
 

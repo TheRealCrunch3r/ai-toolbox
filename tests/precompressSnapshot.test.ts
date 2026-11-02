@@ -63,7 +63,7 @@ function createHarness(opts: HarnessOpts) {
     pullHistory: async () => history,
     // Minimal plugin-config stub — documentRAG=false takes the fast return path after Step 0.6;
     // temporalAwareness=false keeps the returned prompt deterministic.
-    getPluginConfig: (_schematics: unknown) => ({
+    getGlobalPluginConfig: (_schematics: unknown) => ({
       get: (key: string): unknown => {
         switch (key) {
           case 'autoTrackingEnabled': return true;

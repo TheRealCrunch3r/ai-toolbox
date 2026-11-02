@@ -139,7 +139,7 @@ describe('FIX B (09.10) — pre-emptive mid-loop compression @95% — wrapper in
     if (opts.forceSummary !== undefined) base.contextGuardForceSummaryOnCompress = opts.forceSummary; // STRICT ===true gate under test
     base.contextUsageFooter = opts.footer ?? false; // OFF by default — B independence from the footer gate is structural
     return {
-      getPluginConfig: jest.fn().mockReturnValue({
+      getGlobalPluginConfig: jest.fn().mockReturnValue({
         get: (key: string) => base[key],
         set: jest.fn(),
         subscribe: jest.fn(),
