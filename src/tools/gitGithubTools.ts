@@ -7,28 +7,34 @@ import { validatePath } from '../security.js';
 import { getWorkingDir, resolvePath } from '../workingDir.js';
 import * as git from 'isomorphic-git';
 import { spawn } from 'child_process';
+import * as path from 'path';
+import * as os from 'os';
 import fs from 'fs/promises';
 
 // ==================== DEP0190 Fix: Safe shell execution without { shell: true } ===
 
 /**
- * Execute a command string via explicit shell spawning (no DEP0190 warning).
- * Replaces child_process.exec() which internally uses spawn with { shell: true } + args.
+ * Execute a command as an ARGV array via direct spawn — NO shell layer at all (no DEP0190 warning).
+ * Replaces both child_process.exec() and the previous cmd.exe /c string construction.
  */
 interface ExecResult {
   stdout: string;
   stderr: string;
 }
 
-function safeExec(command: string, options?: { cwd?: string }): Promise<ExecResult> {
+// 02.11 Option-1 RC4 (observed live today as exit 128 'could not read log file'): the old signature took a
+// pre-formatted command STRING and ran it through `cmd.exe /c`. Node escapes embedded double quotes for
+// CreateProcessW (\") but cmd.exe does not understand backslash-quote escaping (only ^) — so ANY argument
+// containing " or spaces reached git with LITERAL quote characters in the value (e.g. -F received
+// `"C:/.../msg.txt"` incl. the quotes -> ENOENT). Fix is structural: argv-array spawn, no shell at all —
+// DEP0190-safe by construction and quoting-proof on both platforms; call sites pass raw args, never quote.
+function safeExec(commandArgs: readonly string[], options?: { cwd?: string }): Promise<ExecResult> {
   return new Promise((resolve, reject) => {
-    const isWindows = process.platform === 'win32';
-    const shell = isWindows ? 'cmd.exe' : '/bin/sh';
-    const flag = isWindows ? '/c' : '-c';
+    const [cmd, ...args] = commandArgs;
 
-    const proc = spawn(shell, [flag, command], {
+    const proc = spawn(cmd, args, {
       stdio: ['pipe', 'pipe', 'pipe'],
-      cwd: options?.cwd || process.cwd(),
+      cwd: options?.cwd ?? getWorkingDir(), // 02.11 Option-1 (CWD seam): default = session working dir, same as file tools
     });
 
     let stdout = '';
@@ -56,24 +62,23 @@ interface GitConfig {
   dir: string;
 }
 
-let gitConfig: GitConfig | null = null;
-
-/** Get the absolute working directory, handling Windows paths with spaces */
+// 02.11 Option-1 (CWD seam): every git invocation resolves the SESSION working dir through
+// getWorkingDir() — the same seam the file tools use — instead of process.cwd() (plugin/host CWD),
+// which previously ran all ~15 Git/GitHub tools in the wrong directory ("Not a git repository" etc.).
+// Resolved per call on purpose: no module-level cache, so working-dir changes mid-session
+// (change_directory / switch_context) are picked up immediately.
 function getSafeWorkingDir(): string {
-  return process.cwd();
+  return getWorkingDir();
 }
 
-/** Get or create the git configuration context */
+/** Git configuration context — re-resolved per call; see note above why there is no cache */
 async function getGitConfig(): Promise<GitConfig> {
-  if (!gitConfig) {
-    gitConfig = { dir: getSafeWorkingDir() };
-  }
-  return gitConfig;
+  return { dir: getSafeWorkingDir() };
 }
 
-/** Reset git config cache (for testing) */
+/** No-op since 02.11 Option-1 (CWD seam): resolution is per-call, so nothing to reset. Kept exported for API stability. */
 export function resetGitCache(): void {
-  gitConfig = null;
+  // intentionally empty — see getSafeWorkingDir note above
 }
 
 /**
@@ -169,9 +174,14 @@ export function registerGitTools(_config: PluginConfig): Tool[] {
     parameters: {},
     implementation: async (_params: GitStatusParams) => { // C5 FIX: typed params
       try {
+        // 02.11 Option-1 (CWD seam + status-API fix): isomorphic-git's public git.status() returns a
+        // SINGLE-FILE status string ('*added'|'modified'|...), NOT a repo-wide file listing — the old call
+        // with filepath: '.' silently returned that string for every working dir (observed live "*added"),
+        // so this tool never showed real repository state. Route through shell spawn like git_diff does:
+        // porcelain v1 = machine-readable, token-lean; clean non-zero exit outside a repo.
         const config = await getGitConfig();
-        const statusResult = await git.status({ ...config, filepath: '.', fs }) as unknown as Record<string, unknown>;
-        return { success: true, data: statusResult };
+        const { stdout } = await safeExec(['git', 'status', '--porcelain'], { cwd: config.dir });
+        return { success: true, data: { status: stdout } };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         return { success: false, error: `Git status failed: ${message}` };
@@ -193,11 +203,12 @@ export function registerGitTools(_config: PluginConfig): Tool[] {
         let result: string;
         
         if (file_path) {
-          result = await safeExec(`git diff "${file_path}"`, { cwd: config.dir }).then(r => r.stdout);
+          // 02.11 RC4: argv form — raw path as one argument, no manual quoting (spaces/special chars now safe).
+          result = await safeExec(['git', 'diff', file_path], { cwd: config.dir }).then(r => r.stdout);
         } else if (cached) {
-          result = await safeExec('git diff --cached', { cwd: config.dir }).then(r => r.stdout);
+          result = await safeExec(['git', 'diff', '--cached'], { cwd: config.dir }).then(r => r.stdout);
         } else {
-          result = await safeExec('git diff', { cwd: config.dir }).then(r => r.stdout);
+          result = await safeExec(['git', 'diff'], { cwd: config.dir }).then(r => r.stdout);
         }
         
         return { success: true, data: { diff: result } };
@@ -221,9 +232,41 @@ export function registerGitTools(_config: PluginConfig): Tool[] {
         
         // Stage all changes using isomorphic-git (filepath required for add)
         await git.add({ ...config, filepath: '.', fs });
-        
-        // Commit via explicit shell spawn (DEP0190-safe; isomorphic-git commit() requires author config)
-        await safeExec(`git commit -m "${message.replace(/"/g, '\\"')}"`, { cwd: config.dir });
+
+        // 02.11 Option-1 RC5 (observed live today): stale index entries for files that were staged while present and
+        // then deleted from disk (porcelain XY "AD"/"MD") SURVIVE isomorphic-git's auto-stage — its dir walk only sees
+        // files on disk, so such drafts would silently land in the committed tree. Reap them before committing:
+        // porcelain scan + `git rm --cached <path>` per hit (documented native unstage: index entry dropped, worktree
+        // untouched; isomorphic-git v1.x exposes no public rm/index API — verified against its .d.ts). Best-effort by
+        // design: a reap failure must never abort an otherwise-valid commit.
+        const { stdout: statusOut } = await safeExec(['git', 'status', '--porcelain'], { cwd: config.dir });
+        for (const line of statusOut.split('\n')) {
+          if (!line) continue;
+          const xy = line.slice(0, 2);
+          let p = line.slice(3).trim();
+          // Porcelain v1 quotes paths with spaces/specials — strip a matched pair so git receives the raw path.
+          if (p.length > 1 && p.startsWith('"') && p.endsWith('"')) { p = p.slice(1, -1); }
+          if (p && xy.length === 2 && 'AMT'.includes(xy[0]) && xy[1] === 'D' && !p.includes(' -> ')) {
+            try { await safeExec(['git', 'rm', '--cached', p], { cwd: config.dir }); } catch { /* best-effort reap */ }
+          }
+        }
+
+        // 02.11 Option-1 follow-up RC3 (commit-msg quoting, observed live today as exit 129 'unknown switch'):
+        // cmd.exe does not honor \" escapes inside double quotes (only ^), and embedded newlines break
+        // -m parsing — any real-world commit body failed on Windows. House pattern: write the body to a
+        // temp file in os.tmpdir() and commit via `git commit -F <file>`; the repo working tree stays clean
+        // even if the process dies mid-commit (isomorphic-git commit() still requires author config, so an
+        // explicit spawn stays DEP0190-safe).
+        // 02.11 Option-1 RC4 (same day, observed live as exit 128 'could not read log file'): RC3's temp-file
+        // path was re-quoted inside the old cmd.exe /c command string and reached git WITH literal quote chars —
+        // fixed by the argv-array safeExec above; msgFile now travels as a bare argv element, no shell involved.
+        const msgFile = path.join(os.tmpdir(), `ai-toolbox-commit-msg-${Date.now()}.txt`);
+        await fs.writeFile(msgFile, message, 'utf-8');
+        try {
+          await safeExec(['git', 'commit', '-F', msgFile], { cwd: config.dir });
+        } finally {
+          try { await fs.unlink(msgFile); } catch { /* best-effort temp cleanup */ }
+        }
         
         return { success: true, data: { committed: true, commitMessage: message } };
       } catch (error) {
@@ -298,8 +341,8 @@ export function registerGitTools(_config: PluginConfig): Tool[] {
         
         if (create_new) {
           // isomorphic-git checkout does not directly support creating new branches in one step like simple-git's checkoutLocalBranch.
-          // Fallback to explicit shell spawn for branch creation (DEP0190-safe).
-          await safeExec(`git checkout -b "${branch_name}"`, { cwd: config.dir });
+          // Fallback to explicit spawn for branch creation (DEP0190-safe; 02.11 RC4 argv form).
+          await safeExec(['git', 'checkout', '-b', branch_name], { cwd: config.dir });
         } else {
           // eslint-disable-next-line @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-explicit-any, @typescript-eslint/no-unnecessary-type-assertion
           await git.checkout({ ...config, ref: branch_name, fs } as any);
@@ -500,10 +543,10 @@ export function registerGitTools(_config: PluginConfig): Tool[] {
         const config = await getGitConfig();
         
         if (branch) {
-          // isomorphic-git requires an http adapter for remote ops. Fallback to explicit shell spawn (DEP0190-safe).
-          await safeExec(`git push origin "${branch}"`, { cwd: config.dir });
+          // isomorphic-git requires an http adapter for remote ops. Fallback to explicit spawn (DEP0190-safe; 02.11 RC4 argv form).
+          await safeExec(['git', 'push', 'origin', branch], { cwd: config.dir });
         } else {
-          await safeExec('git push', { cwd: config.dir });
+          await safeExec(['git', 'push'], { cwd: config.dir });
         }
         
         return { success: true, data: { pushed: true } };
@@ -536,23 +579,24 @@ export function registerGitTools(_config: PluginConfig): Tool[] {
             if (!message) {
               return { success: false, error: 'git_stash save requires a "message" parameter' };
             }
-            // isomorphic-git does not support stash. Fallback to explicit shell spawn (DEP0190-safe).
-            await safeExec(`git stash push -m "${message.replace(/"/g, '\\"')}"`, { cwd: config.dir });
+            // isomorphic-git does not support stash. Fallback to explicit spawn (DEP0190-safe; 02.11 RC4 argv form —
+            // the old .replace(/"/g, '\\"') backslash-escaping was itself part of the cmd.exe quoting bug).
+            await safeExec(['git', 'stash', 'push', '-m', message], { cwd: config.dir });
             return { success: true, data: { stashed: true, message } };
           }
           case 'pop': {
-            // DEP0190-safe explicit shell spawn
-            await safeExec('git stash pop', { cwd: config.dir });
+            // DEP0190-safe explicit spawn (02.11 RC4 argv form)
+            await safeExec(['git', 'stash', 'pop'], { cwd: config.dir });
             return { success: true, data: { popped: true } };
           }
           case 'drop': {
-            // DEP0190-safe explicit shell spawn
-            await safeExec('git stash drop', { cwd: config.dir });
+            // DEP0190-safe explicit spawn (02.11 RC4 argv form)
+            await safeExec(['git', 'stash', 'drop'], { cwd: config.dir });
             return { success: true, data: { dropped: true } };
           }
           case 'list': {
-            // DEP0190-safe explicit shell spawn
-            const { stdout } = await safeExec('git stash list', { cwd: config.dir });
+            // DEP0190-safe explicit spawn (02.11 RC4 argv form)
+            const { stdout } = await safeExec(['git', 'stash', 'list'], { cwd: config.dir });
             return { success: true, data: { stashes: stdout.trim().split('\n').filter(Boolean) } };
           }
           default: {
@@ -583,14 +627,14 @@ export function registerGitTools(_config: PluginConfig): Tool[] {
           return { success: false, error: 'Invalid path: directory traversal detected' };
         }
         
-        // isomorphic-git does not support blame. DEP0190-safe explicit shell spawn for precise output parsing.
+        // isomorphic-git does not support blame. DEP0190-safe explicit spawn for precise output parsing (02.11 RC4 argv form).
         const fullPath = resolvePath(file_path);
-        let cmd = `git blame "${fullPath}"`;
+        const cmdArgs = ['git', 'blame', fullPath];
         if (line_number) {
-          cmd += ` -L ${line_number},${line_number}`;
+          cmdArgs.push('-L', `${line_number},${line_number}`);
         }
         
-        const { stdout } = await safeExec(cmd, { cwd: config.dir });
+        const { stdout } = await safeExec(cmdArgs, { cwd: config.dir });
         
         // Parse git blame output manually for structured data
         const lines = stdout.trim().split('\n');
