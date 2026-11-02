@@ -1,12 +1,12 @@
 # Documentation Update Summary — AI Toolbox Plugin
 
 **Date**: 2026-09-19  
-**Version**: v1.9.22 (manifest revision 0 — version move 01.11 with full docs sync to canon 80/1193; hub artifact at rev 86 = v1.9.20 per the 19.10 live check, GitHub `main` synced 17.10)  
+**Version**: v1.9.22 (manifest revision 0 — version move 01.11 with full docs sync to canon 80/1193, re-stamped **81 suites / 1198 tests** in the Option-1 window (02.11); hub artifact at rev 86 = v1.9.20 per the 19.10 live check, GitHub `main` synced 17.10)  
 **Status**: ✅ Complete
 
 ---
 
-## 📋 Version Status Overview (current: **v1.9.22 / manifest revision 0** — version move 01.11 with full docs sync to canon 80/1193; hub artifact at rev 86 = v1.9.20 per the 19.10 live check, GitHub `main` synced 17.10, version header synced **01.11** (v1.9.22 move) · prior stamp 08.09 (Tool Gating Profile release); content last refreshed **28.09.2026** against live code (WALK-ABORT docs sync + full per-module re-audit); changelog chain: CHANGELOG_v3.md (active) ← CHANGELOG_v2.md (archived 20.09) ← CHANGELOG.md (legacy), plus RELEASE_NOTES.md)
+## 📋 Version Status Overview (current: **v1.9.22 / manifest revision 0** — version move 01.11 with full docs sync to canon 80/1193, re-stamped **81 suites / 1198 tests** in the Option-1 window (02.11); hub artifact at rev 86 = v1.9.20 per the 19.10 live check, GitHub `main` synced 17.10, version header synced **01.11** (v1.9.22 move) · prior stamp 08.09 (Tool Gating Profile release); content last refreshed **28.09.2026** against live code (WALK-ABORT docs sync + full per-module re-audit); changelog chain: CHANGELOG_v3.md (active) ← CHANGELOG_v2.md (archived 20.09) ← CHANGELOG.md (legacy), plus RELEASE_NOTES.md)
 
 | Component | Status | Notes |
 |-----------|--------|-------|
