@@ -142,6 +142,8 @@ module.exports = {
     '^\\.\\/tools/repeatToolReminderTools\\.js$': '<rootDir>/src/tools/repeatToolReminderTools.ts',
     // RESTORE-SESSION-CONTEXT (25.09): toolsProvider statically imports './tools/restoreSessionContextTool.js' — same RC#4 class as repeatToolReminder; real src (module is read-only, no mock needed)
     '^\\./tools/restoreSessionContextTool\\.js$': '<rootDir>/src/tools/restoreSessionContextTool.ts',
+    // MEMORY-RECALL (03.11): toolsProvider statically imports './tools/memoryRecallTool.js' — same RC#4 class as restoreSessionContextTool; real-src target (read-only module, no StateManager dependency, no mock needed). MUST sit BEFORE the tools-fallback below: the catch-all '^\\./tools/(.*)\\.js$' would otherwise map it to a nonexistent tests/__mocks__/memoryRecallTool.ts → createNoMappedModuleFoundError in every suite loading the toolsProvider chain (27 suites on the 03.11 full run).
+    '^\\./tools/memoryRecallTool\\.js$': '<rootDir>/src/tools/memoryRecallTool.ts',
     // RESTORE-SESSION-CONTEXT (25.09): FIRST tools→tools sibling import in the codebase ('./contextManagementTools.js' / './taskPlanningTools.js' from within src/tools/). Exact per-file single-dot entries only — G9 round-2 rule: never a generic single-dot form (would hijack unrelated specifiers). Emitters verified unique via grep 25.09; real-src targets because the mock stubs export ONLY register functions, not the classes my module imports.
     '^\\./contextManagementTools\\.js$': '<rootDir>/src/tools/contextManagementTools.ts',
     '^\\./taskPlanningTools\\.js$': '<rootDir>/src/tools/taskPlanningTools.ts',

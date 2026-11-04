@@ -152,6 +152,7 @@ export const zhTWTranslations: FullTranslationSet = {
       { toolName: 'search_projects', description: '[已棄用的 manage_projects(action="search") 別名] 依名稱或路徑子字串搜尋已註冊專案；延遲登錄表同步會自動註冊在工作階段記憶中發現的專案', parameters: ['query, max_results（選填）'] },
       { toolName: 'switch_context', description: '將上下文儲存切換到另一專案的工作目錄以回憶其記憶／工作階段（遵循 Step 0.7 橫幅的 confirm-first 原則）', parameters: ['target_working_dir_path'] },
       { toolName: 'restore_session_context', description: '唯讀呼叫，一次還原目前專案所有先前工作階段持久化的內容：最新工作階段摘要 + 已儲存計畫 + 上下文項目（自動檢查點收合）+ 記憶事實 + 近期工作階段索引——唯一的「讀取工作階段記憶」入口', parameters: ['include_sessions_index、max_chars（皆為選填）'] },
+      { toolName: 'memory_recall', description: '基於ID的唯讀召回，覆蓋整個記憶體層：mode=index 列出跨上下文條目＋記憶事實＋工作階段的精簡 id/標題/日期列；mode=fetch 為最多10個id回傳完整記錄，並附帶自解釋的未命中原因（summary_never_persisted 屬設計預期）', parameters: ['mode (index|fetch)、kind、limit（僅 index）／ids ≤10、per_item_chars（僅 fetch）'] },
     ],
   },
   vectorRag: {

@@ -152,6 +152,7 @@ export const deTranslations: FullTranslationSet = {
       { toolName: 'search_projects', description: '[VERALTETES Alias von manage_projects(action="search")] Registrierte Projekte per Name- oder Pfad-Teilstring suchen; lazy Registry-Sync registriert automatisch in Session-Memory gefundene Projekte', parameters: ['query, max_results (optional)'] },
       { toolName: 'switch_context', description: 'Kontextspeicher auf das Working Directory eines anderen Projekts umschalten für Memory/Session-Recall (confirm-first gemäß Step 0.7 Banner)', parameters: ['target_working_dir_path'] },
       { toolName: 'restore_session_context', description: 'Stellt in EINEM einzigen schreibgeschützten Aufruf ALLES aus früheren Sessions des aktuellen Projekts wieder her: letzte Sitzungszusammenfassung + gespeicherte Pläne + Konteinträge (Auto-Checkpoints zusammengefasst) + Merknotizen + aktueller Sitzungsindex — der einzige „read session mem“-Einstieg', parameters: ['include_sessions_index, max_chars (beide optional)'] },
+      { toolName: 'memory_recall', description: 'ID-basierter READ-ONLY-Zugriff auf die Memory-Ebene: mode=index listet kompakte id/title/date-Zeilen über Kontexteinträge + Merksätze + Sessions; mode=fetch liefert Voll-Records für bis zu 10 IDs mit selbsterklärenden Fehlersgründen (summary_never_persisted ist designbedingt erwartet)', parameters: ['mode (index|fetch), kind, limit (nur index) / ids ≤10, per_item_chars (nur fetch)'] },
     ],
   },
   vectorRag: {

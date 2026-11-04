@@ -152,6 +152,7 @@ export const esTranslations: FullTranslationSet = {
       { toolName: 'search_projects', description: '[ALIAS OBSOLETO de manage_projects(action="search")] Busca proyectos registrados por nombre o subcadena de ruta; la sincronización perezosa del registro auto-registra proyectos encontrados en memoria de sesión', parameters: ['query, max_results (opcional)'] },
       { toolName: 'switch_context', description: 'Cambia el almacenamiento de contexto al directorio de trabajo de otro proyecto para recordar memoria/sesiones (confirm-first según banner Step 0.7)', parameters: ['target_working_dir_path'] },
       { toolName: 'restore_session_context', description: 'Restaura TODO lo persistido de sesiones anteriores del proyecto actual en UNA sola llamada de solo lectura: último resumen de sesión + planes persistidos + entradas de contexto (puntos de control automáticos agrupados) + hechos memorizados + índice de sesiones recientes — el único punto de entrada "read session mem"', parameters: ['include_sessions_index, max_chars (ambos opcionales)'] },
+      { toolName: 'memory_recall', description: 'Recuerdo READ-ONLY basado en ID sobre la capa de memoria: mode=index lista filas compactas id/título/fecha de entradas de contexto + hechos memorizados + sesiones; mode=fetch devuelve registros completos para hasta 10 ids con motivos de fallo autoexplicativos (summary_never_persisted es esperado por diseño)', parameters: ['mode (index|fetch), kind, limit (solo index) / ids ≤10, per_item_chars (solo fetch)'] },
     ],
   },
   vectorRag: {

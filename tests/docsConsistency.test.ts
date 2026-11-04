@@ -57,6 +57,7 @@ import { registerRefactorCodeTools } from '../src/tools/refactorCodeTools';
 import { registerRagTools } from '../src/tools/vectorRagTools';
 import { registerRepeatToolReminderTools } from '../src/tools/repeatToolReminderTools';
 import { registerRestoreFromBakTools } from '../src/tools/restoreFromBak';
+import { registerMemoryRecallTool } from '../src/tools/memoryRecallTool'; // MEMORY-RECALL (03.11) — rides the contextManagementTools pin below
 import { registerRestoreSessionContextTool } from '../src/tools/restoreSessionContextTool';
 import { registerTaskPlanningTools } from '../src/tools/taskPlanningTools';
 import { registerTextProcessingTools } from '../src/tools/textProcessingTools';
@@ -78,8 +79,8 @@ interface ModulePin { id: string; register: () => Tool[]; names?: Set<string> }
 const MODULES: ModulePin[] = [
   { id: 'backgroundCommandTools', register: () => registerBackgroundCommandTools(PIN_CONFIG, bgm()) },
   { id: 'browserAutomationTools', register: () => registerBrowserTools(PIN_CONFIG) },
-  // contextManagement hosts TWO factories in the provider (memory family + composite resume tool) — one module pin.
-  { id: 'contextManagementTools', register: () => [...registerContextManagementTools(PIN_CONFIG, sm()), ...registerRestoreSessionContextTool(PIN_CONFIG, sm())] },
+  // contextManagement hosts THREE factories in the provider (memory family + composite resume tool + read-only ID-first recall) — one module pin.
+  { id: 'contextManagementTools', register: () => [...registerContextManagementTools(PIN_CONFIG, sm()), ...registerRestoreSessionContextTool(PIN_CONFIG, sm()), ...registerMemoryRecallTool(PIN_CONFIG)] },
   { id: 'databaseTools', register: () => registerDatabaseTools(PIN_CONFIG) },
   { id: 'documentTools', register: () => registerDocumentTools(PIN_CONFIG) },
   // The `utility` config key hosts six modules in the provider — registered as individual pins so doc boundaries can attribute tools per doc.
@@ -119,7 +120,7 @@ const TR_BOUNDARIES: Array<{ label: string; names: string[] }> = [
   { label: 'Image Processing', names: ['image_to_text','describe_image','screenshot_desktop','compare_images'] },
   { label: 'Vector RAG', names: ['rag_index_files','rag_query_vector','rag_clear_index','rag_web_content','rag_index_pdf','rag_index_docx','rag_index_xlsx'] },
   { label: 'UI Generation', names: ['generate_ui_component','render_and_preview_ui','extract_ui_data'] },
-  { label: 'Context Management', names: ['auto_summarize_context','get_context_memory','search_context','context_summary','delete_context_entry','clear_context_memory','track_important_event','save_session_summary','get_session_summary','save_memory','get_memory','delete_memory','list_sessions','search_sessions','clear_session_index','manage_projects','register_project','get_project_info','list_projects','search_projects','switch_context','restore_session_context'] },
+  { label: 'Context Management', names: ['auto_summarize_context','get_context_memory','search_context','context_summary','delete_context_entry','clear_context_memory','track_important_event','save_session_summary','get_session_summary','save_memory','get_memory','delete_memory','list_sessions','search_sessions','clear_session_index','manage_projects','register_project','get_project_info','list_projects','search_projects','switch_context','restore_session_context','memory_recall'] },
   { label: 'Text Processing', names: ['text_transform','text_extract','markdown_table_gen'] },
   // §Backup & Restore declares "6 rows below" (re-audit 28.09) — `restore_from_bak` documented there, its sibling
   // `list_available_bak_backups` in the Data-Viz section instead (boundary split = docs' own, not this test's).
@@ -139,7 +140,7 @@ const RM_BOUNDARIES: Array<{ label: string; names: string[] }> = [
   { label: 'Text Processing', names: ['text_transform','text_extract','markdown_table_gen'] },
   { label: 'Task Planning', names: ['create_plan','get_plan','update_plan_step','remove_plan'] },
   { label: 'Execution', names: ['run_javascript','run_python','execute_command','run_in_terminal','run_tests'] },
-  { label: 'Context & Memory', names: ['auto_summarize_context','get_context_memory','search_context','context_summary','delete_context_entry','clear_context_memory','track_important_event','save_session_summary','get_session_summary','save_memory','get_memory','delete_memory','list_sessions','search_sessions','clear_session_index','manage_projects','register_project','get_project_info','list_projects','search_projects','switch_context','restore_session_context'] },
+  { label: 'Context & Memory', names: ['auto_summarize_context','get_context_memory','search_context','context_summary','delete_context_entry','clear_context_memory','track_important_event','save_session_summary','get_session_summary','save_memory','get_memory','delete_memory','list_sessions','search_sessions','clear_session_index','manage_projects','register_project','get_project_info','list_projects','search_projects','switch_context','restore_session_context','memory_recall'] },
   { label: 'Vector RAG', names: ['rag_index_files','rag_query_vector','rag_clear_index','rag_web_content','rag_index_pdf','rag_index_docx','rag_index_xlsx'] },
   // README "Backup & Restore" = 5 (does NOT count restore_from_bak in its row — that tool's doc home is TOOLS_REFERENCE §Backup & Restore).
   { label: 'Backup & Restore', names: ['create_backup','list_backups','restore_backup','delete_backup','cleanup_backups'] },

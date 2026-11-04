@@ -277,6 +277,7 @@ The `isSafeRegex()` function in `src/security.ts` performs precise pattern analy
 
 ### Secure Defaults
 All dangerous tool categories are **disabled by default**:
+
 | Category | Default State |
 |----------|--------------|
 | `browserAutomation` | `false` |
@@ -526,6 +527,7 @@ This two-layer approach eliminates the clarification loop:
 
 #### 2. ✅ Full Async Conversion (9 Modules)
 All previously synchronous file-write tools converted to async with shared `atomicWrite`:
+
 | Module | Tools Affected | Write Pattern |
 |--------|---------------|---------------|
 | `lineOperations.ts` — REMOVED 23.09 NEXT-REV | delete_lines [deleted]; line_operations already lived in textProcessingTools.ts (prior attribution here was incorrect) | async → atomicWrite |

@@ -84,6 +84,7 @@ await fs.rename(tempFile, originalPath);          // Atomic rename (survives cra
 
 #### Converted Modules (v1.9.7)
 All 9 modules converted from sync writes to async atomic pattern:
+
 | Module | Tools | Pattern |
 |--------|-------|---------|
 | `lineOperations.ts` — REMOVED 23.09 NEXT-REV | delete_lines [deleted]; line_operations already lived in textProcessingTools.ts (prior attribution here was incorrect) | async → atomicWrite |
@@ -395,7 +396,7 @@ The `src/tools/recodeTool/` module implements a pluggable rule engine for advanc
 
 ---
 
-## 🧠 Context Management (22 — incl. composite `restore_session_context`, 25.09; re-counted in the 28.09 full re-audit: the Session-Index/Project-Registry sub-table lists 9 rows, not 8)
+## 🧠 Context Management (23 — incl. composite `restore_session_context`, 25.09; re-counted in the 28.09 full re-audit: the Session-Index/Project-Registry sub-table lists 9 rows, not 8; +1 read-only ID-first recall tool `memory_recall` added 03.11)
 
 **Note (re-audit 28.09)**: The five memory tools (`save_session_summary`, `get_session_summary`, `save_memory`, `get_memory`, `delete_memory`) are registered EXACTLY ONCE — in `contextManagementTools.ts` under the contextManagement key — and documented here; their former Utilities-section rows were stale duplicates (see §Utilities dead-status note).
 
@@ -413,6 +414,7 @@ The `src/tools/recodeTool/` module implements a pluggable rule engine for advanc
 | `save_memory` | Persist facts to `.ai_toolbox_memory.msgpack` MessagePack binary for cross-session continuity |
 | `get_memory` | Retrieve all saved memory entries with optional type filtering and result limits |
 | `delete_memory` | Remove specific memory entry by unique ID returned during save operations |
+| `memory_recall` | READ-ONLY, ID-first recall over the memory layer (added 03.11): `mode="index"` lists compact `{id, kind, type, title≤80, date, age_days, est_detail_chars}` rows across context entries + memory facts + sessions index; `mode="fetch"` returns full records for ≤10 ids with self-describing misses (`not_found.reason` ∈ no_such_entry / expired_session_ttl / summary_never_persisted — the last is EXPECTED by design: only the LATEST session summary persists, P0-FIX) |
 
 ### Session Index & Project Registry (added in v1.9.8+)
 

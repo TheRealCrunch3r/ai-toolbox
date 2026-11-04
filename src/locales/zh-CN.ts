@@ -152,6 +152,7 @@ export const zhCNTranslations: FullTranslationSet = {
       { toolName: 'search_projects', description: '[已弃用的 manage_projects(action="search") 别名] 按名称或路径子串搜索已注册项目；惰性注册表同步会自动注册在会话记忆中发现的项目', parameters: ['query, max_results（可选）'] },
       { toolName: 'switch_context', description: '将上下文存储切换到另一项目的工作目录以回忆其记忆/会话（遵循 Step 0.7 横幅的 confirm-first 原则）', parameters: ['target_working_dir_path'] },
       { toolName: 'restore_session_context', description: '只读调用，一次性恢复当前项目所有先前会话持久化的内容：最新会话摘要 + 已存计划 + 上下文条目（自动检查点折叠）+ 记忆事实 + 近期会话索引——唯一的"读取会话记忆"入口', parameters: ['include_sessions_index、max_chars（均可选）'] },
+      { toolName: 'memory_recall', description: '基于ID的只读召回，覆盖整个内存层：mode=index 列出跨上下文条目＋记忆事实＋会话的紧凑 id/标题/日期行；mode=fetch 为最多10个id返回完整记录，并附带自解释的未命中原因（summary_never_persisted 属设计预期）', parameters: ['mode (index|fetch)、kind、limit（仅 index）／ids ≤10、per_item_chars（仅 fetch）'] },
     ],
   },
   vectorRag: {

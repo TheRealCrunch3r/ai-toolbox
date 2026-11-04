@@ -1061,6 +1061,7 @@ During initial development cycles, an alternative approach was explored: fetchin
 - **No Graceful Degradation**: Unlike the native history API path (which always succeeds as long as a model is loaded), the REST API introduces an external network dependency that can fail independently of plugin logic — breaking deterministic behavior.
 
 **Why Native History API + Empirical Ratio Wins:**
+
 | Criterion | REST API Approach | Native History API × 0.24 |
 |-----------|-------------------|----------------------------|
 | **Reliability** | Fails if server port/availability changes | Always succeeds via LM Studio's native history API (`getLength()`, `at(i)`) |

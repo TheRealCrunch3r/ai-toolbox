@@ -152,6 +152,7 @@ export const enTranslations: FullTranslationSet = {
       { toolName: 'search_projects', description: '[DEPRECATED alias of manage_projects(action="search")] Search registered projects by name or path substring; lazy registry sync auto-registers projects found in session memory', parameters: ['query, max_results (optional)'] },
       { toolName: 'switch_context', description: 'Switch context storage to another project\'s working directory for memory/session recall (confirm-first per Step 0.7 banner)', parameters: ['target_working_dir_path'] },
       { toolName: 'restore_session_context', description: 'Restore EVERYTHING persisted from previous sessions of the current project in ONE read-only call: latest session summary + persisted plans + context entries (auto-checkpoints collapsed) + memory facts + recent-sessions index — the single "read session mem" entry point', parameters: ['include_sessions_index, max_chars (both optional)'] },
+      { toolName: 'memory_recall', description: 'ID-first READ-ONLY recall over the memory layer: mode=index lists compact id/title/date rows across context entries + memory facts + sessions; mode=fetch returns full records for up to 10 ids with self-describing miss reasons (summary_never_persisted is expected by design)', parameters: ['mode (index|fetch), kind, limit (index only) / ids ≤10, per_item_chars (fetch only)'] },
     ],
   },
   vectorRag: {

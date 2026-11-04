@@ -38,6 +38,8 @@ import { registerWebResearchTools } from './tools/webResearchTools.js';
 import { registerRepeatToolReminderTools } from './tools/repeatToolReminderTools.js';
 // RESTORE-SESSION-CONTEXT (25.09): composite read-only "read session mem" bootstrap tool — rides the contextManagement toggle with the memory family.
 import { registerRestoreSessionContextTool } from './tools/restoreSessionContextTool.js';
+// MEMORY-RECALL (03.11): read-only ID-first recall (mode=index/fetch) over context entries + memory facts + sessions index; additive, no StateManager dependency.
+import { registerMemoryRecallTool } from './tools/memoryRecallTool.js';
 // Static import (NOT dynamic): the CJS Jest transform cannot resolve `await import(...)`
 // without --experimental-vm-modules (throws ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING_FLAG).
 // jest.config.cjs already maps './toolsSchemaMinifier.js' -> src/toolsSchemaMinifier.ts,
@@ -277,6 +279,8 @@ export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[
     { key: 'contextManagement', register: () => registerContextManagementTools(config, stateManager) },
     // RESTORE-SESSION-CONTEXT (25.09): composite resume read (summary + plans + context + facts + sessions index); shares the memory-family toggle and StateManager instance.
     { key: 'contextManagement', register: () => registerRestoreSessionContextTool(config, stateManager) },
+    // MEMORY-RECALL (03.11): read-only ID-first recall (index/fetch); rides the contextManagement toggle with the memory family — pure raw-decode reads, no StateManager instance needed.
+    { key: 'contextManagement', register: () => registerMemoryRecallTool(config) },
     { key: 'databaseQueries', register: () => registerDatabaseTools(config) },
     { key: 'documentParsing', register: () => registerDocumentTools(config) },
     
