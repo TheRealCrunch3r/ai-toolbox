@@ -1,6 +1,12 @@
-# Changelog — ai_toolbox v1.9.22
+# Changelog — ai_toolbox v1.9.23
 
-> Supersedes `CHANGELOG_v4.md`. Active changelog for version 1.9.22.
+> Supersedes `CHANGELOG_v4.md`. Active changelog for version 1.9.23.
+
+### [04.11.2026 ~18:3x] — v1.9.23 version move + full docs re-stamp to live canon **82 suites / 1216 tests** (memory_recall release window)
+
+**Scope:** Version move v1.9.22 → **v1.9.23**, owner-GO'd ("Version bump auf 1.9.23, dann Alle MD files updaten komplett"): `package.json` · `manifest.json` (`revision: 0` holds per house precedent) · `package-lock.json` (both `"version"` lines) · `.VERSION` (v-prefixed, never-blank rule) · `LOCAL_VERSION = 'v1.9.23'` in `src/updateChecker.ts`. Full docs sweep to canon **82/1216** — all current-state surfaces re-stamped: six README variants (badge row version+tests ×5 · meta quote ×6 · head-to-head row ×6 · `npm test` pin chain prepended ×6 · new v1.9.23 release-table row per locale incl. owner-local hub-simple), DOCUMENTATION.md (both canon lines) · TOOLS_REFERENCE.md (head chain + Context Management 22→23 from the 03.11 arc) · ARCHITECTURE.md (version stamp + tests/ suite note) · GLOSSARY.md (canon re-stamp chain ×2). Historical artifacts untouched by design: `RELEASE_NOTES.md` + `docs/history/CHANGELOG*.md`.
+**Note:** the 03.11 memory_recall change set shipped LIVE in LM Studio two days before this version move (owner-confirmed install, build verified against dist) — v1.9.23 is the formal stamp for that already-shipped surface; runtime delta of THIS window = LOCAL_VERSION baseline only.
+**Verification:** gate chain GREEN in-window — `tsc --noEmit` clean · `eslint src` clean · jest FULL **82 suites / 1216 tests** passed (exact live canon, +18 vs 02.11 pin) · tsup ESM+CJS+DTS build success; zero `.bak` residue after sweep.
 
 ### [02.11.2026 ~17:5x–18:4x] — Option 1: Git/GitHub tooling five-root-cause fix set (CWD seam · porcelain status · -F commit bodies · argv spawn · AD reap) · canon 80/1193 → **81 suites / 1198 tests**
 

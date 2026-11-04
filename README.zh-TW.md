@@ -2,7 +2,7 @@
 <a href="README.md">English</a> · <a href="README.de.md">Deutsch</a> · <a href="README.es.md">Español</a> · <a href="README.zh-CN.md">简体中文</a> · <b>繁體中文</b><br/>
 <h1>AI Toolbox —— 面向 LM Studio 本地 LLM 的一體化自主 AI Agent & 工具外掛</h1><hr/>
 <b>115 個工具、一個外掛、無需雲端。</b> 最完整的 LM Studio Hub 外掛——把任意本地模型變成能幹、自管理的 AI 智能體。<br/>自管理上下文讓馬拉松式會話保持存活 · 一個外掛，零膠水程式碼，預設完全離線。
-<br/><a href="#"><img src="https://img.shields.io/badge/version-v1.9.22-2f80ed?style=plastic" alt="version v1.9.22"/></a> <a href="#the-tool-arsenal-115-tools-across-every-family-all-yours-to-toggle"><img src="https://img.shields.io/badge/tools-115%20ready--made-7c3aed?style=plastic" alt="tools 115 ready-made"/></a> <a href="#quick-start-2-minutes"><img src="https://img.shields.io/badge/tests-81%20suites%20%C2%B7%201198%20green-3fb950?style=plastic" alt="tests 81 suites · 1198 green"/></a> <a href="#"><img src="https://img.shields.io/badge/LM%20Studio-Hub%20plugin-e84393?style=plastic" alt="LM Studio Hub plugin"/></a> <a href="LICENSE"><img src="https://img.shields.io/github/license/TheRealCrunch3r/ai-toolbox?style=plastic" alt="license MIT (live-verified from LICENSE)"/></a> <a href="#"><img src="https://img.shields.io/badge/runtime-Node%20%E2%89%A5%2020-83cd29?style=plastic&logo=node.js" alt="runtime Node ≥ 20"/></a><br/>
+<br/><a href="#"><img src="https://img.shields.io/badge/version-v1.9.23-2f80ed?style=plastic" alt="version v1.9.23"/></a> <a href="#the-tool-arsenal-115-tools-across-every-family-all-yours-to-toggle"><img src="https://img.shields.io/badge/tools-115%20ready--made-7c3aed?style=plastic" alt="tools 115 ready-made"/></a> <a href="#quick-start-2-minutes"><img src="https://img.shields.io/badge/tests-82%20suites%20%C2%B7%201216%20green-3fb950?style=plastic" alt="tests 82 suites · 1216 green"/></a> <a href="#"><img src="https://img.shields.io/badge/LM%20Studio-Hub%20plugin-e84393?style=plastic" alt="LM Studio Hub plugin"/></a> <a href="LICENSE"><img src="https://img.shields.io/github/license/TheRealCrunch3r/ai-toolbox?style=plastic" alt="license MIT (live-verified from LICENSE)"/></a> <a href="#"><img src="https://img.shields.io/badge/runtime-Node%20%E2%89%A5%2020-83cd29?style=plastic&logo=node.js" alt="runtime Node ≥ 20"/></a><br/>
 <b>Docs:</b> <a href="DOCUMENTATION.md">Documentation</a> · <a href="QUICK_START.md">Quick Start</a> · <a href="ARCHITECTURE.md">Architecture</a> · <a href="TOOLS_REFERENCE.md">Tool Reference</a> · <a href="CHANGELOG_v5.md">Changelog</a><br/>
 <a href="CONTRIBUTING.md">Contributing</a> · <a href="SECURITY.md">Security</a><br/>
 <br>
@@ -16,7 +16,7 @@
 
 **115 個工具、一個外掛、無需雲端。** LM Studio Hub 上最完整的外掛 —— 把任意本地模型變成一個有能力、自我管理的 AI Agent，具備安全的檔案編輯、絕不掛起的程式庫搜尋、背景建置、無頭瀏覽器自動化、Git & GitHub 工作流、OCR、圖表產生和語意 RAG；**自管理上下文**讓馬拉松式會話保持存活。一個外掛，零膠水程式碼，預設完全離線。
 
-> `v1.9.22` · `115 個即用工具` · `1198 項測試通過（81 個套件）` · `5 種語言本機化` · `MIT` · `Node 20+`
+> `v1.9.23` · `115 個即用工具` · `1216 項測試通過（82 個套件）` · `5 種語言本機化` · `MIT` · `Node 20+`
 
 > ⚠️ **譯文聲明** —— 本檔案為 [README.md](README.md) 的繁體中文版。英文版為準（canonical），如有出入以 README.md 為準；原文變更時請同步更新本檔案。
 
@@ -61,7 +61,7 @@ Hub 上最接近的直接競爭者：同樣的活兒（給本地 LLM 提供工�
 | ✅ **AST 級重構**（重新命名、移動函式、清理無用 import）—— 語法安全變換帶自動回滾，不是字串編輯 |
 | ✅ **真正的 RAG：** 基於 PDF / DOCX / XLSX 的本機向量索引，帶頁級溯源 —— 不只是關鍵字搜尋 |
 | ✅ **影像與資料視覺化：** 對截圖和螢幕擷取做 OCR、圖片中繼資料 + 對比、圖表產生 |
-| ✅ **115 個工具** vs ~49 —— 由 81 個套件共 1198 項通過的測試支撐 |
+| ✅ **115 個工具** vs ~49 —— 由 82 個套件共 1216 項通過的測試支撐 |
 | ✅ **崩潰 resilient 的寫入 + 失敗回滾：** 一次失敗的編輯永遠不會損毀你的檔案 |
 
 我們此前的 i18n 缺口已關閉：**現在提供 5 種語言**（en · de · es · zh-CN · zh-TW），每種都是完整翻譯集 —— 並且有反 stub 測試守護套件，保證別名/回退語言不會靜默退化。我們寧可直接告訴你，也不假裝它不存在。
@@ -116,7 +116,7 @@ PDF、Word 文件與試算表 → **本機語意向量搜尋**（資料不出你
 ```bash
 # Developing instead of using?
 npm install && npm run build   # ESM + CJS via tsup
-npm test                        # full suite: 81 suites / 1198 tests green (Option-1 window 02.11 — git tooling RC1–RC5 fix set [CWD seam · porcelain status · -F commit bodies · argv spawn · AD reap], owner FULL jest ~18:43; prior canon 80/1193 @ 31.10 [CTX-EST B close-out + LATCH arc commit sweep — owner GO ~19:1x targeted jest, agent in-sandbox full runInBand]; prior canon 79/1182 @ 29.10, owner-gated GREEN on 29.10 ~18:0x — UL-v2 STEP-6 byte-pin arc: new hermetic locale-pinning suite [tests/ulv2BytePin.test.ts], +1 suite / +23 tests, zero drift; prior canon 77/1119 @ 21.10 [update-check arc family + version move v1.9.20 → v1.9.21] · prior canon 74/1064 @ 16.10 [ARC-RESTORE] · 74/1058 @ 15.10 [SESSION-MEMORY ARC-C close-out ~18:2x + density arc], owner-verified 15.10 — SESSION-MEMORY ARC-C gate ~18:2x, then +1 density setter test in the v5 rotation entry with second trio GREEN ~19:3x/~19:52; prior canon 74/1057 @ 15.10 [SESSION-MEMORY ARC-C], 73/1035 @ 14.10 [ARC-B supersede-on-close-out], 73/1031 @ 14.10 [ARC-A + density restore], 72/1026 @ 10.11 [TOKEN-DIVERGENCE], 71/1020 @ 10.10 [TWO-TIER CLOSE-OUT r3] · prior arcs: 68/990 @ 08.10 [LEVER-1], 68/987 @ 07.10 [Arc C sweep — entry unlogged], 65/952 @ 06.10 [DOC-PIN gate] 64/941 @ 06.10 [i18n gate], 64/938 @ 06.10 ×2 [F1 ~16:57 · PLAN-SEAM ~18:0x], 63/931 @ 05.10, 63/930 @ 04.10 ×3, 61/917 @ 04.10, 893/59 @ 02.10, 874/58 @ ~21.5 s on 01.10, 860/56 @ 29.09, 857/56 @ 28.09)
+npm test                        # full suite: 82 suites / 1216 tests green (v1.9.23 release window 04.11 — memory_recall arc [tests/memoryRecall.test.ts, +18] + root-docs MD repair sweep; FULL jest GREEN in-window; prior stamp Option-1 window 02.11 — git tooling RC1–RC5 fix set [CWD seam · porcelain status · -F commit bodies · argv spawn · AD reap], owner FULL jest ~18:43; prior canon 80/1193 @ 31.10 [CTX-EST B close-out + LATCH arc commit sweep — owner GO ~19:1x targeted jest, agent in-sandbox full runInBand]; prior canon 79/1182 @ 29.10, owner-gated GREEN on 29.10 ~18:0x — UL-v2 STEP-6 byte-pin arc: new hermetic locale-pinning suite [tests/ulv2BytePin.test.ts], +1 suite / +23 tests, zero drift; prior canon 77/1119 @ 21.10 [update-check arc family + version move v1.9.20 → v1.9.21] · prior canon 74/1064 @ 16.10 [ARC-RESTORE] · 74/1058 @ 15.10 [SESSION-MEMORY ARC-C close-out ~18:2x + density arc], owner-verified 15.10 — SESSION-MEMORY ARC-C gate ~18:2x, then +1 density setter test in the v5 rotation entry with second trio GREEN ~19:3x/~19:52; prior canon 74/1057 @ 15.10 [SESSION-MEMORY ARC-C], 73/1035 @ 14.10 [ARC-B supersede-on-close-out], 73/1031 @ 14.10 [ARC-A + density restore], 72/1026 @ 10.11 [TOKEN-DIVERGENCE], 71/1020 @ 10.10 [TWO-TIER CLOSE-OUT r3] · prior arcs: 68/990 @ 08.10 [LEVER-1], 68/987 @ 07.10 [Arc C sweep — entry unlogged], 65/952 @ 06.10 [DOC-PIN gate] 64/941 @ 06.10 [i18n gate], 64/938 @ 06.10 ×2 [F1 ~16:57 · PLAN-SEAM ~18:0x], 63/931 @ 05.10, 63/930 @ 04.10 ×3, 61/917 @ 04.10, 893/59 @ 02.10, 874/58 @ ~21.5 s on 01.10, 860/56 @ 29.09, 857/56 @ 28.09)
 ```
 
 ---
@@ -185,6 +185,7 @@ npm test                        # full suite: 81 suites / 1198 tests green (Opti
 
 | 版本 | 頭條 |
 |---|---|
+| **v1.9.23** | 🧠 `memory_recall` 唯讀工具 —— ID-first 之索引/取回，涵蓋上下文條目、記憶事實與工作階段索引（自描述缺失原因；含位元組恆等性釘固之密封測試套件）· 🏷️ 版本遷移 v1.9.22 → **v1.9.23**（owner 04.11 GO；依慣例 manifest rev 0 保持不變）· 📚 全部文件重戳至即時基準 *82 個套件 / 1216 項測試* + MD 根因修復掃掠（五份 README 之多餘 CR 行尾已正規化；四處表格空行斷裂已修正） |
 | **v1.9.22** | 🏷️ 版本遷移發布 —— 關閉 CTX-EST A 弧（owner 於 01.11 GO）—— 共享密度估計器之出處經 qwen3.8-27b-ud 實測探針確認（區間 1.307–1.670 字元/代碼 CONFIRM，`BIAS`/`FLOOR` 值不變；僅註解層差異於 `tokenStatsManager.ts`）· 📚 全部 live 表面文件同步至基準 **80 套件 / 1193 測試** · 🔒 updateChecker 測試強化 —— 針對可變 `LOCAL_VERSION` 的版本字面量改為基準無關（`offsetLocalVersion()`），未來版本遷移無需改動測試 |
 | **v1.9.21** | 📡 更新檢查弧家族（owner 於 19.10 GO，21.10 以 `f108f35` 提交並推送）—— 桌面 toast ↔ 聊天內公告按版本互斥（SPEC A XOR：外掛面板的 "Desktop Notifications" 設定恰好選擇一個介面；無 system.notify 的主機始終回落到聊天）· 🧾 DEFECT #2 — `update-check.json` 不再在代理回合的每個模型步重新寫入（狀態檔案僅在內容變化時觸碰）· 🏷️ HUB .VERSION 源切換 —— 生產環境更新檢查現在讀取已發布的 LM Studio hub `.VERSION` 檔，而非 GitHub `releases/latest`（其從未存在：倉庫匿名 404），通知深鏈到市場頁面；嚴格 shape-1 / 噪聲容忍 shape-2 解析，最壞情況 warn+skip · 🧩 +2 工具，在全部 5 個語言包中保持本地化對齊（utilities）· 版本遷移 v1.9.20 → **v1.9.21** rev 0 —— 基準 **76 suites / 1109 tests**，owner gate 於 21.10 兩次 GREEN，零漂移 |
 | **v1.9.20** | 📦 版本遷移發布 —— 自上次 GitHub 發布（rev 30，15.09）以來的 rev-3x 積壓在一次性遷移中合併：會話記憶弧 A/B/C 收尾（TTL 生命週期 + 收尾時取代 + 索引去重/工件剝離）、固定 95% 的搶先中段循環壓縮與使用者可見閾值通知、工具循環期間的 tier-2 強制保存、可測量 token 估算器（`AGENTIC_CHARS_PER_TOKEN` 3.2 → 使用者可編輯 3.6）· 🔍 FIX-35c 防掛起 ReDoS 門禁 + pattern_scan WALK-ABORT（28.09，已歸檔至 CHANGELOG_v3）· 基準 **74 suites / 1064 tests** — 15.10 owner gate 兩次 GREEN |

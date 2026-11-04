@@ -256,7 +256,8 @@ describe('NOTIF-DEDUPE (19.10 E2E): per-version notify latch — the host re-inv
 
   test('provider-style repeat calls (one per model step) → notify exactly ONCE for the same release', async () => {
     // Simulate what toolsProvider does on each invocation: evaluate, latch-before-await, then notify (host hop faked).
-    // (01.11 v1.9.22) was the literal 'v1.9.22' — pinned "one above" the then-current LOCAL_VERSION 'v1.9.21'; now EQUAL to current → getUpdateStatus() correctly quiet, latch never armed
+    // (01.11 v1.9.22) was the literal 'v1.9.22' — pinned "one above" the then-current LOCAL_VERSION 'v1.9.21'; post 04.11 move to v1.9.23 that
+    // literal sits BELOW current (older → quiet by construction), while offsetLocalVersion(+1) stays strictly newer by derivation regardless of bumps
     const releaseUnderTest = `v${offsetLocalVersion(+1)}`; // strictly newer than LOCAL_VERSION by construction
     globalThis.fetch = jest.fn().mockResolvedValue(fakeVersionResponse(releaseUnderTest)) as unknown as typeof fetch;
 
