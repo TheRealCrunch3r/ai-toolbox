@@ -12,8 +12,9 @@
  *      behavior — the map itself is module-private) === uiLabelBake.SHIPPED_UI_CODES (via mapConfiguredUiLanguage, also
  *      module-private) === buildConfigSchematics() language-row option values. Canonical: en/de/es/zh-CN/zh-TW (+auto).
  *   2. EN FULL-SCHEMATICS BYTE PIN — buildConfigSchematics() (plain EN literals) vs buildConfigSchematics(getUiLabels('en'))
- *      (baked from the en bundle): every one of the 62 field entries must be byte-identical (displayName/subtitle/hint/
- *      options/placeholders/constraints + valueTypeKey + defaultValue). CRITICAL SHAPE FACT: .build() returns a runtime
+ *      (baked from the en bundle): every one of the 67 field entries must be byte-identical (displayName/subtitle/hint/
+ *      options/placeholders/constraints + valueTypeKey + defaultValue). Surface grew 62→67 in Budget-Guard-Arc (five FLAT
+ *      host-facing keys; nested budgetGuard block deliberately NOT a schematics/UI field). CRITICAL SHAPE FACT: .build() returns a runtime
  *      object whose `fields` is a REAL JS Map(62) — iterate Map.entries() explicitly; JSON.stringify of the whole object
  *      alone would be vacuous, so every assertion below walks entries field by field.
  *   3. OPTION-SET PINS — languageRow (auto/en/de/es/zh-CN/zh-TW), safesearch ('0'/'1'/'2'), dateFormatStyle
@@ -53,7 +54,7 @@ const CANONICAL_CODES: readonly LanguageCode[] = ['en', 'de', 'es', 'zh-CN', 'zh
 
 // The runtime shape of buildConfigSchematics().build() — verified against @lmstudio/sdk@1.5 (KVConfigSchematics):
 // { valueTypeLibrary, fields: Map<string, {valueTypeKey, valueTypeParams, schema, fullKey, defaultValue}>, extensionPrefixes }.
-// `fields` is a REAL JS Map (62 entries) — the SDK exposes no plain-object accessor our pins may rely on.
+// `fields` is a REAL JS Map (67 entries post-Budget-Guard-Arc; 62 pre-arc) — the SDK exposes no plain-object accessor our pins may rely on.
 interface SchematicFieldEntry {
   valueTypeKey: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -81,6 +82,10 @@ function languageEnumValues(shape: unknown): readonly string[] | undefined {
 }
 
 // Canonical settings-panel surface: every config key that appears in buildConfigSchematics(), in builder order.
+// Budget-Guard-Arc (05.11 Triage): surface grew 62 → 67 — the five FLAT host-facing budgetGuard keys registered in
+// buildConfigSchematics() directly after 'autoSummaryInterval' (builder position preserved; the nested consumer block is
+// deliberately NOT a schematics/UI field). Since the 06.11 i18n wiring (owner rule "alle Tool-Beschreibungen IMMER übersetzt")
+// the five FLAT keys ALSO carry UiLabels entries, so EXPECTED_UI_LABEL_KEYS grew 59→64.
 const EXPECTED_FIELD_KEYS = [
   'language',
   'godMode',
@@ -144,6 +149,12 @@ const EXPECTED_FIELD_KEYS = [
   'autoTrackCompletions',
   'autoTrackErrors',
   'autoSummaryInterval',
+  // Budget-Guard-Arc (05.11): five FLAT host-facing keys — builder position = directly after autoSummaryInterval in buildConfigSchematics()
+  'budgetGuardEnabled',
+  'budgetGuardAdvisoryThresholdPct',
+  'budgetGuardSpillThresholdPct',
+  'budgetGuardAutopauseThresholdPct',
+  'budgetGuardSafetyMarginPct',
 ] as const;
 
 // Canonical uiLabels key set = every config field that carries panel labels (UiLabels, types.ts) — languageRow is the menu row.
@@ -209,6 +220,13 @@ const EXPECTED_UI_LABEL_KEYS = [
   'autoTrackCompletions',
   'autoTrackErrors',
   'autoSummaryInterval',
+  // Budget-Guard-Arc i18n wiring (06.11, owner rule "alle Tool-Beschreibungen IMMER übersetzt"): the five flat keys gained
+  // UiLabels entries in all five bundles — set grew 59→64 (builder-position invariant for EXPECTED_FIELD_KEYS unchanged).
+  'budgetGuardEnabled',
+  'budgetGuardAdvisoryThresholdPct',
+  'budgetGuardSpillThresholdPct',
+  'budgetGuardAutopauseThresholdPct',
+  'budgetGuardSafetyMarginPct',
 ] as const;
 
 const EXPECTED_RUNTIME_TEXT_KEYS = [
@@ -334,8 +352,9 @@ describe('UL-v2 step 6 — EN full-schematics byte pin (plain literals vs en-bun
   const fieldsPlain = builtFields(builtPlain);
   const fieldsBaked = builtFields(builtBaked);
 
-  test('field-surface pin: exactly the canonical 62 keys, builder order preserved, no extensions registered', () => {
-    expect(fieldsPlain.size).toBe(EXPECTED_FIELD_KEYS.length); // Map(62) — size itself is a drift guard
+  test('field-surface pin: exactly the canonical 67 keys, builder order preserved, no extensions registered', () => {
+    expect(EXPECTED_FIELD_KEYS).toHaveLength(67); // literal pin on THIS list (drift guard, cf. EXPECTED_UI_LABEL_KEYS 59-pin) — Budget-Guard-Arc grew the surface 62→67
+    expect(fieldsPlain.size).toBe(EXPECTED_FIELD_KEYS.length); // Map(67) — size itself is a drift guard
     const plainKeys = [...fieldsPlain.keys()];
     expect(plainKeys).toEqual([...EXPECTED_FIELD_KEYS]);
     expect(builtFields(builtBaked)).toBeDefined();
@@ -534,8 +553,8 @@ describe('UL-v2 step 6 — RuntimeTexts pins (S1–S6 + RAG + answerLanguageLine
 // ─────────────────────────────── uiLabels key-set + parity pins ───────────────────────────────
 
 describe('UL-v2 step 6 — UiLabels key sets & cross-locale structure', () => {
-  test('every locale bundle carries exactly the canonical uiLabels key set (59 fields incl. languageRow)', () => {
-    expect(EXPECTED_UI_LABEL_KEYS).toHaveLength(59); // drift guard on THIS list as much as on the bundles
+  test('every locale bundle carries exactly the canonical uiLabels key set (64 fields incl. languageRow — 59 + five budgetGuard keys since 06.11 i18n wiring)', () => {
+    expect(EXPECTED_UI_LABEL_KEYS).toHaveLength(64); // drift guard on THIS list as much as on the bundles
     for (const set of Object.values(LOCALE_SETS)) {
       const keys = Object.keys(set.uiLabels).sort();
       expect(keys).toEqual([...EXPECTED_UI_LABEL_KEYS].sort());

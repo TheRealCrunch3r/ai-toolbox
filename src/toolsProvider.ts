@@ -69,6 +69,9 @@ import { resetToolGuard } from './utils/withPipeline.js';
 import { repeatReminder } from './utils/repeatToolReminder.js';
 // Spill pattern A — immediate inline spill for oversized results
 import { spillTextIfNeeded } from './utils/toolPayloadSpill.js';
+// Budget-Guard-Arc M2 (05.11, owner GO 04.11): budget-aware spill cap + self-describing marker — the FOURTH consumer of this wrapper's
+// shared projection (CTX-FOOTER / tier-2 / FIX-B are consumers 1–3); pure decision from src/budgetGuard.ts, no shared-state mutation.
+import { evaluateBudgetSpill, buildBudgetSpillMarker, resolveAutopauseThresholdPct, buildBudgetAutoPersistMarker } from './budgetGuard.js'; // + M3 (05.11): auto-persist threshold resolution & marker for the wrapper's session-scoped autopause rung
 
 // Cluster-aware tool ordering (18.09): wires src/tools/toolPriority.ts into production — see CHANGELOG_v2 18.09 entry.
 import type { HubExclusionResult } from './utils/hubExclusionClustering.js';
@@ -132,6 +135,21 @@ let forcedSaveFiredThisTurn = false;
 /** Test hook: re-arm the once-per-turn forced-save flag (module state would otherwise leak across suites). */
 export function resetForcedSaveFlagForTests(): void {
   forcedSaveFiredThisTurn = false;
+}
+
+/** Budget-Guard-Arc M3 (05.11, owner GO 04.11): SESSION-scoped one-shot for the auto-persist at the autopause edge
+ * (~85 % of the window) — once the automatic session-memory checkpoint has fired (or been attempted), no later tool
+ * result may fire it again in this process: max ONE Arc-C regeneration per session, then only footer escalation
+ * (RESEARCH_budget-guard.md §M3 "Offen" point, resolved by the 04.11 spike order — save-loop avoidance). DELIBERATELY NOT
+ * reset at toolsProvider() entry — unlike forcedSaveFiredThisTurn / midLoopCompactionFiredThisTurn above: this latch is
+ * per SESSION (= plugin process lifetime; a fresh LM Studio session reloads the module and starts un-latched), not per
+ * turn. A new chat within one app session does NOT re-arm it — by design (M3 is insurance: at most one expensive
+ * regeneration until reload). Reset ONLY via resetAutoPersistFlagForTests() below (hermetic suites). */
+let autoPersistFiredThisSession = false;
+
+/** Test hook (mirrors resetForcedSaveFlagForTests): re-arm the once-per-session M3 auto-persist latch. */
+export function resetAutoPersistFlagForTests(): void {
+  autoPersistFiredThisSession = false;
 }
 
 // ==================== FIX B (09.10, owner GO): pre-emptive mid-loop compression at ~95% ====================
@@ -254,6 +272,18 @@ export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[
     clusterAwareToolOrder: pluginConfig.get('clusterAwareToolOrder'),
     compactionEnabled: pluginConfig.get('compactionEnabled'), // C compaction family (24.09) — exhaustive-literal completeness after config.ts schema extension
     compactionMaxResultBytes: pluginConfig.get('compactionMaxResultBytes'),
+    budgetGuardEnabled: pluginConfig.get('budgetGuardEnabled'), // Budget-Guard-Arc (05.11) flat host-facing keys — assembled into the nested block below
+    budgetGuardAdvisoryThresholdPct: pluginConfig.get('budgetGuardAdvisoryThresholdPct'),
+    budgetGuardSpillThresholdPct: pluginConfig.get('budgetGuardSpillThresholdPct'),
+    budgetGuardAutopauseThresholdPct: pluginConfig.get('budgetGuardAutopauseThresholdPct'),
+    budgetGuardSafetyMarginPct: pluginConfig.get('budgetGuardSafetyMarginPct'),
+    budgetGuard: { // Budget-Guard-Arc (05.11): host-facing FLAT schematics keys → nested block per plan step 5;
+      enabled: pluginConfig.get('budgetGuardEnabled'),
+      advisory_threshold_pct: pluginConfig.get('budgetGuardAdvisoryThresholdPct'),
+      spill_threshold_pct: pluginConfig.get('budgetGuardSpillThresholdPct'),
+      autopause_threshold_pct: pluginConfig.get('budgetGuardAutopauseThresholdPct'),
+      safety_margin_pct: pluginConfig.get('budgetGuardSafetyMarginPct'),
+    }, // consumed by the read-tool pre-call gate (M1) and, from step 3 on, the wrapper spill cap (M2)
     contextUsageFooter: pluginConfig.get('contextUsageFooter'), // LLM-side limit awareness (02.10; widened 03.10 per option B): usage footer — appended to strings + additive ctx_footer field on plain objects, gated at 50% window usage
   };
 
@@ -425,8 +455,23 @@ export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[
         // A spill pattern — immediate inline spill for oversized string results
         if (config.compactionEnabled !== false && typeof result === 'string') {
           // Use compaction max bytes config as spill threshold
-          const maxBytes = typeof config.compactionMaxResultBytes === 'number' && config.compactionMaxResultBytes > 0 ? config.compactionMaxResultBytes : 16 * 1024;
-          result = await spillTextIfNeeded(result, maxBytes);
+          const absoluteMaxBytes = typeof config.compactionMaxResultBytes === 'number' && config.compactionMaxResultBytes > 0 ? config.compactionMaxResultBytes : 16 * 1024;
+          // M2 Budget-aware Spill (Budget-Guard-Arc, owner GO 04.11) — the wrapper's shared projection gets a FOURTH consumer here:
+          // when it would cross limit×(1−safety_margin_pct/100), cap this inline spill at a budget-relative char count so the
+          // post-spill preview still fits inside the remaining budget. The STRICTER bound wins (absolute cap vs. budgetChars); the full
+          // payload is stored verbatim on disk by spillTextIfNeeded() either way — M2 only tightens the preview and stamps a self-
+          // describing 'SPILLED by budget guard' marker. Pure decision from src/budgetGuard.ts (no shared-state mutation); when the gate
+          // doesn't fire, or before the first preprocess() publishes baseline/limit, the legacy absolute-cap path runs byte-identically.
+          const spillDecision = evaluateBudgetSpill({ payloadChars: result.length, toolName: raw.name }, { config });
+          let spillMaxBytes = absoluteMaxBytes;
+          let spillReason: string | undefined;
+          if (spillDecision.shouldBudgetSpill) {
+            // UTF-8 worst case ≤ 4 bytes per char — never over-reserve the byte budget.
+            const budgetBytes = Math.max(1024, Math.floor((spillDecision.budgetChars ?? 0) * 4));
+            spillMaxBytes = Math.min(absoluteMaxBytes, budgetBytes); // STRICTER bound wins (plan step 3 / spike order 04.11)
+            spillReason = buildBudgetSpillMarker(spillDecision, config);
+          }
+          result = await spillTextIfNeeded(result, spillMaxBytes, spillReason);
         }
       } finally {
         TokenStatsManager.endToolCall(raw.name);
@@ -567,6 +612,52 @@ export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[
                   && projected >= (limit * percent / 100)) {
             // One-shot FAIL-LOUD skip log per transition (the module-level flag resets on clear/set, so later model steps stay silent instead of re-spending the pipeline or repeating this line).
             TokenStatsManager.logUnrecoverableSkip('tier2');
+          }
+
+          // ==================== Budget-Guard-Arc M3 (05.11, owner GO 04.11): auto-persist session memory at the autopause edge (~85 %) ====================
+          // Insurance rung of the arc — deliberately BELOW tier-2's user-configured forced save (~90 %) and FIX B's fixed pre-emptive
+          // compression (95 %), placed after both blocks: when the shared projection crosses limit×(autopause_threshold_pct/100) ONE structured
+          // session-continuity summary is persisted AUTOMATICALLY so context loss can never happen without a trail. Same Arc-C machinery as
+          // tier-2's sibling above (generateSessionContinuity over everything EXCEPT keepLast(10) + the canonical persistGeneratedSessionSummary
+          // writer path); M3 adds the self-describing `auto_saved=true` marker on task_description so the NEXT restore_session_context dossier
+          // shows it as its own note. Latch BEFORE the first await (a throw/failure must not re-arm), and UNLIKE tier-2/FIX-B latches this one is
+          // SESSION-scoped: it does NOT reset at toolsProvider() entry — max ONE regeneration per session, then only footer escalation
+          // (save-loop avoidance). Master-switch gated on budgetGuard.enabled === true; with the default OFF config this whole block is dead
+          // code and behavior stays byte-identical legacy. The 85/90/95 rung order above stays intact — M3 checkpoints, it caps nothing
+          // and never compresses. Non-fatal by house rule: any failure must never break or delay a successful tool result.
+          const autopausePct = resolveAutopauseThresholdPct(config);
+          if (!autoPersistFiredThisSession
+              && config.budgetGuard?.enabled === true
+              && limit > 0
+              && projected >= (limit * autopausePct / 100)) {
+            autoPersistFiredThisSession = true; // latch BEFORE the first await: a throw or failure must not re-arm mid-session
+            const m3Guard = getContextGetter();
+            if (m3Guard !== null && typeof m3Guard.generateSessionContinuity === 'function') {
+              try {
+                const turnMessagesM3 = TokenStatsManager.getTurnMessages() ?? [];
+                // keepLast=10 exclusion on the CALLER side — same slice(0,-keepLast) contract as tier-2's sibling above (FIX #21 gate-5).
+                const toSummarizeM3 = turnMessagesM3.slice(0, Math.max(0, turnMessagesM3.length - 10));
+                if (toSummarizeM3.length >= 10) {
+                  await autoTracker.flushActionsToMemory(); // buffered actions land in the store before the summary spans them (PART B parity)
+                  const m3Summary = await m3Guard.generateSessionContinuity(toSummarizeM3);
+                  if (m3Summary && typeof m3Summary.task_description === 'string') {
+                    // Self-describing marker FIRST (restore dossiers surface task_description first): the NEXT restore_session_context shows this save as its own note.
+                    m3Summary.task_description = buildBudgetAutoPersistMarker(autopausePct, projected, limit) + m3Summary.task_description;
+                    const persistM3 = await persistGeneratedSessionSummary(m3Summary);
+                    console.log(persistM3.saved
+                      ? `[AI Toolbox] [M3-AUTOSAVE] ✅ Session summary auto-persisted at ~${Math.round(projected).toLocaleString('en-US')} tok (≥ ${autopausePct}% autopause edge of ${limit.toLocaleString('en-US')}) — one-shot for this session`
+                      : `[AI Toolbox] [M3-AUTOSAVE] ⚠️ Continuity summary generated but persistence failed (${persistM3.error ?? 'unknown'}) — telemetry only; latch holds (no re-fire)`);
+                  } else {
+                    console.warn('[AI Toolbox] [M3-AUTOSAVE] No structured continuity summary available (no usable model) — auto-persist skipped, latch holds');
+                  }
+                } else {
+                  console.log(`[AI Toolbox] [M3-AUTOSAVE] Autopause edge crossed but published turn list leaves <10 messages to summarize after the last-10 exclusion — nothing summarizable yet; one-shot latch holds (no re-fire this session)`);
+                }
+              } catch (m3Err) {
+                // Non-fatal by house rule: a checkpoint failure must never break or delay a successful tool call.
+                console.warn(`[AI Toolbox] [M3-AUTOSAVE] Mid-loop auto-persist failed (non-fatal): ${m3Err instanceof Error ? m3Err.message : String(m3Err)}`);
+              }
+            } // else: guard not yet constructed (null) or a stub without the method — deterministic skip (tests / pre-startup window; tier-2 covers later runs)
           }
 
           // FIX B (09.10, owner GO — pre-emptive mid-loop compression): when the shared projection crosses PREEMPTIVE_COMPRESSION_PERCENT

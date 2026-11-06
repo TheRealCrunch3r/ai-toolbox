@@ -325,6 +325,12 @@ export const enTranslations: FullTranslationSet = {
     autoTrackCompletions: { displayName: '✅ Track Completions Automatically', subtitle: '⚙️ Auto-Tracking Setting', hint: 'Detects phrases like "successfully completed", "finished implementing".' },
     autoTrackErrors: { displayName: '🐛 Track Bug Fixes Automatically', subtitle: '⚙️ Auto-Tracking Setting', hint: 'Detects phrases like "fixed the bug", "resolved the issue".' },
     autoSummaryInterval: { displayName: '📊 Session Summary Interval', subtitle: '⚙️ Auto-Tracking Setting', hint: 'Number of messages between automatic session summaries. Higher = less frequent.' },
+    // Budget-Guard-Arc i18n (06.11, owner rule "alle Tool-Beschreibungen IMMER übersetzt"): values below are byte-pinned to the config.ts fallback literals.
+    budgetGuardEnabled: { displayName: '🛡️ Budget Guard (context-limit protection)', hint: 'Master switch for the deterministic context budget guard — M1 pre-call read gate, M2 budget-aware spill cap, M3 auto-persist at 85% edge. ON by default (06.11); turn OFF to restore byte-identical legacy behavior.' },
+    budgetGuardAdvisoryThresholdPct: { displayName: '🔢 Budget Guard Advisory Threshold (%)', subtitle: '⚙️ Budget Guard Setting', hint: 'M1 pre-call read gate: above this % of the context limit, read tools return a self-describing budget advisory instead of the full payload.' },
+    budgetGuardSpillThresholdPct: { displayName: '✂️ Budget Guard Spill Threshold (%)', subtitle: '⚙️ Budget Guard Setting', hint: 'M2 spill cap: tool results are spilled to disk beyond this % of the limit (the stricter of absolute vs budget-relative bound wins).' },
+    budgetGuardAutopauseThresholdPct: { displayName: '💾 Budget Guard Auto-Persist Edge (%)', subtitle: '⚙️ Budget Guard Setting', hint: 'M3: automatic session-memory persist at this % edge, max once per session.' },
+    budgetGuardSafetyMarginPct: { displayName: '🧮 Budget Guard Safety Margin (%)', subtitle: '⚙️ Budget Guard Setting', hint: 'Reserve kept out of the context limit for M2 budget math — limit × (1 − margin/100); default 8 ⇒ spill at 92 %.' },
   },
 
   general: {

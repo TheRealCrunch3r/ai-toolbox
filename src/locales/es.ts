@@ -325,6 +325,12 @@ export const esTranslations: FullTranslationSet = {
     autoTrackCompletions: { displayName: '✅ Seguir Completados Automáticamente', subtitle: '⚙️ Ajuste de Auto-Seguimiento', hint: 'Detecta frases como "completado con éxito", "implementación terminada".' },
     autoTrackErrors: { displayName: '🐛 Seguir Correcciones de Errores Automáticamente', subtitle: '⚙️ Ajuste de Auto-Seguimiento', hint: 'Detecta frases como "corregido el error", "resuelto el problema".' },
     autoSummaryInterval: { displayName: '📊 Intervalo de Resumen de Sesión', subtitle: '⚙️ Ajuste de Auto-Seguimiento', hint: 'Número de mensajes entre resúmenes automáticos de sesión. Mayor = menos frecuente.' },
+    // Budget-Guard-Arc i18n (06.11, regla del owner "todas las descripciones SIEMPRE traducidas"): el fallback EN de config.ts sigue byte-pinned.
+    budgetGuardEnabled: { displayName: '🛡️ Budget Guard (protección del límite de contexto)', hint: 'Interruptor maestro de la protección determinista de presupuesto de contexto — puerta M1 pre-lectura, tope M2 de spill consciente del presupuesto, auto-persistencia M3 en el borde del 85 %. Activado por defecto (06.11); desactívalo para restaurar el comportamiento legacy idéntico byte a byte.' },
+    budgetGuardAdvisoryThresholdPct: { displayName: '🔢 Umbral de aviso Budget Guard (%)', subtitle: '⚙️ Ajuste de Budget Guard', hint: 'Puerta M1 pre-lectura: por encima de este % del límite de contexto, las herramientas de lectura devuelven un aviso de presupuesto auto-descrito en vez del volcado completo.' },
+    budgetGuardSpillThresholdPct: { displayName: '✂️ Umbral de spill Budget Guard (%)', subtitle: '⚙️ Ajuste de Budget Guard', hint: 'Tope M2: los resultados de herramienta se vierten a disco más allá de este % del límite (gana la cota más estricta: absoluta vs. relativa al presupuesto).' },
+    budgetGuardAutopauseThresholdPct: { displayName: '💾 Borde de auto-persistencia Budget Guard (%)', subtitle: '⚙️ Ajuste de Budget Guard', hint: 'M3: persistencia automática de la memoria de sesión en este borde de %, máximo una vez por sesión.' },
+    budgetGuardSafetyMarginPct: { displayName: '🧮 Margen de seguridad Budget Guard (%)', subtitle: '⚙️ Ajuste de Budget Guard', hint: 'Reserva retenida fuera del límite de contexto para el cálculo M2 — límite × (1 − margen/100); defecto 8 ⇒ spill al 92 %.' },
   },
 
   general: {

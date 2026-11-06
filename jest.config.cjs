@@ -76,6 +76,10 @@ module.exports = {
 
     // UPDATE-CHECK (19.10): src/toolsProvider.ts statically imports './updateChecker.js' for getUpdateStatus/LOCAL_VERSION — same RC#4 class; real-src target (pure state+fetch module, no mock needed)
     '^\\.\\/updateChecker\\.js$': '<rootDir>/src/updateChecker.ts',
+// Budget-Guard-Arc M2/M3 (05.11): src/toolsProvider.ts value-imports './budgetGuard.js' (evaluateBudgetSpill / buildBudgetSpillMarker / resolveAutopauseThresholdPct / buildBudgetAutoPersistMarker) — same RC#4 per-file class as the entries above; real-src target (pure decision module, no mock needed). First suite to load it: tests/budgetGuard.test.ts (Step 6, 05.11); without this entry every toolsProvider-loading suite dies under jest-resolve with "Cannot find module './budgetGuard.js'".
+'^\\.\\/budgetGuard\\.js$': '<rootDir>/src/budgetGuard.ts',
+// Budget-Guard-Arc M1 (05.11): src/tools/documentTools.ts:8 + src/tools/fileSystemTools.ts:22 value-import ../budgetGuard.js (two-dot form emitted from src/tools/) — the single-dot entry above only matches toolsProvider ./budgetGuard.js; moduleNameMapper matches RAW REQUEST strings, so this form needs its own entry. Same RC#4 class as the two-dot ../updateChecker.js entry (RC#29); per-file exact entry only (G9 round-2: no generic rule), real-src target (pure decision module, no mock needed). First suites to load it: docsConsistency/ripgrepTools/fileSystemTools + hang-backstop/lineOpsCrlf via import chain — 5-suite "Cannot find module" on the 05.11 full run.
+'^\\.\\./budgetGuard\\.js$': '<rootDir>/src/budgetGuard.ts',
 // UPDATE-CHECK PHASE 2 (19.10): src/toolsProvider.ts statically imports './tools/updateReminderTools.js' — same RC#4 per-file class as above.
 '^\\.\\/tools\\/updateReminderTools\\.js$': '<rootDir>/src/tools/updateReminderTools.ts',
 // PHASE-2 FOLLOW-UP (19.10 17:0x): mapper matches RAW REQUEST strings, not resolved paths — updateReminderTools.ts lives in src/tools/, so its own `../updateChecker.js` request needs THIS second entry; the Phase-1 one only matched toolsProvider's './' form.

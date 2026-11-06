@@ -26,7 +26,7 @@ import { getDataDir } from './dataDir.js';
  * .VERSION, ALL identical v-prefixed value on every bump. Canonical home: GLOSSARY.md "version-bump rule"
  * (mechanically guarded by tests/updateChecker.test.ts, which fails loud on any drift).
  */
-export const LOCAL_VERSION = 'v1.9.23';
+export const LOCAL_VERSION = 'v1.9.24'; // (06.11 v1.9.24) version move — 5-file bump rule: package.json + manifest.json + package-lock (×2) + .VERSION + this line, all identical
 
 /** Published .VERSION file on the LM Studio hub (20.10 owner GO — supersedes the GitHub releases endpoint): the single line of
  * text is THE current published version — member of the 4-file version-stamp contract (identical v-prefixed value on every release move; canonical home: GLOSSARY.md "version-bump rule"). */

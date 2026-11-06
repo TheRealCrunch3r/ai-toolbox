@@ -21,8 +21,9 @@ export function isOversizedText(text: string, maxBytes: number): boolean {
 /** Spill a single oversized text payload immediately.
  * Stores full payload on disk and returns compacted preview + locator.
  * Returns the original text if not oversized or already spilled.
- */
-export async function spillTextIfNeeded(text: string, maxBytes = SPILL_MAX_BYTES_DEFAULT): Promise<string> {
+ * `reason` (Budget-Guard-Arc M2, 05.11): optional self-describing marker line for WHY this spill happened beyond the generic
+ * size wording — e.g. 'SPILLED by budget guard' when the budget-relative cap was the stricter bound; omitted ⇒ byte-identical output. */
+export async function spillTextIfNeeded(text: string, maxBytes = SPILL_MAX_BYTES_DEFAULT, reason?: string): Promise<string> {
   if (!isOversizedText(text, maxBytes)) return text;
   // Idempotency guard
   if (text.startsWith('[ai_toolbox compaction]')) return text;
@@ -33,5 +34,5 @@ export async function spillTextIfNeeded(text: string, maxBytes = SPILL_MAX_BYTES
   try { fs.mkdirSync(path.join(getWorkingDir(), SPILL_STORE_REL), { recursive: true }); } catch {}
   await storePrunedPayload(getWorkingDir(), { digestHex, text });
 
-  return buildCompactedContent(text, digestHex, maxBytes);
+  return buildCompactedContent(text, digestHex, maxBytes, reason);
 }

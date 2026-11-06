@@ -324,6 +324,12 @@ export const zhCNTranslations: FullTranslationSet = {
     autoTrackCompletions: { displayName: '✅ 自动跟踪完成事项', subtitle: '⚙️ 自动跟踪设置', hint: '检测诸如“成功完成”、“实现完毕”等短语。' },
     autoTrackErrors: { displayName: '🐛 自动跟踪错误修复', subtitle: '⚙️ 自动跟踪设置', hint: '检测诸如“修复了错误”、“解决了问题”等短语。' },
     autoSummaryInterval: { displayName: '📊 会话摘要间隔', subtitle: '⚙️ 自动跟踪设置', hint: '两次自动会话摘要之间的消息数量。值越大 = 频率越低。' },
+    // Budget-Guard-Arc i18n (06.11, owner 规则“所有工具描述必须始终翻译”): config.ts 的 EN 回退值保持字节级一致。
+    budgetGuardEnabled: { displayName: '🛡️ 预算守卫（上下文限制保护）', hint: '确定性上下文预算守卫的主开关 —— M1 预读门、M2 感知预算的溢出上限、M3 在 85% 边缘自动持久化。默认开启（06.11）；关闭可恢复字节级相同的旧行为。' },
+    budgetGuardAdvisoryThresholdPct: { displayName: '🔢 预算守卫咨询阈值 (%)', subtitle: '⚙️ 预算守卫设置', hint: 'M1 预读门：当使用量超过上下文限制的此百分比时，读取工具返回自描述的预算咨询而非完整转储。' },
+    budgetGuardSpillThresholdPct: { displayName: '✂️ 预算守卫溢出阈值 (%)', subtitle: '⚙️ 预算守卫设置', hint: 'M2 溢出门槛：工具结果超过此百分比时写入磁盘（绝对值与预算相对上限中更严格者生效）。' },
+    budgetGuardAutopauseThresholdPct: { displayName: '💾 预算守卫自动持久化边缘 (%)', subtitle: '⚙️ 预算守卫设置', hint: 'M3：达到此百分比边缘时自动保存会话记忆，每会话最多一次。' },
+    budgetGuardSafetyMarginPct: { displayName: '🧮 预算守卫安全边际 (%)', subtitle: '⚙️ 预算守卫设置', hint: '为 M2 预算计算从上下文限制中保留的余量 —— 限制 × (1 − 边际/100)；默认 8 ⇒ 在 92% 处溢出。' },
   },
 
   general: {

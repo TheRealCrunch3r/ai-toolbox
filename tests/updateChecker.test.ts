@@ -371,6 +371,9 @@ describe('.VERSION test knob: one dummy version file gates getUpdateStatus (runt
     expect(await getUpdateStatus()).toEqual(expect.objectContaining({ version: '9.9.9' })); // no latch, no state — repeat at will
     expect(await getUpdateStatus()).toEqual(expect.objectContaining({ version: '9.9.9' }));
 
+    // (06.11 v1.9.24) '1.9.25' deliberately stays a LITERAL here, not derived — this case only needs "strictly newer than current" to
+    // prove the runtime-read property. Standing-Lesson note for the next bump arc: if LOCAL_VERSION ever lands ON 1.9.25, convert to
+    // offsetLocalVersion(+1) (same literal-pinned class as today's announce-suite fix).
     writeKnob('1.9.25'); // the runtime-read property: editing the file mid-run takes effect on the very next call
     expect(await getUpdateStatus()).toEqual(expect.objectContaining({ version: '1.9.25' }));
   });
@@ -408,6 +411,10 @@ describe('.VERSION test knob: one dummy version file gates getUpdateStatus (runt
 // ==================== UPDATE-ANNOUNCE (19.10 owner GO) — once-per-process in-chat announcement accessor ====================
 
 describe('getPendingUpdateAnnouncement: cached newer + not dismissed, latched once per process', () => {
+  // (06.11 v1.9.24) baseline-independent "one above current" — replaces the stale literal '1.9.24' pins below that were
+  // written against LOCAL_VERSION 'v1.9.23' and would detonate on this move (equal → not strictly newer → silent). Same
+  // derived-helper convention as offsetLocalVersion() provenance above; keeps every bump gate-safe by construction.
+  const NEWER = offsetLocalVersion(+1); // bare x.y.z for state seeding (as written today); markToastDispatched/… take the v-form (consumer normalizes — parity proven in the '9.8.7' cases below)
   const origFetch = globalThis.fetch;
   let tmp: string;
 
@@ -429,15 +436,18 @@ describe('getPendingUpdateAnnouncement: cached newer + not dismissed, latched on
   }
 
   test('newer cached + not dismissed → {version,url}; second call same process → null (one-shot latch)', () => {
-    seedState({ latestVersion: '1.9.24', url: 'https://github.com/crunch3r/ai_toolbox/releases/tag/v1.9.24' });
+    // (06.11 v1.9.24) was the literal '1.9.24' — pinned "one above" LOCAL_VERSION 'v1.9.23'; post 06.11 move it would sit EQUAL to current
+    // and detonate this case (not-strictly-newer → silent). Derived +1 by construction, baseline-independent on every future bump too.
+    const newer = offsetLocalVersion(+1);
+    seedState({ latestVersion: newer, url: `https://github.com/crunch3r/ai_toolbox/releases/tag/v${newer}` });
 
-    expect(getPendingUpdateAnnouncement()).toEqual({ version: '1.9.24', url: 'https://github.com/crunch3r/ai_toolbox/releases/tag/v1.9.24' });
+    expect(getPendingUpdateAnnouncement()).toEqual({ version: newer, url: `https://github.com/crunch3r/ai_toolbox/releases/tag/v${newer}` });
     expect(getPendingUpdateAnnouncement()).toBeNull(); // already announced this process — the notice never re-injects
   });
 
   test('dismissed version → null (in-chat layer honors "not now")', () => {
-    seedState({ latestVersion: '1.9.24' });
-    dismissVersion('1.9.24'); // owner dismissed via dismiss_update_reminder — the dismissal machinery gates BOTH layers
+    seedState({ latestVersion: NEWER });
+    dismissVersion(NEWER); // (06.11 v1.9.24) derived +1 — was the stale literal '1.9.24'; owner dismissed via dismiss_update_reminder — the dismissal machinery gates BOTH layers
 
     expect(getPendingUpdateAnnouncement()).toBeNull();
   });
@@ -458,8 +468,8 @@ describe('getPendingUpdateAnnouncement: cached newer + not dismissed, latched on
   });
 
   test('DEFAULT (no toggle arg) + desktop toast dispatched → in-chat stays quiet (MUTUAL EXCLUSION — pre-fix semantics, byte-exact)', () => {
-    seedState({ latestVersion: '1.9.24' });
-    markToastDispatched('v1.9.24'); // desktop channel already told the user — post-dispatch flag, not the pre-await notifiedVersion latch
+    seedState({ latestVersion: NEWER });
+    markToastDispatched(`v${NEWER}`); // (06.11 v1.9.24) derived +1 — was the stale literal '1.9.24'; desktop channel already told the user — post-dispatch flag, not the pre-await notifiedVersion latch
 
     expect(getPendingUpdateAnnouncement()).toBeNull(); // default arg = ON path: chat layer must not repeat what the toast said
   });
@@ -478,15 +488,15 @@ describe('getPendingUpdateAnnouncement: cached newer + not dismissed, latched on
     expect(getPendingUpdateAnnouncement(false)).toEqual(expect.objectContaining({ version: '9.8.7' }));
 
     __resetUpdateAnnouncementForTests(); // per-process latch — re-arm for the opposite-channel probe
-    seedState({ latestVersion: '1.9.24', notifiedVersion: '1.9.24' });
-    markToastDispatched('v1.9.24');
+    seedState({ latestVersion: NEWER, notifiedVersion: NEWER }); // (06.11 v1.9.24) derived +1 — was the stale literal '1.9.24'
+    markToastDispatched(`v${NEWER}`);
 
     expect(getPendingUpdateAnnouncement(true)).toBeNull(); // explicit ON = pre-fix mutual exclusion
   });
 
   test('host WITHOUT system.notify (notifiedVersion latched but no dispatch flag) → in-chat still announces (fallback)', () => {
-    seedState({ latestVersion: '1.9.24', notifiedVersion: '1.9.24' }); // pre-await dedupe latch set by toolsProvider, toast never dispatched
+    seedState({ latestVersion: NEWER, notifiedVersion: NEWER }); // (06.11 v1.9.24) derived +1 — was the stale literal '1.9.24'; pre-await dedupe latch set by toolsProvider, toast never dispatched
 
-    expect(getPendingUpdateAnnouncement()).toEqual(expect.objectContaining({ version: '1.9.24' })); // chat is exactly their channel
+    expect(getPendingUpdateAnnouncement()).toEqual(expect.objectContaining({ version: NEWER })); // chat is exactly their channel
   });
 });

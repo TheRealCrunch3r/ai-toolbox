@@ -141,15 +141,19 @@ export function estimateTokensFromChars(chars: number): number {
   return estimateTokensFromCharsOfClass(Math.max(0, chars), 'prose');
 }
 
+/** CTX-EST A — the APPLIED high-entropy chars-per-token density for the live menu value: min(live, max(FLOOR, live×BIAS)).
+ * Extracted (Budget-Guard-Arc 05.11, M2) so the budget-aware spill cap in toolsProvider can invert tokens→chars with EXACTLY this class's
+ * pricing instead of duplicating the clamp — single source of truth for both directions of the density math. */
+export function getHighEntropyCharsPerToken(): number {
+  // One-directional bias: only ever MORE conservative than the live menu value, never less — and bounded by
+  // the floor so worst-case output for any input is chars / HIGH_ENTROPY_DENSITY_FLOOR. The user-editable
+  // contextGuardAgenticDensity stays authoritative (15.10 contract preserved).
+  return Math.min(agenticCharsPerToken, Math.max(HIGH_ENTROPY_DENSITY_FLOOR, agenticCharsPerToken * HIGH_ENTROPY_DENSITY_BIAS));
+}
+
 /** Class-aware variant (CTX-EST A). 'prose' is byte-identical to the pre-A estimator for every input. */
 export function estimateTokensFromCharsOfClass(chars: number, cls: TokenEstimateClass): number {
-  let density = agenticCharsPerToken;
-  if (cls === 'highEntropy') {
-    // One-directional bias: only ever MORE conservative than the live menu value, never less — and bounded by
-    // the floor so worst-case output for any input is chars / HIGH_ENTROPY_DENSITY_FLOOR. The user-editable
-    // contextGuardAgenticDensity stays authoritative (15.10 contract preserved).
-    density = Math.min(agenticCharsPerToken, Math.max(HIGH_ENTROPY_DENSITY_FLOOR, agenticCharsPerToken * HIGH_ENTROPY_DENSITY_BIAS));
-  }
+  const density = cls === 'highEntropy' ? getHighEntropyCharsPerToken() : agenticCharsPerToken;
   return Math.ceil(Math.max(0, chars) / density);
 }
 

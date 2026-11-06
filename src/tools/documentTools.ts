@@ -5,6 +5,12 @@ import * as path from 'path';
 import * as fs from 'fs/promises';  // ASYNC import
 import type { PluginConfig } from '../config.js';
 import { getAttachment } from '../attachmentManager';
+import { evaluatePreCallCost, buildBudgetAdvisory, resolveAdvisoryThresholdPct } from '../budgetGuard.js'; // Budget-Guard-Arc M1 (05.11)
+
+/** read_document payload bound for the M1 budget gate: EVERY format path (PDF/DOCX/TXT, disk & attachment)
+ *  caps the extracted text at max_length (default 10_000 — capText), so the injected cost is this constant + a
+ *  small metadata envelope — independent of file size. */
+const READ_DOCUMENT_PAYLOAD_CHARS = 10_256; // default cap 10_000 + 256-char metadata headroom
 
 // ==================== Typed Params Interfaces ====================
 
@@ -330,7 +336,7 @@ async function readTXTFromBuffer(buffer: Buffer, fileName: string, maxLength: nu
 
 // ==================== Tool Registration ===
 
-export function registerDocumentTools(_config: PluginConfig): Tool[] {
+export function registerDocumentTools(config: PluginConfig): Tool[] {
   const tools: Tool[] = [];
 
   // read_document tool — ASYNC implementation
@@ -340,7 +346,18 @@ export function registerDocumentTools(_config: PluginConfig): Tool[] {
     parameters: {
       file_path: z.string().describe('Path to the PDF, DOCX, or TXT file, or the filename if it is an attached file'),
     },
-    implementation: async (params) => readDocument(params),  // ASYNC already
+    implementation: async (params) => {
+      // Budget-Guard M1 (05.11): pre-call cost gate — payload is structurally capped at READ_DOCUMENT_PAYLOAD_CHARS,
+      // so the projection uses that bound; advisory instead of full dump when it would overflow the turn budget.
+      const m1Gate = evaluatePreCallCost(
+        { expectedChars: READ_DOCUMENT_PAYLOAD_CHARS, toolName: 'read_document' },
+        { config },
+      );
+      if (!m1Gate.allowed) {
+        return { success: true, data: buildBudgetAdvisory(m1Gate, resolveAdvisoryThresholdPct(config)) };
+      }
+      return readDocument(params);  // ASYNC already
+    },
   }));
 
   return tools;

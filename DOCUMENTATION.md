@@ -1,12 +1,12 @@
 # Documentation Update Summary — AI Toolbox Plugin
 
 **Date**: 2026-09-19  
-**Version**: v1.9.23 (manifest revision 0 — version move **04.11** with full docs sync to canon **82 suites / 1216 tests**; prior move 01.11 → v1.9.22 [canon 80/1193] re-stamped in the Option-1 window (02.11); hub artifact at rev 86 = v1.9.20 per the 19.10 live check, GitHub `main` synced 17.10)  
+**Version**: v1.9.24 (version move **06.11**, Budget-Guard window folded in; manifest revision 0 — prior move **04.11**; canon re-stamped **05.11/06.11 Budget-Guard-Arc close-out → 83 suites / 1234 tests** (+1 suite `tests/budgetGuard.test.ts` / +18 tests; M1/M2/M3 context-limit protection shipped, master switch OFF by default); prior move 01.11 → v1.9.22 [canon 80/1193] re-stamped in the Option-1 window (02.11); hub artifact at rev 86 = v1.9.20 per the 19.10 live check, GitHub `main` synced 17.10)  
 **Status**: ✅ Complete
 
 ---
 
-## 📋 Version Status Overview (current: **v1.9.23 / manifest revision 0** — version move **04.11** with full docs sync to canon **82 suites / 1216 tests**; prior move 01.11 → v1.9.22 [canon 80/1193] re-stamped in the Option-1 window (02.11); hub artifact at rev 86 = v1.9.20 per the 19.10 live check, GitHub `main` synced 17.10, version header synced **01.11** (v1.9.22 move) · prior stamp 08.09 (Tool Gating Profile release); content last refreshed **28.09.2026** against live code (WALK-ABORT docs sync + full per-module re-audit); changelog chain: CHANGELOG_v3.md (active) ← CHANGELOG_v2.md (archived 20.09) ← CHANGELOG.md (legacy), plus RELEASE_NOTES.md)
+## 📋 Version Status Overview ; prior move 01.11 → v1.9.22 [canon 80/1193] re-stamped in the Option-1 window (02.11); hub artifact at rev 86 = v1.9.20 per the 19.10 live check, GitHub `main` synced 17.10, version header synced **01.11** (v1.9.22 move) · prior stamp 08.09 (Tool Gating Profile release); content last refreshed **28.09.2026** against live code (WALK-ABORT docs sync + full per-module re-audit); changelog chain: CHANGELOG_v3.md (active) ← CHANGELOG_v2.md (archived 20.09) ← CHANGELOG.md (legacy), plus RELEASE_NOTES.md)
 
 | Component | Status | Notes |
 |-----------|--------|-------|

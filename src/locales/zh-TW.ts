@@ -324,6 +324,12 @@ export const zhTWTranslations: FullTranslationSet = {
     autoTrackCompletions: { displayName: '✅ 自動追蹤完成事項', subtitle: '⚙️ 自動追蹤設定', hint: '偵測「成功完成」，「實作完畢」等措辭。' },
     autoTrackErrors: { displayName: '🐛 自動追蹤 Bug 修復', subtitle: '⚙️ 自動追蹤設定', hint: '偵測「修好了 bug」，「解決了問題」等措辭。' },
     autoSummaryInterval: { displayName: '📊 會話摘要間隔', subtitle: '⚙️ 自動追蹤設定', hint: '兩次自動會話摘要之間的訊息數量。越高 = 越不頻繁。' },
+    // Budget-Guard-Arc i18n (06.11, owner 規則「所有工具描述必須始終翻譯」): config.ts 的 EN 回退值保持位元組級一致。
+    budgetGuardEnabled: { displayName: '🛡️ 預算守衛（上下文限制保護）', hint: '確定性上下文預算守衛的主開關 —— M1 預讀閘、M2 感知預算的溢出上限、M3 在 85% 邊緣自動持久化。預設開啟（06.11）；關閉可恢復位元組級相同的舊行為。' },
+    budgetGuardAdvisoryThresholdPct: { displayName: '🔢 預算守衛諮詢閾值 (%)', subtitle: '⚙️ 預算守衛設定', hint: 'M1 預讀閘：當使用量超過上下文限制的此百分比時，讀取工具回傳自描述的預算諮詢而非完整轉儲。' },
+    budgetGuardSpillThresholdPct: { displayName: '✂️ 預算守衛溢出閾值 (%)', subtitle: '⚙️ 預算守衛設定', hint: 'M2 溢出門檻：工具結果超過此百分比時寫入磁碟（絕對值與預算相對上限中較嚴格者生效）。' },
+    budgetGuardAutopauseThresholdPct: { displayName: '💾 預算守衛自動持久化邊緣 (%)', subtitle: '⚙️ 預算守衛設定', hint: 'M3：達到此百分比邊緣時自動儲存工作階段記憶，每工作階段最多一次。' },
+    budgetGuardSafetyMarginPct: { displayName: '🧮 預算守衛安全邊際 (%)', subtitle: '⚙️ 預算守衛設定', hint: '為 M2 預算計算從上下文限制中保留的餘量 —— 限制 × (1 − 邊際/100)；預設 8 ⇒ 在 92% 處溢出。' },
   },
 
   general: {

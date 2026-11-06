@@ -124,7 +124,7 @@ export function main(context: PluginContext) {
 }
 ```
 
-### 2. Tool Registration Flow (Current State — full re-audit **28.09** against live `toolsProvider.ts`, +`updateReminderTools.ts` module since; version stamp **v1.9.23** / manifest rev 0 — version move **04.11** (memory_recall registration added to the flow below); prior snapshots v1.9.22 @ 01.11 [move + full docs sync], v1.9.21 @ 21.10)
+### 2. Tool Registration Flow (Current State — full re-audit **28.09** against live `toolsProvider.ts`, +`updateReminderTools.ts` module since; version stamp **v1.9.24** / manifest rev 0 — version move **06.11** (Budget-Guard window folded in; canon unchanged at **83 suites / 1234 tests**); prior snapshot v1.9.23, version move **04.11** (memory_recall registration added to the flow below); prior snapshots v1.9.22 @ 01.11 [move + full docs sync], v1.9.21 @ 21.10)
 
 ```
 toolsProvider() called by LM Studio SDK
@@ -906,6 +906,46 @@ The 09.10 verification session proved two remaining gaps in the ladder above: a 
 
 Full ladder after this arc: **TIER 1 @75%** interactive prompt + Fix-A one-shot notice on successful crossings · **TIER 2 @`contextGuardCompressionPercent` (~90)** forced SAVE mid-loop · **FIX B @95** pre-emptive COMPRESSION mid-loop · **PART B at the next user message** — the boundary path stays untouched for turns that never cross mid-loop.
 
+#### Budget-Guard Payload Protection — M1 / M2 / M3 (Budget-Guard-Arc, NEW 05.11; owner GO 04.11)
+
+Deterministic context-limit protection on the READ path + a budget-relative spill cap in the wrapper. Decision core: `src/budgetGuard.ts` (PURE — no fs writes, no store mutation; READ-ONLY + FAIL-OPEN by invariant). All three mechanisms ride the SAME shared projection source as the wrapper's other consumers (`TokenStatsManager.getTurnBaseline()` + mid-loop delta), so the guard fires conservatively BEFORE the hard limit — a deliberate, confirmed behavior (calibration datum 05.11: footer estimate overestimates at high fill; M1/M2 fire before the wall by design).
+
+```
+Config (src/config.ts): nested budgetGuard block {default enabled=true since 06.11 owner order; explicit false ⇒ byte-identical legacy behavior}
+  + five flat UI keys (toolsProvider.ts assembles the nested block from them — house pattern)
+    🛡️ Budget Guard master switch, advisory/spill/autopause thresholds (1–99 %), safety margin (0–50 %)
+
+M1 — pre-call cost gate on the READ path (src/tools/fileSystemTools.ts read_file + read_file_chunked; src/tools/documentTools.ts):
+    projected = baseline + midLoopDelta + estimateTokensFromCharsOfClass(expectedChars, 'highEntropy')
+    fires when limit > 0 AND projected > limit × advisory_threshold_pct/100        ← default 80 %
+    → self-describing ADVISORY returned INSTEAD of the file dump (what was withheld + numbers
+      + controlled re-read hints: read_file_chunked small chunks / ripgrep / pattern_scan)
+
+M2 — budget-aware spill cap in the toolsProvider wrapper 'A spill pattern' block (4th consumer):
+    edge = limit × (1 − safety_margin_pct/100)                                     ← default margin 8 ⇔ 92 % edge
+    fires when projected (incl. CTX-FOOTER self-size reserve) > edge
+    → inline preview capped at budgetChars = floor(remainingBudget / applied high-entropy density);
+      STRICTER bound wins: effectiveMax = min(absolute compaction cap, budgetChars); full payload still
+      stored verbatim via the existing spillTextIfNeeded() (disk store + SHA-256 locator pointer);
+      self-describing 'SPILLED by budget guard' marker line attached ONLY on budget spills —
+      absolute-cap spills stay byte-identical
+
+M3 — insurance auto-persist at the autopause edge (latch + Arc-C pipeline in toolsProvider.ts next to its
+    tier-2/FIX-B siblings; pure threshold resolution + marker live in src/budgetGuard.ts):
+    fires when limit > 0 AND projected ≥ limit × autopause_threshold_pct/100        ← default 85 %
+      AND !autoPersistFiredThisSession (session-scoped one-shot latch, deliberately never re-armed per provider run)
+    → Arc-C pipeline parity with tier-2: flushActionsToMemory() first, generateSessionContinuity(),
+      persistGeneratedSessionSummary(); marker PREPENDED to task_description ('[Budget guard] auto_saved=true …')
+      so the NEXT restore_session_context dossier shows it as its own note. M3 checkpoints only —
+      it caps nothing and never compresses; every failure non-fatal ([M3-AUTOSAVE] telemetry)
+```
+
+**Full protection ladder after this arc (rung order deliberate, stays intact):** TIER 1 @75% interactive prompt → **M1 advisory @80%** (read path only) → **M3 auto-persist @85%** (insurance checkpoint) → TIER 2 @~90% forced save (user-configured) → **M2 budget spill edge @92%** (= limit×(1−margin)) → FIX B @95% pre-emptive compression mid-loop → PART B at the next user message.
+
+**Invariants:** default is now `enabled=true` (owner order 06.11, folded into the v1.9.24 move); explicit `enabled=false` ⇒ every entry point short-circuits to legacy behavior byte-identically — rollback without a code revert still available by config alone. No published baseline/limit (`maxContextTokens = 0` before the first `preprocess()`) ⇒ all gates silent, exactly like the wrapper mid-loop gates. M1 fail-open on stat errors / unknown sizes; unexpected exceptions never break an otherwise valid read.
+
+**Verification:** `tests/budgetGuard.test.ts` (hermetic: pinned densities 1.307–1.670 c/tok band from CTX-EST A, advisory thresholds, pointer completeness, M3 one-shotness, enabled=false byte-equality) + the existing wrapper suites; full jest canon re-stamped **83 suites / 1234 tests** (green 05.11 — pre-Arc 82/1216, i.e. +1 suite / +18 tests).
+
 ### ContextGuard Compression Flow (v1.4.2)
 
 ```
@@ -1141,7 +1181,7 @@ ConfigSchema (Zod)
 ├── i18n (1 field)
 ├── Notifications (1 field)
 ├── Temporal Awareness (2 fields: temporalAwareness, dateFormatStyle)
-└── ContextGuard (7 fields): v1.4.2
+├── ContextGuard (7 fields): v1.4.2
     ├── contextGuardEnabled (boolean) — Master toggle
     ├── contextGuardCompressionPercent (int 50–100, default 90) — Compression trigger as % of the effective context window (07.10: replaced absolute contextGuardTokenLimit; built-in 30k fallback when no model window reported)
     ├── contextGuardForceSummaryOnCompress (boolean, default true) — Arc C (07.10): forced structured session-memory save at the compression trigger — flushes auto-tracked actions, then generates + persists a structured SessionSummaryData via the canonical save_session_summary writer BEFORE history destruction; strict `=== true` gate + typeof check on the guard method; non-fatal telemetry fallback on any failure
@@ -1149,6 +1189,7 @@ ConfigSchema (Zod)
     ├── contextGuardSummaryModel (string) — Dedicated summary model name
     ├── contextGuardTerminalFilterEnabled (boolean) — Terminal output filtering
     └── contextGuardTerminalFilterLength (number 100-20K) — Max terminal chars
+└── BudgetGuard (5 flat UI keys, NEW 05.11): budgetGuardEnabled (boolean, default true since 06.11 owner order; explicit false ⇒ byte-identical legacy behavior — all five rows localized per the 06.11 house rule), budgetGuardAdvisory/Spill/AutopauseThresholdPct (int 1–99; defaults 80 / 92 / 85) + budgetGuardSafetyMarginPct (int 0–50, default 8 — M2 edge = limit×(1−margin)); the nested consumer-facing `budgetGuard` block is assembled from these five in toolsProvider.ts. Full design: § Budget-Guard Payload Protection above
 ```
 
 Each field maps to a UI element in LM Studio's settings panel via `createConfigSchematics()`.
@@ -1210,13 +1251,14 @@ src/
 │   ├── browserActions.ts       # ⚠️ lives in src/ — browser action execution & validation
 │   ├── findLMStudioHome.ts     # ⚠️ lives in src/ — LM Studio home directory detection
 │   ├── lmStudioApi.ts          # ⚠️ lives in src/ — LM Studio REST API integration layer
-│   └── tokenStatsManager.ts    # ⚠️ lives in src/ — token statistics tracking (manager, not a tool); C family 24.09: active-turn tracking + bounded drain (`drainActiveToolTurns`, poll 250 ms / cap 15 s)
+│   ├── budgetGuard.ts              # Budget-Guard-Arc decision core (M1/M2/M3 pure gates; lives in src/ — NEW 05.11, see § Data Flow → Budget-Guard Payload Protection)
+    └── tokenStatsManager.ts    # ⚠️ lives in src/ — token statistics tracking (manager, not a tool); C family 24.09: active-turn tracking + bounded drain (`drainActiveToolTurns`, poll 250 ms / cap 15 s)
 └── types/                      # Type definitions
     ├── dom-augment.d.ts        # DOM type augmentations for browser automation
     ├── node-notifier.d.ts      # Node.js notifier type declarations
     └── types.d.ts              # Core shared type definitions
 
-tests/                          # Jest test suite (82 suites / 1216 tests, verified green 04.11 [v1.9.23 window — memory_recall arc +1 suite / +18 tests, FULL jest in-window GREEN]; prior snapshot 81/1198 @ 02.11 (Option-1 window — git tooling RC1–RC5 fix set [CWD seam · porcelain status · -F commit bodies · argv spawn · AD reap], owner FULL jest ~18:43); prior snapshot 80/1193 @ 31.10 (CTX-EST B close-out — tierB mid-loop compaction pins +3, agent in-sandbox full runInBand); prior snapshot 80/1190 @ 30.10 (LATCH arc commit sweep — latch suite +1/+8, owner targeted jest); prior snapshot 79/1182 @ 29.10 (UL-v2 STEP-6 byte-pin arc owner gate ~18:0x); prior snapshot 77/1119 @ 21.10 (v1.9.21 bak-scan arc owner gate ~19:5x + v5 rotation closeout ~19:3x); prior canon 74/1064 @ 16.10 ARC-RESTORE gate ~20:3x (+6 F3/F3.R tests), 74/1058 @ 15.10 (verified green 15.10 — ARC-C trio ~18:2x + v5 rotation density setter test (second owner-run trio GREEN ~19:3x/~19:52, npx tsc --noEmit && npm run lint && npx jest); NEW CANON since the v5 rotation entry; prior canon 74/1057 @ 15.10 (SESSION-MEMORY ARC-C), 73/1035 @ 14.10 (SESSION-MEMORY ARC-B supersede-on-close-out), 73/1031 @ 14.10 (SESSION-MEMORY ARC-A + density restore), 72/1026 @ 10.11 (TOKEN-DIVERGENCE), 69/1003 @ 09.10 (FIX #21 mid-loop forced-save, r7), 68/990 @ 08.10 (LEVER-1), 68/987 @ 07.10 (Arc C sweep, unlogged entry), 65/952 @ 06.10 (DOC-PIN, registry-vs-docs drift gate), 64/941 @ 06.10 (i18n-CONFIRM), 64/938 @ 05.10–06.10 (PLAN-REMOVAL, unchanged through A3 close-out ~18:2x), 63/931 @ 05.10 (SM-VERIFY-FIX + THRESHOLD-MARKER WORDING), 63/930 @ 04.10 ×3 (ABORT-CONTRACT GATE-4), 61/917 @ 04.10 (A-arc E7 + CTX-FOOTER FIX#3), 893/59 @ 02.10 (CTX-FOOTER), 874/58 @ 01.10; see README meta line; per-file list below is abbreviated)
+tests/                          # Jest test suite (83 suites / 1234 tests, verified green 05.11 [Budget-Guard-Arc close-out — +1 suite / +18 tests vs the pre-Arc canon]; prior snapshot 82/1216 @ 04.11 [v1.9.23 window — memory_recall arc +1 suite / +18 tests, FULL jest in-window GREEN]; prior snapshot 81/1198 @ 02.11 (Option-1 window — git tooling RC1–RC5 fix set [CWD seam · porcelain status · -F commit bodies · argv spawn · AD reap], owner FULL jest ~18:43); prior snapshot 80/1193 @ 31.10 (CTX-EST B close-out — tierB mid-loop compaction pins +3, agent in-sandbox full runInBand); prior snapshot 80/1190 @ 30.10 (LATCH arc commit sweep — latch suite +1/+8, owner targeted jest); prior snapshot 79/1182 @ 29.10 (UL-v2 STEP-6 byte-pin arc owner gate ~18:0x); prior snapshot 77/1119 @ 21.10 (v1.9.21 bak-scan arc owner gate ~19:5x + v5 rotation closeout ~19:3x); prior canon 74/1064 @ 16.10 ARC-RESTORE gate ~20:3x (+6 F3/F3.R tests), 74/1058 @ 15.10 (verified green 15.10 — ARC-C trio ~18:2x + v5 rotation density setter test (second owner-run trio GREEN ~19:3x/~19:52, npx tsc --noEmit && npm run lint && npx jest); NEW CANON since the v5 rotation entry; prior canon 74/1057 @ 15.10 (SESSION-MEMORY ARC-C), 73/1035 @ 14.10 (SESSION-MEMORY ARC-B supersede-on-close-out), 73/1031 @ 14.10 (SESSION-MEMORY ARC-A + density restore), 72/1026 @ 10.11 (TOKEN-DIVERGENCE), 69/1003 @ 09.10 (FIX #21 mid-loop forced-save, r7), 68/990 @ 08.10 (LEVER-1), 68/987 @ 07.10 (Arc C sweep, unlogged entry), 65/952 @ 06.10 (DOC-PIN, registry-vs-docs drift gate), 64/941 @ 06.10 (i18n-CONFIRM), 64/938 @ 05.10–06.10 (PLAN-REMOVAL, unchanged through A3 close-out ~18:2x), 63/931 @ 05.10 (SM-VERIFY-FIX + THRESHOLD-MARKER WORDING), 63/930 @ 04.10 ×3 (ABORT-CONTRACT GATE-4), 61/917 @ 04.10 (A-arc E7 + CTX-FOOTER FIX#3), 893/59 @ 02.10 (CTX-FOOTER), 874/58 @ 01.10; see README meta line; per-file list below is abbreviated)
 ├── security.test.ts            # Core security validation tests
 ├── security.edge-cases.test.ts # Security boundary & edge case testing
 ├── config.test.ts              # Zod schema + UI schematics validation

@@ -153,6 +153,14 @@ export interface UiLabels {
   autoTrackCompletions: UiFieldLabels;
   autoTrackErrors: UiFieldLabels;
   autoSummaryInterval: UiFieldLabels;
+  // Budget-Guard-Arc i18n wiring (06.11, owner rule "alle Tool-Beschreibungen IMMER übersetzt"): the five flat host-facing
+  // keys gain panel labels — supersedes the deliberate 05.11 'no UiLabels/locale surface' decision of the original arc.
+  // The en-bundle values must stay BYTE-IDENTICAL to the config.ts fallback literals (tests/ulv2BytePin.test.ts pins it).
+  budgetGuardEnabled: UiFieldLabels;
+  budgetGuardAdvisoryThresholdPct: UiFieldLabels;
+  budgetGuardSpillThresholdPct: UiFieldLabels;
+  budgetGuardAutopauseThresholdPct: UiFieldLabels;
+  budgetGuardSafetyMarginPct: UiFieldLabels;
 }
 
 export interface FullTranslationSet {

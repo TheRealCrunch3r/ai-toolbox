@@ -81,14 +81,17 @@ export function buildPreview(text: string, hiddenBytes: number): string {
   return `${head}\n… [${hiddenBytes} bytes omitted — full payload stored] \n${tail}`.trimEnd();
 }
 
-/** Compose the pruned content: marker + retrieval hint with opaque locator + head/tail preview. */
-export function buildCompactedContent(text: string, digestHex: string, maxBytes: number): string {
+/** Compose the pruned content: marker + retrieval hint with opaque locator + head/tail preview.
+ * `reason` (Budget-Guard-Arc M2, 05.11): optional self-describing line appended after the retrieval sentence — e.g. the budget-guard
+ * marker when a BUDGET-relative cap was the stricter bound; omitted/empty ⇒ byte-identical output to before this arc. */
+export function buildCompactedContent(text: string, digestHex: string, maxBytes: number, reason?: string): string {
   const total = Buffer.byteLength(text, 'utf8');
   const hidden = Math.max(0, total - HEAD_PREVIEW_CHARS - TAIL_PREVIEW_CHARS);
+  const reasonLine = typeof reason === 'string' && reason.length > 0 ? `\n${reason}` : '';
   return (
     `${COMPACTED_MARKER_PREFIX} Tool payload too large for context (${total.toLocaleString('en-US')} bytes > ${maxBytes.toLocaleString('en-US')} limit). ` +
     `Full result is stored verbatim at ${COMPACTED_STORE_REL}/${digestHex}.payload (working-directory relative —` +
-    ` retrieve it with the file-reading tools using that path; locator="${buildLocator(digestHex)}").\n` +
+    ` retrieve it with the file-reading tools using that path; locator="${buildLocator(digestHex)}").${reasonLine}\n` +
     buildPreview(text, hidden)
   );
 }

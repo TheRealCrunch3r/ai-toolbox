@@ -154,6 +154,25 @@ export const ConfigSchema = z.object({
   contextGuardEnabled: z.boolean().default(true).describe('Enable ContextGuard token management and history compression'),
   contextGuardCompressionPercent: z.number().min(50).max(100).default(90).describe('History compression triggers at this percentage of the effective context window (the active model\'s reported window; built-in 30k fallback when unavailable)'),
   contextGuardAgenticDensity: z.number().min(1).max(20).default(3.6).describe('Chars-per-token density used to estimate token counts from character length for agentic content (prose + tool output mix; live-measured band ~3.2-3.4, see provenance in tokenStatsManager.ts)'),
+  // Budget-Guard-Arc (05.11, owner ruling 04.11): deterministic context-limit protection — M1 pre-call cost gate on the
+  // read path (advisory_threshold_pct), M2 budget-aware spill (spill_threshold_pct; consistent with safety_margin: limit×(1−margin)=limit×0.92),
+  // M3 auto-persist session memory at the 85% edge (autopause_threshold_pct). enabled=false ⇒ byte-identical legacy
+  // behavior — rollback without a code revert. Provenance: src/budgetGuard.ts + RESEARCH_budget-guard.md (freigegeben 04.11).
+  budgetGuard: z.object({
+    enabled: z.boolean().default(true).describe('Master switch for the Budget Guard (M1 pre-call gate, M2 spill cap, M3 auto-persist). Default true since 06.11 (owner order); set false to restore byte-identical legacy behavior.'),
+    advisory_threshold_pct: z.number().min(1).max(99).default(80).describe('M1: projected context usage above this % of the limit ⇒ read tools return a self-describing advisory instead of the full payload (owner ruling 04.11).'),
+    spill_threshold_pct: z.number().min(1).max(99).default(92).describe('M2: tool results are spilled to disk beyond this % of the limit (budget-relative cap; the stricter of absolute vs budget wins) (owner ruling 04.11).'),
+    autopause_threshold_pct: z.number().min(1).max(99).default(85).describe('M3: automatic session-memory persist at this % edge, max once per session, marker auto_saved=true (owner ruling 04.11).'),
+    safety_margin_pct: z.number().min(0).max(50).default(8).describe('M2: reserve kept out of the context limit for M2 budget math — limit×(1−margin/100); default 8 ⇒ spill at 92%, consistent with spill_threshold_pct.'),
+  }).default({ enabled: true, advisory_threshold_pct: 80, spill_threshold_pct: 92, autopause_threshold_pct: 85, safety_margin_pct: 8 }), // Budget-Guard-Arc (05.11 Triage): object-level .default() — a LEGACY saved config omits the block entirely; child defaults alone do not make an ABSENT key optional (zod required-object ⇒ ConfigSchema.parse({}) ZodError path:['budgetGuard'], broke config.test.ts + ulv2BytePin.test.ts on the 05.11 full run). enabled flipped false→true 06.11 per owner order (default ON; legacy behavior only when explicitly OFF)
+  // Budget-Guard-Arc (05.11) flat host-facing keys: getGlobalPluginConfig().get() is typed over FLAT scalar schematics field
+  // names only — the nested budgetGuard block above is assembled from these five in toolsProvider.ts (house pattern, cf. L241).
+  // No UI label objects are attached: plain literals keep the change out of the UiLabels/locale surface entirely.
+  budgetGuardEnabled: z.boolean().default(true), // flipped false→true 06.11 per owner order (master switch ON by default; explicit OFF = byte-identical legacy)
+  budgetGuardAdvisoryThresholdPct: z.number().min(1).max(99).default(80),
+  budgetGuardSpillThresholdPct: z.number().min(1).max(99).default(92),
+  budgetGuardAutopauseThresholdPct: z.number().min(1).max(99).default(85),
+  budgetGuardSafetyMarginPct: z.number().min(0).max(50).default(8),
   contextGuardForceSummaryOnCompress: z.boolean().default(true).describe('Forced cross-session continuity save (07.10 arc C): when compression triggers, a structured session summary is generated via the Summary Model and persisted BEFORE history is compressed'),
   contextGuardSmartReading: z.boolean().default(true).describe('Enable keyword-based smart file reading'),
   contextGuardSummaryModel: z.string().default('').describe('LM Studio model name for summarization (leave empty to use current chat model)'),
@@ -282,6 +301,14 @@ stateMaxSize: 262144,
 
   contextGuardCompressionPercent: 90, // 📊 ContextGuard: compression trigger as % of effective context window (replaces absolute contextGuardTokenLimit, 07.10)
   contextGuardAgenticDensity: 3.6, // 🔢 agentic chars-per-token density (user-editable menu field, 15.10) — default raised 3.4→3.6 on 15.10 owner instruction (ABOVE the live-measured band ~3.2-3.4; not probe-justified); provenance in tokenStatsManager.ts
+  budgetGuardEnabled: true,                  // Budget-Guard-Arc (05.11) master switch — flipped OFF→ON by owner order 06.11; explicit false restores byte-identical legacy behavior
+  budgetGuard: {                             // nested consumer-facing block (assembled from the flat keys in toolsProvider.ts); both sets are part of PluginConfig
+    enabled: true, advisory_threshold_pct: 80, spill_threshold_pct: 92, autopause_threshold_pct: 85, safety_margin_pct: 8,
+  },
+  budgetGuardAdvisoryThresholdPct: 80,       // M1 pre-call cost gate edge on the read path (owner ruling 04.11)
+  budgetGuardSpillThresholdPct: 92,          // M2 budget-aware spill edge — stricter of absolute vs budget wins
+  budgetGuardAutopauseThresholdPct: 85,      // M3 auto-persist session-memory edge, max once per session
+  budgetGuardSafetyMarginPct: 8,             // M2 reserve ⇒ limit×(1−margin)=limit×0.92 — consistent with spill threshold (default 8 ⇒ budget = limit × 0.92)
   contextGuardForceSummaryOnCompress: true, // 💾 Arc C (07.10): forced structured session-memory save at the compression trigger — generated before history destruction; telemetry checkpoint remains the fallback on any failure
 
   contextGuardSmartReading: true,
@@ -863,6 +890,14 @@ export function buildConfigSchematics(ui?: UiLabels) {
     min: 10, max: 200, int: true,
     hint: ui?.autoSummaryInterval.hint ?? 'Number of messages between automatic session summaries. Higher = less frequent.',
   }, DEFAULT_CONFIG.autoSummaryInterval)
+    // Budget-Guard-Arc (05.11): flat host-facing keys — getGlobalPluginConfig().get() is typed over these field names;
+    // toolsProvider.ts assembles the nested budgetGuard block from them. i18n wired 06.11 per owner rule „alle Tool-Beschreibungen
+    // IMMER übersetzt“: ui?.… ?? EN-literal (supersedes the original arc's deliberate 'no UiLabels/locale surface' decision).
+    .field('budgetGuardEnabled', 'boolean', { displayName: ui?.budgetGuardEnabled.displayName ?? '🛡️ Budget Guard (context-limit protection)', hint: ui?.budgetGuardEnabled.hint ?? 'Master switch for the deterministic context budget guard — M1 pre-call read gate, M2 budget-aware spill cap, M3 auto-persist at 85% edge. ON by default (06.11); turn OFF to restore byte-identical legacy behavior.' }, DEFAULT_CONFIG.budgetGuardEnabled)
+    .field('budgetGuardAdvisoryThresholdPct', 'numeric', { displayName: ui?.budgetGuardAdvisoryThresholdPct.displayName ?? '🔢 Budget Guard Advisory Threshold (%)', subtitle: ui?.budgetGuardAdvisoryThresholdPct.subtitle ?? '⚙️ Budget Guard Setting', hint: ui?.budgetGuardAdvisoryThresholdPct.hint ?? 'M1 pre-call read gate: above this % of the context limit, read tools return a self-describing budget advisory instead of the full payload.', min: 1, max: 99, int: true }, DEFAULT_CONFIG.budgetGuardAdvisoryThresholdPct)
+    .field('budgetGuardSpillThresholdPct', 'numeric', { displayName: ui?.budgetGuardSpillThresholdPct.displayName ?? '✂️ Budget Guard Spill Threshold (%)', subtitle: ui?.budgetGuardSpillThresholdPct.subtitle ?? '⚙️ Budget Guard Setting', hint: ui?.budgetGuardSpillThresholdPct.hint ?? 'M2 spill cap: tool results are spilled to disk beyond this % of the limit (the stricter of absolute vs budget-relative bound wins).', min: 1, max: 99, int: true }, DEFAULT_CONFIG.budgetGuardSpillThresholdPct)
+    .field('budgetGuardAutopauseThresholdPct', 'numeric', { displayName: ui?.budgetGuardAutopauseThresholdPct.displayName ?? '💾 Budget Guard Auto-Persist Edge (%)', subtitle: ui?.budgetGuardAutopauseThresholdPct.subtitle ?? '⚙️ Budget Guard Setting', hint: ui?.budgetGuardAutopauseThresholdPct.hint ?? 'M3: automatic session-memory persist at this % edge, max once per session.', min: 1, max: 99, int: true }, DEFAULT_CONFIG.budgetGuardAutopauseThresholdPct)
+    .field('budgetGuardSafetyMarginPct', 'numeric', { displayName: ui?.budgetGuardSafetyMarginPct.displayName ?? '🧮 Budget Guard Safety Margin (%)', subtitle: ui?.budgetGuardSafetyMarginPct.subtitle ?? '⚙️ Budget Guard Setting', hint: ui?.budgetGuardSafetyMarginPct.hint ?? 'Reserve kept out of the context limit for M2 budget math — limit × (1 − margin/100); default 8 ⇒ spill at 92 %.', min: 0, max: 50, int: true }, DEFAULT_CONFIG.budgetGuardSafetyMarginPct)
 
 
   // ── 🛠️ GRAMMAR PARSER LIMITS (P0 Fix) ──────────────────────────────

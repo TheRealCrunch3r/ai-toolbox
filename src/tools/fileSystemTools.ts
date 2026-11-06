@@ -19,6 +19,7 @@ import { patternScan } from './patternScan.js';
 import { runRipgrepEngine } from '../utils/ripgrepEngine.js';
 import { createGrepGuard, FIND_REPLACE_ALL_MAX_RUN_MS, GREP_FILES_MAX_RUN_MS } from '../utils/grepGuard.js';
 import { getWorkingDir, setWorkingDir, resolvePath } from '../workingDir.js';
+import { evaluatePreCallCost, buildBudgetAdvisory, resolveAdvisoryThresholdPct } from '../budgetGuard.js'; // Budget-Guard-Arc M1 (05.11)
 import {
   levenshteinSimilarity,
   getCachedFuzzyResults,
@@ -281,6 +282,13 @@ export function registerFileSystemTools(config: PluginConfig, stateManager: Stat
           return { success: false, error: 'File too large (>10MB)' };
         }
 
+        // Budget-Guard M1 (05.11): pre-call cost gate — the auto-chunk path below returns the ENTIRE file when it
+        // exceeds maxLength, so stats.size is the exact injected-payload bound; advisory instead of full dump.
+        const m1Gate = evaluatePreCallCost({ expectedChars: stats.size, toolName: 'read_file' }, { config });
+        if (!m1Gate.allowed) {
+          return { success: true, data: buildBudgetAdvisory(m1Gate, resolveAdvisoryThresholdPct(config)) };
+        }
+
         // Read as buffer for efficient binary check (Beledarian style) — ASYNC
         const buffer = await fs.readFile(fullPath);
         
@@ -343,6 +351,14 @@ export function registerFileSystemTools(config: PluginConfig, stateManager: Stat
 
         if (stats.size > 10_000_000) {
           return { success: false, error: 'File too large (>10MB)' };
+        }
+
+        // Budget-Guard M1 (05.11): pre-call cost gate — the injected payload is bounded by chunk_size × max_chunks
+        // (default 50_000 × 20), so min(size, bound) is the exact cost estimate; advisory instead of full dump.
+        const m1BoundChars = Math.min(stats.size, (chunk_size ?? 50_000) * (max_chunks ?? 20));
+        const m1GateChunked = evaluatePreCallCost({ expectedChars: m1BoundChars, toolName: 'read_file_chunked' }, { config });
+        if (!m1GateChunked.allowed) {
+          return { success: true, data: buildBudgetAdvisory(m1GateChunked, resolveAdvisoryThresholdPct(config)) };
         }
 
         // Read entire file content — ASYNC

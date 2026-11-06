@@ -325,6 +325,12 @@ export const deTranslations: FullTranslationSet = {
     autoTrackCompletions: { displayName: '✅ Vollzüge automatisch tracken', subtitle: '⚙️ Auto-Tracking-Einstellung', hint: 'Erkennt Formulierungen wie "erfolgreich abgeschlossen", "Implementierung fertig".' },
     autoTrackErrors: { displayName: '🐛 Bugfixes automatisch tracken', subtitle: '⚙️ Auto-Tracking-Einstellung', hint: 'Erkennt Formulierungen wie "den Bug gefixt", "das Problem gelöst".' },
     autoSummaryInterval: { displayName: '📊 Session-Zusammenfassungs-Intervall', subtitle: '⚙️ Auto-Tracking-Einstellung', hint: 'Anzahl der Nachrichten zwischen automatischen Session-Zusammenfassungen. Höher = seltener.' },
+    // Budget-Guard-Arc i18n (06.11, Owner-Regel „alle Tool-Beschreibungen IMMER übersetzt"): EN-Fallback in config.ts bleibt byte-pinned.
+    budgetGuardEnabled: { displayName: '🛡️ Budget Guard (Kontext-Limit-Schutz)', hint: 'Hauptschalter für den deterministischen Kontext-Budget-Guard — M1 Pre-Read-Gate, M2 budget-aware Spill-Cap, M3 Auto-Persist an der 85-%-Kante. Standardmäßig AN (06.11); auf AUS stellen stellt das byte-identische Altverhalten wieder her.' },
+    budgetGuardAdvisoryThresholdPct: { displayName: '🔢 Budget Guard Advisory-Schwelle (%)', subtitle: '⚙️ Budget-Guard-Einstellung', hint: 'M1 Pre-Read-Gate: oberhalb dieses % des Kontext-Limits geben Read-Tools ein selbstbeschreibendes Budget-Advisory statt des vollen Payloads zurück.' },
+    budgetGuardSpillThresholdPct: { displayName: '✂️ Budget Guard Spill-Schwelle (%)', subtitle: '⚙️ Budget-Guard-Einstellung', hint: 'M2 Spill-Cap: Tool-Ergebnisse werden jenseits dieses % des Limits auf Disk gespült (die strengere Grenze gewinnt: absolut vs. budget-relativ).' },
+    budgetGuardAutopauseThresholdPct: { displayName: '💾 Budget Guard Auto-Persist-Kante (%)', subtitle: '⚙️ Budget-Guard-Einstellung', hint: 'M3: automatisches Speichern der Session-Memory an dieser %-Kante, maximal einmal pro Session.' },
+    budgetGuardSafetyMarginPct: { displayName: '🧮 Budget Guard Sicherheitsmarge (%)', subtitle: '⚙️ Budget-Guard-Einstellung', hint: 'Reserve, die dem Kontext-Limit für die M2-Budgetrechnung entzogen wird — Limit × (1 − Marge/100); Standard 8 ⇒ Spill bei 92 %.' },
   },
 
   general: {
