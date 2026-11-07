@@ -33,6 +33,7 @@ export const esTranslations: FullTranslationSet = {
       { toolName: 'pattern_scan', description: 'Búsqueda recursiva de contenido que devuelve las líneas coincidentes como {file, line, content}; regex inseguras se degradan automáticamente a literal; límites de 256 KB / 10k líneas por archivo con registros de omisión; límite de reloj real de 3 s aborta el scan cooperativamente → resultados PARCIALES con flag aborted', parameters: ['pattern (+ root/mode/caps options)'] },
       { toolName: 'directory_tree', description: 'Visualiza la estructura del directorio en formato árbol con profundidad máxima, tamaños opcionales y exclusión automática de directorios grandes', parameters: ['path/max_depth/show_size (opcional)'] },
       { toolName: 'file_diff', description: 'Compara dos archivos y devuelve un diff unificado con marcadores +/− y números de línea', parameters: ['file_a, file_b'] },
+  { toolName: 'apply_patch', description: 'Aplica parches unified-diff o byte-anchor binarios completamente en proceso (sin shell): hunks add/replace/context por línea con verificación', parameters: ['file_path, patch_content (+ mode)'] },
     ],
   },
   webSearch: {

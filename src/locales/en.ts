@@ -33,6 +33,7 @@ export const enTranslations: FullTranslationSet = {
       { toolName: 'pattern_scan', description: 'Recursive content search returning matching lines as {file, line, content}; unsafe regex auto-demotes to literal; 256 KB / 10k-line per-file caps with skip records; 3 s wall-clock cap aborts mid-scan → PARTIAL results with the aborted flag set', parameters: ['pattern (+ root/mode/caps options)'] },
       { toolName: 'directory_tree', description: 'Visualize directory structure in tree format with max depth, optional file sizes and automatic large-directory exclusion', parameters: ['path/max_depth/show_size (optional)'] },
       { toolName: 'file_diff', description: 'Compare two files and return a unified diff with +/− markers and line numbers', parameters: ['file_a, file_b'] },
+  { toolName: 'apply_patch', description: 'Apply unified-diff or binary byte-anchor patches fully in-process (no shell): per-line add/replace/context hunks with verification', parameters: ['file_path, patch_content (+ mode)'] },
     ],
   },
   webSearch: {

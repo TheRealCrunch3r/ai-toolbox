@@ -33,6 +33,7 @@ export const zhCNTranslations: FullTranslationSet = {
       { toolName: 'pattern_scan', description: '递归内容搜索，以 {file, line, content} 返回匹配行；不安全正则自动降级为字面量；每文件 256 KB / 1 万行上限并记录跳过项；3 秒墙钟上限协作中止扫描 → PARTIAL 结果并置 aborted 标志', parameters: ['pattern (+ root/mode/caps options)'] },
       { toolName: 'directory_tree', description: '以树形格式可视化目录结构，支持最大深度、可选文件大小显示及自动排除大型目录', parameters: ['path/max_depth/show_size（可选）'] },
       { toolName: 'file_diff', description: '比较两个文件并返回带 +/− 标记和行号的统一 diff', parameters: ['file_a, file_b'] },
+  { toolName: 'apply_patch', description: '完全在进程内应用 unified-diff 或二进制字节锚点补丁（无需 shell）：按行 add/replace/context 块并附验证', parameters: ['file_path, patch_content (+ mode)'] },
     ],
   },
   webSearch: {

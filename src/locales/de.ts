@@ -33,6 +33,7 @@ export const deTranslations: FullTranslationSet = {
       { toolName: 'pattern_scan', description: 'Rekursive Inhalts-Suche, liefert passende Zeilen als {file, line, content}; unsichere Regex wird automatisch zu Literal herabgestuft; 256 KB / 10k-Zeilen Limits pro Datei mit Skip-Aufzeichnungen; 3-s-Wall-Clock-Limit bricht den Scan kooperativ ab → TEILWEISE Ergebnisse + aborted-Flag', parameters: ['pattern (+ root/mode/caps options)'] },
       { toolName: 'directory_tree', description: 'Verzeichnisstruktur in Baumform visualisieren mit Max-Tiefe, optionalen Dateigrößen und automatischem Ausschluss großer Verzeichnisse', parameters: ['path/max_depth/show_size (optional)'] },
       { toolName: 'file_diff', description: 'Zwei Dateien vergleichen und einen Unified Diff mit +/−-Markierungen und Zeilennummern zurückgeben', parameters: ['file_a, file_b'] },
+  { toolName: 'apply_patch', description: 'Unified-Diff- oder Binary-Byte-Anchor-Patches komplett in-process anwenden (keine Shell): per-line Add-/Replace-/Context-Hunks mit Verifikation', parameters: ['file_path, patch_content (+ mode)'] },
     ],
   },
   webSearch: {

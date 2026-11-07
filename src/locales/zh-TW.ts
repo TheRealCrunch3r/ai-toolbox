@@ -33,6 +33,7 @@ export const zhTWTranslations: FullTranslationSet = {
       { toolName: 'pattern_scan', description: '遞迴內容搜尋，以 {file, line, content} 傳回相符列；不安全正則自動降級為字面值；每檔案 256 KB / 1 萬列上限並記錄略過項；3 秒牆時上限協作中斷掃描 → PARTIAL 結果並標記 aborted 旗標', parameters: ['pattern (+ root/mode/caps options)'] },
       { toolName: 'directory_tree', description: '以樹狀格式視覺化目錄結構，支援最大深度、選填檔案大小顯示及自動排除大型目錄', parameters: ['path/max_depth/show_size（選填）'] },
       { toolName: 'file_diff', description: '比較兩個檔案並傳回帶 +/− 標記與列號的統一 diff', parameters: ['file_a, file_b'] },
+  { toolName: 'apply_patch', description: '完全在行程內套用 unified-diff 或二進位位元組錨點補丁（無需 shell）：按列 add/replace/context 區塊並附驗證', parameters: ['file_path, patch_content (+ mode)'] },
     ],
   },
   webSearch: {
