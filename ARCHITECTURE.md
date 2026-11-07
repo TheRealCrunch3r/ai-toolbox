@@ -849,7 +849,7 @@ next preprocess()/threshold evaluation
 - **Nested-count semantics:** tool `+delta` ⊆ turn total ⊆ `chat used`.
 - **Gating:** the `| chat used ≈ N tok` field is emitted only when the turn-start baseline > 0; it is omitted if the ContextGuard recount fails.
 
-#### TIER 2 — Mid-Loop Forced Session-Memory Save at the Compression Percent (FIX #21, spec owner-confirmed 08.10 ~21:0x; shipped 09.10)
+#### TIER 2 — Mid-Loop Forced Session-Memory Save at the Compression Percent (FIX #21)
 
 Two-tier context-save contract: **TIER 1 @75%** (`autoTrackTokenThreshold`) stays an interactive YES/NO prompt on the user's next message (AutoTracker FSM, unchanged above); **TIER 2 @`contextGuardCompressionPercent`** (default 90 — the same value PART B compresses at on the NEXT user message) now also fires a FORCED structured session-memory save *inside* the tool loop, because nobody is listening mid-turn to answer tier-1's prompt and usage can run past 100% before the next `preprocess()` runs. Owner spec: **save ONLY** (no mid-turn history compression — that stays at PART B), **once per turn** (one-shot latch), **non-fatal** (a save failure never breaks or delays a tool call). No new config key — tier 2 rides the existing `contextGuardEnabled` + `contextGuardCompressionPercent`.
 
@@ -884,20 +884,20 @@ tool result → toolsProvider wrapper pass (src/toolsProvider.ts, per registered
 every failure inside the block is caught → [TIER-2] console.warn, tool result flows through byte-unchanged (non-fatal by spec)
 ```
 
-**Wiring:** `promptPreprocessor.ts` publishes a reference to the current message list at the SAME finally point as `TokenStatsManager.setTurnEvaluation()` (post-compression when compression ran; cleared per turn by `resetMidLoopDelta()`) and exposes the guard instance via `getContextGetter()` — a one-way read next to the existing setter-only `setContextGuard()` (sole production setter: index.ts). The wrapper is the first external reader; callers handle null AND keep their own method gate for stubs. Pinned by `tests/tier2MidLoopSave.test.ts` (13 tests, canon 69 suites / 1003 tests, owner-GREEN 09.10): inclusive boundary, once-per-turn idempotency + re-arm on a new provider run, strict gate matrix, save-failure non-fatality, span-guard skip with latch hold, footer-OFF independence (the pre-fix defect class), and the suppression-warn regression pin.
+**Wiring:** `promptPreprocessor.ts` publishes a reference to the current message list at the SAME finally point as `TokenStatsManager.setTurnEvaluation()` (post-compression when compression ran; cleared per turn by `resetMidLoopDelta()`) and exposes the guard instance via `getContextGetter()` — a one-way read next to the existing setter-only `setContextGuard()` (sole production setter: index.ts). The wrapper is the first external reader; callers handle null AND keep their own method gate for stubs. Pinned by `tests/tier2MidLoopSave.test.ts`: inclusive boundary, once-per-turn idempotency + re-arm on a new provider run, strict gate matrix, save-failure non-fatality, span-guard skip with latch hold, footer-OFF independence (the pre-fix defect class), and the suppression-warn regression pin.
 
-#### TIER A/B — User-Visible Crossing Notice (FIX A) + Pre-Emptive Mid-Loop Compression at 95% (FIX B; owner-GREEN 10.10, close-out of the two-tier arc)
+#### TIER A/B — User-Visible Crossing Notice (FIX A) + Pre-Emptive Mid-Loop Compression at 95% (FIX B)
 
-The 09.10 verification session proved two remaining gaps in the ladder above: a threshold crossing armed NO state across turns (so usage dropping below threshold after compression/context-increase vanished silently), and NOTHING ran mid-loop between tier-2's @~90% forced SAVE — memory only, a save never shrinks context — and the model's 100% hard stop. Owner GO "A and B" closed both:
+FIX A closes a gap where threshold crossings armed NO state across turns (usage dropping below threshold after compression/context-increase vanished silently); FIX B fills the mid-loop band between tier-2's @~90% forced SAVE and the model's 100% hard stop — a save never shrinks context:
 
-- **FIX A — one-shot user-visible notice** (`src/autoTracker.ts` + `src/promptPreprocessor.ts`): every SUCCESSFUL mid-loop save arms a pending `{usagePercent, sessionId?}`; `preprocess()` renders it F1-style onto userPrompt via consume-once `takePendingMidLoopNotice()` — "🔔 MID-LOOP CONTEXT THRESHOLD NOTICE … ~X% at crossing (checkpoint id) … briefly acknowledge, no YES/NO reply". The FSM is deliberately untouched (documented guard contract); the notice is independent of and co-exists with checkpointSavedNotice; a failed save arms nothing. Pinned by `tests/fixA_midLoopNotice.test.ts` (6 tests).
-- **FIX B — pre-emptive forced COMPRESSION at FIXED 95%** (`src/contextGuard.ts` + `src/toolsProvider.ts`): when the wrapper's shared projection crosses `PREEMPTIVE_COMPRESSION_PERCENT = 95` (fixed constant by design — no config key; it must stay below the wall even if `contextGuardCompressionPercent` is user-set to its schema max of 100), run the FULL PART-B pipeline mid-loop via NEW `ContextGuard.compressMidLoop()` — store-before-prune → PART-B telemetry snapshot → Arc-C continuity save (strict `===true`, keepLast=10) → `compressHistory()` with the return GATED on `getLastCompressionInfo()?.compressed` (FAIL-LOUD log if its internal recount is below its own trigger; the wrapper's char-heuristic projection can overestimate). On success: host-history pop-to-zero/append swap via duck-typed `ctx.client.llm.history()`, post-compression list republished, and a `countTokens` recount re-published as baseline. INDEPENDENT one-shot latch (`midLoopCompactionFiredThisTurn`) — tier-2's @~90% save must not suppress the @95% compression and vice versa; every failure non-fatal (tool result byte-unchanged). SIBLING of tier-2 AND the footer gate inside `if (baseline > 0)` → fires for every payload shape regardless of the `contextUsageFooter` toggle. Pinned by `tests/tierB_midLoopCompaction.test.ts` (11 tests).
+- **FIX A — one-shot user-visible notice** (`src/autoTracker.ts` + `src/promptPreprocessor.ts`): every SUCCESSFUL mid-loop save arms a pending `{usagePercent, sessionId?}`; `preprocess()` renders it F1-style onto userPrompt via consume-once `takePendingMidLoopNotice()` — "🔔 MID-LOOP CONTEXT THRESHOLD NOTICE … ~X% at crossing (checkpoint id) … briefly acknowledge, no YES/NO reply". The FSM is deliberately untouched (documented guard contract); the notice is independent of and co-exists with checkpointSavedNotice; a failed save arms nothing. Pinned by `tests/fixA_midLoopNotice.test.ts`.
+- **FIX B — pre-emptive forced COMPRESSION at FIXED 95%** (`src/contextGuard.ts` + `src/toolsProvider.ts`): when the wrapper's shared projection crosses `PREEMPTIVE_COMPRESSION_PERCENT = 95` (fixed constant by design — no config key; it must stay below the wall even if `contextGuardCompressionPercent` is user-set to its schema max of 100), run the FULL PART-B pipeline mid-loop via NEW `ContextGuard.compressMidLoop()` — store-before-prune → PART-B telemetry snapshot → Arc-C continuity save (strict `===true`, keepLast=10) → `compressHistory()` with the return GATED on `getLastCompressionInfo()?.compressed` (FAIL-LOUD log if its internal recount is below its own trigger; the wrapper's char-heuristic projection can overestimate). On success: host-history pop-to-zero/append swap via duck-typed `ctx.client.llm.history()`, post-compression list republished, and a `countTokens` recount re-published as baseline. INDEPENDENT one-shot latch (`midLoopCompactionFiredThisTurn`) — tier-2's @~90% save must not suppress the @95% compression and vice versa; every failure non-fatal (tool result byte-unchanged). SIBLING of tier-2 AND the footer gate inside `if (baseline > 0)` → fires for every payload shape regardless of the `contextUsageFooter` toggle. Pinned by `tests/tierB_midLoopCompaction.test.ts`.
 
 Full ladder after this arc: **TIER 1 @75%** interactive prompt + Fix-A one-shot notice on successful crossings · **TIER 2 @`contextGuardCompressionPercent` (~90)** forced SAVE mid-loop · **FIX B @95** pre-emptive COMPRESSION mid-loop · **PART B at the next user message** — the boundary path stays untouched for turns that never cross mid-loop.
 
-#### Budget-Guard Payload Protection — M1 / M2 / M3 (Budget-Guard-Arc, NEW 05.11; owner GO 04.11)
+#### Budget-Guard Payload Protection — M1 / M2 / M3
 
-Deterministic context-limit protection on the READ path + a budget-relative spill cap in the wrapper. Decision core: `src/budgetGuard.ts` (PURE — no fs writes, no store mutation; READ-ONLY + FAIL-OPEN by invariant). All three mechanisms ride the SAME shared projection source as the wrapper's other consumers (`TokenStatsManager.getTurnBaseline()` + mid-loop delta), so the guard fires conservatively BEFORE the hard limit — a deliberate, confirmed behavior (calibration datum 05.11: footer estimate overestimates at high fill; M1/M2 fire before the wall by design).
+Deterministic context-limit protection on the READ path + a budget-relative spill cap in the wrapper. Decision core: `src/budgetGuard.ts` (PURE — no fs writes, no store mutation; READ-ONLY + FAIL-OPEN by invariant). All three mechanisms ride the SAME shared projection source as the wrapper's other consumers (`TokenStatsManager.getTurnBaseline()` + mid-loop delta), so the guard fires conservatively BEFORE the hard limit.
 
 ```
 Config (src/config.ts): nested budgetGuard block {default enabled=true since 06.11 owner order; explicit false ⇒ byte-identical legacy behavior}
@@ -931,9 +931,9 @@ M3 — insurance auto-persist at the autopause edge (latch + Arc-C pipeline in t
 
 **Full protection ladder after this arc (rung order deliberate, stays intact):** TIER 1 @75% interactive prompt → **M1 advisory @80%** (read path only) → **M3 auto-persist @85%** (insurance checkpoint) → TIER 2 @~90% forced save (user-configured) → **M2 budget spill edge @92%** (= limit×(1−margin)) → FIX B @95% pre-emptive compression mid-loop → PART B at the next user message.
 
-**Invariants:** default is now `enabled=true` (owner order 06.11, folded into the v1.9.24 move); explicit `enabled=false` ⇒ every entry point short-circuits to legacy behavior byte-identically — rollback without a code revert still available by config alone. No published baseline/limit (`maxContextTokens = 0` before the first `preprocess()`) ⇒ all gates silent, exactly like the wrapper mid-loop gates. M1 fail-open on stat errors / unknown sizes; unexpected exceptions never break an otherwise valid read.
+**Invariants:** default is `enabled=true`; explicit `enabled=false` ⇒ every entry point short-circuits to legacy behavior byte-identically — rollback without a code revert still available by config alone. No published baseline/limit (`maxContextTokens = 0` before the first `preprocess()`) ⇒ all gates silent, exactly like the wrapper mid-loop gates. M1 fail-open on stat errors / unknown sizes; unexpected exceptions never break an otherwise valid read.
 
-**Verification:** `tests/budgetGuard.test.ts` (hermetic: pinned densities 1.307–1.670 c/tok band from CTX-EST A, advisory thresholds, pointer completeness, M3 one-shotness, enabled=false byte-equality) + the existing wrapper suites; full jest canon re-stamped **83 suites / 1234 tests** (green 05.11 — pre-Arc 82/1216, i.e. +1 suite / +18 tests).
+Hermetic gate: `tests/budgetGuard.test.ts` (pinned densities 1.307–1.670 c/tok band, advisory thresholds, pointer completeness, M3 one-shotness, enabled=false byte-equality) + the existing wrapper suites.
 
 ### ContextGuard Compression Flow (v1.4.2)
 
@@ -994,7 +994,7 @@ Final Prompt sent to LLM (with or without compression indicator)
 [Summary content here...]
 ```
 
-#### Forced Structured Session-Memory Save at the Compression Trigger — Arc C (07.10, `contextGuardForceSummaryOnCompress`)
+#### Forced Structured Session-Memory Save at the Compression Trigger — Arc C (`contextGuardForceSummaryOnCompress`)
 
 When compression fires, an arc-C step runs **after PART B-2's checkpoint-warning settlement and BEFORE `compressHistory()`** (`src/promptPreprocessor.ts`), so a durable structured summary exists before the history it describes is destroyed:
 
@@ -1023,7 +1023,7 @@ Gate: contextGuardForceSummaryOnCompress === true          ← strict; undefined
         compressHistory(safeMessages, ctl.abortSignal)      ← history destruction strictly last — runs in every case
 ```
 
-Non-fatal by design: PART B's telemetry snapshot + F1 checkpoint notice remain byte-identical on the arc-C path; ordering and all failure sides are pinned by `tests/arcCCompressionWiring.test.ts` (the pre-Arc C legacy side stays pinned by `tests/precompressSnapshot.test.ts`).
+Non-fatal by design: PART B's telemetry snapshot + F1 checkpoint notice remain byte-identical on the arc-C path; ordering and all failure sides are pinned by `tests/arcCCompressionWiring.test.ts`.
 
 ---
 
@@ -1060,7 +1060,7 @@ contextGuard.countTokens(messages, imageCount, modelId, systemPrompt, historyTex
     ├── FALLBACK: SDK-native countTokens() × calibration (if history unavailable)
     │   ├── Format messages into prompt string
     │   ├── Call model.countTokens(promptString) via LM Studio SDK
-    │   └── Apply TOKEN_SCALING_FACTOR = 65 for overhead compensation ← ⚠️ Legacy fallback
+    │   └── Apply TOKEN_SCALING_FACTOR = 1 for overhead calibration ← ⚠️ Legacy fallback
     │
     ▼
 Threshold Check: totalTokens >= tokenLimit * 0.9?
@@ -1081,52 +1081,18 @@ AutoTracker's token threshold checks (`checkTokenThreshold(currentTokens, maxTok
 
 #### 🔹 Why REST API Is Not a Viable Alternative for Token Counting
 
-During initial development cycles, an alternative approach was explored: fetching token counts directly from LM Studio's local `/v1/chat/completions` REST API endpoint (`src/lmStudioApi.ts`). While this method appeared promising on paper — returning `{usage: {prompt_tokens, completion_tokens, total_tokens}}` that matched the sidebar exactly — it proved fundamentally unreliable in production and was intentionally replaced by the native history API + empirical ratio approach.
-
-**Root Causes of REST API Failure:**
-- **Fragile Port Detection**: The `detectApiServer()` function initially only attempted port `1234`. If LM Studio was running on a different port, or if the server wasn't ready during plugin initialization, connections failed immediately and threw errors that propagated up as `[LM Studio API] ⚠️ Could not connect...`, causing token counting to fall back to estimation (~792 tokens instead of ~170K).
-- **Connection Instability During Model Load**: LM Studio's REST API is frequently unavailable during model loading, switching, or context clearing. When the server was unreachable, `fetchTokenCount()` threw exceptions that cluttered production logs and disrupted tool execution pipelines.
-- **Error Propagation & Log Clutter**: Every failed connection attempt generated warning/error messages in stdout/stderr, degrading user experience and making it harder to identify actual issues during debugging sessions.
-- **No Graceful Degradation**: Unlike the native history API path (which always succeeds as long as a model is loaded), the REST API introduces an external network dependency that can fail independently of plugin logic — breaking deterministic behavior.
-
-**Why Native History API + Empirical Ratio Wins:**
-
-| Criterion | REST API Approach | Native History API × 0.24 |
-|-----------|-------------------|----------------------------|
-| **Reliability** | Fails if server port/availability changes | Always succeeds via LM Studio's native history API (`getLength()`, `at(i)`) |
-| **Error Handling** | Throws exceptions on connection failure | Graceful fallback to SDK-native counting if history unavailable |
-| **Performance Overhead** | HTTP round-trip + JSON parsing per message | Direct IPC call — zero network latency, matches sidebar exactly |
-| **Maintenance Burden** | Requires port detection, timeout handling, retry logic | Single empirical ratio (`× 0.24`) calibrated once against real-world data |
-| **Log Clarity** | Connection failures spam error logs | Clean, deterministic output with no external dependencies |
+The LM Studio local REST endpoint (`src/lmStudioApi.ts`) was evaluated early and rejected: server availability is fragile (port detection, model load/switch/context-clear windows), failures throw into production logs, and it adds an external network dependency where the native history API always succeeds while a model is loaded. The native history API + empirical ratio approach replaced it for deterministic accuracy.
 
 The native history API approach was chosen because it provides **deterministic accuracy** without introducing fragile network dependencies. The `× 0.24` ratio is not a hack — it's an empirically calibrated bridge between the raw character count and LM Studio's internal token counting logic, verified across thousands of real-world interactions with <0.5% deviation from sidebar display.
 
 ---
 
-#### 🔹 Token Counting Compensation Factor & SDK v1.x Content Blocks (v1.8.0) — Legacy Fallback
+#### 🔹 Token Counting Compensation Factor & SDK Content Blocks (v1.8.0) — Legacy Fallback
 
-**Note**: In v1.8.5, ContextGuard switched to using History Text Length × 0.24 as the primary token counting method, which matches LM Studio sidebar counts exactly. The compensation factor approach below is now a **fallback only**, used when history data is unavailable (rare edge case).
+Used only when history data is unavailable (rare edge case); primary method remains History Text Length × 0.24.
 
-##### 1. Why a Compensation Factor (`TOKEN_SCALING_FACTOR = 65`) is Required (Legacy Fallback)
-LM Studio's sidebar does not display the exact number of tokens returned by `model.countTokens()`. The SDK returns a raw token count based on the prompt string passed to it, but LM Studio internally adds significant overhead that is not reflected in the SDK response. This overhead includes:
-- **Chat Templates & BOS/EOS Tokens**: Special start-of-sequence and end-of-sequence tokens added by the inference engine.
-- **Internal System Prompts**: Hidden instructions injected by LM Studio's host application.
-- **JSON Serialization Overhead**: How tool definitions, file attachments, and structured content are tokenized internally versus how our prompt string is constructed.
-
-To bridge this gap in fallback scenarios, we apply a constant scaling multiplier (`TOKEN_SCALING_FACTOR = 65`). This factor was derived through iterative calibration against real-world usage data (e.g., observing ~184k actual tokens used at 81% capacity vs ~2.8k raw SDK count), resulting in the formula: `Plugin Count × TOKEN_SCALING_FACTOR ≈ Sidebar Display`.
-
-**Primary Method (v1.8.5+)**: History Text Length × 0.24 ratio — derived empirically by comparing character counts against LM Studio sidebar display across thousands of conversations, achieving <0.5% deviation without requiring SDK overhead compensation.
-
-##### 2. SDK v1.x Array-Based Content Block Extraction (Legacy Fallback)
-Prior to v1.8.0, when LM Studio's SDK returned messages containing array-based content blocks (e.g., `[{"type": "text", "text": "..."}]`), the tokenizer failed to extract the actual text, leaving the `promptString` severely truncated and causing token counts to plummet (e.g., reporting ~6k instead of ~13k). 
-
-**The v1.8.0 Fix:**
-Content extraction now follows a strict priority chain:
-1. ✅ **Raw Strings**: Extracted directly (`typeof m.content === 'string'`).
-2. ✅ **Array Content Blocks**: Iterates through the array, extracting `.text` from each block and joining them with newlines.
-3. ✅ **ChatMessage Objects**: Attempts to call `.getText()` method first (common in SDK v1.x), then checks for a `.text` property, falling back to `JSON.stringify()` only as an absolute last resort.
-
-This ensures the `promptString` passed to `model.countTokens()` contains the full semantic content of every message — required when using SDK-native counting as a fallback path.
+- **SDK-native counting compensation:** LM Studio adds internal overhead the raw SDK count misses (chat templates/BOS-EOS, hidden system prompts, JSON serialization). `src/contextGuard.ts` carries a live `TOKEN_SCALING_FACTOR = 1` calibration constant applied to the fallback count — at 1 it is identity; non-1 values scale per `Plugin Count × factor ≈ Sidebar Display`.
+- **Array-based content blocks (SDK v1.x):** extraction priority chain — raw strings direct (`typeof m.content === 'string'` → array blocks: join each block's `.text` with newlines → ChatMessage objects: `.getText()` first, then `.text`, `JSON.stringify()` only as absolute last resort. Keeps the `promptString` passed to `model.countTokens()` semantically complete on the fallback path.
 
 ## 🧩 Module Dependencies
 
@@ -1178,7 +1144,7 @@ ConfigSchema (Zod)
     ├── contextGuardSummaryModel (string) — Dedicated summary model name
     ├── contextGuardTerminalFilterEnabled (boolean) — Terminal output filtering
     └── contextGuardTerminalFilterLength (number 100-20K) — Max terminal chars
-└── BudgetGuard (5 flat UI keys, NEW 05.11): budgetGuardEnabled (boolean, ON by default (explicit `false` ⇒ byte-identical legacy behavior); all five fields localized), budgetGuardAdvisory/Spill/AutopauseThresholdPct (int 1–99; defaults 80 / 92 / 85) + budgetGuardSafetyMarginPct (int 0–50, default 8 — M2 edge = limit×(1−margin)); the nested consumer-facing `budgetGuard` block is assembled from these five in toolsProvider.ts. Full design: § Budget-Guard Payload Protection above
+└── BudgetGuard (5 flat UI keys): budgetGuardEnabled (boolean, ON by default (explicit `false` ⇒ byte-identical legacy behavior); all five fields localized), budgetGuardAdvisory/Spill/AutopauseThresholdPct (int 1–99; defaults 80 / 92 / 85) + budgetGuardSafetyMarginPct (int 0–50, default 8 — M2 edge = limit×(1−margin)); the nested consumer-facing `budgetGuard` block is assembled from these five in toolsProvider.ts. Full design: § Budget-Guard Payload Protection above
 ```
 
 Each field maps to a UI element in LM Studio's settings panel via `createConfigSchematics()`.
@@ -1240,7 +1206,7 @@ src/
 │   ├── browserActions.ts       # ⚠️ lives in src/ — browser action execution & validation
 │   ├── findLMStudioHome.ts     # ⚠️ lives in src/ — LM Studio home directory detection
 │   ├── lmStudioApi.ts          # ⚠️ lives in src/ — LM Studio REST API integration layer
-│   ├── budgetGuard.ts              # Budget-Guard-Arc decision core (M1/M2/M3 pure gates; lives in src/ — NEW 05.11, see § Data Flow → Budget-Guard Payload Protection)
+│   ├── budgetGuard.ts              # Budget-Guard-Arc decision core (M1/M2/M3 pure gates; lives in src/ — see § Data Flow → Budget-Guard Payload Protection)
     └── tokenStatsManager.ts    # ⚠️ lives in src/ — token statistics tracking (manager, not a tool); C family 24.09: active-turn tracking + bounded drain (`drainActiveToolTurns`, poll 250 ms / cap 15 s)
 └── types/                      # Type definitions
     ├── dom-augment.d.ts        # DOM type augmentations for browser automation
@@ -1690,13 +1656,13 @@ promptPreprocessor() → detectProjectKeywords(message)
 
 ### Utility Modules (`src/utils/`)
 - `hubExclusionClustering.ts` — Hub-Exclusion Clustering algorithm (Louvain community detection, hub identification, majority-vote reattachment)
-- 🗑️ `simulation.ts` was removed 01.09.2026 (self-executing dev script; Tier-1 dead code — its clustering assertions live on in the still-live `tests/hubExclusionClustering.test.ts`)
-- `toolPayloadCompaction.ts` — C compaction family policy, NEW 24.09 (PURE: no fs/SDK/globals): pre-summarization prune of oversized role-`tool` payloads (>16384 UTF-8 bytes strict) into a head-2048 + tail-512 preview under the `[ai_toolbox compaction]` marker, opaque locator `compaction://<sha256hex>` as retrieval hint; digest-pairing fail-loud skip (never mints fake digests); in-place prune with byte-savings accounting. Full contract: docs/tool-consolidation-draft.md §9c.
-- `toolPayloadStorage.ts` — C compaction family storage backend, NEW 24.09: verbatim `<cwd>/.ai_toolbox/compaction/<sha256>.payload`, `0o600` `'wx'` exclusive create + symlink refusal on every path segment, EEXIST → byte-compare idempotent reuse (mismatched bytes throw); store-before-prune default ON in `promptPreprocessor.ts` — any store failure aborts that turn's prune.
-- `ToolExecutionPipeline.ts` — Tool Execution Pipeline Hygiene (DeepSeek-harness item D), NEW 25.09 (PURE: no fs/SDK/globals): outcome taxonomy success/error/deny/abstain, monotonic guard (deep-stable sorted-key canonical args key; identical call within a turn → abstain), legacy {success,data,error} shape normalization, finalizeContent invariant with FAIL-LOUD empty-content warn + constructor fail-loud on non-function defaultFinalizer. Full contract: section below.
-- `withPipeline.ts` — process-level pipeline wiring, NEW 25.09: lazily-created shared pipeline singleton (getPipeline()); exports withPipeline(), registerToolFinalizer(toolName, fn), resetToolGuard(). Current production consumer: toolsProvider.ts calls resetToolGuard() on EVERY provider invocation (per-turn guard semantics); per-tool adoption via withPipeline() is incremental — no tool implementation wrapped yet as of 25.09.
+- 🗑️ `simulation.ts` REMOVED (self-executing dev script, Tier-1 dead code — clustering assertions live on in `tests/hubExclusionClustering.test.ts`)
+- `toolPayloadCompaction.ts` — C compaction family policy (PURE): pre-summarization prune of oversized role-`tool` payloads (>16384 UTF-8 bytes strict) into head-2048 + tail-512 preview under the `[ai_toolbox compaction]` marker, opaque locator `compaction://<sha256hex>`; digest-pairing fail-loud skip (never mints fake digests); in-place prune with byte-savings accounting. Contract: docs/tool-consolidation-draft.md §9c.
+- `toolPayloadStorage.ts` — C compaction family storage backend: verbatim `<cwd>/.ai_toolbox/compaction/<sha256>.payload`, `0o600` `'wx'` exclusive create + symlink refusal on every path segment, EEXIST → byte-compare idempotent reuse (mismatched bytes throw); store-before-prune default ON in `promptPreprocessor.ts` — any store failure aborts that turn's prune.
+- `ToolExecutionPipeline.ts` — tool-execution pipeline (PURE): outcome taxonomy success/error/deny/abstain; full contract in the Pipeline Hygiene section below.
+- `withPipeline.ts` — process-level pipeline wiring; detail in the Pipeline Hygiene section below.
 
-### Updated Module Dependencies (v1.9.8)
+### Updated Module Dependencies
 ```typescript
 // New cross-module relationships:
 toolPriority.ts → hubExclusionClustering.js (centrality scoring integration)
@@ -1706,17 +1672,16 @@ confidenceTypes.ts → all tool modules (via createToolResult<T>() helper functi
 hubExclusionClustering.ts → analysis utility (analyzeAiToolboxDependencies() pre-populated graph)
 ```
 
-### New Test Suites Added (v1.9.8)
+### New Test Suites Added
 - `tests/confidenceTypes.test.ts` — Confidence-tagged results validation (determineConfidence, createToolResult, createErrorResult)
 - `tests/hubExclusionClustering.test.ts` — Hub-exclusion clustering algorithm verification (83 tests covering graph construction, hub identification, Louvain convergence, majority-vote reattachment, density/modularity calculations)
 - `tests/projectAutoDetect.test.ts` — Project auto-detection and registration workflow (name normalization, confidence scoring, fuzzy matching, auto-registration flow)
 
 ---
----
 
-## 🧯 Tool Execution Pipeline Hygiene (`src/utils/`) — NEW 25.09 (DeepSeek-harness research item D)
+## 🧯 Tool Execution Pipeline Hygiene (`src/utils/`)
 
-**Unified tool-execution hygiene: one pipeline enforcing the outcome taxonomy and the finalizeContent invariant, replacing ad-hoc per-tool error handling (research status A–E verified 25.09: C done 24.09, E pervasive; D is this section).**
+**One pipeline enforcing the outcome taxonomy and the finalizeContent invariant across tool execution (replaces ad-hoc per-tool error handling).**
 
 ### Outcome Taxonomy & Invariants
 - Every execution settles into exactly ONE kind — `success | error | deny | abstain` (`ToolOutcome = ToolSuccess | ToolError | ToolDeny | ToolAbstain`).
@@ -1739,13 +1704,9 @@ resetGuard()                    // clears the monotonic seen-set (per-turn reset
 
 ### `withPipeline.ts` (process-level wiring)
 - Lazily-created shared pipeline singleton (`getPipeline()`); exports `withPipeline()`, `registerToolFinalizer(toolName, fn)`, `resetToolGuard()`.
-- **Current production wiring (25.09):** `toolsProvider.ts` calls `resetToolGuard()` on EVERY provider invocation — the monotonic seen-set is per-turn by construction (turn = one toolsProvider call; test suites get isolation for free).
-- **Adoption status:** the pipeline is registered, unit-tested and ready; per-tool adoption via `withPipeline()` is incremental — as of 25.09 no tool implementation is wrapped yet (behavior-neutral until wired).
-- **Jest note (RC#4 class):** the static import './utils/withPipeline.js' in `toolsProvider.ts` requires a per-file `moduleNameMapper` entry in `jest.config.cjs` (PIPELINE-D, 25.09) — same convention as every other `.js`-suffixed relative import; generic rules remain banned (G9 round-2).
-
-### Verification (owner-run gates, 25.09)
-- Full jest: **836 passed / 51 suites** (baseline was 824/50 pre-D — the new dedicated suite under `tests/utils/` accounts for the +1 suite).
-- ESLint on both pipeline files: clean (0 problems) — including the `describeError()` close of `@typescript-eslint/no-base-to-string`.
+- **Current production wiring:** `toolsProvider.ts` calls `resetToolGuard()` on EVERY provider invocation — the monotonic seen-set is per-turn by construction (turn = one toolsProvider call; test suites get isolation for free).
+- **Adoption status:** registered and unit-tested; no tool implementation wrapped via `withPipeline()` yet (behavior-neutral until wired).
+- **Jest note:** the static import './utils/withPipeline.js' in `toolsProvider.ts` requires a per-file `moduleNameMapper` entry in `jest.config.cjs` — same convention as every other `.js`-suffixed relative import; generic rules remain banned.
 
 ---
 ## 🛡️ Crash-Resilient Atomic Writes (v1.9.8+)
@@ -1873,9 +1834,6 @@ All previously synchronous file-write tools converted to async with shared `atom
 
 - ✅ **Zero `writeFileSync` remaining** in `src/tools/` directory
 - ✅ **Zero `renameSync` remaining** in `src/tools/` directory  
-- ✅ All 491 Jest tests passing across 25 suites (6s runtime) with mocked `fs.promises`
-- ✅ TypeScript compilation clean, ESLint: 0 warnings
-- ✅ Build verified: CJS ~12.6MB, ESM ~12.0MB (same as v1.9.6 — no size regression from async conversion)
 
 ---
 
