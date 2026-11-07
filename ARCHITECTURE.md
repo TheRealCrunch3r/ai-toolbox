@@ -158,7 +158,7 @@ createToolsProvider(config, stateManager, bgCommandManager)
             ├── registerExecutionTools()       ──► 5 tools (mixed defaults)
             │
             ▼
-        Return Tool[] to SDK ──► **Code-registered total: 113 live tool definitions across the 22 registering module files** (full re-audit 28.09 — `src/toolsProvider.ts` registry + per-module `name:` scan; exposed set is toggle-dependent, GOD MODE max ≈ 113) · **locale data: 115 entries / 113 distinct names in all five locales** (full parity; `read_document` + `rag_web_content` served by two categories each)
+        Return Tool[] to SDK ──► **Code-registered total: 113 live tool definitions across the 22 registering module files** (full re-audit 28.09 — `src/toolsProvider.ts` registry + per-module `name:` scan; exposed set is toggle-dependent, GOD MODE max ≈ 113) · **locale data: 115 entries / 113 distinct names in all five locales** (full parity; `read_document` + `rag_web_content` served by two categories each) · **07.11 delta:** + `apply_patch` shipped in `fileSystemTools.ts` → live definitions now 114 / GOD MODE max ≈ 116 (canon); locale sets not yet re-audited since the ship
 ```
 
 The former tool-discovery **gateway pattern** (`explore_tools`/`execute_gateway_tool`, `src/tools/gatewayTools.ts`; introduced v1.6.0) was abandoned in favor of direct SDK registration; the file was removed from the codebase (v1.9.10, 24.08). No gateway definitions remain under `src/` — grammar-parser compatibility is handled by schema minification (`toolsSchemaMinifier.ts`), not tool-count gating.
@@ -1307,9 +1307,9 @@ All tool categories are now fully registered in `toolsProvider.ts` using the dec
 | Data Visualization | dataVisualizationTools.ts | 1 | ✅ Yes | Utility toggle |
 | Markdown Preview | markdownPreviewTools.ts | 1 | ✅ Yes | Utility toggle |
 | Task Planning | taskPlanningTools.ts | 3 | ✅ Yes | Enabled (default) |
-| **Total Registered** | | **Code-defined total (full re-audit 28.09): **113** live tool definitions across the 22 registered module files; exposed set is toggle-dependent — GOD MODE max ≈ 113 (`read_document`, `rag_web_content` are each served by two categories)** · locale data: **115 entries / 113 distinct names in all five locales** (29.09 ghost purge + unlisted-tool entries — full parity with live code; see drift note below) | | |
+| **Total Registered** | | **Code-defined total (full re-audit 28.09): **113** live tool definitions across the 22 registered module files; exposed set is toggle-dependent — GOD MODE max ≈ 113 (`read_document`, `rag_web_content` are each served by two categories)** · locale data: **115 entries / 113 distinct names in all five locales** (29.09 ghost purge + unlisted-tool entries — parity as of that audit) · **07.11 delta:** `apply_patch` shipped (+1 definition, still 22 module files → GOD MODE max ≈ 116); locale sets now measured at 119 entry lines/set (all five), apply_patch absent from all sets — parity re-audit pending | | |
 
-> **Locale ↔ code parity**: the locale sets (all five) carry 115 entries / 113 distinct names — full parity with live code (`read_document` + `rag_web_content` are served by two categories each; four ghost entries purged, four utility tools added in the 29.09 closure). Locale entries are data, not behavior.
+> **Locale ↔ code parity**: the locale sets (all five) carry 115 entries / 113 distinct names — full parity with live code (`read_document` + `rag_web_content` are served by two categories each; four ghost entries purged, four utility tools added in the 29.09 closure). Locale entries are data, not behavior. **07.11 delta:** `apply_patch` (shipped 07.11) is NOT in any locale set and per-set entry lines measure at 119 — parity statement above superseded by the pending re-audit.
 
 > **Note**: all previously "unregistered" utility tool categories (backup, data visualization, line operations, markdown preview) are registered under the `utility` config key. The former gateway file (`gatewayTools.ts`) no longer exists — direct SDK registration + schema minification handles grammar-parser compatibility.
 
