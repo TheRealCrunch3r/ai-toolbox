@@ -8,7 +8,7 @@
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| **Tool Count** | ✅ Re-audited against live code 28.09 (authoritative — supersedes the 15.09 re-count and the 05.09 ~131 estimate): i18n locale reference `src/locales/en.ts` carries exactly **115 toolName entries / 113 distinct names per locale set, parity-verified across all 5 locales** (locale↔code drift fully closed 29.09: 4 ghost-only entries purged + 4 unlisted utility tools added; `read_document` and `rag_web_content` appear in two categories each); code registration matches — **113 live tool definitions across the 22 registered module files** (re-audit 28.09, supersedes the 15.09 figures 130/128; ARCHITECTURE.md § "Tool Registration Summary"; per-category counts incl. cross-category duplicates: TOOLS_REFERENCE.md Overview) | All registered via declarative pattern (v1.8.2+) |
+| **Tool Count** | ✅ Re-audited against live code: i18n locale reference `src/locales/en.ts` carries exactly **115 toolName entries / 113 distinct names per locale set, parity-verified across all 5 locales** (locale↔code drift fully closed: 4 ghost-only entries purged + 4 unlisted utility tools added; `read_document` and `rag_web_content` appear in two categories each); code registration matches — **113 live tool definitions across the 22 registered module files** (ARCHITECTURE.md § "Tool Registration Summary"; per-category counts incl. cross-category duplicates: TOOLS_REFERENCE.md Overview) | All registered via declarative pattern (v1.8.2+) |
 | **Context Management** | ✅ Scoping + Heuristic Scoring + TTL Pruning | v1.9.1+ improvements active |
 | **Token Counting** | ✅ Native History API × 0.24 ratio | Matches LM Studio sidebar <0.3% deviation |
 | **Graphify Intelligence Suite** | ✅ Fully Implemented (v1.9.5) | Confidence tags, hub-exclusion clustering, project auto-detection, tier provenance, cluster-aware priority |
@@ -266,7 +266,7 @@ The following corrections reflect the v1.8.2 implementation (historical):
 ## 🔒 Security Hardening
 
 ### ReDoS Protection & Pattern Transparency
-The `isSafeRegex()` function in `src/security.ts` performs precise pattern analysis — every check is linear-time by construction (FIX-35c, 28.09; the pre-fix clause-1 meta-regex could itself catastrophically backtrack on patterns containing a lone unescaped `(`):
+The `isSafeRegex()` function in `src/security.ts` performs precise pattern analysis — every check is linear-time by construction (FIX-35c; the pre-fix clause-1 meta-regex could itself catastrophically backtrack on patterns containing a lone unescaped `(`):
 - Targets genuinely dangerous structures: nested repetition (`(.+)+`, `(a*)*`), alternating groups with quantifiers (`((a|b)+)+`)
 - Patterns with alternation inside a repeated group (e.g. `(a|b)+`) are rejected and demoted to literal; safe patterns like `[a-z]+`, `^import\s+` and bounded repeats (`(a*){50}`) are accepted
 - Unsafe patterns are converted to literal matching (not silently dropped)
