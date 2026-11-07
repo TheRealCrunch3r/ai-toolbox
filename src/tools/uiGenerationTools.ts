@@ -26,14 +26,18 @@ function generateButtonHtml(label: string, color: string = '#007bff', id: string
 }
 
 /** Generate HTML for a form component */
-function generateFormHtml(fields: Array<{ name: string; type: string; label: string }>, submitLabel: string = 'Submit'): string {
+function generateFormHtml(fields: Array<{ name: string; type: string; label: string; options?: string[] }>, submitLabel: string = 'Submit'): string {
   const fieldsHtml = fields.map(field => `
     <div style="margin-bottom: 15px;">
       <label for="${field.name}" style="display: block; margin-bottom: 5px; font-weight: bold;">${field.label}</label>
       ${field.type === 'textarea' 
         ? `<textarea id="${field.name}" name="${field.name}" rows="4" style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;"></textarea>`
         : field.type === 'select'
-          ? `<select id="${field.name}" name="${field.name}" style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;"><option value="">Select...</option><option value="1">Option 1</option><option value="2">Option 2</option></select>`
+          ? (() => {
+              const opts = (Array.isArray(field.options) && field.options.length > 0) ? field.options : ['Option 1', 'Option 2']; // legacy fallback preserves original behavior
+              const optionItems = opts.map((opt) => '<option value="' + opt + '">' + opt + '</option>').join('');
+              return '<select id="' + field.name + '" name="' + field.name + '" style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;"><option value="">Select...</option>' + optionItems + '</select>';
+            })()
           : `<input type="${field.type}" id="${field.name}" name="${field.name}" style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;" />`
       }
     </div>
@@ -74,11 +78,20 @@ function generateChartHtml(data: Array<{ label: string; value: number }>, title:
 }
 
 /** Generate HTML for a dashboard component */
-function generateDashboardHtml(titles: string[], content: Array<{ type: 'text' | 'chart'; data?: unknown }>): string {
+function generateDashboardHtml(titles: string[], content: Array<{ type: 'text' | 'chart'; data?: unknown; text?: string }>): string {
   const cardsHtml = titles.map((title, index) => {
     const cardContent = content[index]?.type === 'chart' 
-      ? generateChartHtml(content[index].data as Array<{ label: string; value: number }> || [{ label: 'A', value: 50 }, { label: 'B', value: 80 }], title)
+      ? (() => {
+          // DASHBOARD-NO-RANDOM (07.11): chart cards require explicit data points — no invented placeholder values.
+          const cardData = content[index].data as Array<{ label: string; value: number }> | undefined;
+          return cardData && cardData.length > 0
+            ? generateChartHtml(cardData, title)
+            : `<p style="padding: 20px; text-align: center; color: #6b7280;">${title} — chart card (no data provided)</p>`;
+        })()
       : (() => {
+          if (typeof content[index]?.text === 'string' && content[index].text.length > 0) {
+            return `<p style="padding: 20px;">${content[index].text}</p>`;
+          }
           const data = content[index]?.data;
           if (data == null) return `<p style="padding: 20px;">Content for ${title}</p>`;
           const textData: string = typeof data === 'string' 
@@ -117,19 +130,26 @@ export function registerUiGenerationTools(_config: PluginConfig): Tool[] {
         name: z.string(),
         type: z.enum(['text', 'email', 'password', 'number', 'textarea', 'select']),
         label: z.string(),
+        options: z.array(z.string()).optional().describe('Option values for select-type fields'),
       })).optional().describe('Form fields (for form component)'),
       chart_data: z.array(z.object({
         label: z.string(),
         value: z.number(),
       })).optional().describe('Chart data points (for chart component)'),
       dashboard_titles: z.array(z.string()).optional().describe('Titles for dashboard cards'),
+      dashboard_content: z.array(z.object({
+        type: z.enum(['chart', 'text']).describe('Card kind: bar chart or text'),
+        data: z.array(z.object({ label: z.string(), value: z.number() })).optional().describe('Bar points (chart cards only)'),
+        text: z.string().optional().describe('Card body (text cards only)'),
+      })).optional().describe('Per-card dashboard content (bar points / card text). Omit for the legacy alternating chart/text layout.'),
     },
-    implementation: async ({ component_type, label, fields, chart_data, dashboard_titles }: { 
+    implementation: async ({ component_type, label, fields, chart_data, dashboard_titles, dashboard_content }: { 
       component_type: string; 
       label?: string; 
-      fields?: Array<{ name: string; type: string; label: string }>; 
+      fields?: Array<{ name: string; type: string; label: string; options?: string[] }>; 
       chart_data?: Array<{ label: string; value: number }>;
       dashboard_titles?: string[];
+      dashboard_content?: Array<{ type: 'chart' | 'text'; data?: Array<{ label: string; value: number }>; text?: string }>;
     }) => {
       try {
         let html = '';
@@ -154,10 +174,18 @@ export function registerUiGenerationTools(_config: PluginConfig): Tool[] {
             if (!dashboard_titles || dashboard_titles.length === 0) {
               return { success: false, error: 'Dashboard component requires at least one title' };
             }
-            const content: Array<{ type: 'text' | 'chart'; data?: unknown }> = dashboard_titles.map((title, index) => ({
-              type: index % 2 === 0 ? 'chart' : 'text',
-              data: index % 2 === 0 ? [{ label: 'A', value: Math.floor(Math.random() * 100) }, { label: 'B', value: Math.floor(Math.random() * 100) }] : undefined,
-            }));
+            // DASHBOARD-NO-RANDOM (07.11): explicit per-card content wins; otherwise the legacy alternating layout, but chart cards render with real data only when supplied — no invented placeholder values.
+            const content = (dashboard_content && dashboard_content.length > 0
+              ? dashboard_titles.map((title, index): { type: 'text' | 'chart'; data?: unknown; text?: string } => ({
+                  type: dashboard_content[index]?.type ?? 'text',
+                  ...(dashboard_content[index].data ? { data: dashboard_content[index].data } : {}),
+                  ...(typeof dashboard_content[index]?.text === 'string' ? { text: dashboard_content[index].text } : {}),
+                }))
+              : dashboard_titles.map((title, index): { type: 'text' | 'chart'; data?: unknown; text?: string } => ({
+                  type: index % 2 === 0 ? 'chart' : 'text',
+                  data: undefined, // no supplied data -> chart cards show the honest empty state in generateDashboardHtml
+                }))
+            );
             html = generateDashboardHtml(dashboard_titles, content);
             break;
           default:
