@@ -1,8 +1,8 @@
 <div align="center">
 <a href="README.md">English</a> · <a href="README.de.md">Deutsch</a> · <a href="README.es.md">Español</a> · <b>简体中文</b> · <a href="README.zh-TW.md">繁體中文</a><br/>
 <h1>AI Toolbox —— 面向 LM Studio 本地 LLM 的一体化自主 AI Agent & 工具插件</h1><hr/>
-<b>115 个工具，一个插件，无需云端。</b> 最完整的 LM Studio Hub 插件——把任意本地模型变成能干、自管理的 AI 智能体。<br/>自管理上下文让马拉松式会话保持存活 · 一个插件，零胶水代码，默认完全离线。
-<br/><a href="#"><img src="https://img.shields.io/badge/version-v1.9.24-2f80ed?style=plastic" alt="version v1.9.24"/></a> <a href="#the-tool-arsenal-115-tools-across-every-family-all-yours-to-toggle"><img src="https://img.shields.io/badge/tools-115%20ready--made-7c3aed?style=plastic" alt="tools 115 ready-made"/></a> <a href="#quick-start-2-minutes"><img src="https://img.shields.io/badge/tests-83%20suites%20%C2%B7%201234%20green-3fb950?style=plastic" alt="tests 83 suites · 1234 green"/></a> <a href="#"><img src="https://img.shields.io/badge/LM%20Studio-Hub%20plugin-e84393?style=plastic" alt="LM Studio Hub plugin"/></a> <a href="LICENSE"><img src="https://img.shields.io/github/license/TheRealCrunch3r/ai-toolbox?style=plastic" alt="license MIT (live-verified from LICENSE)"/></a> <a href="#"><img src="https://img.shields.io/badge/runtime-Node%20%E2%89%A5%2020-83cd29?style=plastic&logo=node.js" alt="runtime Node ≥ 20"/></a><br/>
+<b>116 个工具，一个插件，无需云端。</b> 最完整的 LM Studio Hub 插件——把任意本地模型变成能干、自管理的 AI 智能体。<br/>自管理上下文让马拉松式会话保持存活 · 一个插件，零胶水代码，默认完全离线。
+<br/><a href="#"><img src="https://img.shields.io/badge/version-v1.9.24-2f80ed?style=plastic" alt="version v1.9.24"/></a> <a href="#the-tool-arsenal-116-tools-across-every-family-all-yours-to-toggle"><img src="https://img.shields.io/badge/tools-116%20ready--made-7c3aed?style=plastic" alt="tools 116 ready-made"/></a> <a href="#quick-start-2-minutes"><img src="https://img.shields.io/badge/tests-84%20suites%20%C2%B7%201262%20green-3fb950?style=plastic" alt="tests 84 suites · 1262 green"/></a> <a href="#"><img src="https://img.shields.io/badge/LM%20Studio-Hub%20plugin-e84393?style=plastic" alt="LM Studio Hub plugin"/></a> <a href="LICENSE"><img src="https://img.shields.io/github/license/TheRealCrunch3r/ai-toolbox?style=plastic" alt="license MIT (live-verified from LICENSE)"/></a> <a href="#"><img src="https://img.shields.io/badge/runtime-Node%20%E2%89%A5%2020-83cd29?style=plastic&logo=node.js" alt="runtime Node ≥ 20"/></a><br/>
 <b>Docs:</b> <a href="DOCUMENTATION.md">Documentation</a> · <a href="QUICK_START.md">Quick Start</a> · <a href="ARCHITECTURE.md">Architecture</a> · <a href="TOOLS_REFERENCE.md">Tool Reference</a> · <a href="CHANGELOG_v5.md">Changelog</a><br/>
 <a href="CONTRIBUTING.md">Contributing</a> · <a href="SECURITY.md">Security</a><br/>
 <br>
@@ -12,11 +12,11 @@
 </div>
 
 
-**LM Studio 的 AI Agent 工具箱** —— 115 个本地 LLM 工具：文件编辑、代码库搜索、RAG、浏览器自动化、Git & GitHub。
+**LM Studio 的 AI Agent 工具箱** —— 116 个本地 LLM 工具：文件编辑、代码库搜索、RAG、浏览器自动化、Git & GitHub。
 
-**115 个工具，一个插件，无需云端。** LM Studio Hub 上最完整的插件 —— 把任意本地模型变成一个有能力、自我管理的 AI Agent，具备安全的文件编辑、绝不挂起的代码库搜索、后台构建、无头浏览器自动化、Git & GitHub 工作流、OCR、图表生成和语义 RAG；**自管理上下文**让马拉松式会话保持存活。一个插件，零胶水代码，默认完全离线。
+**116 个工具，一个插件，无需云端。** LM Studio Hub 上最完整的插件 —— 把任意本地模型变成一个有能力、自我管理的 AI Agent，具备安全的文件编辑、绝不挂起的代码库搜索、后台构建、无头浏览器自动化、Git & GitHub 工作流、OCR、图表生成和语义 RAG；**自管理上下文**让马拉松式会话保持存活。一个插件，零胶水代码，默认完全离线。
 
-> `v1.9.24` · `115 个即用工具` · `1234 项测试通过（83 个套件）` · `5 种语言本地化` · `MIT` · `Node 20+`
+> `v1.9.24` · `116 个即用工具` · `1262 项测试通过（84 个套件）` · `5 种语言本地化` · `MIT` · `Node 20+`
 
 > ⚠️ **译文声明** —— 本文件为 [README.md](README.md) 的简体中文版。英文版为准（canonical），如有出入以 README.md 为准；原文变更时请同步更新本文件。
 
@@ -24,7 +24,7 @@
 
 ## 目录
 
-[为什么选 AI Toolbox（对比其他插件）] · [正面对比评测] · [功能概览] · [快速上手（2 分钟）] · [配置与工具开关 —— 完全控制，零代码] · [安全姿态 —— 按重要标准打造] · [架构内幕（供好奇者）] · [工具军火库：115 个工具] · [版本亮点 —— 完整历史 → CHANGELOG_v5.md —— 活跃；v1–v4 在 docs/history/]
+[为什么选 AI Toolbox（对比其他插件）] · [正面对比评测] · [功能概览] · [快速上手（2 分钟）] · [配置与工具开关 —— 完全控制，零代码] · [安全姿态 —— 按重要标准打造] · [架构内幕（供好奇者）] · [工具军火库：116 个工具] · [版本亮点 —— 完整历史 → CHANGELOG_v5.md —— 活跃；v1–v4 在 docs/history/]
 
 *目录为纯文本列表（无锚点链接）；各节标题对应下文标题。*
 
@@ -39,7 +39,7 @@
 |---|---|---|
 | 🧠 **自管理上下文**（`AutoTracker` + `ContextGuard`） | Token 阈值在*工具链中途*触发（75% / 90%），自动摘要并压缩对话，先于溢出 —— 长 Agent 会话持续工作而不是死掉。Prompt 流水线内置项目关键词检测。 | ⭐ **没有一家被调研的竞品有任何上下文/token 管理** —— 其他所有"记忆"工具都只是裸的存/列/查 CRUD |
 | 🌐 **跨项目记忆**（`switch_context`、项目注册表） | 回忆*另一个*已注册项目上周做了什么决定。新近度×频率评分、TTL 剪枝、切换前先确认（Step 0.7）。 | ⭐ **所有被调研插件中均不存在** |
-| 🏷️ **带置信度标签的结果 + 聚类感知的工具选择**（`confidenceTypes`、`toolPriority`） | 每条自动追踪的事实都标注 EXTRACTED / INFERRED / AMBIGUOUS —— 让你能区分 Agent *知道*的和它在猜的；当 115 个工具竞争一个回合时，聚类感知优先级保证正确的工具在语法限制下依然可用。 | 🥇 **没有一家被调研竞品对结果置信度做标签** —— 也没有其他插件能在不丢弃工具的情况下塞进这么多 |
+| 🏷️ **带置信度标签的结果 + 聚类感知的工具选择**（`confidenceTypes`、`toolPriority`） | 每条自动追踪的事实都标注 EXTRACTED / INFERRED / AMBIGUOUS —— 让你能区分 Agent *知道*的和它在猜的；当 116 个工具竞争一个回合时，聚类感知优先级保证正确的工具在语法限制下依然可用。 | 🥇 **没有一家被调研竞品对结果置信度做标签** —— 也没有其他插件能在不丢弃工具的情况下塞进这么多 |
 | 🧬 **基于 AST 的代码重构**（`refactor_code`） | 重命名 / 移动函数 / 提取函数 / 清理无用 import —— 语法安全的 AST 变换，失败时**自动回滚**，不是正则文本瞎改。 | 🥇 **约 115 个被调研插件中唯一基于 AST 的重构工具** |
 | 🔍 **不可能挂起的搜索**（`ripgrep`、`find_replace_all`） | 原生 ripgrep 跑在与宿主线程隔离的 worker 里，带 3 秒墙钟看门狗；Rust 方言正则自动降级为固定字符串并通过 `pattern_mode` 说明；多文件替换支持 dry-run。 | 🛡️ 竞品提供的是无界 grep 循环 —— 这个在物理上不可能无限转圈 |
 | 💾 **安全文件编辑**（`replace_text_in_file`、`line_operations`） | 每次编辑都先写 `.bak` 备份，模式锚定插入，行指纹校验，写入后 MD5 完整性检查。一次调用即可恢复任意文件（`restore_from_bak`）。 | 🛡️ **三层护栏**防旧行号损坏 —— 竞品最多提供重命名式备份外壳 |
@@ -61,7 +61,7 @@ Hub 上最接近的直接竞品：同样的活儿（给本地 LLM 提供工具�
 | ✅ **AST 级重构**（重命名、移动函数、清理无用 import）—— 语法安全变换带自动回滚，不是字符串编辑 |
 | ✅ **真正的 RAG：** 基于 PDF / DOCX / XLSX 的本地向量索引，带页级溯源 —— 不只是关键词搜索 |
 | ✅ **图像与数据可视化：** 对截图和屏幕捕捉做 OCR、图片元数据 + 对比、图表生成 |
-| ✅ **115 个工具** vs ~49 —— 由 83 个套件共 1234 项通过的测试支撑 |
+| ✅ **116 个工具** vs ~49 —— 由 84 个套件共 1262 项通过的测试支撑 |
 | ✅ **崩溃 resilient 的写入 + 失败回滚：** 一次失败的编辑永远不会损坏你的文件 |
 
 我们此前的 i18n 缺口已关闭：**现在提供 5 种语言**（en · de · es · zh-CN · zh-TW），每种都是完整翻译集 —— 并且有反 stub 测试守护套件，保证别名/回退语言不会静默退化。我们宁可直接告诉你，也不假装它不存在。
@@ -111,12 +111,12 @@ PDF、Word 文档与电子表格 → **本地语义向量搜索**（数据不出
 1. **安装** —— 把文件夹放进去，在 LM Studio 设置中启用插件
 2. **开关** —— 打开你想要的工具类别（Execution & Browser 按设计默认关闭）
 3. *（可选）* 在终端执行一次 `gh auth login` 解锁 GitHub 远程工具
-4. **开聊** —— 你的 Agent 现在手边有 **115 个工具**，严格按你的配置门控
+4. **开聊** —— 你的 Agent 现在手边有 **116 个工具**，严格按你的配置门控
 
 ```bash
 # Developing instead of using?
 npm install && npm run build   # ESM + CJS via tsup
-npm test                        # full suite: 83 suites / 1234 tests green (v1.9.24)
+npm test                        # full suite: 84 suites / 1262 tests green (v1.9.24)
 ```
 
 ---
@@ -150,13 +150,13 @@ npm test                        # full suite: 83 suites / 1234 tests green (v1.9
 
 ---
 
-## 工具军火库：横跨所有家族的 115 个工具，全部由你开关
+## 工具军火库：横跨所有家族的 116 个工具，全部由你开关
 
 一个插件替代一整面货架。以下是每个家族、它覆盖什么、以及默认状态：
 
 | 家族 | 数量 | 给你的 Agent 什么 | 默认 |
 |---|---|---|---|
-| 📁 **文件系统** | 24 | 读/写/编辑/搜索 —— 路径校验、备份、超大文件分块读取、diff、项目树、worker 隔离的 `ripgrep` 搜索（3 秒看门狗）+ 结构化内容扫描（`pattern_scan`）+ 带指纹护栏的行级手术（`line_operations`，2023.09 Q6 并入） | ✅ |
+| 📁 **文件系统** | 25 | 读/写/编辑/搜索 —— 路径校验、备份、超大文件分块读取、diff、项目树、worker 隔离的 `ripgrep` 搜索（3 秒看门狗）+ 结构化内容扫描（`pattern_scan`）+ 带指纹护栏的行级手术（`line_operations`，2023.09 Q6 并入）+ 字节精确的统一/二进制补丁（`apply_patch`，07.11） | ✅ |
 | 🧬 **重构与 Recode 引擎** | `refactor_code` + 规则 | AST 重命名 · 移动函数 · 提取 · 清理无用 import —— 外加可插拔规则引擎（死代码提示、类型推断、异步现代化）带 dry-run diff | ✅ |
 | 🔍 **文本处理** | 3 | 正则变换（`sed` 类）、结构化抽取（`awk` 类）、即时 Markdown 表格（行级手术已移入文件系统，2023.09 Q6） | ✅ |
 | 📋 **任务规划** | 4 | 目标 + 步骤计划，经由真实状态机带实时完成度指标 —— blocked 步骤干净重试 · `remove_plan` 确认门控 + 自然完成自动移除（05.10） | ✅ |
@@ -219,4 +219,4 @@ npm test                        # full suite: 83 suites / 1234 tests green (v1.9
 
 ---
 
-*AI Toolbox 是一个一体化 LM Studio 插件与本地 LLM 的 AI Agent 工具箱：安全的文件工具、绝不挂起的代码库搜索、后台构建、无头浏览器自动化、Git & GitHub 工作流、OCR、数据可视化、覆盖 PDF/DOCX/XLSX 的本地语义 RAG、跨项目记忆、自管理上下文窗口 —— 115 个即用工具调用，你的模型零胶水代码即可使用。*
+*AI Toolbox 是一个一体化 LM Studio 插件与本地 LLM 的 AI Agent 工具箱：安全的文件工具、绝不挂起的代码库搜索、后台构建、无头浏览器自动化、Git & GitHub 工作流、OCR、数据可视化、覆盖 PDF/DOCX/XLSX 的本地语义 RAG、跨项目记忆、自管理上下文窗口 —— 116 个即用工具调用，你的模型零胶水代码即可使用。*

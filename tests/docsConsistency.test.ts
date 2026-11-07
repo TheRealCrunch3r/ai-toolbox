@@ -108,7 +108,7 @@ const MODULES: ModulePin[] = [
 /** TOOLS_REFERENCE.md section headings ("## … <label> …"). Name-level attribution: the two docs draw family
  *  boundaries DIFFERENTLY for the utility-key sibling tools, so module ids would double-count (28.09 re-audit split). */
 const TR_BOUNDARIES: Array<{ label: string; names: string[] }> = [
-  { label: 'File System', names: ['list_directory','read_file','read_file_chunked','save_file','replace_text_in_file','insert_at_line','append_file','delete_lines_in_file','line_operations','make_directory','move_file','copy_file','delete_path','delete_files_by_pattern','find_files','fuzzy_find_local_files','get_file_metadata','change_directory','analyze_project','file_diff','directory_tree','ripgrep','find_replace_all','pattern_scan'] },
+  { label: 'File System', names: ['list_directory','read_file','read_file_chunked','save_file','replace_text_in_file','insert_at_line','append_file','delete_lines_in_file','line_operations','make_directory','move_file','copy_file','delete_path','delete_files_by_pattern','find_files','fuzzy_find_local_files','get_file_metadata','change_directory','analyze_project','file_diff','directory_tree','ripgrep','find_replace_all','pattern_scan','apply_patch'] },
   { label: 'Code Refactoring', names: ['refactor_code'] },
   { label: 'Web Research', names: ['web_search','wikipedia_search','fetch_web_content'] },
   { label: 'Browser Automation', names: ['browser_open_page','browser_session_control','browser_session_close','preview_html','open_file'] },

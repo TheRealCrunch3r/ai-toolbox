@@ -1,8 +1,8 @@
 <div align="center">
 <a href="README.md">English</a> · <a href="README.de.md">Deutsch</a> · <a href="README.es.md">Español</a> · <a href="README.zh-CN.md">简体中文</a> · <b>繁體中文</b><br/>
 <h1>AI Toolbox —— 面向 LM Studio 本地 LLM 的一體化自主 AI Agent & 工具外掛</h1><hr/>
-<b>115 個工具、一個外掛、無需雲端。</b> 最完整的 LM Studio Hub 外掛——把任意本地模型變成能幹、自管理的 AI 智能體。<br/>自管理上下文讓馬拉松式會話保持存活 · 一個外掛，零膠水程式碼，預設完全離線。
-<br/><a href="#"><img src="https://img.shields.io/badge/version-v1.9.24-2f80ed?style=plastic" alt="version v1.9.24"/></a> <a href="#the-tool-arsenal-115-tools-across-every-family-all-yours-to-toggle"><img src="https://img.shields.io/badge/tools-115%20ready--made-7c3aed?style=plastic" alt="tools 115 ready-made"/></a> <a href="#quick-start-2-minutes"><img src="https://img.shields.io/badge/tests-83%20suites%20%C2%B7%201234%20green-3fb950?style=plastic" alt="tests 83 suites · 1234 green"/></a> <a href="#"><img src="https://img.shields.io/badge/LM%20Studio-Hub%20plugin-e84393?style=plastic" alt="LM Studio Hub plugin"/></a> <a href="LICENSE"><img src="https://img.shields.io/github/license/TheRealCrunch3r/ai-toolbox?style=plastic" alt="license MIT (live-verified from LICENSE)"/></a> <a href="#"><img src="https://img.shields.io/badge/runtime-Node%20%E2%89%A5%2020-83cd29?style=plastic&logo=node.js" alt="runtime Node ≥ 20"/></a><br/>
+<b>116 個工具、一個外掛、無需雲端。</b> 最完整的 LM Studio Hub 外掛——把任意本地模型變成能幹、自管理的 AI 智能體。<br/>自管理上下文讓馬拉松式會話保持存活 · 一個外掛，零膠水程式碼，預設完全離線。
+<br/><a href="#"><img src="https://img.shields.io/badge/version-v1.9.24-2f80ed?style=plastic" alt="version v1.9.24"/></a> <a href="#the-tool-arsenal-116-tools-across-every-family-all-yours-to-toggle"><img src="https://img.shields.io/badge/tools-116%20ready--made-7c3aed?style=plastic" alt="tools 116 ready-made"/></a> <a href="#quick-start-2-minutes"><img src="https://img.shields.io/badge/tests-84%20suites%20%C2%B7%201262%20green-3fb950?style=plastic" alt="tests 84 suites · 1262 green"/></a> <a href="#"><img src="https://img.shields.io/badge/LM%20Studio-Hub%20plugin-e84393?style=plastic" alt="LM Studio Hub plugin"/></a> <a href="LICENSE"><img src="https://img.shields.io/github/license/TheRealCrunch3r/ai-toolbox?style=plastic" alt="license MIT (live-verified from LICENSE)"/></a> <a href="#"><img src="https://img.shields.io/badge/runtime-Node%20%E2%89%A5%2020-83cd29?style=plastic&logo=node.js" alt="runtime Node ≥ 20"/></a><br/>
 <b>Docs:</b> <a href="DOCUMENTATION.md">Documentation</a> · <a href="QUICK_START.md">Quick Start</a> · <a href="ARCHITECTURE.md">Architecture</a> · <a href="TOOLS_REFERENCE.md">Tool Reference</a> · <a href="CHANGELOG_v5.md">Changelog</a><br/>
 <a href="CONTRIBUTING.md">Contributing</a> · <a href="SECURITY.md">Security</a><br/>
 <br>
@@ -12,11 +12,11 @@
 </div>
 
 
-**LM Studio 的 AI Agent 工具箱** —— 115 個本地 LLM 工具：檔案編輯、程式庫搜尋、RAG、瀏覽器自動化、Git & GitHub。
+**LM Studio 的 AI Agent 工具箱** —— 116 個本地 LLM 工具：檔案編輯、程式庫搜尋、RAG、瀏覽器自動化、Git & GitHub。
 
-**115 個工具、一個外掛、無需雲端。** LM Studio Hub 上最完整的外掛 —— 把任意本地模型變成一個有能力、自我管理的 AI Agent，具備安全的檔案編輯、絕不掛起的程式庫搜尋、背景建置、無頭瀏覽器自動化、Git & GitHub 工作流、OCR、圖表產生和語意 RAG；**自管理上下文**讓馬拉松式會話保持存活。一個外掛，零膠水程式碼，預設完全離線。
+**116 個工具、一個外掛、無需雲端。** LM Studio Hub 上最完整的外掛 —— 把任意本地模型變成一個有能力、自我管理的 AI Agent，具備安全的檔案編輯、絕不掛起的程式庫搜尋、背景建置、無頭瀏覽器自動化、Git & GitHub 工作流、OCR、圖表產生和語意 RAG；**自管理上下文**讓馬拉松式會話保持存活。一個外掛，零膠水程式碼，預設完全離線。
 
-> `v1.9.24` · `115 個即用工具` · `1234 項測試通過（83 個套件）` · `5 種語言本機化` · `MIT` · `Node 20+`
+> `v1.9.24` · `116 個即用工具` · `1262 項測試通過（84 個套件）` · `5 種語言本機化` · `MIT` · `Node 20+`
 
 > ⚠️ **譯文聲明** —— 本檔案為 [README.md](README.md) 的繁體中文版。英文版為準（canonical），如有出入以 README.md 為準；原文變更時請同步更新本檔案。
 
@@ -24,7 +24,7 @@
 
 ## 目錄
 
-[為什麼選 AI Toolbox（對比其他外掛）] · [正面對比評測] · [功能概觀] · [快速上手（2 分鐘）] · [設定與工具開關 —— 完全控制，零程式碼] · [安全姿態 —— 按重要標準打造] · [架構內幕（供好奇者）] · [工具軍火庫：115 個工具] · [版本亮點 —— 完整歷史 → CHANGELOG_v5.md —— 活躍；v1–v4 在 docs/history/]
+[為什麼選 AI Toolbox（對比其他外掛）] · [正面對比評測] · [功能概觀] · [快速上手（2 分鐘）] · [設定與工具開關 —— 完全控制，零程式碼] · [安全姿態 —— 按重要標準打造] · [架構內幕（供好奇者）] · [工具軍火庫：116 個工具] · [版本亮點 —— 完整歷史 → CHANGELOG_v5.md —— 活躍；v1–v4 在 docs/history/]
 
 *目錄為純文字列表（無錨點連結）；各節標題對應下文標題。*
 
@@ -39,7 +39,7 @@
 |---|---|---|
 | 🧠 **自管理上下文**（`AutoTracker` + `ContextGuard`） | Token 閾值在*工具鏈中途*觸發（75% / 90%），自動摘要並壓縮對話，先於溢出 —— 長 Agent 會話持續工作而不是死掉。Prompt 管線內建專案關鍵字偵測。 | ⭐ **沒有任何一家被調研的競爭者有任何上下文/token 管理** —— 其他所有「記憶」工具都只是裸的存/列/查 CRUD |
 | 🌐 **跨專案記憶**（`switch_context`、專案登錄表） | 回憶*另一個*已註冊專案上週做了什麼決定。新近度×頻率評分、TTL 修剪、切換前先確認（Step 0.7）。 | ⭐ **所有被調研外掛中均不存在** |
-| 🏷️ **帶信心度標籤的結果 + 叢集感知的工具選擇**（`confidenceTypes`、`toolPriority`） | 每條自動追蹤的事實都標註 EXTRACTED / INFERRED / AMBIGUOUS —— 讓你能區分 Agent *知道*的和它在猜的；當 115 個工具競爭一個回合時，叢集感知優先級保證正確的工具在文法限制下依然可用。 | 🥇 **沒有任何被調研的競爭者對結果信心度做標籤** —— 也沒有其他外掛能在不丟棄工具的情況下塞進這麼多 |
+| 🏷️ **帶信心度標籤的結果 + 叢集感知的工具選擇**（`confidenceTypes`、`toolPriority`） | 每條自動追蹤的事實都標註 EXTRACTED / INFERRED / AMBIGUOUS —— 讓你能區分 Agent *知道*的和它在猜的；當 116 個工具競爭一個回合時，叢集感知優先級保證正確的工具在文法限制下依然可用。 | 🥇 **沒有任何被調研的競爭者對結果信心度做標籤** —— 也沒有其他外掛能在不丟棄工具的情況下塞進這麼多 |
 | 🧬 **基於 AST 的程式碼重構**（`refactor_code`） | 重新命名 / 移動函式 / 擷取函式 / 清理無用 import —— 語法安全的 AST 變換，失敗時**自動回滾**，不是正規表示式文字瞎改。 | 🥇 **約 115 個被調研外掛中唯一基於 AST 的重構工具** |
 | 🔍 **不可能掛起的搜尋**（`ripgrep`、`find_replace_all`） | 原生 ripgrep 跑在與宿主執行緒隔離的 worker 裡，帶 3 秒牆鐘看門狗；Rust 方言正規表示式自動降級為固定字串並透過 `pattern_mode` 說明；多檔案取代支援 dry-run。 | 🛡️ 競爭者提供的是無界 grep 迴圈 —— 這個在物理上不可能無限轉圈 |
 | 💾 **安全檔案編輯**（`replace_text_in_file`、`line_operations`） | 每次編輯都先寫 `.bak` 備份，模式錨定插入，行指紋校驗，寫入後 MD5 完整性檢查。一次呼叫即可還原任何檔案（`restore_from_bak`）。 | 🛡️ **三層護欄**防舊行號損毀 —— 競爭者最多提供重新命名式備份外殼 |
@@ -61,7 +61,7 @@ Hub 上最接近的直接競爭者：同樣的活兒（給本地 LLM 提供工�
 | ✅ **AST 級重構**（重新命名、移動函式、清理無用 import）—— 語法安全變換帶自動回滾，不是字串編輯 |
 | ✅ **真正的 RAG：** 基於 PDF / DOCX / XLSX 的本機向量索引，帶頁級溯源 —— 不只是關鍵字搜尋 |
 | ✅ **影像與資料視覺化：** 對截圖和螢幕擷取做 OCR、圖片中繼資料 + 對比、圖表產生 |
-| ✅ **115 個工具** vs ~49 —— 由 83 個套件共 1234 項通過的測試支撐 |
+| ✅ **116 個工具** vs ~49 —— 由 84 個套件共 1262 項通過的測試支撐 |
 | ✅ **崩潰 resilient 的寫入 + 失敗回滾：** 一次失敗的編輯永遠不會損毀你的檔案 |
 
 我們此前的 i18n 缺口已關閉：**現在提供 5 種語言**（en · de · es · zh-CN · zh-TW），每種都是完整翻譯集 —— 並且有反 stub 測試守護套件，保證別名/回退語言不會靜默退化。我們寧可直接告訴你，也不假裝它不存在。
@@ -111,12 +111,12 @@ PDF、Word 文件與試算表 → **本機語意向量搜尋**（資料不出你
 1. **安裝** —— 把資料夾放進去，在 LM Studio 設定中啟用外掛
 2. **開關** —— 開啟你想要的工具類別（Execution & Browser 按設計預設關閉）
 3. *（可選）* 在終端執行一次 `gh auth login` 解鎖 GitHub 遠端工具
-4. **開始聊** —— 你的 Agent 現在手邊有 **115 個工具**，嚴格按你的設定門控
+4. **開始聊** —— 你的 Agent 現在手邊有 **116 個工具**，嚴格按你的設定門控
 
 ```bash
 # Developing instead of using?
 npm install && npm run build   # ESM + CJS via tsup
-npm test                        # full suite: 83 suites / 1234 tests green (v1.9.24)
+npm test                        # full suite: 84 suites / 1262 tests green (v1.9.24)
 ```
 
 ---
@@ -150,13 +150,13 @@ npm test                        # full suite: 83 suites / 1234 tests green (v1.9
 
 ---
 
-## 工具軍火庫：橫跨所有家族的 115 個工具，全部由你開關
+## 工具軍火庫：橫跨所有家族的 116 個工具，全部由你開關
 
 一個外掛替代一整面貨架。以下是每個家族、它覆蓋什麼、以及預設狀態：
 
 | 家族 | 數量 | 給你的 Agent 什麼 | 預設 |
 |---|---|---|---|
-| 📁 **檔案系統** | 24 | 讀/寫/編輯/搜尋 —— 路徑校驗、備份、超大檔案分塊讀取、diff、專案樹、worker 隔離的 `ripgrep` 搜尋（3 秒看門狗）+ 結構化內容掃描（`pattern_scan`）+ 帶指紋護欄的行級手術（`line_operations`，2023.09 Q6 併入） | ✅ |
+| 📁 **檔案系統** | 25 | 讀/寫/編輯/搜尋 —— 路徑校驗、備份、超大檔案分塊讀取、diff、專案樹、worker 隔離的 `ripgrep` 搜尋（3 秒看門狗）+ 結構化內容掃描（`pattern_scan`）+ 帶指紋護欄的行級手術（`line_operations`，2023.09 Q6 併入）+ 位元組精確的統一/二進位補丁（`apply_patch`，07.11） | ✅ |
 | 🧬 **重構與 Recode 引擎** | `refactor_code` + 規則 | AST 重新命名 · 移動函式 · 擷取 · 清理無用 import —— 外加可插拔規則引擎（死程式碼提示、型別推斷、非同步現代化）帶 dry-run diff | ✅ |
 | 🔍 **文字處理** | 3 | 正規表示式變換（`sed` 類）、結構化擷取（`awk` 類）、即時 Markdown 表格（行級手術已移入檔案系統，2023.09 Q6） | ✅ |
 | 📋 **任務規劃** | 4 | 目標 + 步驟計畫，經由真實狀態機帶即時完成度指標 —— blocked 步驟乾淨重試 · `remove_plan` 確認門控 + 自然完成自動移除（05.10） | ✅ |
@@ -219,4 +219,4 @@ npm test                        # full suite: 83 suites / 1234 tests green (v1.9
 
 ---
 
-*AI Toolbox 是一個一體化 LM Studio 外掛與本地 LLM 的 AI Agent 工具箱：安全的檔案工具、絕不掛起的程式庫搜尋、背景建置、無頭瀏覽器自動化、Git & GitHub 工作流、OCR、資料視覺化、覆蓋 PDF/DOCX/XLSX 的本機語意 RAG、跨專案記憶、自管理上下文視窗 —— 115 個即用工具呼叫，你的模型零膠水程式碼即可使用。*
+*AI Toolbox 是一個一體化 LM Studio 外掛與本地 LLM 的 AI Agent 工具箱：安全的檔案工具、絕不掛起的程式庫搜尋、背景建置、無頭瀏覽器自動化、Git & GitHub 工作流、OCR、資料視覺化、覆蓋 PDF/DOCX/XLSX 的本機語意 RAG、跨專案記憶、自管理上下文視窗 —— 116 個即用工具呼叫，你的模型零膠水程式碼即可使用。*

@@ -12,6 +12,14 @@ import { recordFileModification } from './fileModTracker.js';
 // Q6 (23.09): line_operations folded in from textProcessingTools — MD5 post-write integrity check needs crypto here now.
 import { createHash } from 'crypto';
 import { patternScan } from './patternScan.js';
+import {
+  applyUnifiedPatchToBuffer,
+  applyBinaryPatchToBuffer,
+  parseUnifiedDiff,
+  APPLY_PATCH_MAX_FILE_BYTES,
+  APPLY_PATCH_MAX_PATCH_CHARS,
+} from './applyPatchEngine.js';
+
 // 14.09 TOOL SWAP (owner directive): grep_files is REMOVED and replaced by a standalone `ripgrep` tool — the ENTIRE search
 // (file walk AND pattern matching) runs natively inside ONE worker-isolated ripgrep process (src/utils/ripgrepEngine.ts).
 // The 13.09 wedge class stays structurally gone: rg's native walk runs off-thread and its budget watchdog terminates it on
@@ -2884,6 +2892,97 @@ Directories node_modules/.git/dist/build/out/.next/.nuxt/__pycache__/.venv/cover
       }
     },
   }));
+
+// apply_patch tool (07.11) — drift-safe patch application, fully in-process (no shell / no git CLI).
+    tools.push(tool({
+      name: 'apply_patch',
+      description: `Apply a patch to ONE file with strict pre-write anchor verification — the drift fix for repeated edits.\n\nMode "unified": provide a git-style unified diff (diff_text, single-file patch in \`diff -u\` shape). Hunk context lines must match the live file byte-for-byte; each hunk re-anchors against the buffer left by prior hunks, so later hunks stay correct even when earlier ones shifted bytes. Both CRLF and LF targets work — replacement bytes use the matched anchor's EOL style and every byte outside a patched region is never rewritten.\n\nMode "binary": byte-level hot-patch via hex anchors (anchor_hex = search bytes, replacement_hex = new bytes). Optional offset pins a strict byte position; a mismatch there fails hard instead of searching. The anchor must exist in the file exactly — a missing anchor or drifted file yields a FAIL with a diagnostic window, and the target is never written.\n\nBoth modes: atomic write + post-write verification + .bak backup; relative paths resolve against the working directory (targets outside it are rejected).`,
+      parameters: {
+        mode: z.enum(['unified', 'binary']).describe('Patch kind: "unified" = unified-diff text; "binary" = byte-anchor hot-patch'),
+        path: z.string().min(1).describe('Target file path (relative to the working directory, or absolute inside it)'),
+        diff_text: z.string().max(APPLY_PATCH_MAX_PATCH_CHARS).optional().describe('Unified-diff text for mode "unified" — single-file patch in git `diff -u` shape'),
+        anchor_hex: z.string().max(4096 * 2).optional().describe('Search bytes in hex (no prefix), required for mode "binary"'),
+        replacement_hex: z.string().max(4096 * 2).optional().describe('Replacement bytes in hex, required for mode "binary"'),
+        offset: z.number().int().min(0).optional().describe('Strict byte position to patch at (mode "binary"); if the bytes there differ from anchor_hex the call fails. Omit to search instead.'),
+      },
+      implementation: async ({ mode, path: targetPath, diff_text, anchor_hex, replacement_hex, offset }: {
+        mode: string;
+        path: string;
+        diff_text?: string;
+        anchor_hex?: string;
+        replacement_hex?: string;
+        offset?: number | undefined;
+      }, ctx?: { signal?: AbortSignal }) => {
+        try {
+          if (ctx?.signal?.aborted) return handleError(new Error('Aborted before read.'));
+
+          const wd = getWorkingDir();
+          const resolved = resolvePath(targetPath);
+          const absPath: string = path.isAbsolute(resolved) ? path.normalize(resolved) : path.resolve(wd, resolved);
+          if (absPath !== wd && !absPath.startsWith(wd + path.sep)) {
+            return { success: false as const, error: `apply_patch: target "${targetPath}" is outside the working directory (${wd}).` };
+          }
+
+          let raw: Buffer;
+          try { raw = await fs.readFile(absPath); } catch (e) { return handleError(e); }
+          if (raw.byteLength > APPLY_PATCH_MAX_FILE_BYTES) {
+            return { success: false as const, error: `Target too large to patch (${raw.byteLength} bytes).` };
+          }
+
+          let patched: Buffer;
+          if (mode === 'unified') {
+            if (!diff_text || diff_text.trim().length === 0) {
+              return { success: false as const, error: 'Mode "unified" requires a non-empty diff_text.' };
+            }
+            try { patched = applyUnifiedPatchToBuffer(raw, parseUnifiedDiff(diff_text)).newBuf; }
+            catch (e) { return handleError(e); }
+          } else if (mode === 'binary') {
+            if (!anchor_hex || !replacement_hex) {
+              return { success: false as const, error: 'Mode "binary" requires both anchor_hex and replacement_hex.' };
+            }
+            try { patched = applyBinaryPatchToBuffer(raw, { anchorHex: anchor_hex, replacementHex: replacement_hex, offset }).newBuf; }
+            catch (e) { return handleError(e); }
+          } else {
+            return { success: false as const, error: `Unknown mode "${mode}" (expected "unified" or "binary").` };
+          }
+
+          // .bak backup of the pre-patch original (house standard).
+          let backupPath: string | undefined;
+          try {
+            backupPath = `${absPath}.bak`;
+            await fs.writeFile(backupPath, raw);
+          } catch (e) { /* non-fatal */ void e; }
+
+          // Atomic write + post-write length verification (23.09 DRIFT-FIX house standard).
+          const tmpPath = `${absPath}.apply_patch_tmp.${process.pid}`;
+          await fs.writeFile(tmpPath, patched);
+          let driftError: string | null = null;
+          try {
+            await fs.rename(tmpPath, absPath);
+          } catch (e) {
+            void fs.unlink(tmpPath).catch(() => {});
+            return handleError(e);
+          }
+          try {
+            const verify = await fs.readFile(absPath);
+            if (verify.byteLength !== patched.byteLength) driftError = `DRIFT DETECTED: expected ${patched.byteLength} bytes after apply_patch, read back ${verify.byteLength}.`;
+          } catch { driftError = 'DRIFT DETECTED: post-write verification failed.'; }
+          if (driftError) return { success: false as const, error: driftError };
+
+          recordFileModification(absPath, 'apply_patch');
+          return {
+            success: true as const,
+            data: {
+              applied: true,
+              mode,
+              file: absPath,
+              byteDelta: patched.byteLength - raw.byteLength,
+              backup: backupPath ?? undefined,
+            },
+          };
+        } catch (error) { return handleError(error); }
+      },
+    }));
 
 return tools;
 }

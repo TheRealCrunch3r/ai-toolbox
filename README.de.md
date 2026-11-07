@@ -1,8 +1,8 @@
 <div align="center">
 <a href="README.md">English</a> · <b>Deutsch</b> · <a href="README.es.md">Español</a> · <a href="README.zh-CN.md">简体中文</a> · <a href="README.zh-TW.md">繁體中文</a><br/>
 <h1>AI Toolbox — All-in-One autonomes KI-Agenten- & Tool-Plugin für lokale LLMs in LM Studio</h1><hr/>
-<b>115 Tools. Ein Plugin. Keine Cloud nötig.</b> Das vollständigste LM-Studio-Hub-Plugin — macht jedes lokale Modell zu einem fähigen, selbstverwaltenden AI-Agenten.<br/>Selbstverwaltender Kontext hält Marathon-Sessions am Leben · ein Plugin, kein Glue-Code, standardmäßig vollständig offline.
-<br/><a href="#"><img src="https://img.shields.io/badge/version-v1.9.24-2f80ed?style=plastic" alt="version v1.9.24"/></a> <a href="#the-tool-arsenal-115-tools-across-every-family-all-yours-to-toggle"><img src="https://img.shields.io/badge/tools-115%20ready--made-7c3aed?style=plastic" alt="tools 115 ready-made"/></a> <a href="#quick-start-2-minutes"><img src="https://img.shields.io/badge/tests-83%20suites%20%C2%B7%201234%20green-3fb950?style=plastic" alt="tests 83 suites · 1234 green"/></a> <a href="#"><img src="https://img.shields.io/badge/LM%20Studio-Hub%20plugin-e84393?style=plastic" alt="LM Studio Hub plugin"/></a> <a href="LICENSE"><img src="https://img.shields.io/github/license/TheRealCrunch3r/ai-toolbox?style=plastic" alt="license MIT (live-verified from LICENSE)"/></a> <a href="#"><img src="https://img.shields.io/badge/runtime-Node%20%E2%89%A5%2020-83cd29?style=plastic&logo=node.js" alt="runtime Node ≥ 20"/></a><br/>
+<b>116 Tools. Ein Plugin. Keine Cloud nötig.</b> Das vollständigste LM-Studio-Hub-Plugin — macht jedes lokale Modell zu einem fähigen, selbstverwaltenden AI-Agenten.<br/>Selbstverwaltender Kontext hält Marathon-Sessions am Leben · ein Plugin, kein Glue-Code, standardmäßig vollständig offline.
+<br/><a href="#"><img src="https://img.shields.io/badge/version-v1.9.24-2f80ed?style=plastic" alt="version v1.9.24"/></a> <a href="#the-tool-arsenal-116-tools-across-every-family-all-yours-to-toggle"><img src="https://img.shields.io/badge/tools-116%20ready--made-7c3aed?style=plastic" alt="tools 116 ready-made"/></a> <a href="#quick-start-2-minutes"><img src="https://img.shields.io/badge/tests-84%20suites%20%C2%B7%201262%20green-3fb950?style=plastic" alt="tests 84 suites · 1262 green"/></a> <a href="#"><img src="https://img.shields.io/badge/LM%20Studio-Hub%20plugin-e84393?style=plastic" alt="LM Studio Hub plugin"/></a> <a href="LICENSE"><img src="https://img.shields.io/github/license/TheRealCrunch3r/ai-toolbox?style=plastic" alt="license MIT (live-verified from LICENSE)"/></a> <a href="#"><img src="https://img.shields.io/badge/runtime-Node%20%E2%89%A5%2020-83cd29?style=plastic&logo=node.js" alt="runtime Node ≥ 20"/></a><br/>
 <b>Docs:</b> <a href="DOCUMENTATION.md">Documentation</a> · <a href="QUICK_START.md">Quick Start</a> · <a href="ARCHITECTURE.md">Architecture</a> · <a href="TOOLS_REFERENCE.md">Tool Reference</a> · <a href="CHANGELOG_v5.md">Changelog</a><br/>
 <a href="CONTRIBUTING.md">Contributing</a> · <a href="SECURITY.md">Security</a><br/>
 <br>
@@ -12,11 +12,11 @@
 </div>
 
 
-**KI-Agenten-Toolkit für LM Studio** — 115 lokale LLM-Tools: Dateibearbeitung, Codebase-Suche, RAG, Browser-Automatisierung, Git & GitHub.
+**KI-Agenten-Toolkit für LM Studio** — 116 lokale LLM-Tools: Dateibearbeitung, Codebase-Suche, RAG, Browser-Automatisierung, Git & GitHub.
 
-**115 Tools. Ein Plugin. Keine Cloud nötig.** Das vollständigste Plugin im LM Studio Hub — verwandelt jedes lokale Modell in einen fähigen, selbstverwaltenden KI-Agenten mit sicherer Dateibearbeitung, hang-sicherer Codebase-Suche, Hintergrund-Builds, headloser Browser-Automatisierung, Git- & GitHub-Workflows, OCR, Chart-Erstellung und semantischem RAG; **selbstverwaltender Kontext** hält Marathon-Sitzungen am Leben. Ein Plugin, null Klebcode, standardmäßig vollständig offline.
+**116 Tools. Ein Plugin. Keine Cloud nötig.** Das vollständigste Plugin im LM Studio Hub — verwandelt jedes lokale Modell in einen fähigen, selbstverwaltenden KI-Agenten mit sicherer Dateibearbeitung, hang-sicherer Codebase-Suche, Hintergrund-Builds, headloser Browser-Automatisierung, Git- & GitHub-Workflows, OCR, Chart-Erstellung und semantischem RAG; **selbstverwaltender Kontext** hält Marathon-Sitzungen am Leben. Ein Plugin, null Klebcode, standardmäßig vollständig offline.
 
-> `v1.9.24` · `115 fertige Tools` · `1234 Tests grün (83 Suiten)` · `5 Lokalisationen` · `MIT` · `Node 20+`
+> `v1.9.24` · `116 fertige Tools` · `1262 Tests grün (84 Suiten)` · `5 Lokalisationen` · `MIT` · `Node 20+`
 
 > ⚠️ **Übersetzung** — Deutsche Fassung von [README.md](README.md). Englisch ist die maßgebliche Version (canonical); bei Abweichungen gilt README.md. Diese Datei bei Änderungen am Original mit synchronisieren.
 
@@ -24,7 +24,7 @@
 
 ## Inhalt
 
-[Warum AI Toolbox (im Vergleich zu anderen Plugins)] · [Direktvergleich] · [Funktionen im Überblick] · [Schnellstart (2 Minuten)] · [Konfiguration & Tool-Umschalter — volle Kontrolle, null Code] · [Sicherheitslage — gebaut wie es wichtig ist] · [Architektur für Neugierige] · [Waffenkammer: 115 Tools] · [Release-Highlights — vollständiger Verlauf → CHANGELOG_v5.md — aktiv; v1–v4 in docs/history/]
+[Warum AI Toolbox (im Vergleich zu anderen Plugins)] · [Direktvergleich] · [Funktionen im Überblick] · [Schnellstart (2 Minuten)] · [Konfiguration & Tool-Umschalter — volle Kontrolle, null Code] · [Sicherheitslage — gebaut wie es wichtig ist] · [Architektur für Neugierige] · [Waffenkammer: 116 Tools] · [Release-Highlights — vollständiger Verlauf → CHANGELOG_v5.md — aktiv; v1–v4 in docs/history/]
 
 *Verzeichnisliste ohne Ankerlinks; die Sektionstitel entsprechen den Überschriften weiter unten.*
 
@@ -39,7 +39,7 @@
 |---|---|---|
 | 🧠 **Selbstverwaltender Kontext** (`AutoTracker` + `ContextGuard`) | Token-Schwellen feuern *mitten in der Tool-Kette* (75 % / 90 %), fassen das Gespräch automatisch zusammen und komprimieren es vor dem Overflow — lange Agenten-Sitzungen funktionieren weiter statt zu sterben. Projekt-Keyword-Erkennung in der Prompt-Pipeline. | ⭐ **Kein befragtes Gegenstück hat irgendeine Kontext-/Token-Verwaltung** — jedes andere „Memory"-Tool ist nacktes Save/List/Search-CRUD |
 | 🌐 **Projektübergreifender Speicher** (`switch_context`, Projekt-Registry) | Rufen Sie ab, was *ein anderes* registriertes Projekt letzte Woche entschieden hat. Recency×Frequency-Scoring, TTL-Pflege, wechseln erst nach Bestätigung (Step 0.7). | ⭐ **In keinem befragten Plugin vorhanden** |
-| 🏷️ **Konfidenz-getaggte Ergebnisse + cluster-bewusste Tool-Auswahl** (`confidenceTypes`, `toolPriority`) | Jedes automatisch erfasste Faktum wird EXTRACTED vs INFERRED vs AMBIGUOUS gelabelt — so trennen Sie, was der Agent *weiß*, von dem, was er ratet; und wenn 115 Tools um einen Zug konkurrieren, hält cluster-bewusste Priorität die richtigen unter Grammatik-Limits in Reichweite. | 🥇 **Kein befragtes Gegenstück taggt Ergebnis-Konfidenz** — und kein anderes passt so viele Tools ohne Kontextlimit-Ausfälle |
+| 🏷️ **Konfidenz-getaggte Ergebnisse + cluster-bewusste Tool-Auswahl** (`confidenceTypes`, `toolPriority`) | Jedes automatisch erfasste Faktum wird EXTRACTED vs INFERRED vs AMBIGUOUS gelabelt — so trennen Sie, was der Agent *weiß*, von dem, was er ratet; und wenn 116 Tools um einen Zug konkurrieren, hält cluster-bewusste Priorität die richtigen unter Grammatik-Limits in Reichweite. | 🥇 **Kein befragtes Gegenstück taggt Ergebnis-Konfidenz** — und kein anderes passt so viele Tools ohne Kontextlimit-Ausfälle |
 | 🧬 **AST-basiertes Refactoring** (`refactor_code`) | Rename / move-function / extract-function / Dead-Import-Cleanup — syntaksichere AST-Transformationen mit **automatischem Rollback bei Fehlschlag**, kein Regex-Text-Hacking. | 🥇 **Das einzige AST-basierte Refactoring unter ~115 befragten Plugins** |
 | 🔍 **Suche, die nicht hängen kann** (`ripgrep`, `find_replace_all`) | Natives ripgrep in einem isolierten Worker außerhalb des Host-Threads mit 3-s-Wallclock-Überwachungszeit; Rust-Dialekt-Regexps demoten automatisch zu Fixstrings und verraten das via `pattern_mode`; Dry-Run-Multifilen-Ersetzung. | 🛡️ Konkurrenten liefern grenzenlose grep-Schleifen — dieses kann physisch nicht ewig drehen |
 | 💾 **Sichere Dateibearbeitung** (`replace_text_in_file`, `line_operations`) | `.bak`-Backup bei jeder Bearbeitung, muster-verankerte Einfügungen, Zeilen-Fingerprint-Verifikation, MD5-Integritätscheck nach dem Schreiben. Jede Datei in einem Aufruf wiederherstellen (`restore_from_bak`). | 🛡️ **3-Schicht-Gewährleistung** gegen Korruption durch veraltete Zeilennummern — Konkurrenten bieten bestenfalls Rename-Backup-Shims |
@@ -61,7 +61,7 @@ Der nächstliegende direkte Wettbewerber im Hub: gleiche Aufgabe (Tools für lok
 | ✅ **AST-level Refactoring** (Rename, Funktionsverschiebung, Dead-Import-Cleanup) — syntaksichere Transformationen mit Auto-Rollback, keine String-Bearbeitungen |
 | ✅ **Echtes RAG:** lokaler Vektorindex über PDF / DOCX / XLSX mit Seitenebenen-Provenienz — nicht nur Keyword-Suche |
 | ✅ **Bilder & Data-Viz:** OCR auf Screenshots und Aufnahmen, Bild-Metadaten + Vergleich, Chart-Erstellung |
-| ✅ **115 Tools** vs ~49 — gestützt durch 1234 bestandene Tests in 83 Suiten |
+| ✅ **116 Tools** vs ~49 — gestützt durch 1262 bestandene Tests in 84 Suiten |
 | ✅ **Crash-resiliente Schreibvorgänge + Rollback bei Fehlschlag:** eine missglückte Bearbeitung kann Ihre Datei nie korrupt machen |
 
 Unsere frühere i18n-Lücke ist geschlossen: **wir liefern jetzt 5 Lokalisationen** (en · de · es · zh-CN · zh-TW), jeweils ein vollständiger Übersetzungssatz — und Anti-Stub-Tests bewachen die Suite, damit Alias-/Fallback-Sprachen nie stillschweigend regressieren. Wir sagen Ihnen das lieber, als zu behaupten, es gäbe sie nicht.
@@ -111,12 +111,12 @@ Charts aus Rohdaten gerendert zu Bilddateien (Balken/Linie/Kreis/Donut/Streuung/
 1. **Installieren** — Ordner ablegen, Plugin in den LM Studio-Einstellungen aktivieren
 2. **Umschalter** — die gewünschten Tool-Kategorien einschalten (Execution & Browser sind aus Designgründen deaktiviert)
 3. *(Optional)* `gh auth login` einmal im Terminal, um GitHub-Remote-Tools freizuschalten
-4. **Chatten** — Ihr Agent hat jetzt **115 Tools** in Reichweite, genau so gated wie konfiguriert
+4. **Chatten** — Ihr Agent hat jetzt **116 Tools** in Reichweite, genau so gated wie konfiguriert
 
 ```bash
 # Developing instead of using?
 npm install && npm run build   # ESM + CJS via tsup
-npm test                        # full suite: 83 suites / 1234 tests green (v1.9.24)
+npm test                        # full suite: 84 suites / 1262 tests green (v1.9.24)
 ```
 
 ---
@@ -150,13 +150,13 @@ Tiefenblick → [ARCHITECTURE.md](ARCHITECTURE.md) · Entwickler-Guide in dieser
 
 ---
 
-## Die Waffenkammer: 115 Tools über alle Familien, alles zum Umschalten
+## Die Waffenkammer: 116 Tools über alle Familien, alles zum Umschalten
 
 Ein Plugin ersetzt eine ganze Regalwand. Hier ist jede Familie, was sie abdeckt und ihr Standardzustand:
 
 | Familie | Anzahl | Was es Ihrem Agenten gibt | Default |
 |---|---|---|---|
-| 📁 **Dateisystem** | 24 | Lesen/Schreiben/Bearbeiten/Suchen — pfadvalidiert, gesichert, Chunked-Reads auf riesigen Dateien, Diffs, Projektbäume, worker-isolierte `ripgrep`-Suche (3-s-Überwachung) + strukturiertes Inhalts-Scanning (`pattern_scan`) + Zeilenoperationen mit Fingerprint-Guards (`line_operations`, eingefaltet 23.09 Q6) | ✅ |
+| 📁 **Dateisystem** | 24 | Lesen/Schreiben/Bearbeiten/Suchen — pfadvalidiert, gesichert, Chunked-Reads auf riesigen Dateien, Diffs, Projektbäume, worker-isolierte `ripgrep`-Suche (3-s-Überwachung) + strukturiertes Inhalts-Scanning (`pattern_scan`) + Zeilenoperationen mit Fingerprint-Guards (`line_operations`, eingefaltet 23.09 Q6) + byte-exaktes Unified-/Binary-Patching (`apply_patch`, 07.11) | ✅ |
 | 🧬 **Refactoring & Recode-Engine** | `refactor_code` + Regeln | AST-Rename · move-function · extract · Dead-Import-Cleanup — plus eine anpassbare Regel-Engine (Dead-Code-Hinweise, Typinferenz, Async-Modernizer) mit Dry-Run-Diffs | ✅ |
 | 🔍 **Textverarbeitung** | 3 | Regex-Transformationen (`sed`-Klasse), strukturierte Extraktion (`awk`-Klasse), sofortige Markdown-Tabellen (Zeilenoperationen nach Dateisystem verschoben, 23.09 Q6) | ✅ |
 | 📋 **Aufgabenplanung** | 4 | Ziel- + Schritt-Pläne durch eine echte Zustandsmaschine mit Live-Abschlussmetriken — blockierte Schritte retry sauber · bestätigungsgated `remove_plan` + Auto-Removed bei natürlicher Vollendung (05.10) | ✅ |

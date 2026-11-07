@@ -1,6 +1,6 @@
 # Release Notes — ai_toolbox
 
-Current: **v1.9.24** (06.11.2026) · 115 tools · MIT · Node 20+
+Current: **v1.9.24** (06.11.2026) · 116 tools · MIT · Node 20+
 Full history: [`CHANGELOG_v5.md`](CHANGELOG_v5.md) (active) · `docs/history/` (v1–v4)
 
 | Version | Date | What shipped |

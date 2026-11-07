@@ -160,6 +160,8 @@ module.exports = {
     '^\\.\\/restoreFromBak\\.js$': '<rootDir>/tests/__mocks__/restoreFromBak.ts',
     // pattern_scan wiring (30.08): fileSystemTools.ts imports './patternScan.js' - same RC#4 class; single-dot form is NOT caught by the tools-fallback mapper, so it needs its own entry (mock stub keeps unrelated suites isolated)
     '^\\./patternScan\\.js$': '<rootDir>/tests/__mocks__/patternScan.ts',
+// apply_patch wiring (07.11): fileSystemTools.ts imports './applyPatchEngine.js' — same RC#4 class as patternScan above; the stub is a real pass-through (pure engine, see header there)
+'^\\./applyPatchEngine\\.js$': '<rootDir>/tests/__mocks__/applyPatchEngine.ts',
 
 
     // ── Context tier system (v1.9.5; FIX #18 19.08.2026: regex matched "./x.js" but the importer is src/tools/*, whose specifier is "../contextTiers.js" — off-by-one dot made the mapping dead code → "Cannot find module '../contextTiers.js'" crashed contextSearch suite (RC#3)) ──

@@ -1,8 +1,8 @@
 <div align="center">
 <a href="README.md">English</a> · <a href="README.de.md">Deutsch</a> · <b>Español</b> · <a href="README.zh-CN.md">简体中文</a> · <a href="README.zh-TW.md">繁體中文</a><br/>
 <h1>AI Toolbox — Plugin todo-en-uno de agentes y herramientas de IA autónomos para LLMs locales en LM Studio</h1><hr/>
-<b>115 herramientas. Un plugin. Sin nube.</b> El plugin más completo del Hub de LM Studio — convierte cualquier modelo local en un agente de IA capaz y autosuficiente.<br/>Contexto autogestionado mantiene vivas las sesiones maratón · un solo plugin, sin pegamento, completamente offline por defecto.
-<br/><a href="#"><img src="https://img.shields.io/badge/version-v1.9.24-2f80ed?style=plastic" alt="version v1.9.24"/></a> <a href="#the-tool-arsenal-115-tools-across-every-family-all-yours-to-toggle"><img src="https://img.shields.io/badge/tools-115%20ready--made-7c3aed?style=plastic" alt="tools 115 ready-made"/></a> <a href="#quick-start-2-minutes"><img src="https://img.shields.io/badge/tests-83%20suites%20%C2%B7%201234%20green-3fb950?style=plastic" alt="tests 83 suites · 1234 green"/></a> <a href="#"><img src="https://img.shields.io/badge/LM%20Studio-Hub%20plugin-e84393?style=plastic" alt="LM Studio Hub plugin"/></a> <a href="LICENSE"><img src="https://img.shields.io/github/license/TheRealCrunch3r/ai-toolbox?style=plastic" alt="license MIT (live-verified from LICENSE)"/></a> <a href="#"><img src="https://img.shields.io/badge/runtime-Node%20%E2%89%A5%2020-83cd29?style=plastic&logo=node.js" alt="runtime Node ≥ 20"/></a><br/>
+<b>116 herramientas. Un plugin. Sin nube.</b> El plugin más completo del Hub de LM Studio — convierte cualquier modelo local en un agente de IA capaz y autosuficiente.<br/>Contexto autogestionado mantiene vivas las sesiones maratón · un solo plugin, sin pegamento, completamente offline por defecto.
+<br/><a href="#"><img src="https://img.shields.io/badge/version-v1.9.24-2f80ed?style=plastic" alt="version v1.9.24"/></a> <a href="#the-tool-arsenal-116-tools-across-every-family-all-yours-to-toggle"><img src="https://img.shields.io/badge/tools-116%20ready--made-7c3aed?style=plastic" alt="tools 116 ready-made"/></a> <a href="#quick-start-2-minutes"><img src="https://img.shields.io/badge/tests-84%20suites%20%C2%B7%201262%20green-3fb950?style=plastic" alt="tests 84 suites · 1262 green"/></a> <a href="#"><img src="https://img.shields.io/badge/LM%20Studio-Hub%20plugin-e84393?style=plastic" alt="LM Studio Hub plugin"/></a> <a href="LICENSE"><img src="https://img.shields.io/github/license/TheRealCrunch3r/ai-toolbox?style=plastic" alt="license MIT (live-verified from LICENSE)"/></a> <a href="#"><img src="https://img.shields.io/badge/runtime-Node%20%E2%89%A5%2020-83cd29?style=plastic&logo=node.js" alt="runtime Node ≥ 20"/></a><br/>
 <b>Docs:</b> <a href="DOCUMENTATION.md">Documentation</a> · <a href="QUICK_START.md">Quick Start</a> · <a href="ARCHITECTURE.md">Architecture</a> · <a href="TOOLS_REFERENCE.md">Tool Reference</a> · <a href="CHANGELOG_v5.md">Changelog</a><br/>
 <a href="CONTRIBUTING.md">Contributing</a> · <a href="SECURITY.md">Security</a><br/>
 <br>
@@ -12,11 +12,11 @@
 </div>
 
 
-**Kit de herramientas de agentes IA para LM Studio** — 115 herramientas para LLMs locales: edición de archivos, búsqueda en la codebase, RAG, automatización del navegador, Git & GitHub.
+**Kit de herramientas de agentes IA para LM Studio** — 116 herramientas para LLMs locales: edición de archivos, búsqueda en la codebase, RAG, automatización del navegador, Git & GitHub.
 
-**115 herramientas. Un plugin. Sin nube.** El plugin más completo del Hub de LM Studio — convierte cualquier modelo local en un agente IA capaz y auto-gestionado con edición segura de archivos, búsqueda a prueba de cuelgues, builds en segundo plano, automatización de navegador headless, flujos de Git & GitHub, OCR, gráficos y RAG semántico; el **contexto auto-gestionado** mantiene vivas las sesiones maraton. Un plugin, cero código pegajoso, totalmente offline por defecto.
+**116 herramientas. Un plugin. Sin nube.** El plugin más completo del Hub de LM Studio — convierte cualquier modelo local en un agente IA capaz y auto-gestionado con edición segura de archivos, búsqueda a prueba de cuelgues, builds en segundo plano, automatización de navegador headless, flujos de Git & GitHub, OCR, gráficos y RAG semántico; el **contexto auto-gestionado** mantiene vivas las sesiones maraton. Un plugin, cero código pegajoso, totalmente offline por defecto.
 
-> `v1.9.24` · `115 herramientas listas` · `1234 tests en verde (83 suites)` · `5 localizaciones` · `MIT` · `Node 20+`
+> `v1.9.24` · `116 herramientas listas` · `1262 tests en verde (84 suites)` · `5 localizaciones` · `MIT` · `Node 20+`
 
 > ⚠️ **Traducción** — Versión española de [README.md](README.md). El inglés es la versión canónica; en caso de divergencia prevalece README.md. Mantener esta archivo sincronizado cuando el original cambie.
 
@@ -24,7 +24,7 @@
 
 ## Contenido
 
-[Por qué AI Toolbox (vs otros plugins)] · [Comparación directa] · [Resumen de funciones] · [Inicio rápido (2 minutos)] · [Configuración y conmutadores de herramientas — control total, cero código] · [Postura de seguridad — construido como si importara] · [Arquitectura para los curiosos] · [Arsenal: 115 herramientas] · [Destacados por release — historial completo → CHANGELOG_v5.md — activo; v1–v4 en docs/history/]
+[Por qué AI Toolbox (vs otros plugins)] · [Comparación directa] · [Resumen de funciones] · [Inicio rápido (2 minutos)] · [Configuración y conmutadores de herramientas — control total, cero código] · [Postura de seguridad — construido como si importara] · [Arquitectura para los curiosos] · [Arsenal: 116 herramientas] · [Destacados por release — historial completo → CHANGELOG_v5.md — activo; v1–v4 en docs/history/]
 
 *Lista de secciones sin enlaces ancla; los títulos corresponden a las cabeceras más abajo.*
 
@@ -39,7 +39,7 @@
 |---|---|---|
 | 🧠 **Contexto auto-gestionado** (`AutoTracker` + `ContextGuard`) | Los umbrales de tokens se disparan *a mitad de la cadena de herramientas* (75 % / 90 %), resumir y comprimir automáticamente la conversación antes del desborde — las sesiones largas del agente siguen funcionando en vez de morir. Detección de palabras clave del proyecto en el pipeline de prompts. | ⭐ **Ningún rival encuestado tiene gestión alguna de contexto/tokens** — todas las demás herramientas «memory» son CRUD plano de guardar/listar/buscar |
 | 🌐 **Memoria entre proyectos** (`switch_context`, registro de proyectos) | Recuerda lo que *otro* proyecto registrado decidió la semana pasada. Puntuación recencia×frecuencia, poda TTL, conmutación previa confirmación (Step 0.7). | ⭐ **Ausente en todos los plugins encuestados** |
-| 🏷️ **Resultados etiquetados por confianza + selección de herramientas consciente de clusters** (`confidenceTypes`, `toolPriority`) | Cada hecho auto-seguido se etiqueta EXTRACTED vs INFERRED vs AMBIGUOUS — así separas lo que el agente *sabe* de lo que está adivinando; y cuando 115 herramientas compiten por un turno, la prioridad consciente de clusters mantiene a las correctas al alcance bajo los límites gramaticales. | 🥇 **Ningún rival encuestado etiqueta la confianza del resultado** — y ninguno cabe con tantas herramientas sin soltarlas en los límites de contexto |
+| 🏷️ **Resultados etiquetados por confianza + selección de herramientas consciente de clusters** (`confidenceTypes`, `toolPriority`) | Cada hecho auto-seguido se etiqueta EXTRACTED vs INFERRED vs AMBIGUOUS — así separas lo que el agente *sabe* de lo que está adivinando; y cuando 116 herramientas compiten por un turno, la prioridad consciente de clusters mantiene a las correctas al alcance bajo los límites gramaticales. | 🥇 **Ningún rival encuestado etiqueta la confianza del resultado** — y ninguno cabe con tantas herramientas sin soltarlas en los límites de contexto |
 | 🧬 **Refactorización basada en AST** (`refactor_code`) | Rename / mover-función / extraer-función / limpieza de imports muertos — transformaciones AST seguras sintácticamente con **rollback automático ante fallo**, no hackeo textual con regex. | 🥇 **La única refactorización basada en AST entre ~115 plugins encuestados** |
 | 🔍 **Búsqueda que no puede colgarse** (`ripgrep`, `find_replace_all`) | ripgrep nativo en un worker aislado fuera de la hilo del host con watchdog de 3 s en tiempo real; regexes del dialecto Rust degradadas automáticamente a cadenas fijas y anunciado vía `pattern_mode`; reemplazo multi-archivo en modo prueba. | 🛡️ Los rivales traen bucles grep sin límite — esta no puede girar para siempre físicamente |
 | 💾 **Edición segura de archivos** (`replace_text_in_file`, `line_operations`) | Backup `.bak` en cada edición, inserciones ancladas a patrón, verificación por huella digital de líneas, comprobación MD5 de integridad tras la escritura. Restaurar cualquier archivo en una llamada (`restore_from_bak`). | 🛡️ **3 capas de salvaguardas** contra corrupción por números de línea obsoletos — los rivales ofrecen a lo sumo sim de backup por renombrado |
@@ -61,7 +61,7 @@ El competidor directo más cercano en el Hub: mismo oficio (herramientas para LL
 | ✅ **Refactorización a nivel AST** (renombrar, mover funciones, limpiar imports muertos) — transformaciones seguras sintácticamente con rollback automático, no ediciones de cadena |
 | ✅ **RAG real:** índice vectorial local sobre PDF / DOCX / XLSX con procedencia por página — no solo búsqueda por palabras clave |
 | ✅ **Imagen y data-viz:** OCR en capturas y tomas, metadatos + comparación de imágenes, generación de gráficos |
-| ✅ **115 herramientas** vs ~49 — respaldadas por 1234 tests superados en 83 suites |
+| ✅ **116 herramientas** vs ~49 — respaldadas por 1262 tests superados en 84 suites |
 | ✅ **Escrituras resistentes a crash + rollback ante fallo:** una edición fallida nunca puede corromper tu archivo |
 
 Nuestra brecha de i18n anterior está cerrada: **ahora publicamos 5 localizaciones** (en · de · es · zh-CN · zh-TW), cada una un conjunto de traducción completo — y tests anti-stub custodian la suite para que los idiomas alias/fallback nunca regredan en silencio. Preferimos decírtelo a fingir que no existe.
@@ -111,12 +111,12 @@ Gráficos renderizados a archivos de imagen desde datos crudos (barras/líneas/c
 1. **Instala** — suelta la carpeta y habilita el plugin en la configuración de LM Studio
 2. **Conmuta** — activa las categorías de herramientas que quieras (Execution & Browser empiezan desactivadas por diseño)
 3. *(Opcional)* `gh auth login` una vez en un terminal para desbloquear las herramientas remotas de GitHub
-4. **Chatea** — tu agente ahora tiene a mano **115 herramientas**, gateadas exactamente como configuraste
+4. **Chatea** — tu agente ahora tiene a mano **116 herramientas**, gateadas exactamente como configuraste
 
 ```bash
 # Developing instead of using?
 npm install && npm run build   # ESM + CJS via tsup
-npm test                        # full suite: 83 suites / 1234 tests green (v1.9.24)
+npm test                        # full suite: 84 suites / 1262 tests green (v1.9.24)
 ```
 
 ---
@@ -150,13 +150,13 @@ Profundización → [ARCHITECTURE.md](ARCHITECTURE.md) · Guía de desarrollo en
 
 ---
 
-## El arsenal: 115 herramientas en todas las familias, todas para conmutar
+## El arsenal: 116 herramientas en todas las familias, todas para conmutar
 
 Un plugin reemplaza a una estantería entera. Aquí va cada familia, qué cubre y su estado por defecto:
 
 | Familia | Cuenta | Qué da a tu agente | Defecto |
 |---|---|---|---|
-| 📁 **Sistema de archivos** | 24 | Leer/escribir/editar/buscar — rutas validadas, respaldos, lecturas por chunks en archivos enormes, diffs, árboles del proyecto, búsqueda `ripgrep` aislada en worker (watchdog de 3 s) + escaneo estructurado de contenido (`pattern_scan`) + cirugía de líneas con guards de huella digital (`line_operations`, incorporado 23.09 Q6) | ✅ |
+| 📁 **Sistema de archivos** | 24 | Leer/escribir/editar/buscar — rutas validadas, respaldos, lecturas por chunks en archivos enormes, diffs, árboles del proyecto, búsqueda `ripgrep` aislada en worker (watchdog de 3 s) + escaneo estructurado de contenido (`pattern_scan`) + cirugía de líneas con guards de huella digital (`line_operations`, incorporado 23.09 Q6) + parches unified/binary byte-exactos (`apply_patch`, 07.11) | ✅ |
 | 🧬 **Refactorización y motor Recode** | `refactor_code` + reglas | Rename AST · mover-función · extraer · limpieza de imports muertos — más un motor de reglas enchufable (pistas de código muerto, inferencia de tipos, modernizador asíncrono) con diffs en modo prueba | ✅ |
 | 🔍 **Procesamiento de texto** | 3 | Transformaciones regex (clase `sed`), extracción estructurada (clase `awk`), tablas Markdown instantáneas (cirugía de líneas movida a Sistema de archivos, 23.09 Q6) | ✅ |
 | 📋 **Planificación de tareas** | 4 | Planes objetivo + pasos a través de una máquina de estados real con métricas de finalización en vivo — los pasos bloqueados reintentan limpiamente · `remove_plan` gateado por confirmación + auto-eliminación al finalizar naturalmente (05.10) | ✅ |

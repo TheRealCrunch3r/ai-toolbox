@@ -2,7 +2,7 @@
 
 Supersedes `CHANGELOG_v4.md`. Active changelog for version 1.9.24.
 Style per owner order (06.11): concise entries only — facts, no process narrative.
-Canon: **83 suites / 1234 tests** · v1.9.24 · manifest rev 0.
+Canon: **84 suites / 1262 tests** · v1.9.24 · manifest rev 0.
 
 | Date | Change |
 |---|---|

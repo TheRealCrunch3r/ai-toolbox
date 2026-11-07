@@ -1,6 +1,6 @@
 # Documentation Update Summary — AI Toolbox Plugin
 
-> `v1.9.24` · manifest revision 0 · canon **83 suites / 1234 tests** (Budget-Guard M1/M2/M3 context-limit protection shipped, master switch ON)
+> `v1.9.24` · manifest revision 0 · canon **84 suites / 1262 tests** (Budget-Guard M1/M2/M3 context-limit protection shipped, master switch ON)
 
 ---
 
@@ -348,7 +348,7 @@ All dangerous tool categories are **disabled by default**:
 
 | File | Changes Made |
 |------|-------------|
-| `README.md` | Rewritten 05.09.2026 (v1.9.15): SEO restructure + code-verified figures — test counts since superseded by the current canon (**83 suites / 1234 tests**); Security Hardening bullet corrected for current `isSafeRegex` behavior; **130+ tools**; unverified "24 modules" convention dropped; `utilityTools` (~27 incl. secret_scan) footnoted as not yet registered |
+| `README.md` | Rewritten 05.09.2026 (v1.9.15): SEO restructure + code-verified figures — test counts since superseded by the current canon (**84 suites / 1262 tests**); Security Hardening bullet corrected for current `isSafeRegex` behavior; **130+ tools**; unverified "24 modules" convention dropped; `utilityTools` (~27 incl. secret_scan) footnoted as not yet registered |
 | `ARCHITECTURE.md` | Gateway Pattern marked as ABANDONED; tool counts corrected to 20 modules |
 | `TOOLS_REFERENCE.md` | Up-to-date (~132 tools documented) |
 | `DOCUMENTATION.md` | Deprecated features clearly marked; tool count corrections applied |

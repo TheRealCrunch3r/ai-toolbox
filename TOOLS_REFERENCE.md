@@ -1,6 +1,6 @@
 # 🛠️ AI Toolbox — Complete Tool Reference
 
-> **Current state:** v1.9.24 · manifest rev 0 · canon **83 suites / 1234 tests** · **115 tools** across the categories in the Overview below (two names serve two categories: `read_document`, `rag_web_content`).
+> **Current state:** v1.9.24 · manifest rev 0 · canon **84 suites / 1262 tests** · **116 tools** across the categories (re-counted 07.11: `apply_patch` shipped) in the Overview below (two names serve two categories: `read_document`, `rag_web_content`).
 > Audited against live code (`src/tools/*.ts` + `toolsProvider.ts`): 115 tool definitions across 23 module files, declarative registry pattern; per-module tables last fully re-audited 28.09 and kept current through v1.9.24.
 > Version history: [`CHANGELOG_v5.md`](CHANGELOG_v5.md) (active) · `docs/history/` (older volumes).
 
@@ -10,7 +10,7 @@
 
 | Category | Count | Default State | Status |
 |----------|-------|---------------|--------|
-| File System | 24 | ✅ Enabled | Active | (+ `pattern_scan`; + `line_operations` folded in from Text Processing, 23.09 Q6)
+| File System | 25 | ✅ Enabled | Active | (+ `pattern_scan`; + `line_operations` folded in from Text Processing, 23.09 Q6; + `apply_patch`, 07.11)
 | Code Refactoring | 1 | ✅ Enabled | Active |
 | Web Research | 3 | ✅ Enabled | Active | (+ `rag_web_content` served by Vector RAG)
 | Browser Automation | 5 | ❌ Disabled | Active |
@@ -35,7 +35,7 @@
 
 ---
 
-## 📁 File System (24 — incl. `line_operations` folded in from Text Processing, 23.09 Q6)
+## 📁 File System (25 — incl. `line_operations` folded in from Text Processing, 23.09 Q6; + `apply_patch`, 07.11)
 
 ### Basic Operations
 
@@ -55,6 +55,8 @@
 | `append_file` | Append text to file end (or create if missing); combined size limit enforcement (existing + new ≤ 10MB); async atomic write with crash resilience |
 | `delete_lines_in_file` | Delete single or range of lines; default backup=true for irreversible operations; async atomic write via shared utility |
 | `line_operations` | Insert/delete/reorder lines using awk-like operations without shell dependencies; atomic writes safety + **Three-layer guardrail system (v1.7.0+)** (pattern matching, verification, bounds validation) + MD5 post-write integrity verify — folded in from textProcessingTools.ts 23.09 (Q6); full guardrails section at the end of this category |
+
+| `apply_patch` | Apply unified-diff or binary byte-anchor patches fully in-process (no shell, no git CLI): EOL-preserving byte-accurate anchors with sequential multi-hunk re-anchoring; 64 MiB file / 1 MiB patch caps · **added 07.11** |
 
 ### Directory & File Management
 
