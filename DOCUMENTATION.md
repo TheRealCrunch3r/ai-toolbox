@@ -1,12 +1,10 @@
 # Documentation Update Summary — AI Toolbox Plugin
 
-**Date**: 2026-09-19  
-**Version**: v1.9.24 (version move **06.11**, Budget-Guard window folded in; manifest revision 0 — prior move **04.11**; canon re-stamped **05.11/06.11 Budget-Guard-Arc close-out → 83 suites / 1234 tests** (+1 suite `tests/budgetGuard.test.ts` / +18 tests; M1/M2/M3 context-limit protection shipped, master switch OFF by default); prior move 01.11 → v1.9.22 [canon 80/1193] re-stamped in the Option-1 window (02.11); hub artifact at rev 86 = v1.9.20 per the 19.10 live check, GitHub `main` synced 17.10)  
-**Status**: ✅ Complete
+> `v1.9.24` · manifest revision 0 · canon **83 suites / 1234 tests** (Budget-Guard M1/M2/M3 context-limit protection shipped, master switch ON)
 
 ---
 
-## 📋 Version Status Overview ; prior move 01.11 → v1.9.22 [canon 80/1193] re-stamped in the Option-1 window (02.11); hub artifact at rev 86 = v1.9.20 per the 19.10 live check, GitHub `main` synced 17.10, version header synced **01.11** (v1.9.22 move) · prior stamp 08.09 (Tool Gating Profile release); content last refreshed **28.09.2026** against live code (WALK-ABORT docs sync + full per-module re-audit); changelog chain: CHANGELOG_v3.md (active) ← CHANGELOG_v2.md (archived 20.09) ← CHANGELOG.md (legacy), plus RELEASE_NOTES.md)
+## 📋 Version Status Overview
 
 | Component | Status | Notes |
 |-----------|--------|-------|
@@ -73,10 +71,10 @@ IF REMOTE URL (http://, https://):
 - **`src/toolsProvider.ts` (`instrumentedImplementation`)**: after the FIX #20 measurement/guard block, plain-object results are returned as `{ ...result, executedTool }`, where `executedTool` = the registered (post-minification) name of the implementation that actually ran. This is the same name the AutoTracker DELTA log lines already used for host-log attribution — now it also reaches the chat transcript via the payload itself.
 - **Strictly additive contract:** strings, numbers, booleans, arrays, null/undefined and non-plain objects (class instances, Buffer, Date) pass through byte-identical; only plain objects gain exactly one key. No tool emits `executedTool` today (grep-verified before introduction); on any future collision the wrapper value is authoritative. Routing, side effects, timing and error propagation are unchanged; FIX #20 A1 bookkeeping still records the original payload with the same ground-truth name.
 - **Verification:** new suite `tests/executedToolTransparency.test.ts` (8 tests) exercises the real registration → minify → instrument pipeline via six side-effect-free probe tools, incl. a regression guard for FIX #20 A1 (`recordToolResult` once per success / zero on failure). Guard expression additionally verified offline: 14/14 payload-class edge cases pass.
-- **Status:** ⏳ user-side `npx jest tests/executedToolTransparency.test.ts` + full baseline (superseded — current suite: **761 tests / 46 suites** — v1.9.17 added the gating-profile suite — verified green 08.09.2026 via npm test, full run 761/761); live activation = sync `src/toolsProvider.ts` into the source-run LM Studio install + full restart. No version bump (v1.9.12 rev 23 stays current).
+- **Status:** ⏳ user-side `npx jest tests/executedToolTransparency.test.ts` + full baseline; live activation = sync `src/toolsProvider.ts` into the source-run LM Studio install + full restart.
 
 ### OOM Hardening Suite, rag_web_content Fix Suite & Chunking Fixed-Point Termination — v1.9.10 (2026-08-24/25)
-**Hardened every web/RAG allocation path against host heap exhaustion and terminated the chunking loop that could spin forever on poison-length documents. Full test suite green (user-verified 25.08.2026 ~00:13); version stays at v1.9.10 — no bump.**
+**Hardened every web/RAG allocation path against host heap exhaustion and terminated the chunking loop that could spin forever on poison-length documents. Full test suite green; version stays at v1.9.10 — no bump.**
 
 #### Changes
 - **Bounded reads everywhere** (`src/performanceUtils.ts`): `readBoundedText` / `readCappedText` (250K–500K char budgets) now gate `fetch_web_content`, all three search-engine fallbacks, the five HTTP-client body reads, and `wikipedia_search`; every `fetchWithRetry` attempt is bounded by a 30 s AbortController timeout.
@@ -86,8 +84,7 @@ IF REMOTE URL (http://, https://):
 - **Test hardening**: oversized-page regression spec in `tests/vectorRagTools.ragWebContent.test.ts` (incl. case-insensitive heading assertion per html-to-text defaults); shared-mock isolation (`mockReset()` + re-seed) in `tests/webResearchTools.test.ts` beforeEach — closed the last order-dependent failure.
 
 #### Verification
-- ✅ Full Jest suite green — user confirmed 2026-08-25 (~00:13); per-suite runs with `node --max-old-space-size=2048 … --maxWorkers=1` clean
-- ⏳ Rebuild + reinstall before the next live vector-RAG use on large documents (`npm run build`; bundles carry no version strings)
+- ✅ Full Jest suite green; per-suite runs with `node --max-old-space-size=2048 … --maxWorkers=1` clean
 
 ### Mid-Loop Token Counting + DELTA "chat used" Log Enhancement — v1.9.9 (2026-08-23)
 **AutoTracker now evaluates token thresholds against history count + running per-tool deltas *during* a tool loop (FIX #20), and `[AutoTracker] [DELTA]` log lines carry a live `| chat used ≈ N tok` estimate.**
@@ -98,8 +95,8 @@ IF REMOTE URL (http://, https://):
 - **Gating:** the field is emitted only when the turn-start baseline > 0 and is omitted if the ContextGuard recount fails.
 
 #### Verification
-- ✅ Live-verified in production (user confirmation 23.08.2026, 11:49); final gaps closed with 2 false-positive-boundary test expectation fixes + 2 jest mapper entries
-- ✅ Same-day follow-ups shipped & bundle-verified: `[TokenCheck]` log `Math.round` fix (build#3) and en-US locale pins for model-facing strings (build#4, known-good install)
+- ✅ Live-verified in production; final gaps closed with 2 false-positive-boundary test expectation fixes + 2 jest mapper entries
+- ✅ Same-day follow-ups shipped & bundle-verified: `[TokenCheck]` log `Math.round` fix and en-US locale pins for model-facing strings (known-good install)
 
 ### Auto-Tracker Chat-Warning Regression Fix + Confirm-First Project Switching — v1.9.8+ (2026-08-18)
 **Fixed the checkpoint warning that was generated but never surfaced in chat, and restored confirm-first working-directory switching with German JA/NEIN reply support.**
@@ -351,14 +348,14 @@ All dangerous tool categories are **disabled by default**:
 
 | File | Changes Made |
 |------|-------------|
-| `README.md` | Rewritten 05.09.2026 (v1.9.15): SEO restructure + code-verified figures — **747 tests / 45 suites at the time of that rewrite** (live npm test 05.09 — current count per README badge, verified 28.09: 860/56; the same file's Security Hardening bullet below was corrected in the 29.09 doc sweep for current `isSafeRegex` behavior), **130+ tools**; unverified "24 modules" convention dropped; `utilityTools` (~27 incl. secret_scan) footnoted as not yet registered |
+| `README.md` | Rewritten 05.09.2026 (v1.9.15): SEO restructure + code-verified figures — test counts since superseded by the current canon (**83 suites / 1234 tests**); Security Hardening bullet corrected for current `isSafeRegex` behavior; **130+ tools**; unverified "24 modules" convention dropped; `utilityTools` (~27 incl. secret_scan) footnoted as not yet registered |
 | `ARCHITECTURE.md` | Gateway Pattern marked as ABANDONED; tool counts corrected to 20 modules |
 | `TOOLS_REFERENCE.md` | Up-to-date (~132 tools documented) |
 | `DOCUMENTATION.md` | Deprecated features clearly marked; tool count corrections applied |
 | `CHANGELOG.md` | Up-to-date (v1.8.0–v1.8.2 entries complete) |
 | `CONTRIBUTING.md` | Updated to show declarative registry pattern for adding new tools (v1.8.2+) |
 | `SECURITY.md` | Up-to-date (threat model, security controls) |
-| ~~`SUMMARY.md`~~ — file no longer exists (removed after the v1.8.2 window; verified 05.09) | Rebuilt with v1.8.2 status, deprecated features noted |
+| ~~`SUMMARY.md`~~ — file no longer exists (removed after the v1.8.2 window) | Rebuilt with v1.8.2 status, deprecated features noted |
 
 ---
 
