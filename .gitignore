@@ -49,3 +49,6 @@ readme_lm.md
 MEMORY_FACTS.md
 RESEARCH_budget-guard.md
 .git-commit-msg.txt
+
+# LM Studio Hub publish staging (pack:hub artifact - never commit)
+publish/
