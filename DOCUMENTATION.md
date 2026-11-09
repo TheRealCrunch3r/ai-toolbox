@@ -1,6 +1,6 @@
 # Documentation Update Summary — AI Toolbox Plugin
 
-> `v1.9.24` · manifest revision 0 · canon **84 suites / 1262 tests** (Budget-Guard M1/M2/M3 context-limit protection shipped, master switch ON)
+> `v1.9.24` · manifest revision 0 · canon **84 suites / 1263 tests** (Budget-Guard M1/M2/M3 context-limit protection shipped, master switch ON)
 
 ---
 
