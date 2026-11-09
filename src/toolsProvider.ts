@@ -587,7 +587,10 @@ export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[
                       await autoTracker.flushActionsToMemory(); // buffered actions land in the store before the summary spans them (PART B parity)
                       // No cast needed: getTurnMessages() returns Record<string, unknown>[], already assignable to the
                       // ContextMessage parameter (role?/content? optional + index signature) — same uncast call as PART B.
-                      const summary = await guard.generateSessionContinuity(toSummarize);
+                      // ACTIVE-CHAT-MODEL FALLBACK (09.11, owner GO): pass the last auto-detected chat model id so this
+                      // save works when contextGuardSummaryModel is empty — previously resolve-to-null ("no usable model").
+                      const tier2FallbackId = TokenStatsManager.getActiveChatModelId();
+                      const summary = await guard.generateSessionContinuity(toSummarize, tier2FallbackId ? { fallbackModelId: tier2FallbackId } : undefined);
                       if (summary) {
                         const persistOutcome = await persistGeneratedSessionSummary(summary);
                         console.log(persistOutcome.saved
@@ -629,6 +632,11 @@ export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[
           if (!autoPersistFiredThisSession
               && config.budgetGuard?.enabled === true
               && limit > 0
+              // M3-LATCH-GAP (09.11, owner GO A): same proven-unrecoverable guard as the TIER-2 / FIX-B siblings — without it this
+              // SESSION-scoped one-shot could burn its single Arc-C regeneration on a provably futile pass inside an unrecoverable
+              // window; with it the latch survives until reload (or PART B recovery) for when M3 can actually help. Skip log: the
+              // mirror else-if below, same parity as both siblings'.
+              && !TokenStatsManager.getUnrecoverableWindow()
               && projected >= (limit * autopausePct / 100)) {
             autoPersistFiredThisSession = true; // latch BEFORE the first await: a throw or failure must not re-arm mid-session
             const m3Guard = getContextGetter();
@@ -639,7 +647,10 @@ export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[
                 const toSummarizeM3 = turnMessagesM3.slice(0, Math.max(0, turnMessagesM3.length - 10));
                 if (toSummarizeM3.length >= 10) {
                   await autoTracker.flushActionsToMemory(); // buffered actions land in the store before the summary spans them (PART B parity)
-                  const m3Summary = await m3Guard.generateSessionContinuity(toSummarizeM3);
+                  // ACTIVE-CHAT-MODEL FALLBACK (09.11, owner GO): same fallback wiring as the TIER-2 sibling above —
+                  // mid-loop auto-persist resolves a usable model even with an empty contextGuardSummaryModel.
+                  const m3FallbackId = TokenStatsManager.getActiveChatModelId();
+                  const m3Summary = await m3Guard.generateSessionContinuity(toSummarizeM3, m3FallbackId ? { fallbackModelId: m3FallbackId } : undefined);
                   if (m3Summary && typeof m3Summary.task_description === 'string') {
                     // Self-describing marker FIRST (restore dossiers surface task_description first): the NEXT restore_session_context shows this save as its own note.
                     m3Summary.task_description = buildBudgetAutoPersistMarker(autopausePct, projected, limit) + m3Summary.task_description;
@@ -658,6 +669,15 @@ export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[
                 console.warn(`[AI Toolbox] [M3-AUTOSAVE] Mid-loop auto-persist failed (non-fatal): ${m3Err instanceof Error ? m3Err.message : String(m3Err)}`);
               }
             } // else: guard not yet constructed (null) or a stub without the method — deterministic skip (tests / pre-startup window; tier-2 covers later runs)
+          } else if (config.budgetGuard?.enabled === true
+              && limit > 0
+              // M3-LATCH-GAP (09.11, owner GO A): mirror of the M3 gate above with ONLY its unrecoverable condition inverted — one-shot
+              // FAIL-LOUD parity with the TIER-2 / FIX-B siblings; no "skipped" line when budgetGuard is off or the projection hasn't
+              // crossed the autopause edge. DELIBERATELY EXCLUDES !autoPersistFiredThisSession (gate-4 fix 30.10 argument): that session
+              // latch is exactly what this branch must NOT consume — one-shotness lives in TokenStatsManager's module-level
+              // unrecoverableSkipLoggedM3 flag instead, which resets only on set/clear transitions like its siblings'.
+              && projected >= (limit * autopausePct / 100)) {
+            TokenStatsManager.logUnrecoverableSkip('m3');
           }
 
           // FIX B (09.10, owner GO — pre-emptive mid-loop compression): when the shared projection crosses PREEMPTIVE_COMPRESSION_PERCENT

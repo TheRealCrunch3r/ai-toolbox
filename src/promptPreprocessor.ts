@@ -922,6 +922,12 @@ export async function preprocess(
             const typedModel = activeModel as LLMModelWithOptionalFields;
             activeModelId = typedModel.modelKey || typedModel.id || '';
             console.log(`[ContextGuard] ✅ Auto-detected active model: ${activeModelId}`);
+
+            // ACTIVE-CHAT-MODEL FALLBACK (09.11, owner GO): publish the auto-detected chat-model id so the wrapper-side
+            // mid-loop saves (TIER-2 / M3 in toolsProvider) can fall back to it when contextGuardSummaryModel is empty —
+            // their ToolCallContext exposes no model hop. Publish ONLY here: the configured-summaryModel branches below
+            // resolve inside generateSessionContinuity() itself, and an undetected turn must not erase a previous id.
+            TokenStatsManager.setActiveChatModelId(activeModelId);
             
             // Update token limit from SDK
             await contextGuard.setTokenLimitFromModel(activeModelId);

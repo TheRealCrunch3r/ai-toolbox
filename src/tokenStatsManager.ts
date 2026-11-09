@@ -51,6 +51,16 @@ let maxContextTokens = 0;
 // exclusion is applied caller-side at consumption time). null = no list published for this turn yet.
 let publishedTurnMessages: ReadonlyArray<Record<string, unknown>> | null = null;
 
+// ACTIVE-CHAT-MODEL FALLBACK (09.11, owner GO "fixen sofort"): last auto-detected chat model ID, published by
+// promptPreprocessor's per-turn detection so the wrapper-side mid-loop saves (TIER-2 ~90% / M3 ~85%) can resolve a
+// usable summary model when contextGuardSummaryModel is EMPTY. The SDK ToolCallContext exposes no model id (verified
+// against the installed @lmstudio/sdk d.ts: only status/warn/signal/callId), so this cache — written where the chat
+// model IS visible and read where it is not — is the only in-band channel. generateSessionContinuity() prefers config
+// over fallback, so a configured summaryModel never sees this value; when detection fails on a later turn a stale id at
+// worst degrades to the pre-fix null outcome (model load error → catch → skip). Cleared by clear() on chat reset
+// (identity boundary); deliberately NOT cleared per-turn — see getActiveChatModelId docs.
+let activeChatModelId = '';
+
 // LATCH SUB-ITEM (30.10, owner GO — FIX #1 Part A guard): proven-unrecoverable window latch. Set by PART B in
 // promptPreprocessor once a FRESH pullHistory() post-compression recount is still >= the compression threshold:
 // at that point the host conversation history CANNOT be shrunk in-band (SDK contract — plugins only ever see a
@@ -69,6 +79,7 @@ let unrecoverableLimit = 0;
 /** LATCH SUB-ITEM (30.10) — per-gate skip-log latch: once logUnrecoverableSkip(gate) has logged for the CURRENT window, later model steps stay silent (one line per gate per transition). Reset by every set/clear so a fresh window re-logs. */
 let unrecoverableSkipLoggedTier2 = false;
 let unrecoverableSkipLoggedFixb = false;
+let unrecoverableSkipLoggedM3 = false; // M3-LATCH-GAP (09.11, owner GO A): the M3 auto-persist rung joins the per-gate skip-log one-shot family
 
 // ==================== Token estimation ratio — SINGLE SOURCE OF TRUTH (TOKEN-DIVERGENCE arc, 10.11 owner GO) ====================
 //
@@ -453,6 +464,33 @@ export class TokenStatsManager {
     return publishedTurnMessages;
   }
 
+  /**
+   * ACTIVE-CHAT-MODEL FALLBACK (09.11) — publish the auto-detected chat model ID for mid-loop save fallback. Called
+   * from promptPreprocessor's per-turn detection IMMEDIATELY after a successful auto-detect (the only branch where a
+   * real chat-model id exists: configured-summaryModel branches resolve inside generateSessionContinuity() itself).
+   * Non-empty ids overwrite; empty is rejected so an undetected turn can never erase a previous, still-valid id.
+   */
+  static setActiveChatModelId(id: string): void {
+    if (id) activeChatModelId = id;
+  }
+
+  /**
+   * ACTIVE-CHAT-MODEL FALLBACK (09.11) — last successfully auto-detected chat model ID ('' until the first detect).
+   * Consumed by toolsProvider's TIER-2 / M3 mid-loop save calls as generateSessionContinuity's fallbackModelId when
+   * contextGuardSummaryModel is empty. NOT reset per-turn (unlike turnBaselineTokens etc.): both consumers only run
+   * AFTER this turn's preprocess published a baseline, so the value is same-turn-fresh whenever it matters; clearing
+   * on a detection failure would lose a working fallback for no gate-visible benefit. Stale-id worst case = model
+   * load error → catch → null (identical outcome to pre-fix behavior). Chat reset (clear()) erases it — identity boundary.
+   */
+  static getActiveChatModelId(): string {
+    return activeChatModelId;
+  }
+
+  /** Test hook: force/erase the cached chat-model id (mirrors setUnrecoverableWindowForTests). */
+  static setActiveChatModelIdForTests(id: string): void {
+    activeChatModelId = id;
+  }
+
   // --- LATCH SUB-ITEM (30.10): proven-unrecoverable window state for the wrapper-side mid-loop gates ---
 
   /**
@@ -469,6 +507,7 @@ export class TokenStatsManager {
     unrecoverableWindow = true;
     unrecoverableSkipLoggedTier2 = false; // fresh transition ⇒ the per-gate skip line may fire exactly once in this window
     unrecoverableSkipLoggedFixb = false;
+    unrecoverableSkipLoggedM3 = false;
     if (Number.isFinite(tokens) && tokens > 0) unrecoverableSetTokens = Math.round(tokens);
     if (Number.isFinite(limit) && limit > 0) unrecoverableLimit = Math.round(limit);
     console.log(
@@ -490,6 +529,7 @@ export class TokenStatsManager {
     unrecoverableLimit = 0;
     unrecoverableSkipLoggedTier2 = false;
     unrecoverableSkipLoggedFixb = false;
+    unrecoverableSkipLoggedM3 = false;
     console.log('[TokenStatsManager] [LATCH-UNRECOVERABLE] CLEARED — mid-loop gates re-arm (PART B recounted below threshold or chat reset)');
   }
 
@@ -505,7 +545,7 @@ export class TokenStatsManager {
    * while later model steps stay silent instead of re-spending the pipeline. Exported for tests to pin the exact
    * line contract and to prove silence-on-repeat.
    */
-  static logUnrecoverableSkip(gate: 'tier2' | 'fixb'): void {
+  static logUnrecoverableSkip(gate: 'tier2' | 'fixb' | 'm3'): void {
     // LATCH SUB-ITEM (30.10 gate-4 fix): the skip line is only meaningful WHILE the latch holds — a call after any
     // clear (PART B recovery or chat reset) would claim an unrecoverable window that no longer exists, and its static
     // phrasing ("window proven unrecoverable this chat") would leave a misleading record with zero provenance behind.
@@ -518,16 +558,20 @@ export class TokenStatsManager {
     if (gate === 'tier2') {
       if (unrecoverableSkipLoggedTier2) return; // one-shot consumed for this transition — silence thereafter
       unrecoverableSkipLoggedTier2 = true;
-    } else {
+    } else if (gate === 'fixb') {
       if (unrecoverableSkipLoggedFixb) return;
       unrecoverableSkipLoggedFixb = true;
+    } else {
+      // M3-LATCH-GAP (09.11, owner GO A): the M3 auto-persist rung takes its own one-shot flag — same contract as its siblings.
+      if (unrecoverableSkipLoggedM3) return;
+      unrecoverableSkipLoggedM3 = true;
     }
     const provenance =
       unrecoverableSetTokens > 0 && unrecoverableLimit > 0
         ? ` (proven ${unrecoverableSetTokens.toLocaleString('en-US')}/${unrecoverableLimit.toLocaleString('en-US')} tok at set)`
         : '';
     console.warn(
-      `[TokenStatsManager] [LATCH-UNRECOVERABLE] FAIL-LOUD: mid-loop ${gate === 'tier2' ? 'TIER-2 forced save' : 'FIX B compression'} ` +
+      `[TokenStatsManager] [LATCH-UNRECOVERABLE] FAIL-LOUD: mid-loop ${gate === 'tier2' ? 'TIER-2 forced save' : gate === 'fixb' ? 'FIX B compression' : 'M3 auto-persist rung'} ` +
       `skipped — window proven unrecoverable this chat${provenance}; the pipeline cannot shrink host history in-band (plugin-API limitation). ` +
       'Re-arm is owned by a PART B boundary recount or chat reset only. Suppressed until then.',
     );
@@ -540,6 +584,7 @@ export class TokenStatsManager {
     unrecoverableLimit = 0;
     unrecoverableSkipLoggedTier2 = false;
     unrecoverableSkipLoggedFixb = false;
+    unrecoverableSkipLoggedM3 = false;
   }
 
   /** FIX #20 A2 — token count at the start of the current turn (before any tool calls). */
@@ -557,6 +602,7 @@ export class TokenStatsManager {
    */
   static clear(): void {
     lastPredictionStats = null;
+    activeChatModelId = ''; // ACTIVE-CHAT-MODEL FALLBACK (09.11) — chat reset is the identity boundary for the cached id
     lmStudioApi.resetSessionState();
     cumulativeTotalTokens = 0; // 🔥 Reset cumulative tracker on new session
     midLoopDeltaChars = 0; // FIX #20 A1 — fresh session, no in-flight tool loop
@@ -573,6 +619,7 @@ export class TokenStatsManager {
     // is silent by design here too, so the flags alone carry the re-arm; no line change.
     unrecoverableSkipLoggedTier2 = false;
     unrecoverableSkipLoggedFixb = false;
+    unrecoverableSkipLoggedM3 = false; // M3-LATCH-GAP (09.11): chat reset re-arms the M3 skip line with its siblings
   }
 
   /**

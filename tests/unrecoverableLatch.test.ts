@@ -104,6 +104,30 @@ describe('TokenStatsManager unrecoverable-window latch — API contract (LATCH S
     TokenStatsManager.setUnrecoverableWindowForTests(false);
   });
 
+  it('M3-LATCH-GAP (09.11, owner GO A): m3 rung — independent one-shot like its siblings; post-clear calls stay silent', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    TokenStatsManager.setUnrecoverableWindow(150_000, 200_000);
+
+    TokenStatsManager.logUnrecoverableSkip('m3'); // first model step — logs once with provenance
+    let m3Lines = warnSpy.mock.calls.map((c) => String(c[0])).filter((l) => l.includes('[LATCH-UNRECOVERABLE]') && l.includes('M3 auto-persist rung'));
+    expect(m3Lines).toHaveLength(1);
+    expect(String(m3Lines[0])).toContain('proven 150,000/200,000 tok at set');
+
+    TokenStatsManager.logUnrecoverableSkip('m3'); // later model step — silent (the M3 session latch would have re-fired; this must not)
+    m3Lines = warnSpy.mock.calls.map((c) => String(c[0])).filter((l) => l.includes('[LATCH-UNRECOVERABLE]') && l.includes('M3 auto-persist rung'));
+    expect(m3Lines).toHaveLength(1);
+
+    TokenStatsManager.logUnrecoverableSkip('tier2'); // sibling gate: independent one-shot, still logs once in the SAME window
+    const tier2Lines = warnSpy.mock.calls.map((c) => String(c[0])).filter((l) => l.includes('[LATCH-UNRECOVERABLE]') && l.includes('TIER-2'));
+    expect(tier2Lines).toHaveLength(1);
+
+    // gate-4 parity: after a clear the skip line must stay silent even if reached — no stale-provenance claims for any rung.
+    TokenStatsManager.clearUnrecoverableWindow();
+    warnSpy.mockClear();
+    TokenStatsManager.logUnrecoverableSkip('m3');
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
   it('chat reset (TokenStatsManager.clear()) is the hard clear path — latch + provenance + skip-log state all gone', () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
     TokenStatsManager.setUnrecoverableWindow(150000, 200000);
