@@ -108,6 +108,7 @@ export const deTranslations: FullTranslationSet = {
       { toolName: 'run_python', description: 'Python in kontrollierter Sandbox ausführen; os/subprocess/sys Imports blockiert, Standard-Timeout 10 s', parameters: ['python, timeout_seconds (optional)'] },
       { toolName: 'execute_command', description: '⚠️ Shell-Kommandos mit mehrschichtiger Sanitisierung und Pipe-Limits ausführen — standardmäßig deaktiviert', parameters: ['command (+ options)'] },
       { toolName: 'run_in_terminal', description: 'OS-natives Terminal-Fenster (cmd/PowerShell/zsh/bash) mit Umgebungsvariablen und Sichtbarkeits-Optionen starten', parameters: [] },
+{ toolName: 'run_powershell', description: 'Führt PowerShell-Skripte auf Windows direkt aus (ohne cmd-Ebene, keine Quoting-Verzerrung); -NoProfile/-NonInteractive, PS 5.1-Syntax; bevorzugt gegenüber execute_command für .NET/CIM/PS-Aufgaben', parameters: ['script (+ options)'] },
       { toolName: 'run_tests', description: 'Testframework automatisch aus package.json erkennen (Jest/Mocha/Vitest) und die Projekt-Suite ausführen, Ergebnisse zurückgeben', parameters: [] },
     ],
   },

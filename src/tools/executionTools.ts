@@ -155,6 +155,8 @@ interface RunJavaScriptParams { javascript: string; timeout_seconds?: number; }
 interface RunPythonParams { python: string; timeout_seconds?: number; }
 interface ExecuteCommandParams { command: string; timeout_seconds?: number; input?: string; }
 interface RunInTerminalParams { command: string; }
+interface RunPowerShellParams { script: string; timeout_seconds?: number; input?: string; }
+
 
 /** Helper for consistent error handling */
 function handleError(error: unknown): { success: false; error: string } {
@@ -699,6 +701,66 @@ export function registerExecutionTools(_config: PluginConfig): Tool[] {
   }));
 
   
+
+    // run_powershell tool — DETERMINISTIC PowerShell execution via DIRECT spawn (NO cmd/shell layer)
+  // Design decision (16.11): stays SEPARATE from execute_command; prioritization happens on the
+  // DESCRIPTION level ("prefer for PowerShell tasks on Windows"), not via runtime shell fallback —
+  // one tool = one dialect anchor, no AMBIGUOUS semantics, zero regression on the shipped default.
+  tools.push(tool({
+    name: 'run_powershell',
+    description: 'Run a PowerShell script non-interactively on Windows via powershell.exe — executed DIRECTLY without any cmd/shell layer (no quoting/escaping transformation). Prefer this tool over wrapping PowerShell in execute_command for .NET APIs (e.g. GDI+/WIC), CIM/WMI queries, and PS-semantics file operations. Runs with -NoProfile -NonInteractive -NoLogo; Windows PowerShell 5.1 syntax. Uses your normal ExecutionPolicy — for a policy bypass use execute_command instead.',
+    parameters: {
+      script: z.string().describe('PowerShell code to execute (statements / script block)'),
+      timeout_seconds: z.number().min(1).max(300).optional().default(60).describe('Timeout in seconds (max 300)'),
+      input: z.string().optional().describe("Input text to pipe to the script's stdin."),
+    },
+    implementation: async ({ script, timeout_seconds, input }: RunPowerShellParams, ctx?: ToolCallContextLike) => { // C5 FIX typed params; 04.10 ABORT-CONTRACT: host abort signal (2nd impl param per SDK contract)
+      // FORENSICS (house idiom): make host-originated pre-aborts observable in main.log — same gap class as ripgrep/pattern_scan.
+      if (ctx?.signal?.aborted) console.log(`[run_powershell] aborted-in 0ms (host signal already fired before execution start)`);
+
+      try {
+        // 04.10 ABORT-CONTRACT: host cancel already in effect → do not even start the process.
+        if (ctx?.signal?.aborted) {
+          return abortedEnvelope('Aborted by a host cancel before execution started — nothing was run. Re-run when convenient.', { provenance: 'run_powershell' });
+        }
+
+        // Windows-only tool: powershell.exe does not exist on POSIX hosts — fail fast, no probing.
+        if (process.platform !== 'win32') {
+          return { success: false, error: 'run_powershell is Windows-only.' };
+        }
+
+        const sanitized = sanitizeCommand(script);
+        if (!sanitized.safe) {
+          return { success: false, error: `Unsafe script detected: ${sanitized.reason}` };
+        }
+
+        // Deterministic direct spawn — useShell=false: NO cmd.exe/sh layer between us and powershell.exe.
+        // The script travels as ONE argv element through Node's CreateProcessW handling (same fix class as FIX P1 in gitGithubTools.ts),
+        // so PowerShell quoting/escaping is never re-interpreted by a second shell (GATE-4 bug class eliminated structurally).
+        const result = await safeSpawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-NoLogo', '-Command', script], ((timeout_seconds || 60) * 1000), input, false, ctx?.signal); // 04.10 ABORT-CONTRACT
+
+        if (!result.success) {
+          if (result.aborted) return abortedEnvelope('Aborted by a host cancel mid-run — the child process was terminated before completion.', { stdout: result.data?.stdout ?? '', stderr: result.data?.stderr ?? '', provenance: 'run_powershell' }); // 04.10 ABORT-CONTRACT
+          return { success: false, error: result.error };
+        }
+
+        const fullOutput = [result.data?.stdout, result.data?.stderr].filter(Boolean).join('\n');
+
+        return {
+          success: true,
+          data: {
+            stdout: result.data?.stdout || '',
+            stderr: result.data?.stderr || '',
+            output: fullOutput || '(No output)',
+            confidence: 'EXTRACTED' as Confidence, // Direct spawn = deterministic
+            provenance: 'run_powershell',
+          },
+        };
+      } catch (error) {
+        return handleError(error);
+      }
+    },
+  }));
 
   return tools;
 }

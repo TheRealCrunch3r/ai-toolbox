@@ -345,6 +345,7 @@ The `src/tools/recodeTool/` module implements a pluggable rule engine for advanc
 | Tool | Description |
 |------|-------------|
 | `execute_command` | Run shell commands with multi-layer sanitization: dangerous pattern blocking and pipe limits |
+| `run_powershell` | Run PowerShell scripts on Windows directly via powershell.exe — no cmd/shell layer (no quoting distortion); -NoProfile/-NonInteractive, PS 5.1 syntax; prefer for .NET/CIM/PS tasks |
 | `run_in_terminal` | Launch OS-native terminal window (cmd/PowerShell/zsh/bash) with env vars and visibility options |
 | `run_tests` | Auto-detect test framework from package.json scripts; supports Jest, Mocha, Vitest runners |
 
