@@ -407,7 +407,7 @@ export function registerExecutionTools(_config: PluginConfig): Tool[] {
   // execute_command tool — SAFE VERSION with shell:true support & improved Windows handling
   tools.push(tool({
     name: 'execute_command',
-    description: 'Execute a command in the current working directory. Supports full shell features (pipes, redirects, env vars).',
+    description: 'Execute a command in the current working directory via cmd.exe (Windows) / sh (POSIX). Supports full shell features (pipes, redirects, env vars). On Windows prefer run_powershell for shell/CLI tasks — use this tool there only when cmd-specific behavior is required.',
     parameters: {
       command: z.string().describe('The shell command to execute'),
       timeout_seconds: z.number().min(1).max(300).optional().default(60).describe('Timeout in seconds (max 300)'),
@@ -703,12 +703,13 @@ export function registerExecutionTools(_config: PluginConfig): Tool[] {
   
 
     // run_powershell tool — DETERMINISTIC PowerShell execution via DIRECT spawn (NO cmd/shell layer)
-  // Design decision (16.11): stays SEPARATE from execute_command; prioritization happens on the
-  // DESCRIPTION level ("prefer for PowerShell tasks on Windows"), not via runtime shell fallback —
-  // one tool = one dialect anchor, no AMBIGUOUS semantics, zero regression on the shipped default.
+  // Design decision (16.11, sharpened by owner GO same day ~19:35): stays SEPARATE from execute_command;
+  // PowerShell ALWAYS has priority on Windows for shell/CLI tasks — enforced on DESCRIPTION level only
+  // (+ tier 'high' in toolPriority.ts so budget filtering never drops it before execute_command), not via
+  // runtime shell fallback: one tool = one dialect anchor, no AMBIGUOUS semantics, zero regression on the shipped default.
   tools.push(tool({
     name: 'run_powershell',
-    description: 'Run a PowerShell script non-interactively on Windows via powershell.exe — executed DIRECTLY without any cmd/shell layer (no quoting/escaping transformation). Prefer this tool over wrapping PowerShell in execute_command for .NET APIs (e.g. GDI+/WIC), CIM/WMI queries, and PS-semantics file operations. Runs with -NoProfile -NonInteractive -NoLogo; Windows PowerShell 5.1 syntax. Uses your normal ExecutionPolicy — for a policy bypass use execute_command instead.',
+    description: 'The PREFERRED shell tool on WINDOWS (owner priority, 16.11): run any CLI/shell task as a PowerShell script, executed DIRECTLY by powershell.exe with no cmd layer and no quoting/escaping transformation — always prefer it over wrapping PowerShell in execute_command for .NET APIs (e.g. GDI+/WIC), CIM/WMI queries, PS-semantics file operations and general shell work on Windows. Runs with -NoProfile -NonInteractive -NoLogo; Windows PowerShell 5.1 syntax. Uses your normal ExecutionPolicy — for a policy bypass use execute_command instead.',
     parameters: {
       script: z.string().describe('PowerShell code to execute (statements / script block)'),
       timeout_seconds: z.number().min(1).max(300).optional().default(60).describe('Timeout in seconds (max 300)'),

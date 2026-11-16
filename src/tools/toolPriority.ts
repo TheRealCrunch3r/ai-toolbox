@@ -65,6 +65,7 @@ export const DEFAULT_TOOL_PRIORITIES: ToolPriority[] = [
   { name: 'run_javascript', tier: 'high', category: 'execution', description: 'Execute JavaScript code' },
   { name: 'run_python', tier: 'high', category: 'execution', description: 'Execute Python code' },
   { name: 'execute_command', tier: 'high', category: 'execution', description: 'Execute shell command' },
+  { name: 'run_powershell', tier: 'high', category: 'execution', description: 'Run PowerShell script (Windows-only; PREFERRED shell tool on Windows — owner priority 16.11)' },
   { name: 'run_in_terminal', tier: 'high', category: 'execution', description: 'Run in terminal' },
   { name: 'run_tests', tier: 'high', category: 'execution', description: 'Run test suite' },
   { name: 'git_status', tier: 'high', category: 'git', description: 'Check git status' },
