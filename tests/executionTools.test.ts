@@ -19,6 +19,8 @@ jest.mock('child_process', () => ({
 
 // Mock security
 jest.mock('../src/security', () => ({
+  // 16.11 (owner GO): run_powershell switched to the PS-aware profile — pass-through here (no PS impl tests in this suite).
+  sanitizePowerShellScript: jest.fn().mockImplementation((script: string) => ({ safe: true as const, reason: undefined })),
   sanitizeCommand: jest.fn().mockImplementation((cmd: string) => ({
     safe: !cmd.includes('rm -rf'),
     reason: cmd.includes('rm -rf') ? 'Dangerous command' : undefined,

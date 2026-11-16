@@ -5,7 +5,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { spawn } from 'child_process';
 import type { PluginConfig } from '../config.js';
-import { sanitizeCommand } from '../security.js';
+import { sanitizePowerShellScript, sanitizeCommand } from '../security.js';
 import { getWorkingDir, resolvePath } from '../workingDir.js';
 import type { Confidence } from '../types/confidenceTypes.js';
 
@@ -730,9 +730,11 @@ export function registerExecutionTools(_config: PluginConfig): Tool[] {
           return { success: false, error: 'run_powershell is Windows-only.' };
         }
 
-        const sanitized = sanitizeCommand(script);
+        // 16.11 (owner GO): PS-aware sanitization profile — the script goes to powershell.exe as ONE argv element with NO shell layer,
+        // so cmd/sh heuristics (`;`, backtick pairs, $(), pipe caps) are replaced by PowerShell-native checks (see src/security.ts).
+        const sanitized = sanitizePowerShellScript(script);
         if (!sanitized.safe) {
-          return { success: false, error: `Unsafe script detected: ${sanitized.reason}` };
+          return { success: false, error: `Unsafe PowerShell script detected: ${sanitized.reason}` };
         }
 
         // Deterministic direct spawn — useShell=false: NO cmd.exe/sh layer between us and powershell.exe.

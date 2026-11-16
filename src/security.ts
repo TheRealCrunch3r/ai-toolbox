@@ -217,6 +217,55 @@ export function applySecurityChecks(
  * Sanitize shell commands to prevent dangerous operations
  * S3 FIX: Enhanced with IFS-tampering and null-byte injection detection.
  */
+/**
+ * PowerShell-specific sanitization profile for run_powershell (16.11 arc, owner GO 16.11 ~19:47).
+ *
+ * Why a SEPARATE function instead of loosening sanitizeCommand(): execute_command runs THROUGH a real shell layer
+ * (cmd.exe / sh), where `;`, backtick pairs, $() and long pipe chains are expansion/injection vectors — those
+ * heuristics stay exactly as pinned in tests/security*.test.ts. run_powershell spawns powershell.exe DIRECTLY with
+ * the script as ONE argv element: there is no outer shell that could re-interpret metacharacters (the GATE-4 bug
+ * class is eliminated structurally), so the cmd/sh-specific rules are replaced by PowerShell-native ones here.
+ *
+ * DROPPED from this profile (each with rationale):
+ *  - semicolon count limit: `;` is THE standard PS statement separator on one line; no shell re-parse exists to inject into
+ *  - backtick-pair / $() "command substitution": in PowerShell backtick is the escape char (`"`, `` `n ``) and $(...) a
+ *    first-class subexpression — both are evaluated ONCE by the PS parser itself, never double-interpreted by an outer shell
+ *  - pipe-count cap: PS pipes chain objects within ONE language; without a shell layer there is no injection surface in extra stages
+ *  - bash IFS rule: bash-specific, and its \bIFS pattern false-positives on the ordinary PS variable `$ifs = ...`
+ *  - POSIX-only binaries (rm/sudo/nc/scp/fork/exec/...): do not exist for powershell.exe — replaced by the native list below
+ *
+ * KEPT: null-byte injection guard (universal, same as sanitizeCommand).
+ */
+export function sanitizePowerShellScript(command: string): { safe: boolean; reason?: string } {
+  if (!command || typeof command !== 'string') {
+    return { safe: false, reason: 'Empty or invalid script' };
+  }
+
+  const normalized = command.trim();
+
+  // Universal guard (identical to sanitizeCommand): null bytes can bypass downstream regex matching.
+  if (normalized.includes('\0') || normalized.includes('%00')) {
+    return { safe: false, reason: 'Null byte injection detected' };
+  }
+
+  // PowerShell-native destructive / abuse vectors — mirrors the INTENT of sanitizeCommand's POSIX list
+  // (rm -rf → RI -Recurse/-Force, disk wiping → Format-*/Clear-Disk, exfiltration/RCE → IEX-from-web), native syntax.
+  const psDangerousPatterns: Array<[RegExp, string]> = [
+    [/\bRemove-Item\b[\s\S]*-\s*(Recurse|Force)\b/i, 'Destructive Remove-Item with -Recurse/-Force detected (PS equivalent of rm -rf)'],
+    [/\bClear-Disk\b/i, 'Disk wiping command (Clear-Disk) detected'],
+    [/\bFormat-[A-Z]\w*\s*[-(]/i, 'Drive formatting command detected'],
+    [/\b(IEX|Invoke-Expression)\b[\s\S]*(https?:\/\/|\bNew-Object\s+Net\.WebClient\b|\binvoke-webrequest\b|\bcurl\b)/i, 'Remote code execution via Invoke-Expression + web content detected'],
+  ];
+
+  for (const [pattern, reason] of psDangerousPatterns) {
+    if (pattern.test(normalized)) {
+      return { safe: false, reason };
+    }
+  }
+
+  return { safe: true };
+}
+
 export function sanitizeCommand(command: string): { safe: boolean; reason?: string } {
   if (!command || typeof command !== 'string') {
     return { safe: false, reason: 'Empty or invalid command' };

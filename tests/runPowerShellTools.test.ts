@@ -13,12 +13,20 @@ import { spawn as mockedSpawnFn } from 'child_process';
 const mockedSpawn = mockedSpawnFn as unknown as jest.Mock;
 
 // Mock security — house style: block a canary pattern, pass everything else through
-jest.mock('../src/security', () => ({
-  sanitizeCommand: jest.fn().mockImplementation((cmd: string) => ({
-    safe: !cmd.includes('rm -rf'),
-    reason: cmd.includes('rm -rf') ? 'Dangerous command' : undefined,
-  })),
-}));
+jest.mock('../src/security', () => {
+  const psBlock = (s: string) => /\bRemove-Item\b[\s\S]*-\s*(Recurse|Force)\b/i.test(s); // mirrors the native destructive-vector rule
+  return {
+    sanitizeCommand: jest.fn().mockImplementation((cmd: string) => ({
+      safe: !cmd.includes('rm -rf'),
+      reason: cmd.includes('rm -rf') ? 'Dangerous command' : undefined,
+    })),
+    // 16.11 (owner GO): run_powershell now uses the PS-aware profile — house style mock: block the native canary, pass everything else.
+    sanitizePowerShellScript: jest.fn().mockImplementation((script: string) => ({
+      safe: !psBlock(script),
+      reason: psBlock(script) ? 'Destructive Remove-Item detected' : undefined,
+    })),
+  };
+});
 
 // Mock workingDir
 jest.mock('../src/workingDir', () => ({
@@ -118,12 +126,24 @@ describe('run_powershell', () => {
       expect(String(r.data?.output)).toContain('boom');
     });
 
-    test('blocked by sanitizeCommand', async () => {
-      const result = await getTool()?.implementation({ script: 'rm -rf C:\\' });
+    test('blocked by the PS-aware sanitization profile (native destructive vector, 16.11)', async () => {
+      const result = await getTool()?.implementation({ script: 'Remove-Item -Path C:\\Data -Recurse -Force' });
       const r = result as { success: boolean; error?: string };
       expect(r.success).toBe(false);
-      expect(r.error).toMatch(/Unsafe/i);
+      expect(String(r.error)).toMatch(/Unsafe PowerShell script/i);
       expect(mockedSpawn).not.toHaveBeenCalled();
+    });
+
+    test('PS idioms the cmd/sh profile used to reject now spawn (16.11 live findings F1/F2)', async () => {
+      makeFakeProc({ stdoutText: 'ok' });
+      // Finding F1: multiple semicolons on one line are standard PS statement separators.
+      await getTool()?.implementation({ script: "Write-Output 1; Write-Output 2; Get-Process", timeout_seconds: 5 });
+      expect(mockedSpawn).toHaveBeenCalledTimes(1);
+
+      makeFakeProc({ stdoutText: 'ok' });
+      // Finding F2: backtick-pair quote escapes + subexpression — the exact class blocked in live test 2.
+      await getTool()?.implementation({ script: '$x = "He said `"hi`""; Write-Output $x', timeout_seconds: 5 });
+      expect(mockedSpawn).toHaveBeenCalledTimes(2);
     });
   });
 
