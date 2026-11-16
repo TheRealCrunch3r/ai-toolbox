@@ -13,7 +13,8 @@ import type { Confidence } from '../types/confidenceTypes.js';
 
 interface SpawnResult {
   success: boolean;
-  data?: { stdout: string; stderr: string };
+  /** code = child exit code, present ONLY on a clean 'close' (never set by abort/timeout/settle paths). */
+  data?: { stdout: string; stderr: string; code?: number };
   error?: string;
   /** 04.10 ABORT-CONTRACT: true when the host signal aborted this spawn (child already killed) — callers must NOT treat it as exe-not-found and continue probing candidates. */
   aborted?: boolean;
@@ -129,13 +130,15 @@ async function safeSpawn(
       resolve({ success: false, error: 'Execution timed out' });
     }, timeoutMs);
 
-    proc.on('close', () => {
+    proc.on('close', (code: number | null) => {
       // 04.10 ABORT-CONTRACT: after an aborted (or timeout) kill the child still emits 'close' — that close must NOT
       // report success; `settled` covers the race window where the settle path already resolved.
       if (settled || controller.signal.aborted) return;
       settled = true;
       clearTimeout(timerId);
-      resolve({ success: true, data: { stdout: stdout.trim(), stderr: stderr.trim() } });
+      // 16.11 F-PS2 fix: surface the child exit code (clean-close only) so callers can report it — additive, never
+      // changes success semantics (non-zero exit ≠ failed run for probe/diff-style scripts; see house decision 16.11).
+      resolve({ success: true, data: { stdout: stdout.trim(), stderr: stderr.trim(), ...(typeof code === 'number' ? { code } : {}) } });
     });
 
     proc.on('error', (err) => {
@@ -703,6 +706,14 @@ export function registerExecutionTools(_config: PluginConfig): Tool[] {
   
 
     // run_powershell tool — DETERMINISTIC PowerShell execution via DIRECT spawn (NO cmd/shell layer)
+  // F-PS1 fix (16.11 ~21:4x, owner GO): PS 5.1 writes redirected stdout/stderr in the OEM console codepage — measured on a
+  // de-DE host: "äöüß€" → bytes 0x84 0x94 0x81 0xE1 0x3F (cp850) while Node decodes UTF-8 → U+FFFD mojibake for every
+  // non-ASCII output AND every localized error message. This prelude switches console + pipeline encoding to UTF-8 for the
+  // whole session BEFORE user code runs. Verified byte-exact on this machine: plain scripts, leading-newline/indent shapes
+  // (LLM style) and piped stdin all stay valid; -EncodedCommand was REJECTED (only encodes the INPUT script — output stayed
+  // OEM — plus spurious CLIXML blobs on stderr). Cost: ~90 chars per call; zero behavior change beyond readable output.
+  const PS_UTF8_PRELUDE = 'try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}; ';
+
   // Design decision (16.11, sharpened by owner GO same day ~19:35): stays SEPARATE from execute_command;
   // PowerShell ALWAYS has priority on Windows for shell/CLI tasks — enforced on DESCRIPTION level only
   // (+ tier 'high' in toolPriority.ts so budget filtering never drops it before execute_command), not via
@@ -740,7 +751,7 @@ export function registerExecutionTools(_config: PluginConfig): Tool[] {
         // Deterministic direct spawn — useShell=false: NO cmd.exe/sh layer between us and powershell.exe.
         // The script travels as ONE argv element through Node's CreateProcessW handling (same fix class as FIX P1 in gitGithubTools.ts),
         // so PowerShell quoting/escaping is never re-interpreted by a second shell (GATE-4 bug class eliminated structurally).
-        const result = await safeSpawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-NoLogo', '-Command', script], ((timeout_seconds || 60) * 1000), input, false, ctx?.signal); // 04.10 ABORT-CONTRACT
+        const result = await safeSpawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-NoLogo', '-Command', PS_UTF8_PRELUDE + script], ((timeout_seconds || 60) * 1000), input, false, ctx?.signal); // 04.10 ABORT-CONTRACT
 
         if (!result.success) {
           if (result.aborted) return abortedEnvelope('Aborted by a host cancel mid-run — the child process was terminated before completion.', { stdout: result.data?.stdout ?? '', stderr: result.data?.stderr ?? '', provenance: 'run_powershell' }); // 04.10 ABORT-CONTRACT
@@ -748,6 +759,9 @@ export function registerExecutionTools(_config: PluginConfig): Tool[] {
         }
 
         const fullOutput = [result.data?.stdout, result.data?.stderr].filter(Boolean).join('\n');
+        // F-PS2 fix (16.11 ~21:4x, owner GO — option a): surface the child exit code; success semantics UNCHANGED
+        // (non-zero ≠ failed run for probe/diff-style scripts), but the model gets the full verdict data instead of guessing.
+        const exitCode = typeof result.data?.code === 'number' ? result.data.code : 0;
 
         return {
           success: true,
@@ -755,6 +769,8 @@ export function registerExecutionTools(_config: PluginConfig): Tool[] {
             stdout: result.data?.stdout || '',
             stderr: result.data?.stderr || '',
             output: fullOutput || '(No output)',
+            exitCode,
+            ...(exitCode !== 0 ? { note: `PowerShell exited with code ${exitCode} — inspect the captured streams before treating this as a failure.` } : {}),
             confidence: 'EXTRACTED' as Confidence, // Direct spawn = deterministic
             provenance: 'run_powershell',
           },

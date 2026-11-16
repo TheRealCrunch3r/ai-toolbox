@@ -99,9 +99,11 @@ describe('run_powershell', () => {
 
       expect(mockedSpawn).toHaveBeenCalledTimes(1);
       const [, args] = mockedSpawn.mock.calls[0];
-      // THE core guarantee: byte-identical pass-through as a single argument — no layer re-parses it.
+      // THE core guarantee (16.11 ~21:4x F-PS1 dated update, owner GO): the script travels as ONE argv element with NO layer
+      // re-parsing — user code arrives byte-identical as a SUFFIX; only the measured UTF8-prelude is prepended in front of it.
       expect(args).toHaveLength(5);
-      expect(args[4]).toBe(nasty);
+      const PS_UTF8_PRELUDE = 'try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}; '; // mirrors src/tools/executionTools.ts (house style)
+      expect(args[4]).toBe(PS_UTF8_PRELUDE + nasty);
     });
 
     test('pipes provided input to the script via stdin', async () => {
@@ -178,6 +180,42 @@ describe('run_powershell', () => {
       expect(r.success).toBe(false);
       expect(String(r.error)).toMatch(/Windows-only/i);
       expect(mockedSpawn).not.toHaveBeenCalled();
+    });
+  });
+
+  // F-PS1/F-PS2 live-debug fixes (16.11 ~21:4x, owner GO): PS 5.1 redirected output was OEM/cp850 on a de-DE host
+  // (measured bytes 84 94 81 e1 3f for "äöüß€" → Node UTF-8 decode = U+FFFD); exit codes were dropped by the close handler.
+  describe('F-PS1/F-PS2 fixes (16.11 ~21:4x)', () => {
+    const PS_UTF8_PRELUDE = 'try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}; '; // mirrors src constant (house style)
+
+    test('F-PS1: UTF-8 prelude prepended, user script byte-suffix intact in the single argv element', async () => {
+      makeFakeProc({ stdoutText: 'x' });
+      const user = "Write-Output \"a\"; Write-Host \"b\"";
+      await getTool()?.implementation({ script: user });
+
+      expect(mockedSpawn).toHaveBeenCalledTimes(1);
+      const [, args] = mockedSpawn.mock.calls[0];
+      expect(args.slice(0, 4)).toEqual(['-NoProfile', '-NonInteractive', '-NoLogo', '-Command']);
+      expect(args).toHaveLength(5);
+      expect(args[4]).toBe(PS_UTF8_PRELUDE + user); // prelude + verbatim — no other transformation anywhere
+    });
+
+    test('F-PS2: clean close with code 0 → envelope.exitCode = 0, no note', async () => {
+      makeFakeProc({ stdoutText: 'ok\n', exitCode: 0 });
+      const r = (await getTool()?.implementation({ script: "Write-Output 'ok'" })) as { success: boolean; data?: Record<string, unknown> };
+
+      expect(r.success).toBe(true);
+      expect(r.data?.exitCode).toBe(0);
+      expect(r.data?.note).toBeUndefined();
+    });
+
+    test('F-PS2: non-zero close code → exitCode surfaced + note, success semantics UNCHANGED (option a)', async () => {
+      makeFakeProc({ stdoutText: 'partial\n', stderrText: '', exitCode: 7 });
+      const r = (await getTool()?.implementation({ script: 'exit 7' })) as { success: boolean; data?: Record<string, unknown> };
+
+      expect(r.success).toBe(true); // documented house semantics: non-zero ≠ failed run (probe/diff-style scripts)
+      expect(r.data?.exitCode).toBe(7);
+      expect(String(r.data?.note)).toMatch(/exited with code 7/);
     });
   });
 });

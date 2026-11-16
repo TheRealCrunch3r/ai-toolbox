@@ -1,222 +1,222 @@
 <div align="center">
-<a href="README.md">English</a> Â· <b>Deutsch</b> Â· <a href="README.es.md">EspaÃ±ol</a> Â· <a href="README.zh-CN.md">ç®€ä½“ä¸­æ–‡</a> Â· <a href="README.zh-TW.md">ç¹é«”ä¸­æ–‡</a><br/>
-<h1>AI Toolbox â€” All-in-One autonomes KI-Agenten- & Tool-Plugin fÃ¼r lokale LLMs in LM Studio</h1><hr/>
-<b>116 Tools. Ein Plugin. Keine Cloud nÃ¶tig.</b> Das vollstÃ¤ndigste LM-Studio-Hub-Plugin â€” macht jedes lokale Modell zu einem fÃ¤higen, selbstverwaltenden AI-Agenten.<br/>Selbstverwaltender Kontext hÃ¤lt Marathon-Sessions am Leben Â· ein Plugin, kein Glue-Code, standardmÃ¤ÃŸig vollstÃ¤ndig offline.
-<br/><a href="#"><img src="https://img.shields.io/badge/version-v1.9.24-2f80ed?style=plastic" alt="version v1.9.24"/></a> <a href="#the-tool-arsenal-116-tools-across-every-family-all-yours-to-toggle"><img src="https://img.shields.io/badge/tools-116%20ready--made-7c3aed?style=plastic" alt="tools 116 ready-made"/></a> <a href="#quick-start-2-minutes"><img src="https://img.shields.io/badge/tests-84%20suites%20%C2%B7%201262%20green-3fb950?style=plastic" alt="tests 84 suites Â· 1262 green"/></a> <a href="#"><img src="https://img.shields.io/badge/LM%20Studio-Hub%20plugin-e84393?style=plastic" alt="LM Studio Hub plugin"/></a> <a href="LICENSE"><img src="https://img.shields.io/github/license/TheRealCrunch3r/ai-toolbox?style=plastic" alt="license MIT (live-verified from LICENSE)"/></a> <a href="#"><img src="https://img.shields.io/badge/runtime-Node%20%E2%89%A5%2020-83cd29?style=plastic&logo=node.js" alt="runtime Node â‰¥ 20"/></a><br/>
-<b>Docs:</b> <a href="DOCUMENTATION.md">Documentation</a> Â· <a href="QUICK_START.md">Quick Start</a> Â· <a href="ARCHITECTURE.md">Architecture</a> Â· <a href="TOOLS_REFERENCE.md">Tool Reference</a> Â· <a href="CHANGELOG_v5.md">Changelog</a><br/>
-<a href="CONTRIBUTING.md">Contributing</a> Â· <a href="SECURITY.md">Security</a><br/>
+<a href="README.md">English</a> ı <b>Deutsch</b> ı <a href="README.es.md">Espaıol</a> ı <a href="README.zh-CN.md">ıS-ı</a> ı <a href="README.zh-TW.md">Aı-ı</a><br/>
+<h1>AI Toolbox  All-in-One autonomes KI-Agenten- & Tool-Plugin fır lokale LLMs in LM Studio</h1><hr/>
+<b>117 Tools. Ein Plugin. Keine Cloud nıtig.</b> Das vollstındigste LM-Studio-Hub-Plugin  macht jedes lokale Modell zu einem fıhigen, selbstverwaltenden AI-Agenten.<br/>Selbstverwaltender Kontext hılt Marathon-Sessions am Leben ı ein Plugin, kein Glue-Code, standardmııig vollstındig offline.
+<br/><a href="#"><img src="https://img.shields.io/badge/version-v1.9.24-2f80ed?style=plastic" alt="version v1.9.24"/></a> <a href="#the-tool-arsenal-117-tools-across-every-family-all-yours-to-toggle"><img src="https://img.shields.io/badge/tools-117%20ready--made-7c3aed?style=plastic" alt="tools 117 ready-made"/></a> <a href="#quick-start-2-minutes"><img src="https://img.shields.io/badge/tests-86%20suites%20%C2%B7%201291%20green-3fb950?style=plastic" alt="tests 86 suites ı 1291 green"/></a> <a href="#"><img src="https://img.shields.io/badge/LM%20Studio-Hub%20plugin-e84393?style=plastic" alt="LM Studio Hub plugin"/></a> <a href="LICENSE"><img src="https://img.shields.io/github/license/TheRealCrunch3r/ai-toolbox?style=plastic" alt="license MIT (live-verified from LICENSE)"/></a> <a href="#"><img src="https://img.shields.io/badge/runtime-Node%20%E2%89%A5%2020-83cd29?style=plastic&logo=node.js" alt="runtime Node e 20"/></a><br/>
+<b>Docs:</b> <a href="DOCUMENTATION.md">Documentation</a> ı <a href="QUICK_START.md">Quick Start</a> ı <a href="ARCHITECTURE.md">Architecture</a> ı <a href="TOOLS_REFERENCE.md">Tool Reference</a> ı <a href="CHANGELOG_v5.md">Changelog</a><br/>
+<a href="CONTRIBUTING.md">Contributing</a> ı <a href="SECURITY.md">Security</a><br/>
 <br>
-<b>ğŸš€ Einfache Installation:</b> <a href="https://lmstudio.ai/crunch3r/ai-toolbox">AI Toolbox aus dem LM Studio Hub</a> <br> OR </br>
-<code>Installation: den <b>dist/</b>-Ordner in LM Studio kopieren â†’ unter Plugins aktivieren (Node.js 20+)</code>
+<b>=ı Einfache Installation:</b> <a href="https://lmstudio.ai/crunch3r/ai-toolbox">AI Toolbox aus dem LM Studio Hub</a> <br> OR </br>
+<code>Installation: den <b>dist/</b>-Ordner in LM Studio kopieren ı unter Plugins aktivieren (Node.js 20+)</code>
 <br>
 </div>
 
 
-**KI-Agenten-Toolkit fÃ¼r LM Studio** â€” 116 lokale LLM-Tools: Dateibearbeitung, Codebase-Suche, RAG, Browser-Automatisierung, Git & GitHub.
+**KI-Agenten-Toolkit fır LM Studio**  117 lokale LLM-Tools: Dateibearbeitung, Codebase-Suche, RAG, Browser-Automatisierung, Git & GitHub.
 
-**116 Tools. Ein Plugin. Keine Cloud nÃ¶tig.** Das vollstÃ¤ndigste Plugin im LM Studio Hub â€” verwandelt jedes lokale Modell in einen fÃ¤higen, selbstverwaltenden KI-Agenten mit sicherer Dateibearbeitung, hang-sicherer Codebase-Suche, Hintergrund-Builds, headloser Browser-Automatisierung, Git- & GitHub-Workflows, OCR, Chart-Erstellung und semantischem RAG; **selbstverwaltender Kontext** hÃ¤lt Marathon-Sitzungen am Leben. Ein Plugin, null Klebcode, standardmÃ¤ÃŸig vollstÃ¤ndig offline.
+**116 Tools. Ein Plugin. Keine Cloud nıtig.** Das vollstındigste Plugin im LM Studio Hub  verwandelt jedes lokale Modell in einen fıhigen, selbstverwaltenden KI-Agenten mit sicherer Dateibearbeitung, hang-sicherer Codebase-Suche, Hintergrund-Builds, headloser Browser-Automatisierung, Git- & GitHub-Workflows, OCR, Chart-Erstellung und semantischem RAG; **selbstverwaltender Kontext** hılt Marathon-Sitzungen am Leben. Ein Plugin, null Klebcode, standardmııig vollstındig offline.
 
-> `v1.9.24` Â· `116 fertige Tools` Â· `1262 Tests grÃ¼n (84 Suiten)` Â· `5 Lokalisationen` Â· `MIT` Â· `Node 20+`
+> `v1.9.24` ı `117 fertige Tools` ı `1291 Tests grın (86 Suiten)` ı `5 Lokalisationen` ı `MIT` ı `Node 20+`
 
-> âš ï¸ **Ãœbersetzung** â€” Deutsche Fassung von [README.md](README.md). Englisch ist die maÃŸgebliche Version (canonical); bei Abweichungen gilt README.md. Diese Datei bei Ã„nderungen am Original mit synchronisieren.
+> ı **ıbersetzung**  Deutsche Fassung von [README.md](README.md). Englisch ist die maıgebliche Version (canonical); bei Abweichungen gilt README.md. Diese Datei bei ınderungen am Original mit synchronisieren.
 
-<div align="center"><table><tr><td style="border-left:4px solid #d1242f; padding:8px 16px;"><b>âš ï¸ LM Studio unterstÃ¼tzt KEINE automatischen Updates.</b><br/>Bei Problemen zuerst manuell aktualisieren: aktuelle Version entfernen und vom Plugin-Website neu herunterladen. Beachten Sie, dass LM Studio selbst bei veralteter Version einen â€bereits installiert"-Hinweis anzeigen kann.</td></tr></table></div>
+<div align="center"><table><tr><td style="border-left:4px solid #d1242f; padding:8px 16px;"><b>ı LM Studio unterstıtzt KEINE automatischen Updates.</b><br/>Bei Problemen zuerst manuell aktualisieren: aktuelle Version entfernen und vom Plugin-Website neu herunterladen. Beachten Sie, dass LM Studio selbst bei veralteter Version einen bereits installiert"-Hinweis anzeigen kann.</td></tr></table></div>
 
 ## Inhalt
 
-[Warum AI Toolbox (im Vergleich zu anderen Plugins)] Â· [Direktvergleich] Â· [Funktionen im Ãœberblick] Â· [Schnellstart (2 Minuten)] Â· [Konfiguration & Tool-Umschalter â€” volle Kontrolle, null Code] Â· [Sicherheitslage â€” gebaut wie es wichtig ist] Â· [Architektur fÃ¼r Neugierige] Â· [Waffenkammer: 116 Tools] Â· [Release-Highlights â€” vollstÃ¤ndiger Verlauf â†’ CHANGELOG_v5.md â€” aktiv; v1â€“v4 in docs/history/]
+[Warum AI Toolbox (im Vergleich zu anderen Plugins)] ı [Direktvergleich] ı [Funktionen im ıberblick] ı [Schnellstart (2 Minuten)] ı [Konfiguration & Tool-Umschalter  volle Kontrolle, null Code] ı [Sicherheitslage  gebaut wie es wichtig ist] ı [Architektur fır Neugierige] ı [Waffenkammer: 117 Tools] ı [Release-Highlights  vollstındiger Verlauf ı CHANGELOG_v5.md  aktiv; v1v4 in docs/history/]
 
-*Verzeichnisliste ohne Ankerlinks; die Sektionstitel entsprechen den Ãœberschriften weiter unten.*
+*Verzeichnisliste ohne Ankerlinks; die Sektionstitel entsprechen den ıberschriften weiter unten.*
 
 ---
 
 ## Warum AI Toolbox (im Vergleich zu anderen LM Studio-Plugins)
 
 *Verglichen mit einer Umfrage von ~115 Plugins im LM Studio Hub aus August 2026 (~40 Toolboxes, nur 9 mit echten Datei-Tools).*
-**Legende:** ğŸ¥‡ einzigartig im gesamten Feld Â· â­ selten (â‰¤ eine Handvoll) Â· ğŸ›¡ï¸ herausragende Sicherheits-Engineering
+**Legende:** >G einzigartig im gesamten Feld ı P selten (d eine Handvoll) ı =ı herausragende Sicherheits-Engineering
 
-| FÃ¤higkeit | Was es fÃ¼r Sie tut | Stellung im Feld |
+| Fıhigkeit | Was es fır Sie tut | Stellung im Feld |
 |---|---|---|
-| ğŸ§  **Selbstverwaltender Kontext** (`AutoTracker` + `ContextGuard`) | Token-Schwellen feuern *mitten in der Tool-Kette* (75 % / 90 %), fassen das GesprÃ¤ch automatisch zusammen und komprimieren es vor dem Overflow â€” lange Agenten-Sitzungen funktionieren weiter statt zu sterben. Projekt-Keyword-Erkennung in der Prompt-Pipeline. | â­ **Kein befragtes GegenstÃ¼ck hat irgendeine Kontext-/Token-Verwaltung** â€” jedes andere â€Memory"-Tool ist nacktes Save/List/Search-CRUD |
-| ğŸŒ **ProjektÃ¼bergreifender Speicher** (`switch_context`, Projekt-Registry) | Rufen Sie ab, was *ein anderes* registriertes Projekt letzte Woche entschieden hat. RecencyÃ—Frequency-Scoring, TTL-Pflege, wechseln erst nach BestÃ¤tigung (Step 0.7). | â­ **In keinem befragten Plugin vorhanden** |
-| ğŸ·ï¸ **Konfidenz-getaggte Ergebnisse + cluster-bewusste Tool-Auswahl** (`confidenceTypes`, `toolPriority`) | Jedes automatisch erfasste Faktum wird EXTRACTED vs INFERRED vs AMBIGUOUS gelabelt â€” so trennen Sie, was der Agent *weiÃŸ*, von dem, was er ratet; und wenn 116 Tools um einen Zug konkurrieren, hÃ¤lt cluster-bewusste PrioritÃ¤t die richtigen unter Grammatik-Limits in Reichweite. | ğŸ¥‡ **Kein befragtes GegenstÃ¼ck taggt Ergebnis-Konfidenz** â€” und kein anderes passt so viele Tools ohne Kontextlimit-AusfÃ¤lle |
-| ğŸ§¬ **AST-basiertes Refactoring** (`refactor_code`) | Rename / move-function / extract-function / Dead-Import-Cleanup â€” syntaksichere AST-Transformationen mit **automatischem Rollback bei Fehlschlag**, kein Regex-Text-Hacking. | ğŸ¥‡ **Das einzige AST-basierte Refactoring unter ~115 befragten Plugins** |
-| ğŸ” **Suche, die nicht hÃ¤ngen kann** (`ripgrep`, `find_replace_all`) | Natives ripgrep in einem isolierten Worker auÃŸerhalb des Host-Threads mit 3-s-Wallclock-Ãœberwachungszeit; Rust-Dialekt-Regexps demoten automatisch zu Fixstrings und verraten das via `pattern_mode`; Dry-Run-Multifilen-Ersetzung. | ğŸ›¡ï¸ Konkurrenten liefern grenzenlose grep-Schleifen â€” dieses kann physisch nicht ewig drehen |
-| ğŸ’¾ **Sichere Dateibearbeitung** (`replace_text_in_file`, `line_operations`) | `.bak`-Backup bei jeder Bearbeitung, muster-verankerte EinfÃ¼gungen, Zeilen-Fingerprint-Verifikation, MD5-IntegritÃ¤tscheck nach dem Schreiben. Jede Datei in einem Aufruf wiederherstellen (`restore_from_bak`). | ğŸ›¡ï¸ **3-Schicht-GewÃ¤hrleistung** gegen Korruption durch veraltete Zeilennummern â€” Konkurrenten bieten bestenfalls Rename-Backup-Shims |
-| â¸ï¸ **Nicht-blockierende Hintergrundbefehle** (`run_background_command` + monitor/cancel) | Lange Builds & Jobs starten, weiter chatten, Status jederzeit prÃ¼fen, bei Bedarf abbrechen. Kein Docker erforderlich. | â­ NÃ¤chste Konkurrenten **erfordern Docker**; dieses lÃ¤uft nativ im Plugin-Host |
-| ğŸŒ **Echte Browser-Automatisierung** (Puppeteer-Suite) | Headloser Chromium mit persistenten Sitzungen und UI-Interaktion â€” kein Einmal-â€Seite-holen"-Aufruf. | Konkurrenten-â€Website-besuchen"-Plugins sind âš ï¸ *nur statische Scraper* |
-| ğŸ“Š **Lokales semantisches RAG, jedes Format** (`rag_index_pdf/docx/xlsx`, `rag_query_vector`, `rag_web_content`) | Indizieren Sie PDFs, Word-Dokumente und Tabellen fÃ¼r Vektorsuche â€” plus abfrage-relevante Web-Extraktion. Eine Toolkit-Einheit ersetzt 2â€“4 separate Plugins der Konkurrenten. Nichts verlÃ¤sst Ihren Rechner. | ğŸ›¡ï¸ Begrenzte Chunking: **kein OOM durch Gift-LÃ¤nge-Dokumente** (gegen ein 1690-Seiten-PDF verifiziert) |
-| ğŸ§ª **FÃ¼hrt Ihre Test-Suite fÃ¼r Sie aus** (`run_tests`) | Erkennt Jest / Mocha / Vitest automatisch aus `package.json` und fÃ¼hrt sie aus, Ergebnisse zurÃ¼ck im Chat. | â­ Keine andere Toolbox im Feld macht das |
-| ğŸ“ˆ **Datensichtbarwerdung als Tool-Aufruf** (`generate_chart`) | Balken / Linie / Kreis / Donut / Streuung / Radar â†’ Bilddatei, mit HTML-Fallback, wenn der Renderer nicht verfÃ¼gbar ist. | ğŸ¥‡ **Zum Zeitpunkt der Umfrage gab es im gesamten Feld null Data-Viz-Plugins** |
-| ğŸ—ºï¸ **Strukturierte Planung mit Live-Fortschritt** (`create_plan`, `get_plan`, `update_plan_step`) | Mehrstufige PlÃ¤ne, verfolgt durch eine echte Zustandsmaschine (pending â†’ in_progress â†’ done, blocked-retry) mit Abschlussmetriken. | â­ Selten â€” die meisten Toolboxes haben gar keine Planungs-Primitiven |
+| >ı **Selbstverwaltender Kontext** (`AutoTracker` + `ContextGuard`) | Token-Schwellen feuern *mitten in der Tool-Kette* (75 % / 90 %), fassen das Gesprıch automatisch zusammen und komprimieren es vor dem Overflow  lange Agenten-Sitzungen funktionieren weiter statt zu sterben. Projekt-Keyword-Erkennung in der Prompt-Pipeline. | P **Kein befragtes Gegenstıck hat irgendeine Kontext-/Token-Verwaltung**  jedes andere Memory"-Tool ist nacktes Save/List/Search-CRUD |
+| < **Projektıbergreifender Speicher** (`switch_context`, Projekt-Registry) | Rufen Sie ab, was *ein anderes* registriertes Projekt letzte Woche entschieden hat. RecencyıFrequency-Scoring, TTL-Pflege, wechseln erst nach Bestıtigung (Step 0.7). | P **In keinem befragten Plugin vorhanden** |
+| <ı **Konfidenz-getaggte Ergebnisse + cluster-bewusste Tool-Auswahl** (`confidenceTypes`, `toolPriority`) | Jedes automatisch erfasste Faktum wird EXTRACTED vs INFERRED vs AMBIGUOUS gelabelt  so trennen Sie, was der Agent *weiı*, von dem, was er ratet; und wenn 117 Tools um einen Zug konkurrieren, hılt cluster-bewusste Prioritıt die richtigen unter Grammatik-Limits in Reichweite. | >G **Kein befragtes Gegenstıck taggt Ergebnis-Konfidenz**  und kein anderes passt so viele Tools ohne Kontextlimit-Ausfılle |
+| >ı **AST-basiertes Refactoring** (`refactor_code`) | Rename / move-function / extract-function / Dead-Import-Cleanup  syntaksichere AST-Transformationen mit **automatischem Rollback bei Fehlschlag**, kein Regex-Text-Hacking. | >G **Das einzige AST-basierte Refactoring unter ~115 befragten Plugins** |
+| = **Suche, die nicht hıngen kann** (`ripgrep`, `find_replace_all`) | Natives ripgrep in einem isolierten Worker auıerhalb des Host-Threads mit 3-s-Wallclock-ıberwachungszeit; Rust-Dialekt-Regexps demoten automatisch zu Fixstrings und verraten das via `pattern_mode`; Dry-Run-Multifilen-Ersetzung. | =ı Konkurrenten liefern grenzenlose grep-Schleifen  dieses kann physisch nicht ewig drehen |
+| =ı **Sichere Dateibearbeitung** (`replace_text_in_file`, `line_operations`) | `.bak`-Backup bei jeder Bearbeitung, muster-verankerte Einfıgungen, Zeilen-Fingerprint-Verifikation, MD5-Integritıtscheck nach dem Schreiben. Jede Datei in einem Aufruf wiederherstellen (`restore_from_bak`). | =ı **3-Schicht-Gewıhrleistung** gegen Korruption durch veraltete Zeilennummern  Konkurrenten bieten bestenfalls Rename-Backup-Shims |
+| ı **Nicht-blockierende Hintergrundbefehle** (`run_background_command` + monitor/cancel) | Lange Builds & Jobs starten, weiter chatten, Status jederzeit prıfen, bei Bedarf abbrechen. Kein Docker erforderlich. | P Nıchste Konkurrenten **erfordern Docker**; dieses lıuft nativ im Plugin-Host |
+| < **Echte Browser-Automatisierung** (Puppeteer-Suite) | Headloser Chromium mit persistenten Sitzungen und UI-Interaktion  kein Einmal-Seite-holen"-Aufruf. | Konkurrenten-Website-besuchen"-Plugins sind ı *nur statische Scraper* |
+| =ı **Lokales semantisches RAG, jedes Format** (`rag_index_pdf/docx/xlsx`, `rag_query_vector`, `rag_web_content`) | Indizieren Sie PDFs, Word-Dokumente und Tabellen fır Vektorsuche  plus abfrage-relevante Web-Extraktion. Eine Toolkit-Einheit ersetzt 24 separate Plugins der Konkurrenten. Nichts verlısst Ihren Rechner. | =ı Begrenzte Chunking: **kein OOM durch Gift-Lınge-Dokumente** (gegen ein 1690-Seiten-PDF verifiziert) |
+| >ı **Fıhrt Ihre Test-Suite fır Sie aus** (`run_tests`) | Erkennt Jest / Mocha / Vitest automatisch aus `package.json` und fıhrt sie aus, Ergebnisse zurıck im Chat. | P Keine andere Toolbox im Feld macht das |
+| =ı **Datensichtbarwerdung als Tool-Aufruf** (`generate_chart`) | Balken / Linie / Kreis / Donut / Streuung / Radar ı Bilddatei, mit HTML-Fallback, wenn der Renderer nicht verfıgbar ist. | >G **Zum Zeitpunkt der Umfrage gab es im gesamten Feld null Data-Viz-Plugins** |
+| =ı **Strukturierte Planung mit Live-Fortschritt** (`create_plan`, `get_plan`, `update_plan_step`) | Mehrstufige Plıne, verfolgt durch eine echte Zustandsmaschine (pending ı in_progress ı done, blocked-retry) mit Abschlussmetriken. | P Selten  die meisten Toolboxes haben gar keine Planungs-Primitiven |
 
 ---
 
 ## Direktvergleich vs Beledarians LM Studio Tools
 
-Der nÃ¤chstliegende direkte Wettbewerber im Hub: gleiche Aufgabe (Tools fÃ¼r lokale LLMs), sehr unterschiedlicher Aufbau. Wo AI Toolbox vorn liegt:
+Der nıchstliegende direkte Wettbewerber im Hub: gleiche Aufgabe (Tools fır lokale LLMs), sehr unterschiedlicher Aufbau. Wo AI Toolbox vorn liegt:
 
 | Was AI Toolbox hat und sie nicht |
 |---|
-| âœ… **AST-level Refactoring** (Rename, Funktionsverschiebung, Dead-Import-Cleanup) â€” syntaksichere Transformationen mit Auto-Rollback, keine String-Bearbeitungen |
-| âœ… **Echtes RAG:** lokaler Vektorindex Ã¼ber PDF / DOCX / XLSX mit Seitenebenen-Provenienz â€” nicht nur Keyword-Suche |
-| âœ… **Bilder & Data-Viz:** OCR auf Screenshots und Aufnahmen, Bild-Metadaten + Vergleich, Chart-Erstellung |
-| âœ… **116 Tools** vs ~49 â€” gestÃ¼tzt durch 1262 bestandene Tests in 84 Suiten |
-| âœ… **Crash-resiliente SchreibvorgÃ¤nge + Rollback bei Fehlschlag:** eine missglÃ¼ckte Bearbeitung kann Ihre Datei nie korrupt machen |
+|  **AST-level Refactoring** (Rename, Funktionsverschiebung, Dead-Import-Cleanup)  syntaksichere Transformationen mit Auto-Rollback, keine String-Bearbeitungen |
+|  **Echtes RAG:** lokaler Vektorindex ıber PDF / DOCX / XLSX mit Seitenebenen-Provenienz  nicht nur Keyword-Suche |
+|  **Bilder & Data-Viz:** OCR auf Screenshots und Aufnahmen, Bild-Metadaten + Vergleich, Chart-Erstellung |
+|  **117 Tools** vs ~49  gestıtzt durch 1291 bestandene Tests in 86 Suiten |
+|  **Crash-resiliente Schreibvorgınge + Rollback bei Fehlschlag:** eine missglıckte Bearbeitung kann Ihre Datei nie korrupt machen |
 
-Unsere frÃ¼here i18n-LÃ¼cke ist geschlossen: **wir liefern jetzt 5 Lokalisationen** (en Â· de Â· es Â· zh-CN Â· zh-TW), jeweils ein vollstÃ¤ndiger Ãœbersetzungssatz â€” und Anti-Stub-Tests bewachen die Suite, damit Alias-/Fallback-Sprachen nie stillschweigend regressieren. Wir sagen Ihnen das lieber, als zu behaupten, es gÃ¤be sie nicht.
+Unsere frıhere i18n-Lıcke ist geschlossen: **wir liefern jetzt 5 Lokalisationen** (en ı de ı es ı zh-CN ı zh-TW), jeweils ein vollstındiger ıbersetzungssatz  und Anti-Stub-Tests bewachen die Suite, damit Alias-/Fallback-Sprachen nie stillschweigend regressieren. Wir sagen Ihnen das lieber, als zu behaupten, es gıbe sie nicht.
 
 ---
 
-## Sehen Sie es arbeiten â€” Ein Zug, zehn Tools
+## Sehen Sie es arbeiten  Ein Zug, zehn Tools
 
-> **Sie:** *â€Refaktorisches `auth.ts` â€” extrahiere die Token-Refresh-Logik in ein eigenes Modul, verschiebe den Helper daneben, fÃ¼hre unsere Test-Suite aus und Ã¶ffne einen PR, wenn er grÃ¼n ist."*
+> **Sie:** *Refaktorisches `auth.ts`  extrahiere die Token-Refresh-Logik in ein eigenes Modul, verschiebe den Helper daneben, fıhre unsere Test-Suite aus und ıffne einen PR, wenn er grın ist."*
 >
-> â†’ `refactor_code` (AST-Extraktion + Funktionsverschiebung, Auto-Rollback bereit) â†’ `run_tests` (automatisch erkannt: **Jest**: alles âœ…) â†’ `gh_create_pr` â€” **ein Zug. Null Copy-Paste. Zero Hand-Holding.**
+> ı `refactor_code` (AST-Extraktion + Funktionsverschiebung, Auto-Rollback bereit) ı `run_tests` (automatisch erkannt: **Jest**: alles ) ı `gh_create_pr`  **ein Zug. Null Copy-Paste. Zero Hand-Holding.**
 
 ---
 
-## Funktionen im Ãœberblick
+## Funktionen im ıberblick
 
 ### Sichere Dateibearbeitung & Suche
-In-place-Ersetzung Â· zeilenverankerte EinfÃ¼gungen Â· Chunked-Reads auf riesigen Dateien Â· Diffs Â· VerzeichnisbÃ¤ume â€” und **jeder Schreibvorgang wird zuerst gesichert** (`.bak`, Wiederherstellung in einem Aufruf). Projektweite Suche, die physisch nicht hÃ¤ngen kann (`ripgrep`: worker-isolierte native Scan mit 3-s-Wallclock-Ãœberwachung, standardmÃ¤ÃŸig ausgeblÃ¼dete Verzeichnisse wie `node_modules`) plus Dry-Run-Multifilen-Ersetzung.
+In-place-Ersetzung ı zeilenverankerte Einfıgungen ı Chunked-Reads auf riesigen Dateien ı Diffs ı Verzeichnisbıume  und **jeder Schreibvorgang wird zuerst gesichert** (`.bak`, Wiederherstellung in einem Aufruf). Projektweite Suche, die physisch nicht hıngen kann (`ripgrep`: worker-isolierte native Scan mit 3-s-Wallclock-ıberwachung, standardmııig ausgeblıdete Verzeichnisse wie `node_modules`) plus Dry-Run-Multifilen-Ersetzung.
 
 ### Syntaxrespektvolles Code-Refactoring
-AST-gesteuerte Renames, Funktionsverschiebungen & Extraktionen mit Auto-Rollback â€” der Agent refaktoriert wie ein Entwickler, nicht wie `sed`.
+AST-gesteuerte Renames, Funktionsverschiebungen & Extraktionen mit Auto-Rollback  der Agent refaktoriert wie ein Entwickler, nicht wie `sed`.
 
 ### Lange Jobs ohne den Faden zu verlieren
-Startet Builds und Watcher im **Hintergrund**, bleibt beim Chatten, pollt oder bricht auf Anforderung ab. Gesandboxtes JS/Python fÃ¼r schnelle Logik; volle Shell (Pipes, Redirects, Env-Variablen) wenn nÃ¶tig â€” aber *standardmÃ¤ÃŸig aus*. Ihre Test-Suite fÃ¼hrt sich selbst: automatisch erkannter Runner, Ergebnisse zurÃ¼ck im Chat.
+Startet Builds und Watcher im **Hintergrund**, bleibt beim Chatten, pollt oder bricht auf Anforderung ab. Gesandboxtes JS/Python fır schnelle Logik; volle Shell (Pipes, Redirects, Env-Variablen) wenn nıtig  aber *standardmııig aus*. Ihre Test-Suite fıhrt sich selbst: automatisch erkannter Runner, Ergebnisse zurıck im Chat.
 
 ### Web-Recherche & Browser-Automatisierung
-Multi-Engine-Suche mit automatischem Fallback Â· saubere SeitenText-Extraktion Â· ein **echter headloser Browser** mit persistenten Sitzungen (kein Einmal-Scraper) Â· HTTP-Client fÃ¼r jeden GET/POST-JSON-Aufruf â€” SSRF-geschÃ¼tzt.
+Multi-Engine-Suche mit automatischem Fallback ı saubere SeitenText-Extraktion ı ein **echter headloser Browser** mit persistenten Sitzungen (kein Einmal-Scraper) ı HTTP-Client fır jeden GET/POST-JSON-Aufruf  SSRF-geschıtzt.
 
-### Git & GitHub Workflows, ohne HÃ¤nde
-Lokal: status, diff, add, commit, log, checkout, **stash**, **blame**. Remote: Issues, PRs, Kommentare, Diffs, Push â€” Ã¼ber die `gh` CLI, der Sie schon vertrauen.
+### Git & GitHub Workflows, ohne Hınde
+Lokal: status, diff, add, commit, log, checkout, **stash**, **blame**. Remote: Issues, PRs, Kommentare, Diffs, Push  ıber die `gh` CLI, der Sie schon vertrauen.
 
 ### Daten, die es wirklich lesen kann
-PDFs, Word-Dokumente & Tabellen â†’ **lokale semantische Vektorsuche** (nichts verlÃ¤sst Ihren Rechner). OCR auf Screenshots und Desktop-Aufnahmen; Bild-Metadaten & Vergleich. Read-only-SQLite mit injektionssicheren parametrisierten Queries. Ihr Agent *sieht* wÃ¶rtlich Bildschirme.
+PDFs, Word-Dokumente & Tabellen ı **lokale semantische Vektorsuche** (nichts verlısst Ihren Rechner). OCR auf Screenshots und Desktop-Aufnahmen; Bild-Metadaten & Vergleich. Read-only-SQLite mit injektionssicheren parametrisierten Queries. Ihr Agent *sieht* wırtlich Bildschirme.
 
-### Speicher, der das Chat-Fenster Ã¼berlebt
-Entscheidungen, Muster und Konfigurationen persistieren pro Projekt â€” **und quer zu Projekten**: typ-spezifisch, TTL-geschnitten, mit RecencyÃ—Frequency-Scoring abgerufen, wechseln erst nach BestÃ¤tigung (`switch_context`). ContextGuard hÃ¤lt Marathon-Sitzungen am Leben: auto-Zusammenfassung bei 75 %, Kompression bei 90 % â€” mitten in der Kette.
+### Speicher, der das Chat-Fenster ıberlebt
+Entscheidungen, Muster und Konfigurationen persistieren pro Projekt  **und quer zu Projekten**: typ-spezifisch, TTL-geschnitten, mit RecencyıFrequency-Scoring abgerufen, wechseln erst nach Bestıtigung (`switch_context`). ContextGuard hılt Marathon-Sitzungen am Leben: auto-Zusammenfassung bei 75 %, Kompression bei 90 %  mitten in der Kette.
 
-### Ausgabe, die Sie sehen kÃ¶nnen
-Charts aus Rohdaten gerendert zu Bilddateien (Balken/Linie/Kreis/Donut/Streuung/Radar). Live HTML/CSS/JS-Komponenten generiert und im Browser vorgefÃ¼hrt, mit Daten extrahiert zurÃ¼ck in den Chat.
+### Ausgabe, die Sie sehen kınnen
+Charts aus Rohdaten gerendert zu Bilddateien (Balken/Linie/Kreis/Donut/Streuung/Radar). Live HTML/CSS/JS-Komponenten generiert und im Browser vorgefıhrt, mit Daten extrahiert zurıck in den Chat.
 
 ---
 
 ## Schnellstart (2 Minuten)
 
-**Voraussetzungen:** LM Studio (aktuellste Version) Â· Node.js 20+ Â· *optional:* `gh` CLI fÃ¼r GitHub-Remote-Betrieb â†’ https://cli.github.com/
+**Voraussetzungen:** LM Studio (aktuellste Version) ı Node.js 20+ ı *optional:* `gh` CLI fır GitHub-Remote-Betrieb ı https://cli.github.com/
 
-1. **Installieren** â€” Ordner ablegen, Plugin in den LM Studio-Einstellungen aktivieren
-2. **Umschalter** â€” die gewÃ¼nschten Tool-Kategorien einschalten (Execution & Browser sind aus DesigngrÃ¼nden deaktiviert)
+1. **Installieren**  Ordner ablegen, Plugin in den LM Studio-Einstellungen aktivieren
+2. **Umschalter**  die gewınschten Tool-Kategorien einschalten (Execution & Browser sind aus Designgrınden deaktiviert)
 3. *(Optional)* `gh auth login` einmal im Terminal, um GitHub-Remote-Tools freizuschalten
-4. **Chatten** â€” Ihr Agent hat jetzt **116 Tools** in Reichweite, genau so gated wie konfiguriert
+4. **Chatten**  Ihr Agent hat jetzt **117 Tools** in Reichweite, genau so gated wie konfiguriert
 
 ```bash
 # Developing instead of using?
 npm install && npm run build   # ESM + CJS via tsup
-npm test                        # full suite: 84 suites / 1262 tests green (v1.9.24)
+npm test                        # full suite: 86 suites / 1291 tests green (v1.9.24)
 ```
 
 ---
 
-## Konfiguration & Tool-Umschalter â€” Volle Kontrolle, null Code
+## Konfiguration & Tool-Umschalter  Volle Kontrolle, null Code
 
 | Steuerung | Was sie tut |
 |---|---|
-| ğŸ›ï¸ **Feingranuliertes Gating** | Jede Tool-Familie schaltet sich unabhÃ¤ngig in der LM-Studio-Einstellungs-UI |
-| ğŸ‘‘ **God Mode** | Ein Schalter aktiviert alles (nur fÃ¼r Power-User â€” Execution ist aus einem Grund standardmÃ¤ÃŸig deaktiviert) |
-| ğŸ” **ContextGuard** | Token-Schwellen + Zusammenfassungsmodell setzen; beobachten Sie, wie Auto-Kompression lange Sitzungen am Leben erhÃ¤lt |
-| ğŸ§® **Auto-Tracking** | Hintergrund-Tracking von Entscheidungen & Task-AbschlÃ¼ssen mit Konfidenz-getaggten Ergebnissen |
+| <ı **Feingranuliertes Gating** | Jede Tool-Familie schaltet sich unabhıngig in der LM-Studio-Einstellungs-UI |
+| =Q **God Mode** | Ein Schalter aktiviert alles (nur fır Power-User  Execution ist aus einem Grund standardmııig deaktiviert) |
+| = **ContextGuard** | Token-Schwellen + Zusammenfassungsmodell setzen; beobachten Sie, wie Auto-Kompression lange Sitzungen am Leben erhılt |
+| >ı **Auto-Tracking** | Hintergrund-Tracking von Entscheidungen & Task-Abschlıssen mit Konfidenz-getaggten Ergebnissen |
 
 ---
 
-## Sicherheitslage â€” gebaut, als wÃ¤re es wichtig
+## Sicherheitslage  gebaut, als wıre es wichtig
 
-- ğŸ›¡ï¸ Jedes dateimodifizierende Tool schreibt zuerst eine `.bak` â€” Wiederherstellung ist ein Aufruf (`restore_from_bak`)
-- ğŸ›¡ï¸ `ripgrep` / `find_replace_all`: worker-isoliertes Scanning (der Host-Thread kann nicht klemmen), 3-s-Wallclock-Ãœberwachung, automatische Demotion des Rust-Dialekts offengelegt via `pattern_mode` + Hinweis
-- ğŸ›¡ï¸ RAG & Web-Pfade: begrenzte Reads (250Kâ€“500K Zeichen-Budgets), 30-s-AbbrÃ¼che pro Fetch-Versuch, Chunking-Schleifen, die *terminieren* â€” kein Plugin-Host-OOM durch Gift-Dokumente
-- ğŸ›¡ï¸ Gesandboxte JS/Python-AusfÃ¼hrung; volle Shell verfÃ¼gbar, aber **standardmÃ¤ÃŸig aus**
-- VollstÃ¤ndiges Threat-Modell & Disclosure-Prozess â†’ [SECURITY.md](SECURITY.md)
-
----
-
-## Architektur unter der Haube (fÃ¼r Neugierige)
-
-Declarative Tool-Registry mit closure-basierter Dependency Injection Â· volle AsynchronitÃ¤t + crash-resiliente atomare SchreibvorgÃ¤nge (`atomicWrite`-Utility, Rollback bei Fehlschlag) Â· dynamische Kontextfenster-Erkennung Ã¼ber native SDK-APIs Â· Konfidenz-getaggte Ergebnisse (`EXTRACTED | INFERRED | AMBIGUOUS`) Â· cluster-bewusste Tool-PrioritÃ¤t fÃ¼r Grammatiklimit-Pflege.
-
-Tiefenblick â†’ [ARCHITECTURE.md](ARCHITECTURE.md) Â· Entwickler-Guide in dieser Datei unten
+- =ı Jedes dateimodifizierende Tool schreibt zuerst eine `.bak`  Wiederherstellung ist ein Aufruf (`restore_from_bak`)
+- =ı `ripgrep` / `find_replace_all`: worker-isoliertes Scanning (der Host-Thread kann nicht klemmen), 3-s-Wallclock-ıberwachung, automatische Demotion des Rust-Dialekts offengelegt via `pattern_mode` + Hinweis
+- =ı RAG & Web-Pfade: begrenzte Reads (250K500K Zeichen-Budgets), 30-s-Abbrıche pro Fetch-Versuch, Chunking-Schleifen, die *terminieren*  kein Plugin-Host-OOM durch Gift-Dokumente
+- =ı Gesandboxte JS/Python-Ausfıhrung; volle Shell verfıgbar, aber **standardmııig aus**
+- Vollstındiges Threat-Modell & Disclosure-Prozess ı [SECURITY.md](SECURITY.md)
 
 ---
 
-## Die Waffenkammer: 116 Tools Ã¼ber alle Familien, alles zum Umschalten
+## Architektur unter der Haube (fır Neugierige)
+
+Declarative Tool-Registry mit closure-basierter Dependency Injection ı volle Asynchronitıt + crash-resiliente atomare Schreibvorgınge (`atomicWrite`-Utility, Rollback bei Fehlschlag) ı dynamische Kontextfenster-Erkennung ıber native SDK-APIs ı Konfidenz-getaggte Ergebnisse (`EXTRACTED | INFERRED | AMBIGUOUS`) ı cluster-bewusste Tool-Prioritıt fır Grammatiklimit-Pflege.
+
+Tiefenblick ı [ARCHITECTURE.md](ARCHITECTURE.md) ı Entwickler-Guide in dieser Datei unten
+
+---
+
+## Die Waffenkammer: 117 Tools ıber alle Familien, alles zum Umschalten
 
 Ein Plugin ersetzt eine ganze Regalwand. Hier ist jede Familie, was sie abdeckt und ihr Standardzustand:
 
 | Familie | Anzahl | Was es Ihrem Agenten gibt | Default |
 |---|---|---|---|
-| ğŸ“ **Dateisystem** | 24 | Lesen/Schreiben/Bearbeiten/Suchen â€” pfadvalidiert, gesichert, Chunked-Reads auf riesigen Dateien, Diffs, ProjektbÃ¤ume, worker-isolierte `ripgrep`-Suche (3-s-Ãœberwachung) + strukturiertes Inhalts-Scanning (`pattern_scan`) + Zeilenoperationen mit Fingerprint-Guards (`line_operations`, eingefaltet 23.09 Q6) + byte-exaktes Unified-/Binary-Patching (`apply_patch`, 07.11) | âœ… |
-| ğŸ§¬ **Refactoring & Recode-Engine** | `refactor_code` + Regeln | AST-Rename Â· move-function Â· extract Â· Dead-Import-Cleanup â€” plus eine anpassbare Regel-Engine (Dead-Code-Hinweise, Typinferenz, Async-Modernizer) mit Dry-Run-Diffs | âœ… |
-| ğŸ” **Textverarbeitung** | 3 | Regex-Transformationen (`sed`-Klasse), strukturierte Extraktion (`awk`-Klasse), sofortige Markdown-Tabellen (Zeilenoperationen nach Dateisystem verschoben, 23.09 Q6) | âœ… |
-| ğŸ“‹ **Aufgabenplanung** | 4 | Ziel- + Schritt-PlÃ¤ne durch eine echte Zustandsmaschine mit Live-Abschlussmetriken â€” blockierte Schritte retry sauber Â· bestÃ¤tigungsgated `remove_plan` + Auto-Removed bei natÃ¼rlicher Vollendung (05.10) | âœ… |
-| âš¡ **Execution** | 5 | Gesandboxtes JS & Python (eval/require blockiert) Â· volle Shell & natives Terminal (opt-in) Â· **fÃ¼hrt automatisch die Test-Suite Ihres Projekts aus** (Jest/Mocha/Vitest erkannt) | gemischt |
-| ğŸ§  **Kontext & Speicher** | 22 | Auto-Zusammenfassung, typisierter Speicher mit TTL-Pflege & Heuristik-Recall, Ereignis-Tracking â€” **plus projektÃ¼bergreifend**: Projekte registrieren/suchen/wechseln, Session-Index-Browser + Ein-Aufruf-read-only-Resume-Bootstrap (`restore_session_context`, 25.09) | âœ… |
-| ğŸ“Š **Vektor-RAG** | 7 | Semantische Suche Ã¼ber Ihre Codebase *und* PDFs Â· Word-Dokumente Â· Tabellen + abfrage-relevante Web-Extraktion â€” lokal, begrenzt, OOM-sicher | âœ… |
-| ğŸ’¾ **Backup & Restore** | 5 | Vollverzeichnis-ZIP-Snapshots (`create_backup`/`restore_backup`), Auflistung, Cleanup â€” plus das per-Bearbeitung `.bak`-System unter allem | âœ… |
-| ğŸ“ˆ **Datensichtbarwerdung** | 1 | `generate_chart`: Balken / Linie / Kreis / Donut / Streuung / Radar â†’ Bilddatei mit HTML-Fallback Â· Geschwister am selben Umschalter: `markdown_preview`, `get_repeat_tool_advice` (DOC-PIN) | âœ… |
-| ğŸ–¼ï¸ **Bildverarbeitung** | 4 | OCR (`image_to_text`) Â· Metadaten-Inspektion (`describe_image`) Â· Desktop-Aufnahme (`screenshot_desktop`) Â· Byte-level-Vergleich (`compare_images`) | âœ… |
-| ğŸ“„ **Dokumenten-Parsing** | 1 | PDF / DOCX / TXT direkt in den Chat, binÃ¤rsicher | âœ… |
-| ğŸŒ **Web-Recherche** | 3 | Multi-Engine-Suche mit Fallback Â· saubere SeitenText-Extraktion | âœ… |
-| ğŸŒ **Browser-Automatisierung** | 5 | Echter headloser Chromium: Seiten Ã¶ffnen, persistente Sitzungen, UI-Interaktion, HTML vorschauen | âœ— opt-in |
-| ğŸ™ **Git & GitHub** | 15 | Voller lokaler git inkl. **stash & blame** Â· Issues/PRs/Kommentare/Diffs/Push Ã¼ber Ihre `gh` CLI | âœ— opt-in |
-| â³ **Hintergrundbefehle** | 3 | Lange Jobs ausfÃ¼hren ohne den Chat zu blockieren â€” stdout/stderr Ã¼berwachen, jederzeit abbrechen. Kein Docker erforderlich. | âœ— opt-in |
-| ğŸ“¡ **HTTP-Client** | 3 | Requests jeder Methode mit Retry/Timeout, JSON GET/POST-Helfer â€” SSRF-geschÃ¼tzt | âœ— opt-in |
-| ğŸ¨ **UI-Generierung** | 3 | Live HTML/CSS/JS-Komponenten im Browser bauen & vorschauen Â· Daten wieder extrahieren (standardmÃ¤ÃŸig AN seit 10.10, Owner-Entscheidung) | âœ… |
-| ğŸ—ƒï¸ **Datenbank** | 1 | Read-only-SQLite mit injektionssicheren parametrisierten Queries | âœ— opt-in |
+| =ı **Dateisystem** | 24 | Lesen/Schreiben/Bearbeiten/Suchen  pfadvalidiert, gesichert, Chunked-Reads auf riesigen Dateien, Diffs, Projektbıume, worker-isolierte `ripgrep`-Suche (3-s-ıberwachung) + strukturiertes Inhalts-Scanning (`pattern_scan`) + Zeilenoperationen mit Fingerprint-Guards (`line_operations`, eingefaltet 23.09 Q6) + byte-exaktes Unified-/Binary-Patching (`apply_patch`, 07.11) |  |
+| >ı **Refactoring & Recode-Engine** | `refactor_code` + Regeln | AST-Rename ı move-function ı extract ı Dead-Import-Cleanup  plus eine anpassbare Regel-Engine (Dead-Code-Hinweise, Typinferenz, Async-Modernizer) mit Dry-Run-Diffs |  |
+| = **Textverarbeitung** | 3 | Regex-Transformationen (`sed`-Klasse), strukturierte Extraktion (`awk`-Klasse), sofortige Markdown-Tabellen (Zeilenoperationen nach Dateisystem verschoben, 23.09 Q6) |  |
+| =ı **Aufgabenplanung** | 4 | Ziel- + Schritt-Plıne durch eine echte Zustandsmaschine mit Live-Abschlussmetriken  blockierte Schritte retry sauber ı bestıtigungsgated `remove_plan` + Auto-Removed bei natırlicher Vollendung (05.10) |  |
+| ı **Execution** | 5 | Gesandboxtes JS & Python (eval/require blockiert) ı volle Shell & natives Terminal (opt-in) ı **fıhrt automatisch die Test-Suite Ihres Projekts aus** (Jest/Mocha/Vitest erkannt) | gemischt |
+| >ı **Kontext & Speicher** | 22 | Auto-Zusammenfassung, typisierter Speicher mit TTL-Pflege & Heuristik-Recall, Ereignis-Tracking  **plus projektıbergreifend**: Projekte registrieren/suchen/wechseln, Session-Index-Browser + Ein-Aufruf-read-only-Resume-Bootstrap (`restore_session_context`, 25.09) |  |
+| =ı **Vektor-RAG** | 7 | Semantische Suche ıber Ihre Codebase *und* PDFs ı Word-Dokumente ı Tabellen + abfrage-relevante Web-Extraktion  lokal, begrenzt, OOM-sicher |  |
+| =ı **Backup & Restore** | 5 | Vollverzeichnis-ZIP-Snapshots (`create_backup`/`restore_backup`), Auflistung, Cleanup  plus das per-Bearbeitung `.bak`-System unter allem |  |
+| =ı **Datensichtbarwerdung** | 1 | `generate_chart`: Balken / Linie / Kreis / Donut / Streuung / Radar ı Bilddatei mit HTML-Fallback ı Geschwister am selben Umschalter: `markdown_preview`, `get_repeat_tool_advice` (DOC-PIN) |  |
+| =ı **Bildverarbeitung** | 4 | OCR (`image_to_text`) ı Metadaten-Inspektion (`describe_image`) ı Desktop-Aufnahme (`screenshot_desktop`) ı Byte-level-Vergleich (`compare_images`) |  |
+| =ı **Dokumenten-Parsing** | 1 | PDF / DOCX / TXT direkt in den Chat, binırsicher |  |
+| < **Web-Recherche** | 3 | Multi-Engine-Suche mit Fallback ı saubere SeitenText-Extraktion |  |
+| < **Browser-Automatisierung** | 5 | Echter headloser Chromium: Seiten ıffnen, persistente Sitzungen, UI-Interaktion, HTML vorschauen |  opt-in |
+| = **Git & GitHub** | 15 | Voller lokaler git inkl. **stash & blame** ı Issues/PRs/Kommentare/Diffs/Push ıber Ihre `gh` CLI |  opt-in |
+| ı **Hintergrundbefehle** | 3 | Lange Jobs ausfıhren ohne den Chat zu blockieren  stdout/stderr ıberwachen, jederzeit abbrechen. Kein Docker erforderlich. |  opt-in |
+| =ı **HTTP-Client** | 3 | Requests jeder Methode mit Retry/Timeout, JSON GET/POST-Helfer  SSRF-geschıtzt |  opt-in |
+| <ı **UI-Generierung** | 3 | Live HTML/CSS/JS-Komponenten im Browser bauen & vorschauen ı Daten wieder extrahieren (standardmııig AN seit 10.10, Owner-Entscheidung) |  |
+| =ı **Datenbank** | 1 | Read-only-SQLite mit injektionssicheren parametrisierten Queries |  opt-in |
 
-> *Zahlen sind code-verifiziert (Source-of-Truth-Audit, Sept. 2026); die ausgesetzte Tool-Anzahl ist immer umschalterabhÃ¤ngig.*
+> *Zahlen sind code-verifiziert (Source-of-Truth-Audit, Sept. 2026); die ausgesetzte Tool-Anzahl ist immer umschalterabhıngig.*
 
-> *Per-Tool-Parameter, Defaults und Beispiele â†’ [TOOLS_REFERENCE.md](TOOLS_REFERENCE.md) (gegen Quellcode auditiert). Walkthroughs: [DOCUMENTATION.md](DOCUMENTATION.md) Â· [QUICK_START.md](QUICK_START.md)*
+> *Per-Tool-Parameter, Defaults und Beispiele ı [TOOLS_REFERENCE.md](TOOLS_REFERENCE.md) (gegen Quellcode auditiert). Walkthroughs: [DOCUMENTATION.md](DOCUMENTATION.md) ı [QUICK_START.md](QUICK_START.md)*
 
 ---
 
-## Release-Highlights (voller Verlauf â†’ CHANGELOG_v5.md â€” aktiv; v1â€“v4 in docs/history/)
+## Release-Highlights (voller Verlauf ı CHANGELOG_v5.md  aktiv; v1v4 in docs/history/)
 
 | Version | Schlagzeile |
 |---|---|
-| **v1.9.24** | ğŸ’° Budget-Guard Kontext-Limit-Schutz â€” M1 Pre-Read-Advisory (`read_file` / `read_document`: selbstbeschreibendes Budget-Advisory statt vollem Dump, wenn die projektive Nutzung 80 % Ã¼berschreiten wÃ¼rde), M2 budget-aware Spill-Cap (Spill-Kante 92 %, Sicherheitsmarge 8 %), M3 Versicherungs-Auto-Persist der Session-Memory bei 85 % â€” Master-Switch standardmÃ¤ÃŸig AN, explizites AUS stellt das byte-identische Altverhalten wieder her; alle fÃ¼nf Einstellungszeilen in allen Locales lokalisiert Â· ğŸ§ª NEUE Suite `tests/budgetGuard.test.ts` (+1 Suite / +18 Tests â†’ Canon **83 Suiten / 1234 Tests**, gepinnte Dichten 1.307â€“1.670 c/tok; abgelÃ¶st 07.11 durch den apply_patch-SHIP â€” Canon jetzt **84 Suiten / 1262 Tests** Â· 116 Tools) |
-| **v1.9.23** | ğŸ§  `memory_recall` Read-only-Tool â€” ID-first Index/Fetch Ã¼ber Context-EintrÃ¤ge, Memory-Facts & Sessions-Index (self-describing Misses; hermetische Byte-Identity-Suite) Â· ğŸ“š alle Docs auf Live-Canon *82 Suiten / 1216 Tests* re-stamped + MD-Reparatur-Sweep |
-| **v1.9.22** | ğŸ·ï¸ Versions-Verlagerungs-Release, das den CTX-EST-A schlieÃŸt â€” Provenienz des Shared-Density-SchÃ¤tzers per Live-Probe auf qwen3.8-27b-ud festgelegt (Band 1.307â€“1.670 Zeichen/Token, `BIAS`/`FLOOR`-Werte unverÃ¤ndert; nur Kommentar-Delta in `tokenStatsManager.ts`) Â· ğŸ“š vollstÃ¤ndige Docs-Sync auf den Canon **80 Suiten / 1193 Tests** Ã¼ber alle Live-OberflÃ¤chen Â· ğŸ”’ updateChecker-Suite gehÃ¤rtet â€” Versions-Literal-Pins baseline-unabhÃ¤ngig (`offsetLocalVersion()`), kÃ¼nftige Verlagerungen brauchen keine Test-Ã„nderungen |
-| **v1.9.21** | ğŸ“¡ Update-Check-Arc-Familie â€” Desktop-Toast â†” In-Chat-AnkÃ¼ndigung pro Version wechselseitig exklusiv (SPEC A XOR; Hosts ohne system.notify fallen immer auf Chat zurÃ¼ck) Â· ğŸ§¾ DEFECT #2 â€” `update-check.json` wird nur noch geschrieben, wenn sich der Inhalt Ã¤ndert Â· ğŸ·ï¸ HUB-.VERSION-Quellenwechsel â€” der Produktiv-Update-Check liest die publizierte LM-Studio-Hub-`.VERSION`-Datei statt GitHub `releases/latest`; strenge Shape-1 / rauschtolerante Shape-2-Parsung, schlimmster Fall warn+skip Â· ğŸ§© +2 Tools mit Locale-ParitÃ¤t in allen 5 Sets (utilities) Â· Versionsverlagerung v1.9.20 â†’ **v1.9.21** â€” Canon **76 Suiten / 1109 Tests**, Zero-Drift |
-| **v1.9.20** | ğŸ“¦ Versions-Verlagerungs-Release â€” der rev-3x-Stapel seit der letzten GitHub-Publikation wird in einer Verlagerung zusammengefÃ¼hrt: Session-Memory-Arcs A/B/C Close-out (TTL-Lebenszyklus + Supersede-on-Close-Out + Index-Dedupe / Artefakt-Strip), prÃ¤emptive Mid-Loop-Kompression bei fixen 95 % mit nutzer-sichtbarer Schwellen-Benachrichtigung, Tier-2-Zwangs-Save wÃ¤hrend des Tool-Loops, messender Token-SchÃ¤tzer (`AGENTIC_CHARS_PER_TOKEN` 3.2 â†’ benutzer-editierbar 3.6) Â· ğŸ” FIX-35c hang-fester ReDoS-Gate + pattern_scan WALK-ABORT (28.09, archiviert in CHANGELOG_v3) Â· ğŸ§¾ ARC-RESTORE â€” One-Shot-`verification_checkpoint`-Lebenszyklus im Context-Store + Restore-Seiten-HÃ¤rtung (Age-Labels pro Eintrag, Top-N-Substanz-Limit, additives `context_stale_fraction`) Â· Canon **74 Suiten / 1064 Tests** |
-| **v1.9.19** | ğŸ“¦ Nie verÃ¶ffentlichtes Label â€” package.json sprang 06.10 bereits von v1.9.18 â†’ v1.9.20 (Rev-Lock-AuflÃ¶sung); das `version`-Feld des Manifests blieb bei v1.9.19 bis zur Versions-Verlagerung vom 15.10, die den angesammelten Stapel fÃ¼r die Hub-Publikation erkennbar machte â€” unter diesem Label wurde kein Code ausgeliefert; siehe v1.9.20 oben |
-| **v1.9.18** | ğŸ”’ Suite D shared-file lost-write fix â€” pro-Pfad-In-Prozess-Sperre auf die snapâ†’rename-Kritiksektion (neues `sharedFileLock.ts`, in beide Writer eingewickelt) Â· ğŸ§¾ EOL-FIX v4 â€” byte-exakter Zeilenende-Roundtrip fÃ¼r `replace_text_in_file` auf gemischten/CRLF-Dateien + Pre-Edit eol/bom-Sichtbarkeit via `get_file_metadata` Â· ğŸ§¯ PIPELINE HYGIENE D 25.09 â€” vereinte Outcome-Taxonomie + finalizeContent-Invariante, pro-Zug-toolsProvider-Guard-Reset |
-| **v1.9.17** | ğŸ’¾ Tool Gating Profile â€” persistente Tool-Umschalter Â· ğŸ” ripgrep TOOL SWAP + vereinte Projekt-Registry + Worker-Pool-Flattern-Fix (letzte GitHub-Publikation 15.09) â€” alle rev-31-Arbeiten (DE-STRAngle, AutoTracker F1+F2, cluster-bewusste Tool-Reihenfolge, CWD-Zustandsverlagerung, SPEC-C) in v1.9.18 ausgeliefert |
-| **v1.9.16** | ğŸ” `web_search` Zero-Ergebnis-Fallback-Fix â€” toter/leerer Engine stoppt die Kette nicht mehr (blockierter `ddg-api` Ã¼bersprungen â†’ `ddg-fetch` lieferte Ergebnisse) |
-| **v1.9.15** | âš¡ B' ripgrep phase-1 Prefilter fÃ¼r `pattern_scan` (byte-identische JS-Fallback-Garantie) Â· `ripgrep` zu LaufzeitabhÃ¤ngigkeit befÃ¶rdert, behebt stillen Fast-Pfad-Verlust bei Hub-Installationen â€” live auf der Benutzermaschine verifiziert |
-| **v1.9.14** | ğŸ§  `get_memory` lokale-Datei-Parsing-Guard â€” schlÃ¼ssellose Auto-Kontext-Aufzeichnungen unterbrechen Reads nicht mehr (Hotfix) |
-| **v1.9.13** | ğŸ” ripgrep-getragener Regex-Motor fÃ¼r `grep_files` (in-Prozess-WASM-Prefilter, transparenter Fallback behÃ¤lt jeden Hang-Guard; Tool im 14.09 TOOL SWAP entfernt â†’ eigenstÃ¤ndige native `ripgrep`) Â· `executedTool` Bodenwahrheits-Stempel auf allen Tool-Ergebnissen Â· Tier-1 Dead-Code-Entfernung (~90 KB) |
-| **v1.9.12** | ğŸ†• `pattern_scan` rekursive Inhalts-Suche (unsichere Regexps demoten automatisch zu literal; 256-KB/10k-Zeilen-Hartlimits) Â· puppeteer `connected` Eigenschaftslese-Fix Â· Dead-Datei-Entfernung â€” volle MD-Docs-Synchronisierung |
-| **v1.9.10** | ğŸ”§ OOM-HÃ¤rtungs-Suite: begrenzte Web/RAG-Reads, Chunking Fixpunkt-Termination, `rag_web_content` Deduplizierung â€” Plugin-Host-Heap ist jetzt unter Gift-Payloads sicher |
-| **v1.9.9** | â±ï¸ Deadline-begrenztes `grep_files` (Teilergebnisse + `aborted`-Flag) Â· AutoTracker Token-Deltas feuern Schwellen *innerhalb* langer Tool-Ketten Â· live `chat used â‰ˆ N tok` DELTA-Log |
-| **v1.9.8** | ğŸ”’ Explizite Projektregistrierung nur Â· Hang-PrÃ¤vention (`max_depth`, Zeilenlimits) Â· Step-0.7 Keyword-Erkennung + lazy Registry-Sync tÃ¶tet die â€project not foundâ€œ-Schleife |
-| **v1.9.7** | ğŸ’¾ Crash-resiliente atomare SchreibvorgÃ¤nge Ã¼berall â€” randomisierte Tempdateinamen, Rollback bei Fehlschlag, null blockierende I/O |
-| **v1.9.5â€“6** | ğŸ§  Graphify-inspirierte Intelligenz: Konfidenz-getaggte Ergebnisse, Hub-Ausschluss-Clustering, cluster-bewusste Tool-PrioritÃ¤t Â· `shell:true`-Deprecation eliminiert |
-| **v1.8.x** | ğŸ›¡ï¸ 3-Schicht Zeilenbearbeitungs-GewÃ¤hrleistung Â· SDK v1.x TokenzÃ¤hlgenauigkeit (stimmt mit der Seitenleiste innerhalb von 0,3 %) Â· deklarativer Registry-Refactoring (~80 Zeilen if/else â†’ 20-EintrÃ¤ge-Registry) |
+| **v1.9.24** | =ı Budget-Guard Kontext-Limit-Schutz  M1 Pre-Read-Advisory (`read_file` / `read_document`: selbstbeschreibendes Budget-Advisory statt vollem Dump, wenn die projektive Nutzung 80 % ıberschreiten wırde), M2 budget-aware Spill-Cap (Spill-Kante 92 %, Sicherheitsmarge 8 %), M3 Versicherungs-Auto-Persist der Session-Memory bei 85 %  Master-Switch standardmııig AN, explizites AUS stellt das byte-identische Altverhalten wieder her; alle fınf Einstellungszeilen in allen Locales lokalisiert ı >ı NEUE Suite `tests/budgetGuard.test.ts` (+1 Suite / +18 Tests ı Canon **83 Suiten / 1234 Tests**, gepinnte Dichten 1.3071.670 c/tok; abgelıst 07.11 durch den apply_patch-SHIP  Canon jetzt **84 Suiten / 1262 Tests** ı 116 Tools) |
+| **v1.9.23** | >ı `memory_recall` Read-only-Tool  ID-first Index/Fetch ıber Context-Eintrıge, Memory-Facts & Sessions-Index (self-describing Misses; hermetische Byte-Identity-Suite) ı =ı alle Docs auf Live-Canon *82 Suiten / 1216 Tests* re-stamped + MD-Reparatur-Sweep |
+| **v1.9.22** | <ı Versions-Verlagerungs-Release, das den CTX-EST-A schlieıt  Provenienz des Shared-Density-Schıtzers per Live-Probe auf qwen3.8-27b-ud festgelegt (Band 1.3071.670 Zeichen/Token, `BIAS`/`FLOOR`-Werte unverındert; nur Kommentar-Delta in `tokenStatsManager.ts`) ı =ı vollstındige Docs-Sync auf den Canon **80 Suiten / 1193 Tests** ıber alle Live-Oberflıchen ı = updateChecker-Suite gehırtet  Versions-Literal-Pins baseline-unabhıngig (`offsetLocalVersion()`), kınftige Verlagerungen brauchen keine Test-ınderungen |
+| **v1.9.21** | =ı Update-Check-Arc-Familie  Desktop-Toast ı In-Chat-Ankındigung pro Version wechselseitig exklusiv (SPEC A XOR; Hosts ohne system.notify fallen immer auf Chat zurıck) ı >ı DEFECT #2  `update-check.json` wird nur noch geschrieben, wenn sich der Inhalt ındert ı <ı HUB-.VERSION-Quellenwechsel  der Produktiv-Update-Check liest die publizierte LM-Studio-Hub-`.VERSION`-Datei statt GitHub `releases/latest`; strenge Shape-1 / rauschtolerante Shape-2-Parsung, schlimmster Fall warn+skip ı >ı +2 Tools mit Locale-Paritıt in allen 5 Sets (utilities) ı Versionsverlagerung v1.9.20 ı **v1.9.21**  Canon **76 Suiten / 1109 Tests**, Zero-Drift |
+| **v1.9.20** | =ı Versions-Verlagerungs-Release  der rev-3x-Stapel seit der letzten GitHub-Publikation wird in einer Verlagerung zusammengefıhrt: Session-Memory-Arcs A/B/C Close-out (TTL-Lebenszyklus + Supersede-on-Close-Out + Index-Dedupe / Artefakt-Strip), prıemptive Mid-Loop-Kompression bei fixen 95 % mit nutzer-sichtbarer Schwellen-Benachrichtigung, Tier-2-Zwangs-Save wıhrend des Tool-Loops, messender Token-Schıtzer (`AGENTIC_CHARS_PER_TOKEN` 3.2 ı benutzer-editierbar 3.6) ı = FIX-35c hang-fester ReDoS-Gate + pattern_scan WALK-ABORT (28.09, archiviert in CHANGELOG_v3) ı >ı ARC-RESTORE  One-Shot-`verification_checkpoint`-Lebenszyklus im Context-Store + Restore-Seiten-Hırtung (Age-Labels pro Eintrag, Top-N-Substanz-Limit, additives `context_stale_fraction`) ı Canon **74 Suiten / 1064 Tests** |
+| **v1.9.19** | =ı Nie verıffentlichtes Label  package.json sprang 06.10 bereits von v1.9.18 ı v1.9.20 (Rev-Lock-Auflısung); das `version`-Feld des Manifests blieb bei v1.9.19 bis zur Versions-Verlagerung vom 15.10, die den angesammelten Stapel fır die Hub-Publikation erkennbar machte  unter diesem Label wurde kein Code ausgeliefert; siehe v1.9.20 oben |
+| **v1.9.18** | = Suite D shared-file lost-write fix  pro-Pfad-In-Prozess-Sperre auf die snapırename-Kritiksektion (neues `sharedFileLock.ts`, in beide Writer eingewickelt) ı >ı EOL-FIX v4  byte-exakter Zeilenende-Roundtrip fır `replace_text_in_file` auf gemischten/CRLF-Dateien + Pre-Edit eol/bom-Sichtbarkeit via `get_file_metadata` ı >ı PIPELINE HYGIENE D 25.09  vereinte Outcome-Taxonomie + finalizeContent-Invariante, pro-Zug-toolsProvider-Guard-Reset |
+| **v1.9.17** | =ı Tool Gating Profile  persistente Tool-Umschalter ı = ripgrep TOOL SWAP + vereinte Projekt-Registry + Worker-Pool-Flattern-Fix (letzte GitHub-Publikation 15.09)  alle rev-31-Arbeiten (DE-STRAngle, AutoTracker F1+F2, cluster-bewusste Tool-Reihenfolge, CWD-Zustandsverlagerung, SPEC-C) in v1.9.18 ausgeliefert |
+| **v1.9.16** | = `web_search` Zero-Ergebnis-Fallback-Fix  toter/leerer Engine stoppt die Kette nicht mehr (blockierter `ddg-api` ıbersprungen ı `ddg-fetch` lieferte Ergebnisse) |
+| **v1.9.15** | ı B' ripgrep phase-1 Prefilter fır `pattern_scan` (byte-identische JS-Fallback-Garantie) ı `ripgrep` zu Laufzeitabhıngigkeit befırdert, behebt stillen Fast-Pfad-Verlust bei Hub-Installationen  live auf der Benutzermaschine verifiziert |
+| **v1.9.14** | >ı `get_memory` lokale-Datei-Parsing-Guard  schlıssellose Auto-Kontext-Aufzeichnungen unterbrechen Reads nicht mehr (Hotfix) |
+| **v1.9.13** | = ripgrep-getragener Regex-Motor fır `grep_files` (in-Prozess-WASM-Prefilter, transparenter Fallback behılt jeden Hang-Guard; Tool im 14.09 TOOL SWAP entfernt ı eigenstındige native `ripgrep`) ı `executedTool` Bodenwahrheits-Stempel auf allen Tool-Ergebnissen ı Tier-1 Dead-Code-Entfernung (~90 KB) |
+| **v1.9.12** | <ı `pattern_scan` rekursive Inhalts-Suche (unsichere Regexps demoten automatisch zu literal; 256-KB/10k-Zeilen-Hartlimits) ı puppeteer `connected` Eigenschaftslese-Fix ı Dead-Datei-Entfernung  volle MD-Docs-Synchronisierung |
+| **v1.9.10** | =' OOM-Hırtungs-Suite: begrenzte Web/RAG-Reads, Chunking Fixpunkt-Termination, `rag_web_content` Deduplizierung  Plugin-Host-Heap ist jetzt unter Gift-Payloads sicher |
+| **v1.9.9** | ı Deadline-begrenztes `grep_files` (Teilergebnisse + `aborted`-Flag) ı AutoTracker Token-Deltas feuern Schwellen *innerhalb* langer Tool-Ketten ı live `chat used H N tok` DELTA-Log |
+| **v1.9.8** | = Explizite Projektregistrierung nur ı Hang-Prıvention (`max_depth`, Zeilenlimits) ı Step-0.7 Keyword-Erkennung + lazy Registry-Sync tıtet die project not found-Schleife |
+| **v1.9.7** | =ı Crash-resiliente atomare Schreibvorgınge ıberall  randomisierte Tempdateinamen, Rollback bei Fehlschlag, null blockierende I/O |
+| **v1.9.56** | >ı Graphify-inspirierte Intelligenz: Konfidenz-getaggte Ergebnisse, Hub-Ausschluss-Clustering, cluster-bewusste Tool-Prioritıt ı `shell:true`-Deprecation eliminiert |
+| **v1.8.x** | =ı 3-Schicht Zeilenbearbeitungs-Gewıhrleistung ı SDK v1.x Tokenzıhlgenauigkeit (stimmt mit der Seitenleiste innerhalb von 0,3 %) ı deklarativer Registry-Refactoring (~80 Zeilen if/else ı 20-Eintrıge-Registry) |
 
 ---
 
-## KernabhÃ¤ngigkeiten
+## Kernabhıngigkeiten
 
-`@lmstudio/sdk` ^1.5.0 Â· `puppeteer` ^24 Â· `isomorphic-git` ^1.38 Â· `sharp` ^0.35.3 Â· `tesseract.js` ^7 Â· `pdf-parse` / `mammoth` / `xlsx` (Dokumenten-Pipeline) Â· `ripgrep` ^0.3.1 (WASM-Regex-Motor, lazy geladen) Â· `@dqbd/tiktoken` (ContextGuard) Â· `zod` (Laufzeitvalidierung)
+`@lmstudio/sdk` ^1.5.0 ı `puppeteer` ^24 ı `isomorphic-git` ^1.38 ı `sharp` ^0.35.3 ı `tesseract.js` ^7 ı `pdf-parse` / `mammoth` / `xlsx` (Dokumenten-Pipeline) ı `ripgrep` ^0.3.1 (WASM-Regex-Motor, lazy geladen) ı `@dqbd/tiktoken` (ContextGuard) ı `zod` (Laufzeitvalidierung)
 
 ---
 
 ## Lizenz
 
-**MIT** â€” frei zu verwenden, zu modifizieren, auszuliefern. Siehe [LICENSE](LICENSE).
+**MIT**  frei zu verwenden, zu modifizieren, auszuliefern. Siehe [LICENSE](LICENSE).
 
 ---
 
-*AI Toolbox ist ein All-in-One-LM-Studio-Plugin und KI-Agenten-Toolkit fÃ¼r lokale LLMs: sichere Datei-Tools, hang-sichere Codebase-Suche, Hintergrund-Builds, headlose Browser-Automatisierung, Git & GitHub Workflows, OCR, Datensichtbarwerdung, lokales semantisches RAG Ã¼ber PDF/DOCX/XLSX, projektÃ¼bergreifender Speicher, selbstverwaltende Kontextfenster â€” 116 fertige Tool-Aufrufe, die Ihr Modell mit null Klebcode verwenden kann.*
+*AI Toolbox ist ein All-in-One-LM-Studio-Plugin und KI-Agenten-Toolkit fır lokale LLMs: sichere Datei-Tools, hang-sichere Codebase-Suche, Hintergrund-Builds, headlose Browser-Automatisierung, Git & GitHub Workflows, OCR, Datensichtbarwerdung, lokales semantisches RAG ıber PDF/DOCX/XLSX, projektıbergreifender Speicher, selbstverwaltende Kontextfenster  116 fertige Tool-Aufrufe, die Ihr Modell mit null Klebcode verwenden kann.*
