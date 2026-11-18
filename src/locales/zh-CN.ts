@@ -108,7 +108,7 @@ export const zhCNTranslations: FullTranslationSet = {
       { toolName: 'run_python', description: '在受控沙箱中执行 Python；os/subprocess/sys 导入被阻止，默认超时 10 秒', parameters: ['python, timeout_seconds（可选）'] },
       { toolName: 'execute_command', description: '⚠️ 以多层净化和管道限制运行 shell 命令——默认禁用', parameters: ['command (+ options)'] },
       { toolName: 'run_in_terminal', description: '启动操作系统原生终端窗口（cmd/PowerShell/zsh/bash），支持环境变量与可见性选项', parameters: [] },
-{ toolName: 'run_powershell', description: 'Windows 首选 shell 工具（Owner 优先级）——通过自动解析的 shell 二进制文件（优先已安装的 pwsh 7.x，否则回退 Windows PowerShell 5.1；结果数据携带 `shell` 路径），底层即 powershell.exe 直接执行 PowerShell 脚本（无 cmd 层、无引号失真）；-NoProfile/-NonInteractive，PS 5.1 语法；Windows Shell/CLI 任务始终优先于 execute_command', parameters: ['script (+ options)'] },
+{ toolName: 'run_powershell', description: 'Windows 首选 shell 工具（Owner 优先级）——通过自动解析的 shell 二进制文件执行 PowerShell 脚本（优先已安装的 pwsh 7.x，否则回退 Windows PowerShell 5.1；结果数据携带 `shell` 路径）；win32 经 cmd /s 运行，脚本作为单个双引号包裹的 -Command 参数传递（实测修复 Electron→pwsh 直接派生下原生孙进程静默死亡的缺陷；脚本文本中避免 %VAR%/cmd 元字符，或将字面量用单引号括起）；-NoProfile/-NonInteractive，PS 5.1 语法；Windows Shell/CLI 任务始终优先于 execute_command', parameters: ['script (+ options)'] },
       { toolName: 'run_tests', description: '从 package.json 自动检测测试框架（Jest/Mocha/Vitest）并运行项目测试套件，返回结果', parameters: [] },
     ],
   },

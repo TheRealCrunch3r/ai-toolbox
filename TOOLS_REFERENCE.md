@@ -1,6 +1,6 @@
 # 🛠️ AI Toolbox — Complete Tool Reference
 
-> **Current state:** v1.9.24 · manifest rev 0 · canon **86 suites / 1295 tests** · **117 tools** across the categories (re-counted 16.11: `run_powershell` shipped — shell-binary resolution update 18.11; prior re-count 07.11: `apply_patch`) in the Overview below (two names serve two categories: `read_document`, `rag_web_content`).
+> **Current state:** v1.9.25 · manifest rev 0 · canon **86 suites / 1297 tests** · **117 tools** across the categories (re-counted 16.11: `run_powershell` shipped — shell-binary resolution update 18.11; prior re-count 07.11: `apply_patch`) in the Overview below (two names serve two categories: `read_document`, `rag_web_content`).
 > Audited against live code (`src/tools/*.ts` + `toolsProvider.ts`): 115 tool definitions across 23 module files, declarative registry pattern; per-module tables last fully re-audited 28.09 and kept current through v1.9.24.
 > Version history: [`CHANGELOG_v5.md`](CHANGELOG_v5.md) (active) · `docs/history/` (older volumes).
 
@@ -345,7 +345,7 @@ The `src/tools/recodeTool/` module implements a pluggable rule engine for advanc
 | Tool | Description |
 |------|-------------|
 | `execute_command` | Run shell commands with multi-layer sanitization: dangerous pattern blocking and pipe limits; on Windows prefer run_powershell (see below) |
-| `run_powershell` | PREFERRED shell tool on Windows — run PowerShell scripts directly via the resolved shell binary — pwsh 7.x preferred when installed, Windows PowerShell 5.1 fallback; no cmd/shell layer (no quoting distortion); result data carries the resolved `shell` path; -NoProfile/-NonInteractive, PS 5.1 syntax; ALWAYS use over execute_command for shell/CLI tasks on Windows |
+| `run_powershell` | PREFERRED shell tool on Windows — run PowerShell scripts via the resolved shell binary (pwsh 7.x preferred when installed, Windows PowerShell 5.1 fallback; result data carries the resolved `shell` path); win32 runs through cmd /s as ONE double-quoted -Command argument (measured fix for silent grandchild death under direct Electron→pwsh spawn — script text must avoid `%VAR%`/cmd metacharacters or quote literals single-quoted); -NoProfile/-NonInteractive, PS 5.1 syntax; ALWAYS use over execute_command for shell/CLI tasks on Windows |
 | `run_in_terminal` | Launch OS-native terminal window (cmd/PowerShell/zsh/bash) with env vars and visibility options |
 | `run_tests` | Auto-detect test framework from package.json scripts; supports Jest, Mocha, Vitest runners |
 

@@ -1,6 +1,7 @@
 /**
- * Tests for run_powershell tool (added 16.11 — direct spawn of powershell.exe, NO cmd/shell layer).
- * Key guarantee under test: the script travels as ONE argv element, untransformed (Quoting-Kanary).
+ * Tests for run_powershell tool (added 16.11; B1a owner GO 18.11 — win32 cmd-intermediated spawn: the FULL command line travels as ONE
+ * shell-parsed string via useShell=true, the script inside as ONE double-quoted -Command argument).
+ * Key guarantee under test (Quoting-Kanary): the user script arrives BYTE-EXACT as a suffix of that single -Command token.
  */
 
 import { registerExecutionTools } from '../src/tools/executionTools';
@@ -87,17 +88,19 @@ describe('run_powershell', () => {
     expect(getTool()).toBeDefined();
   });
 
-  describe('happy path (direct spawn contract)', () => {
-    test('spawns powershell.exe with the exact flag set and NO shell option', async () => {
+  describe('happy path (B1a cmd-line spawn contract)', () => {
+    test('spawns the full pwsh command line via useShell=true — flag set + single -Command token intact', async () => {
       makeFakeProc({ stdoutText: 'hello\n' });
       const result = await getTool()?.implementation({ script: "Write-Output 'hello'" });
 
       expect(mockedSpawn).toHaveBeenCalledTimes(1);
-      const [exe, args, options] = mockedSpawn.mock.calls[0];
-      expect(exe).toBe('powershell.exe');
-      expect(args.slice(0, 4)).toEqual(['-NoProfile', '-NonInteractive', '-NoLogo', '-Command']);
-      // useShell=false must hold: no `shell` option may ever be set for this tool
-      expect(options?.shell ?? false).toBe(false);
+      // B1a (owner GO 18.11): safeSpawn(win32, useShell=true) passes the FULL command line as ONE string — Node wraps it in one quote
+      // pair, cmd /d /s /c strips that outer pair and parses by standard rules; pwsh receives -Command as ONE token.
+      const [cmdLine, args, options] = mockedSpawn.mock.calls[0];
+      expect(cmdLine).toBe('powershell.exe -NoProfile -NonInteractive -NoLogo -Command "try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}; Write-Output \'hello\'"');
+      expect(args).toEqual([]); // no separate argv — the shell parses the line (GATE-4 win32 path)
+      // useShell=true MUST hold for this tool on win32: it is the measured defect fix, not an optimization.
+      expect(options?.shell ?? false).toBe(true);
 
       const r = result as { success: boolean; data?: Record<string, unknown> };
       expect(r.success).toBe(true);
@@ -106,19 +109,53 @@ describe('run_powershell', () => {
       expect(r.data?.confidence).toBe('EXTRACTED');
     });
 
-    test('Quoting-Kanary: script with quotes/backticks/$ arrives as ONE untransformed argv element', async () => {
+    test('Quoting-Kanary: script with quotes/backticks/$ arrives byte-exact as ONE double-quoted -Command token (B1a)', async () => {
       makeFakeProc({ stdoutText: 'x' });
       const nasty = "Write-Output \"a\"\"b\" & 'c d' + `$x` + (1+2) # -NoProfile";
       await getTool()?.implementation({ script: nasty, timeout_seconds: 5 });
 
       expect(mockedSpawn).toHaveBeenCalledTimes(1);
-      const [, args] = mockedSpawn.mock.calls[0];
-      // THE core guarantee (16.11 ~21:4x F-PS1 dated update, owner GO): the script travels as ONE argv element with NO layer
-      // re-parsing — user code arrives byte-identical as a SUFFIX; only the measured UTF8-prelude is prepended in front of it.
-      expect(args).toHaveLength(5);
+      const [cmdLine] = mockedSpawn.mock.calls[0];
+      // THE core guarantee (B1a, owner GO 18.11): the user script arrives byte-identical as a SUFFIX of ONE double-quoted -Command token;
+      // only the measured UTF8-prelude is prepended in front of it — no other transformation anywhere.
       const PS_UTF8_PRELUDE = 'try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}; '; // mirrors src/tools/executionTools.ts (house style)
-      expect(args[4]).toBe(PS_UTF8_PRELUDE + nasty);
+      expect(cmdLine).toContain(`-Command "${PS_UTF8_PRELUDE}${nasty}"`);
     });
+
+  // B1a contract pins (owner GO 18.11 — npm-shim-Arc): the cmd-intermediated spawn mechanics, pinned on the EXACT line that reaches cmd.exe.
+  describe('B1a cmd-line contract (18.11, owner GO)', () => {
+    const PS_UTF8_PRELUDE = 'try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}; '; // mirrors src/tools/executionTools.ts (house style)
+
+    test('B1a token round-trip: user script stays ONE double-quoted -Command token — no fragmentation of the line', async () => {
+      makeFakeProc({ stdoutText: 'x' });
+      const nasty = String.raw`Write-Output "a""b" & 'c d' + ${'$x'} + (1+2) # -NoProfile`; // cmd metachars (&, $()), quotes — the exact 16.11 canary class
+      await getTool()?.implementation({ script: nasty });
+
+      const [cmdLine] = mockedSpawn.mock.calls[0];
+      const token = `"${PS_UTF8_PRELUDE}${nasty}"`; // cmd's /d /s parse collapses exactly this pair → pwsh gets the verbatim text
+      expect(cmdLine).toContain(`-Command ${token}`);
+      expect((cmdLine.match(new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')) ?? []).length).toBe(1); // exactly ONE occurrence — no fragmentation of the script
+    });
+
+    test('B1a pwsh 7.x: resolved shell path leads the line (spaces in Program Files survive cmd tokenization)', async () => {
+      resetShellResolveCacheForTests();
+      const savedPF = process.env['ProgramFiles']; // canonical-install dir for this pin — set + restore inline (house env pattern of the resolveShellExe unit block)
+      process.env['ProgramFiles'] = 'C:\\PF';
+      try {
+        const pfPwsh = 'C:\\PF\\PowerShell\\7\\pwsh.exe';
+        fsStatSpy.mockImplementation(((p: string) => ({ isFile: () => p === pfPwsh, path: p }) as unknown as realFs.Stats));
+        makeFakeProc({ stdoutText: 'x' });
+
+        await getTool()?.implementation({ script: "Write-Output 'pw7'" });
+
+        const [cmdLine] = mockedSpawn.mock.calls[0];
+        expect(cmdLine).toBe(`${pfPwsh} -NoProfile -NonInteractive -NoLogo -Command "${PS_UTF8_PRELUDE}Write-Output 'pw7'"`);
+      } finally {
+        if (savedPF === undefined) delete process.env['ProgramFiles']; else process.env['ProgramFiles'] = savedPF;
+        resetShellResolveCacheForTests(); // don't leak this pin's resolved binary into later tests
+      }
+    });
+  });
 
     test('pipes provided input to the script via stdin', async () => {
       makeFakeProc({ stdoutText: '' });
@@ -202,16 +239,15 @@ describe('run_powershell', () => {
   describe('F-PS1/F-PS2 fixes (16.11 ~21:4x)', () => {
     const PS_UTF8_PRELUDE = 'try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}; '; // mirrors src constant (house style)
 
-    test('F-PS1: UTF-8 prelude prepended, user script byte-suffix intact in the single argv element', async () => {
+    test('F-PS1: UTF-8 prelude prepended, user script byte-suffix intact inside the single -Command token (B1a)', async () => {
       makeFakeProc({ stdoutText: 'x' });
       const user = "Write-Output \"a\"; Write-Host \"b\"";
       await getTool()?.implementation({ script: user });
 
       expect(mockedSpawn).toHaveBeenCalledTimes(1);
-      const [, args] = mockedSpawn.mock.calls[0];
-      expect(args.slice(0, 4)).toEqual(['-NoProfile', '-NonInteractive', '-NoLogo', '-Command']);
-      expect(args).toHaveLength(5);
-      expect(args[4]).toBe(PS_UTF8_PRELUDE + user); // prelude + verbatim — no other transformation anywhere
+      const [cmdLine] = mockedSpawn.mock.calls[0];
+      // B1a (owner GO 18.11): prelude + verbatim suffix ride inside ONE double-quoted -Command token of the cmd-parsed line — no other transformation anywhere.
+      expect(cmdLine).toContain(`-Command "${PS_UTF8_PRELUDE}${user}"`);
     });
 
     test('F-PS2: clean close with code 0 → envelope.exitCode = 0, no note', async () => {

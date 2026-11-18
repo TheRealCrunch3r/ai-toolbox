@@ -382,7 +382,7 @@ export async function toolsProvider(ctl: ToolsProviderController): Promise<Tool[
       if (shellTool) tools.push(shellTool);
     }
 
-    // run_powershell — gated by executionShell (or GOD MODE): Windows-only direct spawn, same shell family as execute_command
+    // run_powershell — gated by executionShell (or GOD MODE): Windows-only cmd-intermediated spawn (B1a, 18.11), same shell family as execute_command
     if (config.executionShell || isGodMode) {
       const psTool = allExecTools.find(t => t.name === 'run_powershell');
       if (psTool) tools.push(psTool);

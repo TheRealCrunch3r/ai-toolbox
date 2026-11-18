@@ -124,7 +124,7 @@ export function main(context: PluginContext) {
 }
 ```
 
-### 2. Tool Registration Flow (current state · v1.9.24 / manifest rev 0)
+### 2. Tool Registration Flow (current state · v1.9.25 / manifest rev 0)
 
 ```
 toolsProvider() called by LM Studio SDK
@@ -1213,7 +1213,7 @@ src/
     ├── node-notifier.d.ts      # Node.js notifier type declarations
     └── types.d.ts              # Core shared type definitions
 
-tests/                          # Jest test suite — 86 suites / 1295 tests (v1.9.24)
+tests/                          # Jest test suite — 86 suites / 1297 tests (v1.9.25)
 ├── security.test.ts            # Core security validation tests
 ├── security.edge-cases.test.ts # Security boundary & edge case testing
 ├── config.test.ts              # Zod schema + UI schematics validation

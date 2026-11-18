@@ -2,7 +2,7 @@
 <a href="README.md">English</a> · <b>Deutsch</b> · <a href="README.es.md">Español</a> · <a href="README.zh-CN.md">简体中文</a> · <a href="README.zh-TW.md">繁體中文</a><br/>
 <h1>AI Toolbox — All-in-One autonomes KI-Agenten- & Tool-Plugin für lokale LLMs in LM Studio</h1><hr/>
 <b>117 Tools. Ein Plugin. Keine Cloud nötig.</b> Das vollständigste LM-Studio-Hub-Plugin — macht jedes lokale Modell zu einem fähigen, selbstverwaltenden AI-Agenten.<br/>Selbstverwaltender Kontext hält Marathon-Sessions am Leben · ein Plugin, kein Glue-Code, standardmäßig vollständig offline.
-<br/><a href="#"><img src="https://img.shields.io/badge/version-v1.9.24-2f80ed?style=plastic" alt="version v1.9.24"/></a> <a href="#the-tool-arsenal-117-tools-across-every-family-all-yours-to-toggle"><img src="https://img.shields.io/badge/tools-117%20ready--made-7c3aed?style=plastic" alt="tools 117 ready-made"/></a> <a href="#quick-start-2-minutes"><img src="https://img.shields.io/badge/tests-86%20suites%20%C2%B7%201295%20green-3fb950?style=plastic" alt="tests 86 suites · 1295 green"/></a> <a href="#"><img src="https://img.shields.io/badge/LM%20Studio-Hub%20plugin-e84393?style=plastic" alt="LM Studio Hub plugin"/></a> <a href="LICENSE"><img src="https://img.shields.io/github/license/TheRealCrunch3r/ai-toolbox?style=plastic" alt="license MIT (live-verified from LICENSE)"/></a> <a href="#"><img src="https://img.shields.io/badge/runtime-Node%20%E2%89%A5%2020-83cd29?style=plastic&logo=node.js" alt="runtime Node ≥ 20"/></a><br/>
+<br/><a href="#"><img src="https://img.shields.io/badge/version-v1.9.25-2f80ed?style=plastic" alt="version v1.9.25"/></a> <a href="#the-tool-arsenal-117-tools-across-every-family-all-yours-to-toggle"><img src="https://img.shields.io/badge/tools-117%20ready--made-7c3aed?style=plastic" alt="tools 117 ready-made"/></a> <a href="#quick-start-2-minutes"><img src="https://img.shields.io/badge/tests-86%20suites%20%C2%B7%201297%20green-3fb950?style=plastic" alt="tests 86 suites · 1297 green"/></a> <a href="#"><img src="https://img.shields.io/badge/LM%20Studio-Hub%20plugin-e84393?style=plastic" alt="LM Studio Hub plugin"/></a> <a href="LICENSE"><img src="https://img.shields.io/github/license/TheRealCrunch3r/ai-toolbox?style=plastic" alt="license MIT (live-verified from LICENSE)"/></a> <a href="#"><img src="https://img.shields.io/badge/runtime-Node%20%E2%89%A5%2020-83cd29?style=plastic&logo=node.js" alt="runtime Node ≥ 20"/></a><br/>
 <b>Docs:</b> <a href="DOCUMENTATION.md">Documentation</a> · <a href="QUICK_START.md">Quick Start</a> · <a href="ARCHITECTURE.md">Architecture</a> · <a href="TOOLS_REFERENCE.md">Tool Reference</a> · <a href="CHANGELOG_v5.md">Changelog</a><br/>
 <a href="CONTRIBUTING.md">Contributing</a> · <a href="SECURITY.md">Security</a><br/>
 <br>
@@ -16,7 +16,7 @@
 
 **117 Tools. Ein Plugin. Keine Cloud nötig.** Das vollständigste Plugin im LM Studio Hub — verwandelt jedes lokale Modell in einen fähigen, selbstverwaltenden KI-Agenten mit sicherer Dateibearbeitung, hang-sicherer Codebase-Suche, Hintergrund-Builds, headloser Browser-Automatisierung, Git- & GitHub-Workflows, OCR, Chart-Erstellung und semantischem RAG; **selbstverwaltender Kontext** hält Marathon-Sitzungen am Leben. Ein Plugin, null Klebcode, standardmäßig vollständig offline.
 
-> `v1.9.24` · `117 fertige Tools` · `1295 Tests grün (86 Suiten)` · `5 Lokalisationen` · `MIT` · `Node 20+`
+> `v1.9.25` · `117 fertige Tools` · `1297 Tests grün (86 Suiten)` · `5 Lokalisationen` · `MIT` · `Node 20+`
 
 > ⚠️ **Übersetzung** — Deutsche Fassung von [README.md](README.md). Englisch ist die maßgebliche Version (canonical); bei Abweichungen gilt README.md. Diese Datei bei Änderungen am Original mit synchronisieren.
 
@@ -61,7 +61,7 @@ Der nächstliegende direkte Wettbewerber im Hub: gleiche Aufgabe (Tools für lok
 | ✅ **AST-level Refactoring** (Rename, Funktionsverschiebung, Dead-Import-Cleanup) — syntaksichere Transformationen mit Auto-Rollback, keine String-Bearbeitungen |
 | ✅ **Echtes RAG:** lokaler Vektorindex über PDF / DOCX / XLSX mit Seitenebenen-Provenienz — nicht nur Keyword-Suche |
 | ✅ **Bilder & Data-Viz:** OCR auf Screenshots und Aufnahmen, Bild-Metadaten + Vergleich, Chart-Erstellung |
-| ✅ **117 Tools** vs ~49 — gestützt durch 1295 bestandene Tests in 86 Suiten |
+| ✅ **117 Tools** vs ~49 — gestützt durch 1297 bestandene Tests in 86 Suiten |
 | ✅ **Crash-resiliente Schreibvorgänge + Rollback bei Fehlschlag:** eine missglückte Bearbeitung kann Ihre Datei nie korrupt machen |
 
 Unsere frühere i18n-Lücke ist geschlossen: **wir liefern jetzt 5 Lokalisationen** (en · de · es · zh-CN · zh-TW), jeweils ein vollständiger Übersetzungssatz — und Anti-Stub-Tests bewachen die Suite, damit Alias-/Fallback-Sprachen nie stillschweigend regressieren. Wir sagen Ihnen das lieber, als zu behaupten, es gäbe sie nicht.
@@ -116,7 +116,7 @@ Charts aus Rohdaten gerendert zu Bilddateien (Balken/Linie/Kreis/Donut/Streuung/
 ```bash
 # Developing instead of using?
 npm install && npm run build   # ESM + CJS via tsup
-npm test                        # full suite: 86 suites / 1295 tests green (v1.9.24)
+npm test                        # full suite: 86 suites / 1297 tests green (v1.9.25)
 ```
 
 ---

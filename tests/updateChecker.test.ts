@@ -371,11 +371,10 @@ describe('.VERSION test knob: one dummy version file gates getUpdateStatus (runt
     expect(await getUpdateStatus()).toEqual(expect.objectContaining({ version: '9.9.9' })); // no latch, no state — repeat at will
     expect(await getUpdateStatus()).toEqual(expect.objectContaining({ version: '9.9.9' }));
 
-    // (06.11 v1.9.24) '1.9.25' deliberately stays a LITERAL here, not derived — this case only needs "strictly newer than current" to
-    // prove the runtime-read property. Standing-Lesson note for the next bump arc: if LOCAL_VERSION ever lands ON 1.9.25, convert to
-    // offsetLocalVersion(+1) (same literal-pinned class as today's announce-suite fix).
-    writeKnob('1.9.25'); // the runtime-read property: editing the file mid-run takes effect on the very next call
-    expect(await getUpdateStatus()).toEqual(expect.objectContaining({ version: '1.9.25' }));
+    // (06.11 v1.9.24 → 18.11 v1.9.25) standing lesson executed on this bump arc: former literal '1.9.25' would sit EQUAL to current,
+    // so it is now derived one-above — stays strictly newer by construction through any future bump.
+    writeKnob(offsetLocalVersion(+1)); // the runtime-read property: editing the file mid-run takes effect on the very next call
+    expect(await getUpdateStatus()).toEqual(expect.objectContaining({ version: offsetLocalVersion(+1) }));
   });
 
   test('channel-feed persists ONCE per distinct knob value — repeated identical calls rewrite nothing (21.10 defect #2: no per-model-step disk I/O)', async () => {

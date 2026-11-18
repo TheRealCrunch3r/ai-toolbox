@@ -729,7 +729,7 @@ export function registerExecutionTools(_config: PluginConfig): Tool[] {
 
   
 
-    // run_powershell tool — DETERMINISTIC PowerShell execution via DIRECT spawn (NO cmd/shell layer)
+    // run_powershell tool — PowerShell execution on win32 via cmd-intermediated spawn (B1a, owner GO 18.11): the full command line travels as ONE shell-parsed string with useShell=true (contract comment in the handler below); F-PS1/F-PS2 unchanged
   // F-PS1 fix (16.11 ~21:4x, owner GO): PS 5.1 writes redirected stdout/stderr in the OEM console codepage — measured on a
   // de-DE host: "äöüß€" → bytes 0x84 0x94 0x81 0xE1 0x3F (cp850) while Node decodes UTF-8 → U+FFFD mojibake for every
   // non-ASCII output AND every localized error message. This prelude switches console + pipeline encoding to UTF-8 for the
@@ -744,7 +744,7 @@ export function registerExecutionTools(_config: PluginConfig): Tool[] {
   // runtime shell fallback: one tool = one dialect anchor, no AMBIGUOUS semantics, zero regression on the shipped default.
   tools.push(tool({
     name: 'run_powershell',
-    description: 'The PREFERRED shell tool on WINDOWS (owner priority, 16.11): run any CLI/shell task as a PowerShell script, executed DIRECTLY via the resolved shell binary — pwsh 7.x preferred when installed, Windows PowerShell 5.1 as fallback (auto-resolved once per process; result data carries the resolved `shell` path) with no cmd layer and no quoting/escaping transformation — always prefer it over wrapping PowerShell in execute_command for .NET APIs (e.g. GDI+/WIC), CIM/WMI queries, PS-semantics file operations and general shell work on Windows. Runs with -NoProfile -NonInteractive -NoLogo; Windows PowerShell 5.1 syntax. Uses your normal ExecutionPolicy — for a policy bypass use execute_command instead.',
+    description: 'The PREFERRED shell tool on WINDOWS (owner priority, 16.11): run any CLI/shell task as a PowerShell script via the resolved shell binary — pwsh 7.x preferred when installed, Windows PowerShell 5.1 as fallback (auto-resolved once per process; result data carries the resolved `shell` path). On Windows the invocation runs through cmd /s (measured fix for silent grandchild death under a direct Electron→pwsh spawn); your script travels as ONE double-quoted -Command argument — cmd expands %VAR% in that text and cmd metacharacters (& | < > ^) are active in it, so avoid them; single quotes around literal values keep those characters inert. Always prefer this over wrapping PowerShell in execute_command for .NET APIs (e.g. GDI+/WIC), CIM/WMI queries, PS-semantics file operations and general shell work on Windows. Runs with -NoProfile -NonInteractive -NoLogo; Windows PowerShell 5.1 syntax. Uses your normal ExecutionPolicy — for a policy bypass use execute_command instead.',
     parameters: {
       script: z.string().describe('PowerShell code to execute (statements / script block)'),
       timeout_seconds: z.number().min(1).max(300).optional().default(60).describe('Timeout in seconds (max 300)'),
@@ -765,17 +765,26 @@ export function registerExecutionTools(_config: PluginConfig): Tool[] {
           return { success: false, error: 'run_powershell is Windows-only.' };
         }
 
-        // 16.11 (owner GO): PS-aware sanitization profile — the script goes to powershell.exe as ONE argv element with NO shell layer,
-        // so cmd/sh heuristics (`;`, backtick pairs, $(), pipe caps) are replaced by PowerShell-native checks (see src/security.ts).
+        // 16.11 (owner GO): PS-aware sanitization profile — the script goes to pwsh as ONE -Command argument, so cmd/sh heuristics
+        // (`;`, backtick pairs, $(), pipe caps) are replaced by PowerShell-native checks (see src/security.ts). NOTE: on win32 the line
+        // is still cmd-PARSED first (B1a), so the script text must survive a single standard parse — see the spawn comment below.
         const sanitized = sanitizePowerShellScript(script);
         if (!sanitized.safe) {
           return { success: false, error: `Unsafe PowerShell script detected: ${sanitized.reason}` };
         }
 
-        // Deterministic direct spawn — useShell=false: NO cmd.exe/sh layer between us and powershell.exe.
-        // The script travels as ONE argv element through Node's CreateProcessW handling (same fix class as FIX P1 in gitGithubTools.ts),
-        // so PowerShell quoting/escaping is never re-interpreted by a second shell (GATE-4 bug class eliminated structurally).
-        const result = await safeSpawn(resolveShellExe(), ['-NoProfile', '-NonInteractive', '-NoLogo', '-Command', PS_UTF8_PRELUDE + script], ((timeout_seconds || 60) * 1000), input, false, ctx?.signal); // 04.10 ABORT-CONTRACT
+        // B1a (owner GO 18.11 — npm-shim-Arc): win32 cmd-intermediated spawn. MEASURED on this host: a DIRECT Electron→pwsh spawn
+        // silently kills every NATIVE grandchild the script starts (npm/npx .ps1 shims, node.exe --version, even `cmd /c echo`) — stdout
+        // lost and $LASTEXITCODE never set, so the tool reported success+0 for dead work; the same line under a cmd parent works
+        // (A/B isolation: v26.13.0 + exit 0). Root cause sits in console/stdio plumbing of PowerShell under a GUI parent — not fully
+        // proven, but the cmd intermediate layer is measured effective, so it becomes the product contract (house style: measure, then fix).
+        // Mechanics (characterized via %CMDCMDLINE%, GATE-4): safeSpawn(win32, useShell=true) passes this ONE string to Node's shell
+        // path → Node wraps it in exactly one quote pair; cmd /d /s /c strips that outer pair and parses the remainder by standard
+        // rules — so the double-quoted -Command argument reaches pwsh as ONE token and PowerShell delivers the script byte-exact.
+        // Accepted trade-off (documented in the tool description): cmd expands %VAR% inside that text, and cmd metacharacters (& | < > ^)
+        // are active there — scripts must avoid them or quote literals single-quoted; exit codes: pwsh propagates -Command exit N on 7.x,
+        // 5.1 clamps to 5 (F-PS2 surface unchanged). POSIX never reaches this line (tool fails fast above) — no behavioral change off-Windows.
+        const result = await safeSpawn(`${resolveShellExe()} -NoProfile -NonInteractive -NoLogo -Command "${PS_UTF8_PRELUDE + script}"`, [], ((timeout_seconds || 60) * 1000), input, true /*useShell — B1a: cmd-intermediated spawn (see contract comment above)*/, ctx?.signal); // 04.10 ABORT-CONTRACT
 
         if (!result.success) {
           if (result.aborted) return abortedEnvelope('Aborted by a host cancel mid-run — the child process was terminated before completion.', { stdout: result.data?.stdout ?? '', stderr: result.data?.stderr ?? '', provenance: 'run_powershell' }); // 04.10 ABORT-CONTRACT
