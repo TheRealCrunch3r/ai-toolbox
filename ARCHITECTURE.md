@@ -1213,7 +1213,7 @@ src/
     ├── node-notifier.d.ts      # Node.js notifier type declarations
     └── types.d.ts              # Core shared type definitions
 
-tests/                          # Jest test suite — 86 suites / 1291 tests (v1.9.24)
+tests/                          # Jest test suite — 86 suites / 1295 tests (v1.9.24)
 ├── security.test.ts            # Core security validation tests
 ├── security.edge-cases.test.ts # Security boundary & edge case testing
 ├── config.test.ts              # Zod schema + UI schematics validation

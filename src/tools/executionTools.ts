@@ -9,6 +9,30 @@ import { sanitizePowerShellScript, sanitizeCommand } from '../security.js';
 import { getWorkingDir, resolvePath } from '../workingDir.js';
 import type { Confidence } from '../types/confidenceTypes.js';
 
+/** 18.11 (owner GO): shell binary resolution for run_powershell — prefer pwsh 7.x when installed, fall back to the built-in Windows PowerShell 5.1.
+ * The canonical install path is checked BEFORE any PATH walk on purpose: %LOCALAPPDATA%\Microsoft\WindowsApps\pwsh.exe is a Store App Execution
+ * Alias that can exist without PowerShell 7 actually being installed (spawning it opens Microsoft Store, not a shell) — so Program Files wins and
+ * WindowsApps entries are excluded from the PATH scan entirely. Resolved once per process (module cache; deterministic for tests via env + fs mocks). */
+let cachedShellExe: string | null = null;
+export function resolveShellExe(): string {
+  if (cachedShellExe) return cachedShellExe;
+  const candidates: string[] = [];
+  const programFiles = process.env['ProgramFiles'] ?? 'C:\\Program Files';
+  candidates.push(path.join(programFiles, 'PowerShell', '7', 'pwsh.exe'));
+  for (const dir of (process.env.PATH ?? '').split(';')) {
+    if (!dir || /windowsapps/i.test(dir)) continue; // Store alias trap — never resolve into App Execution Aliases
+    candidates.push(path.join(dir, 'pwsh.exe'), path.join(dir, 'pwsh'));
+  }
+  const found = candidates.find((p) => { try { return fs.statSync(p).isFile(); } catch { return false; } });
+  cachedShellExe = found ?? 'powershell.exe'; // fallback: built-in Windows PowerShell (5.1) — always present on Windows
+  return cachedShellExe;
+}
+
+/** Test hook: reset the per-process shell resolution cache so suites can re-resolve under mocked env/fs. */
+export function resetShellResolveCacheForTests(): void {
+  cachedShellExe = null;
+}
+
 // ==================== Shared Spawn Helper ====================
 
 interface SpawnResult {
@@ -720,7 +744,7 @@ export function registerExecutionTools(_config: PluginConfig): Tool[] {
   // runtime shell fallback: one tool = one dialect anchor, no AMBIGUOUS semantics, zero regression on the shipped default.
   tools.push(tool({
     name: 'run_powershell',
-    description: 'The PREFERRED shell tool on WINDOWS (owner priority, 16.11): run any CLI/shell task as a PowerShell script, executed DIRECTLY by powershell.exe with no cmd layer and no quoting/escaping transformation — always prefer it over wrapping PowerShell in execute_command for .NET APIs (e.g. GDI+/WIC), CIM/WMI queries, PS-semantics file operations and general shell work on Windows. Runs with -NoProfile -NonInteractive -NoLogo; Windows PowerShell 5.1 syntax. Uses your normal ExecutionPolicy — for a policy bypass use execute_command instead.',
+    description: 'The PREFERRED shell tool on WINDOWS (owner priority, 16.11): run any CLI/shell task as a PowerShell script, executed DIRECTLY via the resolved shell binary — pwsh 7.x preferred when installed, Windows PowerShell 5.1 as fallback (auto-resolved once per process; result data carries the resolved `shell` path) with no cmd layer and no quoting/escaping transformation — always prefer it over wrapping PowerShell in execute_command for .NET APIs (e.g. GDI+/WIC), CIM/WMI queries, PS-semantics file operations and general shell work on Windows. Runs with -NoProfile -NonInteractive -NoLogo; Windows PowerShell 5.1 syntax. Uses your normal ExecutionPolicy — for a policy bypass use execute_command instead.',
     parameters: {
       script: z.string().describe('PowerShell code to execute (statements / script block)'),
       timeout_seconds: z.number().min(1).max(300).optional().default(60).describe('Timeout in seconds (max 300)'),
@@ -751,7 +775,7 @@ export function registerExecutionTools(_config: PluginConfig): Tool[] {
         // Deterministic direct spawn — useShell=false: NO cmd.exe/sh layer between us and powershell.exe.
         // The script travels as ONE argv element through Node's CreateProcessW handling (same fix class as FIX P1 in gitGithubTools.ts),
         // so PowerShell quoting/escaping is never re-interpreted by a second shell (GATE-4 bug class eliminated structurally).
-        const result = await safeSpawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-NoLogo', '-Command', PS_UTF8_PRELUDE + script], ((timeout_seconds || 60) * 1000), input, false, ctx?.signal); // 04.10 ABORT-CONTRACT
+        const result = await safeSpawn(resolveShellExe(), ['-NoProfile', '-NonInteractive', '-NoLogo', '-Command', PS_UTF8_PRELUDE + script], ((timeout_seconds || 60) * 1000), input, false, ctx?.signal); // 04.10 ABORT-CONTRACT
 
         if (!result.success) {
           if (result.aborted) return abortedEnvelope('Aborted by a host cancel mid-run — the child process was terminated before completion.', { stdout: result.data?.stdout ?? '', stderr: result.data?.stderr ?? '', provenance: 'run_powershell' }); // 04.10 ABORT-CONTRACT
@@ -772,7 +796,7 @@ export function registerExecutionTools(_config: PluginConfig): Tool[] {
             exitCode,
             ...(exitCode !== 0 ? { note: `PowerShell exited with code ${exitCode} — inspect the captured streams before treating this as a failure.` } : {}),
             confidence: 'EXTRACTED' as Confidence, // Direct spawn = deterministic
-            provenance: 'run_powershell',
+            shell: resolveShellExe(), provenance: 'run_powershell',
           },
         };
       } catch (error) {

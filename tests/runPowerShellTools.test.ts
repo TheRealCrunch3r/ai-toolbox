@@ -12,6 +12,14 @@ import { spawn as mockedSpawnFn } from 'child_process';
 
 const mockedSpawn = mockedSpawnFn as unknown as jest.Mock;
 
+// 18.11 (owner GO): run_powershell binary resolution — the pre-existing pins below exercise the FALLBACK path (built-in Windows PowerShell),
+// so every test in this file runs under a deterministic "no pwsh anywhere" fs environment via statSync spying + per-test cache reset.
+// 18.11: core-module namespaces are non-redefinable under the CJS transform — swap statSync via a module mock with requireActual (house style), keep every other fs call real.
+jest.mock('fs', () => Object.assign(Object.create(null) as Record<string, unknown>, jest.requireActual('fs') as Record<string, unknown>, { statSync: jest.fn() }));
+import * as realFs from 'fs';
+import { resolveShellExe, resetShellResolveCacheForTests } from '../src/tools/executionTools';
+const fsStatSpy = (realFs as unknown as { statSync: jest.Mock }).statSync;
+
 // Mock security — house style: block a canary pattern, pass everything else through
 jest.mock('../src/security', () => {
   const psBlock = (s: string) => /\bRemove-Item\b[\s\S]*-\s*(Recurse|Force)\b/i.test(s); // mirrors the native destructive-vector rule
@@ -68,6 +76,12 @@ describe('run_powershell', () => {
   });
 
   const getTool = () => tools.find(t => t.name === 'run_powershell');
+
+  // 18.11: deterministic FALLBACK env for all pre-existing pins — no pwsh on disk → resolveShellExe() returns built-in powershell.exe (pins L-expect(exe).toBe('powershell.exe') stay green)
+  beforeEach(() => {
+    resetShellResolveCacheForTests();
+    fsStatSpy.mockImplementation((): never => { throw new Error('ENOENT: forced no-pwsh test env'); });
+  });
 
   test('is registered among execution tools', () => {
     expect(getTool()).toBeDefined();
@@ -217,5 +231,62 @@ describe('run_powershell', () => {
       expect(r.data?.exitCode).toBe(7);
       expect(String(r.data?.note)).toMatch(/exited with code 7/);
     });
+  });
+});
+
+
+// 18.11 (owner GO): unit tests for resolveShellExe() — pwsh 7.x preferred, WindowsApps alias trap skipped, deterministic fallback to built-in 5.1.
+describe('resolveShellExe (18.11 binary resolution)', () => {
+  const REAL_PF = process.env['ProgramFiles'] ?? '';
+  let savedPath: string | undefined;
+
+  beforeEach(() => {
+    resetShellResolveCacheForTests();
+    fsStatSpy.mockRestore();
+    savedPath = process.env.PATH;
+  });
+
+  afterEach(() => {
+    if (REAL_PF) process.env['ProgramFiles'] = REAL_PF; else delete process.env['ProgramFiles'];
+    process.env.PATH = savedPath as string;
+    fsStatSpy.mockReset();
+  });
+
+  const existsAt = (paths: string[]) => {
+    fsStatSpy.mockImplementation(((p: string) => ({ isFile: () => paths.includes(p), path: p }) as unknown as realFs.Stats));
+  };
+
+  test('prefers the canonical Program Files pwsh install over PATH entries', () => {
+    process.env['ProgramFiles'] = 'C:\\PF';
+    const pfPwsh = 'C:\\PF\\PowerShell\\7\\pwsh.exe';
+    existsAt([pfPwsh, 'D:\\bin\\pwsh.exe']);
+    process.env.PATH = ['D:\\bin'].join(';');
+    expect(resolveShellExe()).toBe(pfPwsh);
+  });
+
+  test('skips WindowsApps PATH entries (Store App Execution Alias trap) -> falls back to built-in powershell.exe', () => {
+    process.env['ProgramFiles'] = 'C:\\PF-missing'; // canonical install absent
+    existsAt([]); // nothing on disk at all — the alias sits in PATH but must never be resolved
+    process.env.PATH = ['C:\\Users\\x\\AppData\\Local\\Microsoft\\WindowsApps', 'D:\\bin'].join(';');
+    expect(resolveShellExe()).toBe('powershell.exe');
+  });
+
+  test('resolves pwsh.exe from a regular PATH dir when the canonical install is absent', () => {
+    process.env['ProgramFiles'] = 'C:\\PF-missing';
+    const pathPwsh = 'D:\\bin\\pwsh.exe';
+    existsAt([pathPwsh]);
+    process.env.PATH = ['C:\\Windows\\System32', 'D:\\bin'].join(';');
+    expect(resolveShellExe()).toBe(pathPwsh);
+  });
+
+  test('caches the resolution for the process lifetime; only the reset hook re-arms it', () => {
+    process.env['ProgramFiles'] = 'C:\\PF';
+    const pfPwsh = 'C:\\PF\\PowerShell\\7\\pwsh.exe';
+    existsAt([pfPwsh]);
+    expect(resolveShellExe()).toBe(pfPwsh);
+    fsStatSpy.mockImplementation((): never => { throw new Error('ENOENT'); }); // disk "changes" afterwards...
+    expect(resolveShellExe()).toBe(pfPwsh); // ...but the cache holds until reset (per-process one-shot by design)
+    resetShellResolveCacheForTests();
+    expect(resolveShellExe()).toBe('powershell.exe'); // after re-arm + no pwsh on disk -> fallback
   });
 });

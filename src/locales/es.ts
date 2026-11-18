@@ -108,7 +108,7 @@ export const esTranslations: FullTranslationSet = {
       { toolName: 'run_python', description: 'Ejecuta Python en una sandbox controlada; imports os/subprocess/sys bloqueados, timeout predeterminado 10 s', parameters: ['python, timeout_seconds (opcional)'] },
       { toolName: 'execute_command', description: '⚠️ Ejecuta comandos de shell con sanitización multinivel y límites de pipe — deshabilitado por defecto', parameters: ['command (+ options)'] },
       { toolName: 'run_in_terminal', description: 'Lanza una ventana de terminal nativa del SO (cmd/PowerShell/zsh/bash) con variables de entorno y opciones de visibilidad', parameters: [] },
-{ toolName: 'run_powershell', description: 'Herramienta de shell PREFERIDA en Windows (prioridad del owner): ejecuta scripts de PowerShell directamente (sin capa cmd, sin distorsión de comillas); -NoProfile/-NonInteractive, sintaxis PS 5.1; SIEMPRE sobre execute_command para tareas de shell/CLI en Windows', parameters: ['script (+ options)'] },
+{ toolName: 'run_powershell', description: 'Herramienta de shell PREFERIDA en Windows (prioridad del owner): ejecuta scripts de PowerShell usando el binary de shell resuelto (preferencia pwsh 7.x si está instalado; fallback Windows PowerShell 5.1; el resultado incluye la ruta `shell`), y lo hace directamente (sin capa cmd, sin distorsión de comillas); -NoProfile/-NonInteractive, sintaxis PS 5.1; SIEMPRE sobre execute_command para tareas de shell/CLI en Windows', parameters: ['script (+ options)'] },
       { toolName: 'run_tests', description: 'Detecta automáticamente el framework de pruebas desde package.json (Jest/Mocha/Vitest) y ejecuta la suite del proyecto, devolviendo resultados', parameters: [] },
     ],
   },
