@@ -1,6 +1,6 @@
 # 🛠️ AI Toolbox — Complete Tool Reference
 
-> **Current state:** v1.9.24 · manifest rev 0 · canon **84 suites / 1262 tests** · **116 tools** across the categories (re-counted 07.11: `apply_patch` shipped) in the Overview below (two names serve two categories: `read_document`, `rag_web_content`).
+> **Current state:** v1.9.24 · manifest rev 0 · canon **86 suites / 1291 tests** · **117 tools** across the categories (re-counted 16.11: `run_powershell` shipped; prior re-count 07.11: `apply_patch`) in the Overview below (two names serve two categories: `read_document`, `rag_web_content`).
 > Audited against live code (`src/tools/*.ts` + `toolsProvider.ts`): 115 tool definitions across 23 module files, declarative registry pattern; per-module tables last fully re-audited 28.09 and kept current through v1.9.24.
 > Version history: [`CHANGELOG_v5.md`](CHANGELOG_v5.md) (active) · `docs/history/` (older volumes).
 
