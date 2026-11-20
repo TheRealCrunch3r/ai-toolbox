@@ -744,7 +744,7 @@ export function registerExecutionTools(_config: PluginConfig): Tool[] {
   // runtime shell fallback: one tool = one dialect anchor, no AMBIGUOUS semantics, zero regression on the shipped default.
   tools.push(tool({
     name: 'run_powershell',
-    description: 'The PREFERRED shell tool on WINDOWS (owner priority, 16.11): run any CLI/shell task as a PowerShell script via the resolved shell binary — pwsh 7.x preferred when installed, Windows PowerShell 5.1 as fallback (auto-resolved once per process; result data carries the resolved `shell` path). On Windows the invocation runs through cmd /s (measured fix for silent grandchild death under a direct Electron→pwsh spawn); your script travels as ONE double-quoted -Command argument — cmd expands %VAR% in that text and cmd metacharacters (& | < > ^) are active in it, so avoid them; single quotes around literal values keep those characters inert. Always prefer this over wrapping PowerShell in execute_command for .NET APIs (e.g. GDI+/WIC), CIM/WMI queries, PS-semantics file operations and general shell work on Windows. Runs with -NoProfile -NonInteractive -NoLogo; Windows PowerShell 5.1 syntax. Uses your normal ExecutionPolicy — for a policy bypass use execute_command instead.',
+    description: 'The PREFERRED shell tool on WINDOWS (owner priority, 16.11): run any CLI/shell task as a PowerShell script via the resolved shell binary — pwsh 7.x preferred when installed, Windows PowerShell 5.1 as fallback (auto-resolved once per process; result data carries the resolved `shell` path). On Windows the invocation runs through cmd /s (measured fix for silent grandchild death under a direct Electron→pwsh spawn); your script travels as ONE double-quoted -Command argument whose inner double quotes are escaped (\" reaches PowerShell byte-exact), cmd metacharacters (& | < > ^) are inert in it, and only %VAR% pairs are expanded by cmd before the script runs — use single-quoted literals or $env:-style PS syntax to avoid accidental expansion. Always prefer this over wrapping PowerShell in execute_command for .NET APIs (e.g. GDI+/WIC), CIM/WMI queries, PS-semantics file operations and general shell work on Windows. Runs with -NoProfile -NonInteractive -NoLogo; Windows PowerShell 5.1 syntax. Uses your normal ExecutionPolicy — for a policy bypass use execute_command instead.',
     parameters: {
       script: z.string().describe('PowerShell code to execute (statements / script block)'),
       timeout_seconds: z.number().min(1).max(300).optional().default(60).describe('Timeout in seconds (max 300)'),
@@ -784,7 +784,29 @@ export function registerExecutionTools(_config: PluginConfig): Tool[] {
         // Accepted trade-off (documented in the tool description): cmd expands %VAR% inside that text, and cmd metacharacters (& | < > ^)
         // are active there — scripts must avoid them or quote literals single-quoted; exit codes: pwsh propagates -Command exit N on 7.x,
         // 5.1 clamps to 5 (F-PS2 surface unchanged). POSIX never reaches this line (tool fails fast above) — no behavioral change off-Windows.
-        const result = await safeSpawn(`${resolveShellExe()} -NoProfile -NonInteractive -NoLogo -Command "${PS_UTF8_PRELUDE + script}"`, [], ((timeout_seconds || 60) * 1000), input, true /*useShell — B1a: cmd-intermediated spawn (see contract comment above)*/, ctx?.signal); // 04.10 ABORT-CONTRACT
+        // 20.11 FIX (spaced-path defect, measured live on this host): resolveShellExe() returns ABSOLUTE paths that may contain spaces —
+        // the canonical pwsh location C:\Program Files\PowerShell\7\pwsh.exe is exactly one, i.e. EVERY standard install. Unquoted in the
+        // cmd-parsed B1a line it fragments at cmd tokenization into "C:\Program" + remainder → 'Der Befehl "C:\Program" ist entweder falsch
+        // geschrieben oder konnte nicht gefunden werden', exit 1 — the script never reaches PowerShell (repro: tmp_ps_debug_probe.cjs, A/B vs C/D).
+        // Fix = wrap the path in double quotes ONLY when it contains whitespace: space-free paths (powershell.exe fallback) stay byte-identical to the
+        // pre-fix line (all existing pins untouched); the quoted form was measured green end-to-end. cmd's /d /s outer-pair stripping is unaffected —
+        // the quoted path survives as ONE token, the -Command payload keeps its own quote pair byte-exact (B1a contract unchanged).
+        const shellExe = resolveShellExe();
+        const quotedShell = /\s/.test(shellExe) ? `"${shellExe}"` : shellExe;
+        // 20.11 B1b (measured live on this host — successor to the spaced-path fix above): double quotes INSIDE the script
+        // previously CLOSED cmd's -Command quote window early: everything after the first embedded " was parsed by cmd as a
+        // SEPARATE token stream and PowerShell received a fragmented, truncated argument set (repro 20.11 17:3x: git -C with a
+        // quoted spaced path → 'cannot change to C:\Source'; any embedded quote pair also hung pwsh until tool timeout).
+        // Fix = backslash-escape every " of the prelude+script text before embedding it in the ONE double-quoted -Command token.
+        // Round-trip: cmd's standard parse keeps the escaped pair INSIDE the window (the \" is not a delimiter to cmd), and
+        // PowerShell's own tokenizer then unescapes \" → " exactly once — pwsh therefore receives the script BYTE-EXACT again,
+        // this time through a properly closed single -Command argument. Side benefit (measured): with the window properly closed,
+        // cmd metacharacters (& | < > ^) are INERT in the payload — they no longer act as command separators even though they sit
+        // inside PowerShell string literals. Trade-off UNCHANGED from B1a: cmd still expands %VAR% pairs before pwsh ever sees
+        // them (documented in the tool description). Scripts WITHOUT double quotes stay byte-identical to pre-fix lines (all
+        // existing pins untouched — escape is a no-op there by construction).
+        const psPayload = PS_UTF8_PRELUDE + script.replace(/"/g, '\\"');
+        const result = await safeSpawn(`${quotedShell} -NoProfile -NonInteractive -NoLogo -Command "${psPayload}"`, [], ((timeout_seconds || 60) * 1000), input, true /*useShell — B1a/B1b: cmd-intermediated spawn (see contract comments above)*/, ctx?.signal); // 04.10 ABORT-CONTRACT
 
         if (!result.success) {
           if (result.aborted) return abortedEnvelope('Aborted by a host cancel mid-run — the child process was terminated before completion.', { stdout: result.data?.stdout ?? '', stderr: result.data?.stderr ?? '', provenance: 'run_powershell' }); // 04.10 ABORT-CONTRACT

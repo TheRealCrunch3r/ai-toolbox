@@ -1,7 +1,9 @@
 /**
  * Tests for run_powershell tool (added 16.11; B1a owner GO 18.11 — win32 cmd-intermediated spawn: the FULL command line travels as ONE
- * shell-parsed string via useShell=true, the script inside as ONE double-quoted -Command argument).
- * Key guarantee under test (Quoting-Kanary): the user script arrives BYTE-EXACT as a suffix of that single -Command token.
+ * shell-parsed string via useShell=true, the script inside as ONE double-quoted -Command argument; B1b 20.11 adds backslash escaping of
+ * embedded double quotes so they cannot close cmd's quote window early).
+ * Key guarantee under test (Quoting-Kanary): the user script reaches PowerShell BYTE-EXACT — in the cmd-parsed line its inner
+ * double quotes are escaped (\") and PowerShell unescapes them exactly once.
  */
 
 import { registerExecutionTools } from '../src/tools/executionTools';
@@ -109,53 +111,85 @@ describe('run_powershell', () => {
       expect(r.data?.confidence).toBe('EXTRACTED');
     });
 
-    test('Quoting-Kanary: script with quotes/backticks/$ arrives byte-exact as ONE double-quoted -Command token (B1a)', async () => {
+    test('Quoting-Kanary: script with quotes/backticks/$ survives as ONE double-quoted -Command token (B1a+B1b)', async () => {
       makeFakeProc({ stdoutText: 'x' });
       const nasty = "Write-Output \"a\"\"b\" & 'c d' + `$x` + (1+2) # -NoProfile";
       await getTool()?.implementation({ script: nasty, timeout_seconds: 5 });
 
       expect(mockedSpawn).toHaveBeenCalledTimes(1);
       const [cmdLine] = mockedSpawn.mock.calls[0];
-      // THE core guarantee (B1a, owner GO 18.11): the user script arrives byte-identical as a SUFFIX of ONE double-quoted -Command token;
-      // only the measured UTF8-prelude is prepended in front of it — no other transformation anywhere.
+      // THE core guarantee (B1a owner GO 18.11; B1b 20.11): the user script rides as ONE double-quoted -Command token; its inner
+      // double quotes are backslash-escaped in the CMD-PARSED line so they cannot close cmd's quote window early — PowerShell then
+      // unescapes \" → " exactly once, so pwsh receives the script BYTE-EXACT. Only the measured UTF8-prelude is prepended.
       const PS_UTF8_PRELUDE = 'try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}; '; // mirrors src/tools/executionTools.ts (house style)
-      expect(cmdLine).toContain(`-Command "${PS_UTF8_PRELUDE}${nasty}"`);
+      expect(cmdLine).toContain(`-Command "${PS_UTF8_PRELUDE}${nasty.replace(/"/g, '\\"')}"`); // value of the replace arg: \" (one backslash + quote)
     });
 
   // B1a contract pins (owner GO 18.11 — npm-shim-Arc): the cmd-intermediated spawn mechanics, pinned on the EXACT line that reaches cmd.exe.
   describe('B1a cmd-line contract (18.11, owner GO)', () => {
     const PS_UTF8_PRELUDE = 'try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}; '; // mirrors src/tools/executionTools.ts (house style)
 
-    test('B1a token round-trip: user script stays ONE double-quoted -Command token — no fragmentation of the line', async () => {
+    test('B1a token round-trip: user script stays ONE double-quoted -Command token — no fragmentation of the line (B1b escaping)', async () => {
       makeFakeProc({ stdoutText: 'x' });
       const nasty = String.raw`Write-Output "a""b" & 'c d' + ${'$x'} + (1+2) # -NoProfile`; // cmd metachars (&, $()), quotes — the exact 16.11 canary class
       await getTool()?.implementation({ script: nasty });
 
       const [cmdLine] = mockedSpawn.mock.calls[0];
-      const token = `"${PS_UTF8_PRELUDE}${nasty}"`; // cmd's /d /s parse collapses exactly this pair → pwsh gets the verbatim text
+      // B1b (20.11): inner double quotes are backslash-escaped in the cmd-parsed line — cmd's /d /s parse keeps them INSIDE the
+      // -Command window, then PowerShell unescapes \" → " once → pwsh gets the verbatim script text as ONE token.
+      const ESC_Q = String.fromCharCode(92, 34); // B1b escape pair \" — charCode idiom: zero literal backslashes in source (escape-layer-safe)
+      const nastyEscaped = nasty.replace(/"/g, ESC_Q);
+      const token = `"${PS_UTF8_PRELUDE}${nastyEscaped}"`;
       expect(cmdLine).toContain(`-Command ${token}`);
       expect((cmdLine.match(new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')) ?? []).length).toBe(1); // exactly ONE occurrence — no fragmentation of the script
     });
 
-    test('B1a pwsh 7.x: resolved shell path leads the line (spaces in Program Files survive cmd tokenization)', async () => {
+    test('B1a pwsh 7.x: resolved shell path leads the line (spaces in Program Files survive cmd tokenization — quoted, 20.11 fix)', async () => {
       resetShellResolveCacheForTests();
       const savedPF = process.env['ProgramFiles']; // canonical-install dir for this pin — set + restore inline (house env pattern of the resolveShellExe unit block)
-      process.env['ProgramFiles'] = 'C:\\PF';
+      process.env['ProgramFiles'] = 'C:\\Program Files';
       try {
-        const pfPwsh = 'C:\\PF\\PowerShell\\7\\pwsh.exe';
+        const pfPwsh = 'C:\\Program Files\\PowerShell\\7\\pwsh.exe';
         fsStatSpy.mockImplementation(((p: string) => ({ isFile: () => p === pfPwsh, path: p }) as unknown as realFs.Stats));
         makeFakeProc({ stdoutText: 'x' });
 
         await getTool()?.implementation({ script: "Write-Output 'pw7'" });
 
         const [cmdLine] = mockedSpawn.mock.calls[0];
-        expect(cmdLine).toBe(`${pfPwsh} -NoProfile -NonInteractive -NoLogo -Command "${PS_UTF8_PRELUDE}Write-Output 'pw7'"`);
+        expect(cmdLine).toBe(`"${pfPwsh}" -NoProfile -NonInteractive -NoLogo -Command "${PS_UTF8_PRELUDE}Write-Output 'pw7'"`);
       } finally {
         if (savedPF === undefined) delete process.env['ProgramFiles']; else process.env['ProgramFiles'] = savedPF;
         resetShellResolveCacheForTests(); // don't leak this pin's resolved binary into later tests
       }
     });
+
+    // B1b (20.11): double-quote escape regression pins — measured live defect on this host: an embedded quote pair closed cmd's
+    // -Command window EARLY, so the remainder of the line was re-parsed as separate tokens (git saw 'C:\Source' from a quoted spaced
+    // path; other shapes hung pwsh until tool timeout). Escaping is now the only transformation applied to script text.
+    test('B1b: embedded double quotes are escaped — exactly ONE unescaped -Command quote window survives in the cmd line', async () => {
+      makeFakeProc({ stdoutText: 'x' });
+      const spacedPath = String.raw`C:\Source Code\LM Studio Plugins\ai_toolbox`; // exact live-repro shape (20.11 17:3x)
+      await getTool()?.implementation({ script: `git -C "${spacedPath}" log --oneline -1`, timeout_seconds: 5 });
+
+      const [cmdLine] = mockedSpawn.mock.calls[0];
+      expect(cmdLine).toContain(`-C \\"${spacedPath}\\"`); // escaped pair rides INSIDE the window as literal \" text
+      // THE defect class pinned: unescaped double quotes in the line must be exactly TWO — the single -Command window pair.
+      // (The fallback env of this file resolves space-free powershell.exe, so the path prefix contributes no quote of its own.)
+      const unescapedQuotes = (cmdLine.match(/(?<!\\)"/g) ?? []).length;
+      expect(unescapedQuotes).toBe(2);
+    });
   });
+
+    
+    // 20.11 regression: space-free resolution (powershell.exe fallback) stays UNQUOTED — line byte-identical to pre-fix behavior
+    test('no-spaces path (powershell.exe fallback) stays unquoted in the cmd line (20.11 regression pin)', async () => {
+      const PS_UTF8_PRELUDE = 'try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}; '; // mirrors src/tools/executionTools.ts (house style)
+      makeFakeProc({ stdoutText: 'x' });
+      await getTool()?.implementation({ script: "Write-Output 'ns'" });
+
+      const [cmdLine] = mockedSpawn.mock.calls[0];
+      expect(cmdLine).toBe(`powershell.exe -NoProfile -NonInteractive -NoLogo -Command "${PS_UTF8_PRELUDE}Write-Output 'ns'"`);
+    })
 
     test('pipes provided input to the script via stdin', async () => {
       makeFakeProc({ stdoutText: '' });
@@ -246,8 +280,9 @@ describe('run_powershell', () => {
 
       expect(mockedSpawn).toHaveBeenCalledTimes(1);
       const [cmdLine] = mockedSpawn.mock.calls[0];
-      // B1a (owner GO 18.11): prelude + verbatim suffix ride inside ONE double-quoted -Command token of the cmd-parsed line — no other transformation anywhere.
-      expect(cmdLine).toContain(`-Command "${PS_UTF8_PRELUDE}${user}"`);
+      // B1a (owner GO 18.11) + B1b (20.11): prelude + suffix ride inside ONE double-quoted -Command token of the cmd-parsed line;
+      // inner double quotes backslash-escaped for cmd, unescaped once by PowerShell → byte-exact at pwsh. No other transformation.
+      expect(cmdLine).toContain(`-Command "${PS_UTF8_PRELUDE}${user.replace(/"/g, String.fromCharCode(92, 34))}"`);
     });
 
     test('F-PS2: clean close with code 0 → envelope.exitCode = 0, no note', async () => {
