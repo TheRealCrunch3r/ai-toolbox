@@ -108,7 +108,7 @@ export const zhTWTranslations: FullTranslationSet = {
       { toolName: 'run_python', description: '在受控沙箱中執行 Python；os/subprocess/sys 匯入被阻擋，預設逾時 10 秒', parameters: ['python, timeout_seconds（選填）'] },
       { toolName: 'execute_command', description: '⚠️ 以多層淨化與管線限制執行 shell 指令——預設停用', parameters: ['command (+ options)'] },
       { toolName: 'run_in_terminal', description: '啟動作業系統原生終端機視窗（cmd/PowerShell/zsh/bash），支援環境變數與可見性選項', parameters: [] },
-{ toolName: 'run_powershell', description: 'Windows 首選 shell 工具（Owner 優先級）——透過自動解析的 shell 二進位檔執行 PowerShell 腳本（優先已安裝之 pwsh 7.x，否則退回 Windows PowerShell 5.1；結果資料含 `shell` 路徑）；win32 經 cmd /s 運行，腳本作為單一雙引號包圍的 -Command 參數傳遞（實測修復 Electron→pwsh 直接派生下原生孫程序靜默死亡之缺陷；腳本文字中避免 %VAR%/cmd 元字元，或將常值以單引號括起）；-NoProfile/-NonInteractive，PS 5.1 語法；Windows Shell/CLI 任務始終優先於 execute_command', parameters: ['script (+ options)'] },
+{ toolName: 'run_powershell', description: 'Windows 首選 shell 工具（Owner 優先級）——透過自動解析的 shell 二進位檔執行 PowerShell 腳本（優先已安裝之 pwsh 7.x，否則退回 Windows PowerShell 5.1；結果資料含 `shell` 路徑）；win32 經 cmd /s 運行，腳本作為單一雙引號包圍的 -Command 參數傳遞，其內嵌雙引號經轉義後位元組精確到達 PowerShell（實測修復 Electron→pwsh 直接派生下原生孫程序靜默死亡之缺陷）；cmd 元字元 (& | < > ^) 在其中惰性——僅 %VAR% 對被展開，以單引號常值或 $env: 風格語法避免意外展開；-NoProfile/-NonInteractive，PS 5.1 語法；Windows Shell/CLI 任務始終優先於 execute_command', parameters: ['script (+ options)'] },
       { toolName: 'run_tests', description: '從 package.json 自動偵測測試框架（Jest/Mocha/Vitest）並執行專案測試套件，傳回結果', parameters: [] },
     ],
   },
