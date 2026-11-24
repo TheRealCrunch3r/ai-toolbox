@@ -18,7 +18,7 @@ const mockedSpawn = mockedSpawnFn as unknown as jest.Mock;
 // 18.11 (owner GO): run_powershell binary resolution — the pre-existing pins below exercise the FALLBACK path (built-in Windows PowerShell),
 // so every test in this file runs under a deterministic "no pwsh anywhere" fs environment via statSync spying + per-test cache reset.
 // 18.11: core-module namespaces are non-redefinable under the CJS transform — swap statSync via a module mock with requireActual (house style), keep every other fs call real.
-jest.mock('fs', () => Object.assign(Object.create(null) as Record<string, unknown>, jest.requireActual('fs') as Record<string, unknown>, { statSync: jest.fn() }));
+jest.mock('fs', () => Object.assign(Object.create(null) as Record<string, unknown>, jest.requireActual('fs') as Record<string, unknown>, { statSync: jest.fn(), existsSync: jest.fn() })); // 24.11 FIX: existsSync joins the house idiom — import-namespace props are getter-only (Babel interop), so per-test swaps must mutate the shared jest.fn via mockReturnValue/mockReset, never reassign the property
 import * as realFs from 'fs';
 import { resolveShellExe, resetShellResolveCacheForTests } from '../src/tools/executionTools';
 const fsStatSpy = (realFs as unknown as { statSync: jest.Mock }).statSync;
@@ -301,6 +301,70 @@ describe('run_powershell', () => {
       expect(r.success).toBe(true); // documented house semantics: non-zero ≠ failed run (probe/diff-style scripts)
       expect(r.data?.exitCode).toBe(7);
       expect(String(r.data?.note)).toMatch(/exited with code 7/);
+    });
+  });
+
+  // 24.11 TIMEOUT-HYGIENE + ENV-ENRICHMENT (owner GO): a timed-out run must carry its partial streams (before: bare 'Execution timed out',
+  // zero output — indistinguishable from "wrapper swallowed everything") and win32 kills the process TREE; children of safeSpawn get the
+  // missing Windows user-env vars completed additively from USERPROFILE.
+  describe('24.11 timeout hygiene + env enrichment (owner GO)', () => {
+    test('timeout carries partial stdout/stderr in the envelope AND win32 kills the process tree (taskkill /T)', async () => {
+      jest.useFakeTimers();
+      try {
+        // Custom proc: emits ONE data chunk, never closes on its own — only the internal timer may settle.
+        let dataHandler: ((d: Buffer) => void) | null = null;
+        const proc: Record<string, unknown> = {
+          pid: 987654,
+          kill: jest.fn(),
+          stdin: { write: jest.fn(), end: jest.fn() },
+          stdout: { on: (ev: string, cb: (d: Buffer) => void) => { if (ev === 'data') dataHandler = cb; } },
+          stderr: { on: () => {} },
+          on: () => proc as never, // swallow close/error — the timeout is the authoritative settle here
+        };
+        mockedSpawn.mockReturnValue(proc);
+
+        const pending = getTool()!.implementation({ script: "Write-Output 'early'", timeout_seconds: 1 });
+        await Promise.resolve();
+        dataHandler?.(Buffer.from('EARLY-LINE\n')); // partial output captured before the kill
+        jest.advanceTimersByTime(1005); // fire safeSpawn's internal setTimeout(timeoutMs)
+
+        const r = (await pending) as { success: boolean; error?: string; stdout?: string };
+        expect(r.success).toBe(false);
+        expect(String(r.error)).toMatch(/timed out after 1s/i);
+        // THE fix pinned: a timeout no longer hides early work — partial streams ride along in the failure envelope.
+        expect(r.stdout).toContain('EARLY-LINE');
+        // Tree kill per house idiom (mirrors settleAborted): bare proc.kill() would orphan pwsh grandchildren after a timeout.
+        const taskKillCalls = mockedSpawn.mock.calls.filter((c) => c[0] === 'taskkill');
+        expect(taskKillCalls.length).toBe(1);
+        expect(taskKillCalls[0][1]).toEqual(['/pid', '987654', '/T', '/F']);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    test('win32 spawn enriches the child env additively from USERPROFILE (measured 24.11: APPDATA/LOCALAPPDATA absent in host children)', async () => {
+      const saved = process.env['USERPROFILE'];
+      // 24.11 FIX (restore TypeError): the fs import namespace is getter-only under Babel interop — direct property assignment throws in strict mode and would be invisible to the implementation's own binding anyway; mutate the shared jest.fn instead (house idiom, cf. fsStatSpy line 24).
+      const existsSyncMock = realFs.existsSync as unknown as jest.Mock;
+      try {
+        // Deterministic fixture HOME on the temp drive — existsSync is stubbed TRUE so no disk dependency (real FS stays for everything else).
+        existsSyncMock.mockReturnValue(true);
+        process.env['USERPROFILE'] = 'C:\\Users\\arc2411';
+
+        makeFakeProc({ stdoutText: 'env-ok' });
+        await getTool()?.implementation({ script: "Write-Output 'env'" });
+
+        const [, , options] = mockedSpawn.mock.calls[0];
+        const env = (options as { env?: NodeJS.ProcessEnv } | undefined)?.env;
+        // THE fix pinned: the missing standard user vars are derived from USERPROFILE and passed to the child…
+        expect(env?.APPDATA).toBe('C:\\Users\\arc2411\\AppData\\Roaming');
+        expect(env?.LOCALAPPDATA).toBe('C:\\Users\\arc2411\\AppData\\Local');
+        // …while every pre-existing host variable passes through untouched (purely additive, never overwriting).
+        expect(env?.PATH).toBe(process.env.PATH);
+      } finally {
+        if (saved === undefined) delete process.env['USERPROFILE']; else process.env['USERPROFILE'] = saved;
+        existsSyncMock.mockReset(); // 24.11 FIX: drops the stub (later tests see undefined again = pre-enrichment behavior); no descriptor surgery on a getter-only namespace
+      }
     });
   });
 });

@@ -121,11 +121,29 @@ async function safeSpawn(
       }
     }
 
+    // 24.11 ENV-ENRICHMENT (owner GO, measured on this host): the LM Studio/Electron host hands children a REDUCED env block —
+    // the run_powershell child had only 18 variables with APPDATA and LOCALAPPDATA absent, so any script using $env:APPDATA /
+    // %APPDATA% broke SILENTLY (empty path → CWD-relative operations). Additively complete those two from USERPROFILE (stable
+    // Windows layout; injected ONLY when the derived directory exists), never overwrite values already present. POSIX unchanged,
+    // computed per call so a host env change inside a long-lived process is picked up; zero-object cost when nothing is missing.
+    let spawnEnv: NodeJS.ProcessEnv | undefined;
+    if (process.platform === 'win32') {
+      const userProfile = process.env['USERPROFILE'];
+      if (userProfile) {
+        const additions: [string, string][] = [];
+        const appDataDir = path.join(userProfile, 'AppData', 'Roaming');
+        const localDataDir = path.join(userProfile, 'AppData', 'Local');
+        if (!process.env.APPDATA && fs.existsSync(appDataDir)) additions.push(['APPDATA', appDataDir]);
+        if (!process.env.LOCALAPPDATA && fs.existsSync(localDataDir)) additions.push(['LOCALAPPDATA', localDataDir]);
+        if (additions.length > 0) spawnEnv = { ...process.env, ...Object.fromEntries(additions) };
+      }
+    }
     const proc = spawn(cmdToRun, spArgs, {
       stdio: ['pipe', 'pipe', 'pipe'],
       timeout: timeoutMs,
       cwd: getWorkingDir(), // Execute in the current working directory
       ...(process.platform === 'win32' && useShell ? { shell: true as const } : {}), // win32 only — see GATE-4 comment above; POSIX spawn unchanged (isWindows is block-scoped above)
+      ...(spawnEnv ? { env: spawnEnv } : {}), // 24.11 ENV-ENRICHMENT: completed Windows user-env copy, undefined = inherit host env as before
     });
 
     let stdout = '';
@@ -151,7 +169,14 @@ async function safeSpawn(
       if (settled) return; // 04.10 ABORT-CONTRACT: an aborted settle already killed + resolved — no second kill/resolve
       settled = true;
       proc.kill();
-      resolve({ success: false, error: 'Execution timed out' });
+      // 24.11 TIMEOUT-HYGIENE (owner GO): best-effort TREE kill on win32 like the abort path — a bare proc.kill() only terminates
+      // the DIRECT child (cmd.exe under shell:true) and leaves native grandchildren (pwsh, node, …) orphaned after a timeout;
+      // taskkill /T is best-effort per house idiom (see settleAborted above). POSIX unchanged.
+      if (process.platform === 'win32' && typeof proc.pid === 'number') {
+        try { spawn('taskkill', ['/pid', String(proc.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true }).on('error', () => {}); } catch { /* best-effort */ }
+      }
+      // 24.11 TIMEOUT-HYGIENE (owner GO): partial captured output RIDES ALONG on timeout — same house style as the abort path. Before this fix a timeout envelope carried ZERO stdout/stderr, indistinguishable from "wrapper swallowed everything" (>60s scripts reported 'Execution timed out' with no early output at all).
+      resolve({ success: false, error: `Execution timed out after ${Math.round(timeoutMs / 1000)}s — partial captured output included if any.`, data: { stdout: stdout.trim(), stderr: stderr.trim() } });
     }, timeoutMs);
 
     proc.on('close', (code: number | null) => {
@@ -463,7 +488,8 @@ export function registerExecutionTools(_config: PluginConfig): Tool[] {
         
         if (!result.success) {
           if (result.aborted) return abortedEnvelope('Aborted by a host cancel mid-run — the child process was terminated before completion.', { stdout: result.data?.stdout ?? '', stderr: result.data?.stderr ?? '', provenance: 'execute_command' }); // 04.10 ABORT-CONTRACT
-          return { success: false, error: result.error };
+          // 24.11 TIMEOUT-HYGIENE (owner GO): non-abort failures carrying captured partial output (the timeout path) surface the streams — a bare error string must not hide early work again.
+          return { success: false, error: result.error, ...(result.data ? { stdout: result.data.stdout, stderr: result.data.stderr } : {}) };
         }
 
         // Return combined output for better debugging
@@ -810,7 +836,8 @@ export function registerExecutionTools(_config: PluginConfig): Tool[] {
 
         if (!result.success) {
           if (result.aborted) return abortedEnvelope('Aborted by a host cancel mid-run — the child process was terminated before completion.', { stdout: result.data?.stdout ?? '', stderr: result.data?.stderr ?? '', provenance: 'run_powershell' }); // 04.10 ABORT-CONTRACT
-          return { success: false, error: result.error };
+          // 24.11 TIMEOUT-HYGIENE (owner GO): non-abort failures carrying captured partial output (the timeout path) surface the streams — a bare error string must not hide early work again.
+          return { success: false, error: result.error, ...(result.data ? { stdout: result.data.stdout, stderr: result.data.stderr } : {}) };
         }
 
         const fullOutput = [result.data?.stdout, result.data?.stderr].filter(Boolean).join('\n');
