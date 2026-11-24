@@ -343,27 +343,88 @@ describe('run_powershell', () => {
     });
 
     test('win32 spawn enriches the child env additively from USERPROFILE (measured 24.11: APPDATA/LOCALAPPDATA absent in host children)', async () => {
-      const saved = process.env['USERPROFILE'];
+      const savedProfile = process.env['USERPROFILE'];
       // 24.11 FIX (restore TypeError): the fs import namespace is getter-only under Babel interop — direct property assignment throws in strict mode and would be invisible to the implementation's own binding anyway; mutate the shared jest.fn instead (house idiom, cf. fsStatSpy line 24).
       const existsSyncMock = realFs.existsSync as unknown as jest.Mock;
+      // 24.11 FIX (env-dependent red, measured 24.11 18:3x): the enrichment guards are !process.env.APPDATA / !process.env.LOCALAPPDATA —
+      // whether they fire therefore DEPENDS ON WHICH SHELL STARTED JEST: an interactive dev shell or CI always carries both vars → no additions
+      // → safeSpawn passes NO env option at all → this assertion saw undefined (red), while a reduced Electron-host child (the measured 18-var
+      // defect shape) lacks them → green. The fixture must CREATE the host condition itself — save, delete, restore — never inherit it from
+      // the ambient environment: deterministic in shell, CI and Electron alike.
+      const savedAppData = process.env['APPDATA'];
+      const savedLocalAppData = process.env['LOCALAPPDATA'];
+      const savedSentinel = process.env['ENRICH_PIN_SENTINEL']; // 24.11 FIX: passthrough sentinel (see below) — declared with the other saves so finally can restore it
       try {
         // Deterministic fixture HOME on the temp drive — existsSync is stubbed TRUE so no disk dependency (real FS stays for everything else).
         existsSyncMock.mockReturnValue(true);
         process.env['USERPROFILE'] = 'C:\\Users\\arc2411';
+        delete process.env['APPDATA'];       // THE host condition under test: reduced child env without the two AppData vars…
+        delete process.env['LOCALAPPDATA'];  // …exactly the measured Electron-host shape (24.11).
 
         makeFakeProc({ stdoutText: 'env-ok' });
         await getTool()?.implementation({ script: "Write-Output 'env'" });
 
         const [, , options] = mockedSpawn.mock.calls[0];
         const env = (options as { env?: NodeJS.ProcessEnv } | undefined)?.env;
-        // THE fix pinned: the missing standard user vars are derived from USERPROFILE and passed to the child…
+        // THE fix pinned: the missing standard user vars are derived from USERPROFILE and passed to the child.
         expect(env?.APPDATA).toBe('C:\\Users\\arc2411\\AppData\\Roaming');
         expect(env?.LOCALAPPDATA).toBe('C:\\Users\\arc2411\\AppData\\Local');
-        // …while every pre-existing host variable passes through untouched (purely additive, never overwriting).
-        expect(env?.PATH).toBe(process.env.PATH);
+        // 24.11 FIX (hermetic, second env-dependent red measured on the owner's npm-shell host at 18:3x): the passthrough half of the
+        // contract is pinned with a SENTINEL set into process.env by this test — not by reading ambient values. The earlier form
+        // expected(env?.PATH).toBe(process.env.PATH) was tautological in most environments (both sides = same object property, copied
+        // by the {...process.env} spread) and red under one host where 'PATH' behaved differently inside that very same object between
+        // the implementation's spread and this assert — an environment-conditional pin is a defective pin regardless of which side it
+        // fell on. The sentinel proves the same property (spread copies own keys verbatim, never overwrites) in EVERY environment;
+        // no-overwrite for the two derived vars themselves is pinned by the next test with its D:/E: sentinels.
+        process.env['ENRICH_PIN_SENTINEL'] = 'sentinel-passthrough'; // value set inside try; declaration + restore live with the other saves (scope)
+        makeFakeProc({ stdoutText: 'env-ok2' });
+        await getTool()?.implementation({ script: "Write-Output 'env2'" });
+
+        const [, , options2] = mockedSpawn.mock.calls[1];
+        const env2 = (options2 as { env?: NodeJS.ProcessEnv } | undefined)?.env;
+        // A key the test ITSELF planted rides through the spawn copy verbatim → pre-existing vars pass through untouched, in EVERY environment.
+        expect(env2?.ENRICH_PIN_SENTINEL).toBe('sentinel-passthrough');
       } finally {
-        if (saved === undefined) delete process.env['USERPROFILE']; else process.env['USERPROFILE'] = saved;
+        if (savedProfile === undefined) delete process.env['USERPROFILE']; else process.env['USERPROFILE'] = savedProfile;
+        if (savedAppData === undefined) delete process.env['APPDATA']; else process.env['APPDATA'] = savedAppData;
+        if (savedLocalAppData === undefined) delete process.env['LOCALAPPDATA']; else process.env['LOCALAPPDATA'] = savedLocalAppData;
+        if (savedSentinel === undefined) delete process.env['ENRICH_PIN_SENTINEL']; else process.env['ENRICH_PIN_SENTINEL'] = savedSentinel;
         existsSyncMock.mockReset(); // 24.11 FIX: drops the stub (later tests see undefined again = pre-enrichment behavior); no descriptor surgery on a getter-only namespace
+      }
+    });
+
+    test('win32 spawn never overwrites pre-existing APPDATA/LOCALAPPDATA values (additive contract, 24.11)', async () => {
+      const savedProfile = process.env['USERPROFILE'];
+      const existsSyncMock = realFs.existsSync as unknown as jest.Mock;
+      // Complementary half of the enrichment contract: when BOTH vars are already present (a normal dev shell), the derived values must NOT
+      // replace them — distinct sentinel values prove "passthrough, not derivation" (if the guard regressed to unconditional overwrite this pin fails).
+      const savedAppData = process.env['APPDATA'];
+      const savedLocalAppData = process.env['LOCALAPPDATA'];
+      try {
+        existsSyncMock.mockReturnValue(true); // even if a derived dir "exists", an existing value must win
+        process.env['USERPROFILE'] = 'C:\\Users\\arc2411';
+        process.env['APPDATA'] = 'D:\\sentinel-roaming';
+        process.env['LOCALAPPDATA'] = 'E:\\sentinel-local';
+
+        makeFakeProc({ stdoutText: 'env-ok' });
+        await getTool()?.implementation({ script: "Write-Output 'env'" });
+
+        const [, , options] = mockedSpawn.mock.calls[0];
+        const env = (options as { env?: NodeJS.ProcessEnv } | undefined)?.env;
+        // Whatever spawn received (explicit completed copy OR plain host inheritance), the sentinels arrive byte-intact.
+        if (env) {
+          expect(env.APPDATA).toBe('D:\\sentinel-roaming');
+          expect(env.LOCALAPPDATA).toBe('E:\\sentinel-local');
+        } else {
+          // No additions → safeSpawn passes no env option; the child inherits process.env, where the sentinels hold by construction.
+          expect(process.env['APPDATA']).toBe('D:\\sentinel-roaming');
+          expect(process.env['LOCALAPPDATA']).toBe('E:\\sentinel-local');
+        }
+      } finally {
+        if (savedProfile === undefined) delete process.env['USERPROFILE']; else process.env['USERPROFILE'] = savedProfile;
+        if (savedAppData === undefined) delete process.env['APPDATA']; else process.env['APPDATA'] = savedAppData;
+        if (savedLocalAppData === undefined) delete process.env['LOCALAPPDATA']; else process.env['LOCALAPPDATA'] = savedLocalAppData;
+        existsSyncMock.mockReset();
       }
     });
   });
